@@ -1,0 +1,6 @@
+---
+description: Commit task changes to git before finishing
+alwaysApply: true
+---
+
+After completing code or config changes in this repository, commit them on `main` with a clear, imperative message (unless the user explicitly asks to leave work uncommitted or to skip git). Do not end a task with only local modifications still unstaged.

@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0f0d1a">
+<title>POS Tables — Upgraded Design</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --color-bg: #0f0d1a;
+    --color-bg-elevated: #161328;
+    --color-bg-surface: rgba(255,255,255,.07);
+    --color-accent: #8B7CF6;
+    --color-accent-dim: #7B6EC7;
+    --color-success: #5CC49E;
+    --color-danger: #E07070;
+    --color-warning: #E0A84C;
+    --color-text: rgba(220,240,245,.92);
+    --color-text-sec: rgba(220,240,245,.55);
+    --color-text-dim: rgba(220,240,245,.25);
+    --color-border: rgba(255,255,255,.10);
+    --font-display: 'Sora', sans-serif;
+    --font-body: 'Manrope', sans-serif;
+  }
+  *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+  html, body { height:100%; overflow:hidden; }
+  body {
+    font-family: var(--font-body); color: var(--color-text);
+    background: var(--color-bg);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .bg-scene {
+    position: fixed; inset: 0; z-index: 0;
+    background: linear-gradient(160deg, #0f0d1a 0%, #161229 40%, #110e22 70%, #0a0820 100%);
+  }
+  .bg-scene::before {
+    content: ''; position: absolute; width: 600px; height: 600px;
+    top: -10%; left: 25%; border-radius: 50%;
+    background: radial-gradient(circle, rgba(139,124,246,.1), transparent 70%);
+    animation: orbDrift 20s ease-in-out infinite;
+  }
+  .bg-scene::after {
+    content: ''; position: absolute; width: 400px; height: 400px;
+    bottom: -5%; right: 10%; border-radius: 50%;
+    background: radial-gradient(circle, rgba(92,196,158,.06), transparent 70%);
+    animation: orbDrift2 25s ease-in-out infinite;
+  }
+  @keyframes orbDrift { 0%,100% { transform: translate(0,0); } 50% { transform: translate(60px,40px); } }
+  @keyframes orbDrift2 { 0%,100% { transform: translate(0,0); } 50% { transform: translate(-40px,-30px); } }
+
+  .app { position: relative; z-index: 2; display: flex; flex-direction: column; height: 100vh; }
+
+  /* === HEADER === */
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 20px; height: 56px;
+    background: rgba(22,19,40,.95); backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--color-border);
+    box-shadow: 0 4px 24px rgba(0,0,0,.3);
+  }
+  .header-brand { display: flex; align-items: center; gap: 10px; }
+  .header-logo {
+    width: 36px; height: 36px; border-radius: 10px;
+    background: linear-gradient(135deg, var(--color-accent), var(--color-accent-dim));
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-display); font-weight: 800; font-size: 13px; color: var(--color-bg);
+    box-shadow: 0 0 16px rgba(139,124,246,.25);
+  }
+  .header-title { font-family: var(--font-display); font-size: 15px; font-weight: 700; }
+  .header-right { display: flex; align-items: center; gap: 12px; }
+  .header-clock { font-family: var(--font-display); font-size: 14px; color: var(--color-text-sec); font-weight: 600; }
+
+  /* === FLOOR TOOLBAR === */
+  .floor-toolbar {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 18px; flex-shrink: 0;
+    border-bottom: 1px solid rgba(255,255,255,.04);
+  }
+  .floor-toolbar-left { display: flex; align-items: center; gap: 14px; }
+  .floor-title { font-family: var(--font-display); font-size: 18px; font-weight: 700; }
+
+  .floor-zones { display: flex; gap: 4px; }
+  .zone-btn {
+    padding: 8px 18px; border-radius: 8px; border: 1px solid transparent;
+    background: transparent; color: var(--color-text-sec);
+    font-family: var(--font-body); font-size: 13px; font-weight: 600;
+    cursor: pointer; transition: all .2s;
+  }
+  .zone-btn:hover { color: var(--color-text); background: rgba(255,255,255,.04); }
+  .zone-btn.active { color: var(--color-text); background: rgba(139,124,246,.08); border-color: rgba(139,124,246,.12); }
+
+  .floor-stats { display: flex; gap: 16px; }
+  .floor-stat {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 600; color: var(--color-text-sec);
+  }
+  .stat-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .stat-dot.free { background: var(--color-success); box-shadow: 0 0 6px rgba(92,196,158,.4); }
+  .stat-dot.occupied { background: var(--color-accent); box-shadow: 0 0 6px rgba(139,124,246,.4); }
+  .stat-dot.reserved { background: var(--color-warning); box-shadow: 0 0 6px rgba(224,168,76,.4); }
+  .stat-dot.dirty { background: var(--color-danger); box-shadow: 0 0 6px rgba(224,112,112,.4); }
+
+  /* === FLOOR CANVAS === */
+  .floor-canvas {
+    flex: 1; position: relative; overflow: hidden;
+    background: radial-gradient(circle at 1px 1px, rgba(255,255,255,.03) 1px, transparent 0) 0 0 / 40px 40px;
+  }
+
+  /* === UPGRADED TABLE CHIP === */
+  .table-chip {
+    position: absolute; width: 110px; height: 110px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    border-radius: 16px; border: 2px solid var(--color-border);
+    background: rgba(255,255,255,.05);
+    cursor: pointer;
+    transition: all .2s cubic-bezier(.4,0,.2,1);
+    user-select: none; z-index: 1;
+    box-shadow: 0 4px 16px rgba(0,0,0,.25);
+    animation: chipIn .4s ease forwards;
+    opacity: 0;
+  }
+  .table-chip:hover {
+    transform: translateY(-3px) scale(1.02);
+    box-shadow: 0 8px 28px rgba(0,0,0,.3);
+    z-index: 5;
+  }
+  .table-chip.round { border-radius: 50%; }
+  .table-chip.large { width: 150px; height: 110px; border-radius: 18px; }
+  @keyframes chipIn { from { opacity: 0; transform: scale(.9); } to { opacity: 1; transform: none; } }
+
+  /* --- FREE --- */
+  .table-chip.s-free {
+    border-color: rgba(92,196,158,.2);
+    background: rgba(92,196,158,.03);
+  }
+  .table-chip.s-free:hover {
+    border-color: rgba(92,196,158,.5);
+    background: rgba(92,196,158,.06);
+    box-shadow: 0 8px 28px rgba(0,0,0,.3), 0 0 20px rgba(92,196,158,.08);
+  }
+
+  /* --- OCCUPIED --- with inner glow */
+  .table-chip.s-occupied {
+    border-color: rgba(139,124,246,.3);
+    background: rgba(139,124,246,.05);
+    box-shadow: 0 4px 16px rgba(0,0,0,.25), inset 0 0 24px rgba(139,124,246,.06);
+  }
+  .table-chip.s-occupied:hover {
+    border-color: rgba(139,124,246,.5);
+    background: rgba(139,124,246,.08);
+    box-shadow: 0 8px 28px rgba(0,0,0,.3), inset 0 0 24px rgba(139,124,246,.08), 0 0 20px rgba(139,124,246,.1);
+  }
+
+  /* --- RESERVED --- amber with pulse ring */
+  .table-chip.s-reserved {
+    border-color: rgba(224,168,76,.25);
+    background: rgba(224,168,76,.03);
+  }
+  .table-chip.s-reserved::after {
+    content: ''; position: absolute; inset: -5px;
+    border-radius: inherit; border: 1.5px solid rgba(224,168,76,.3);
+    opacity: 0; animation: reservePulse 2.5s ease-in-out infinite;
+    pointer-events: none;
+  }
+  .table-chip.s-reserved:hover {
+    border-color: rgba(224,168,76,.5);
+    background: rgba(224,168,76,.06);
+  }
+  @keyframes reservePulse {
+    0%,100% { opacity: 0; transform: scale(1); }
+    50% { opacity: .5; transform: scale(1.04); }
+  }
+
+  /* --- DIRTY --- */
+  .table-chip.s-dirty {
+    border-color: rgba(224,112,112,.2);
+    background: rgba(224,112,112,.03);
+  }
+  .table-chip.s-dirty:hover {
+    border-color: rgba(224,112,112,.4);
+    background: rgba(224,112,112,.06);
+  }
+
+  /* Selected state */
+  .table-chip.selected {
+    border-color: var(--color-accent) !important;
+    background: rgba(139,124,246,.1) !important;
+    box-shadow: 0 0 0 3px rgba(139,124,246,.15), 0 8px 28px rgba(0,0,0,.3) !important;
+    z-index: 10;
+    transform: scale(1.05);
+  }
+
+  .chip-name {
+    font-family: var(--font-display); font-size: 15px; font-weight: 700;
+    line-height: 1.15;
+  }
+  .chip-status {
+    font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px;
+    margin-top: 3px; padding: 2px 8px; border-radius: 4px;
+  }
+  .chip-status.free { color: var(--color-success); background: rgba(92,196,158,.1); }
+  .chip-status.occupied { color: var(--color-accent); background: rgba(139,124,246,.1); }
+  .chip-status.reserved { color: var(--color-warning); background: rgba(224,168,76,.1); }
+  .chip-status.dirty { color: var(--color-danger); background: rgba(224,112,112,.1); }
+
+  .chip-amount {
+    font-family: var(--font-display); font-size: 13px; font-weight: 700;
+    margin-top: 4px; padding: 2px 10px; border-radius: 6px;
+    background: rgba(139,124,246,.1); color: var(--color-accent);
+  }
+  .chip-seats {
+    position: absolute; top: 7px; right: 9px;
+    font-size: 10px; color: var(--color-text-dim); font-weight: 600;
+  }
+  .chip-time {
+    font-size: 9px; color: var(--color-text-dim); margin-top: 2px;
+    font-weight: 600;
+  }
+
+  /* Zone labels */
+  .zone-label {
+    position: absolute; font-size: 10px; font-weight: 700;
+    letter-spacing: 2.5px; text-transform: uppercase;
+    color: rgba(255,255,255,.06); pointer-events: none;
+  }
+
+  .version-badge {
+    position: fixed; bottom: 12px; right: 16px;
+    font-size: 10px; color: var(--color-text-dim); font-weight: 600;
+    padding: 4px 10px; border-radius: 20px;
+    background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.05);
+    z-index: 100;
+  }
+</style>
+</head>
+<body>
+
+<div class="bg-scene"></div>
+
+<div class="app">
+  <header class="header">
+    <div class="header-brand">
+      <div class="header-logo">POS</div>
+      <div class="header-title">Kaviaren & Bar</div>
+    </div>
+    <div class="header-right">
+      <div class="header-clock" id="clock">00:00</div>
+    </div>
+  </header>
+
+  <div class="floor-toolbar">
+    <div class="floor-toolbar-left">
+      <div class="floor-title">Mapa stolov</div>
+      <div class="floor-zones">
+        <button class="zone-btn active">Vsetky</button>
+        <button class="zone-btn">Interier</button>
+        <button class="zone-btn">Bar</button>
+        <button class="zone-btn">Terasa</button>
+      </div>
+    </div>
+    <div class="floor-stats">
+      <div class="floor-stat"><span class="stat-dot free"></span>Volny</div>
+      <div class="floor-stat"><span class="stat-dot occupied"></span>Obsadeny</div>
+      <div class="floor-stat"><span class="stat-dot reserved"></span>Rezervovany</div>
+      <div class="floor-stat"><span class="stat-dot dirty"></span>Na upratanie</div>
+    </div>
+  </div>
+
+  <div class="floor-canvas" id="floorCanvas"></div>
+</div>
+
+<div class="version-badge">Upgraded Design v2.0</div>
+
+<script>
+(function() {
+  // Clock
+  function updateClock() {
+    var now = new Date();
+    document.getElementById('clock').textContent =
+      String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
+  }
+  updateClock(); setInterval(updateClock, 1000);
+
+  // Zone tabs
+  document.querySelectorAll('.zone-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('.zone-btn').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+    });
+  });
+
+  // Demo tables
+  var tables = [
+    { name: 'Stol 1', x: 60, y: 40, status: 'free', seats: 4, shape: '' },
+    { name: 'Stol 2', x: 200, y: 40, status: 'occupied', seats: 2, shape: '', amount: '24,80', time: '0:45' },
+    { name: 'Stol 3', x: 340, y: 40, status: 'occupied', seats: 4, shape: '', amount: '18,40', time: '0:22' },
+    { name: 'Stol 4', x: 500, y: 40, status: 'reserved', seats: 6, shape: 'large' },
+    { name: 'Stol 5', x: 700, y: 40, status: 'free', seats: 2, shape: 'round' },
+    { name: 'Stol 6', x: 60, y: 200, status: 'dirty', seats: 4, shape: '' },
+    { name: 'Stol 7', x: 200, y: 200, status: 'free', seats: 4, shape: '' },
+    { name: 'Stol 8', x: 340, y: 200, status: 'occupied', seats: 2, shape: 'round', amount: '8,50', time: '1:15' },
+    { name: 'Bar 1', x: 500, y: 200, status: 'occupied', seats: 1, shape: 'round', amount: '5,20', time: '0:10' },
+    { name: 'Bar 2', x: 620, y: 200, status: 'free', seats: 1, shape: 'round' },
+    { name: 'Bar 3', x: 740, y: 200, status: 'occupied', seats: 1, shape: 'round', amount: '12,00', time: '0:35' },
+    { name: 'Stol 9', x: 60, y: 360, status: 'reserved', seats: 8, shape: 'large' },
+    { name: 'Stol 10', x: 260, y: 360, status: 'free', seats: 4, shape: '' },
+    { name: 'Stol 11', x: 400, y: 360, status: 'free', seats: 4, shape: '' },
+    { name: 'Stol 12', x: 560, y: 360, status: 'occupied', seats: 6, shape: 'large', amount: '67,40', time: '1:42' },
+  ];
+
+  var canvas = document.getElementById('floorCanvas');
+
+  // Zone labels
+  var zones = [
+    { text: 'Interier', x: 60, y: 10 },
+    { text: 'Bar', x: 500, y: 170 },
+    { text: 'Terasa', x: 60, y: 330 },
+  ];
+  zones.forEach(function(z) {
+    var lbl = document.createElement('div');
+    lbl.className = 'zone-label';
+    lbl.textContent = z.text;
+    lbl.style.left = z.x + 'px';
+    lbl.style.top = z.y + 'px';
+    canvas.appendChild(lbl);
+  });
+
+  // Render tables
+  tables.forEach(function(t, i) {
+    var chip = document.createElement('div');
+    chip.className = 'table-chip s-' + t.status + (t.shape ? ' ' + t.shape : '');
+    chip.style.left = t.x + 'px';
+    chip.style.top = t.y + 'px';
+    chip.style.animationDelay = (i * 0.06) + 's';
+
+    var statusLabels = { free: 'Volny', occupied: 'Obsadeny', reserved: 'Rezervovany', dirty: 'Upratanie' };
+
+    chip.innerHTML =
+      '<span class="chip-seats">' + t.seats + '&#128100;</span>' +
+      '<div class="chip-name">' + t.name + '</div>' +
+      '<span class="chip-status ' + t.status + '">' + statusLabels[t.status] + '</span>' +
+      (t.amount ? '<div class="chip-amount">' + t.amount + ' &euro;</div>' : '') +
+      (t.time ? '<div class="chip-time">' + t.time + '</div>' : '');
+
+    chip.addEventListener('click', function() {
+      var wasSelected = chip.classList.contains('selected');
+      document.querySelectorAll('.table-chip').forEach(function(c) { c.classList.remove('selected'); });
+      if (!wasSelected) chip.classList.add('selected');
+    });
+
+    canvas.appendChild(chip);
+  });
+})();
+</script>
+</body>
+</html>

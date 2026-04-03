@@ -1,0 +1,6 @@
+node_modules/
+.env
+*.log
+*.bak
+server/certs/*.pem
+server/.env.ttlock

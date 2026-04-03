@@ -1,0 +1,234 @@
+/* === SKIP LINK === */
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: 16px;
+  padding: 8px 16px;
+  background: var(--color-accent);
+  color: var(--color-bg);
+  font-weight: 700;
+  font-size: 13px;
+  border-radius: 0 0 8px 8px;
+  z-index: 10000;
+  text-decoration: none;
+  transition: top 0.2s;
+}
+.skip-link:focus {
+  top: 0;
+}
+
+/* === FOCUS VISIBLE === */
+/* Global focus ring for all interactive elements */
+:focus-visible {
+  outline: 2px solid var(--color-focus, #8B7CF6);
+  outline-offset: 2px;
+}
+
+/* Suppress outline on mouse click (keep clean for touch/mouse users) */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Custom focus for dark glass elements — use box-shadow instead of outline */
+.product-card:focus-visible,
+.table-chip:focus-visible,
+.cat-btn:focus-visible,
+.zone-btn:focus-visible,
+.view-btn:focus-visible,
+.order-tab:focus-visible,
+.cat-item:focus-visible,
+.staff-card:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-focus, #8B7CF6);
+}
+
+/* Input fields — inner glow instead of outline */
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: var(--color-accent, #8B7CF6);
+  box-shadow: 0 0 0 3px rgba(139,124,246,.15);
+}
+
+/* Buttons with backgrounds — ring adapts */
+.btn:focus-visible,
+.u-btn:focus-visible,
+.qty-btn:focus-visible,
+.toolbar-btn:focus-visible,
+.btn-add:focus-visible,
+.btn-save:focus-visible,
+.btn-export:focus-visible,
+.admin-btn:focus-visible,
+.logout-btn:focus-visible,
+.btn-cash:focus-visible,
+.btn-card:focus-visible {
+  outline: 2px solid var(--color-focus, #8B7CF6);
+  outline-offset: 2px;
+}
+
+/* Modal focus trap indicator */
+.u-modal:focus-visible {
+  outline: none;
+}
+
+/* Nav items in sidebar */
+.nav-item:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--color-focus, #8B7CF6);
+}
+
+/* Swipe action buttons */
+.swipe-btn:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: -2px;
+}
+
+/* Tab buttons */
+.tab-btn:focus-visible,
+.period-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-focus, #8B7CF6);
+}
+
+/* Toggle switches */
+.toggle:focus-visible,
+.u-toggle-track:focus-visible {
+  outline: 2px solid var(--color-focus, #8B7CF6);
+  outline-offset: 2px;
+}
+
+/* === REDUCED MOTION === */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .spinner::before {
+    animation: none;
+    opacity: 0.7;
+  }
+}
+
+/* === SCREEN READER ONLY === */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* === INLINE VALIDATION === */
+.field-error input,
+.field-error select,
+.field-error textarea {
+  border-color: var(--color-danger, #E07070) !important;
+  box-shadow: 0 0 0 3px rgba(224,112,112,.15) !important;
+}
+.field-error-msg {
+  color: var(--color-danger, #E07070);
+  font-size: 11px;
+  font-weight: 600;
+  margin-top: 4px;
+  display: none;
+}
+.field-error .field-error-msg {
+  display: block;
+}
+
+/* === FIELD VALID STATE === */
+.field-valid input,
+.field-valid select,
+.field-valid textarea {
+  border-color: rgba(92,196,158,.3);
+}
+.field-valid input:focus,
+.field-valid select:focus,
+.field-valid textarea:focus {
+  border-color: rgba(92,196,158,.5);
+  box-shadow: 0 0 0 3px rgba(92,196,158,.08);
+}
+
+/* === LOADING SPINNER === */
+.spinner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text-sec, rgba(220,240,245,.55));
+  font-size: 12px;
+  font-weight: 500;
+}
+.spinner::before {
+  content: '';
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--color-border, rgba(255,255,255,.08));
+  border-top-color: var(--color-accent, #8B7CF6);
+  border-radius: 50%;
+  animation: a11y-spin 0.8s linear infinite;
+}
+@keyframes a11y-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* === HIGH CONTRAST MODE === */
+@media (forced-colors: active) {
+  .product-card,
+  .table-chip,
+  .stat-card,
+  .staff-card,
+  .section {
+    border: 1px solid ButtonText;
+  }
+}
+
+/* === EMPTY STATE === */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--color-text-sec, rgba(220,240,245,.55));
+}
+.empty-state-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+.empty-state-title {
+  font-family: var(--font-display, 'Newsreader', serif);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text, rgba(220,240,245,.92));
+  margin-bottom: 8px;
+}
+.empty-state-text {
+  font-size: 14px;
+  max-width: 320px;
+  line-height: 1.5;
+}
+
+/* === OFFLINE INDICATOR === */
+.is-offline::after {
+  content: 'OFFLINE';
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 16px;
+  background: var(--color-danger, #E07070);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  border-radius: 0 0 8px 8px;
+  z-index: 9999;
+}

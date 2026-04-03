@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="80" fill="#0f0d1a"/>
+  <rect x="40" y="40" width="432" height="432" rx="64" fill="#161328"/>
+  <text x="256" y="300" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-weight="800" font-size="192" fill="#8B7CF6">POS</text>
+</svg>

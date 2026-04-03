@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0f0d1a">
+<title>POS Login — Upgraded Design</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700;800&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --color-bg: #0f0d1a;
+    --color-bg-elevated: #161328;
+    --color-accent: #8B7CF6;
+    --color-accent-dim: #7B6EC7;
+    --color-success: #5CC49E;
+    --color-danger: #E07070;
+    --color-text: rgba(220,240,245,.92);
+    --color-text-sec: rgba(220,240,245,.55);
+    --color-text-dim: rgba(220,240,245,.25);
+    --color-border: rgba(255,255,255,.10);
+    --font-display: 'Sora', sans-serif;
+    --font-body: 'Manrope', sans-serif;
+  }
+
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  button, input { touch-action: manipulation; -webkit-touch-callout: none; }
+
+  html, body {
+    height: 100%; overflow: hidden;
+    font-family: var(--font-body);
+    background: var(--color-bg);
+    color: var(--color-text);
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+  }
+
+  /* === ANIMATED BACKGROUND === */
+  .bg-scene {
+    position: fixed; inset: 0; z-index: 0; overflow: hidden;
+    background: linear-gradient(160deg, #0f0d1a 0%, #161229 40%, #110e22 70%, #0a0820 100%);
+  }
+
+  .orb {
+    position: absolute; border-radius: 50%; pointer-events: none;
+    will-change: transform;
+  }
+  .orb-1 {
+    width: 500px; height: 500px; top: -15%; left: 20%;
+    background: radial-gradient(circle, rgba(139,124,246,.12), transparent 70%);
+    animation: orbMove1 18s ease-in-out infinite;
+  }
+  .orb-2 {
+    width: 400px; height: 400px; bottom: -10%; right: 10%;
+    background: radial-gradient(circle, rgba(92,196,158,.06), transparent 70%);
+    animation: orbMove2 22s ease-in-out infinite;
+  }
+  .orb-3 {
+    width: 300px; height: 300px; top: 50%; left: -5%;
+    background: radial-gradient(circle, rgba(139,124,246,.06), transparent 70%);
+    animation: orbMove3 25s ease-in-out infinite;
+  }
+  @keyframes orbMove1 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(80px,60px) scale(1.1); } }
+  @keyframes orbMove2 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(-50px,-70px) scale(1.05); } }
+  @keyframes orbMove3 { 0%,100% { transform: translate(0,0); } 50% { transform: translate(40px,-40px); } }
+
+  /* Floating particles */
+  .particles {
+    position: fixed; inset: 0; z-index: 1; pointer-events: none; overflow: hidden;
+  }
+  .particle {
+    position: absolute; width: 2px; height: 2px; border-radius: 50%;
+    background: rgba(139,124,246,.3);
+    animation: particleFloat linear infinite;
+  }
+  @keyframes particleFloat {
+    0% { transform: translateY(100vh) scale(0); opacity: 0; }
+    10% { opacity: 1; }
+    90% { opacity: 1; }
+    100% { transform: translateY(-10vh) scale(1); opacity: 0; }
+  }
+
+  /* === PAGE === */
+  .page {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 100%; position: relative; z-index: 2; padding: 20px;
+  }
+
+  /* === GLASS CARD === */
+  .card {
+    width: 100%; max-width: 420px;
+    background: rgba(12,18,30,.85);
+    backdrop-filter: blur(40px); -webkit-backdrop-filter: blur(40px);
+    border: 1px solid rgba(139,124,246,.12);
+    border-radius: 28px;
+    padding: 36px 32px 32px;
+    display: flex; flex-direction: column; align-items: center; gap: 24px;
+    position: relative; overflow: hidden;
+    box-shadow:
+      0 24px 80px rgba(0,0,0,.4),
+      0 0 0 1px rgba(139,124,246,.06) inset,
+      0 1px 0 rgba(255,255,255,.04) inset;
+    opacity: 0; animation: cardEnter .8s cubic-bezier(.16,1,.3,1) .2s forwards;
+  }
+
+  /* Animated border glow */
+  .card::before {
+    content: '';
+    position: absolute; inset: -1px;
+    border-radius: 28px;
+    background: conic-gradient(
+      from var(--glow-angle, 0deg),
+      transparent 0%,
+      rgba(139,124,246,.3) 10%,
+      transparent 20%,
+      transparent 80%,
+      rgba(92,196,158,.2) 90%,
+      transparent 100%
+    );
+    z-index: -1;
+    animation: glowRotate 6s linear infinite;
+  }
+  @keyframes glowRotate {
+    to { --glow-angle: 360deg; }
+  }
+  @property --glow-angle {
+    syntax: '<angle>';
+    inherits: false;
+    initial-value: 0deg;
+  }
+
+  /* Top shimmer line */
+  .card::after {
+    content: '';
+    position: absolute; top: 0; left: 10%; right: 10%; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(139,124,246,.25), transparent);
+  }
+
+  @keyframes cardEnter {
+    from { opacity: 0; transform: translateY(24px) scale(.97); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  /* === LOGO === */
+  .logo {
+    width: 60px; height: 60px; border-radius: 16px;
+    background: linear-gradient(135deg, var(--color-accent), var(--color-accent-dim));
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-display); font-weight: 800; font-size: 19px;
+    color: var(--color-bg);
+    box-shadow: 0 0 24px rgba(139,124,246,.3), 0 8px 24px rgba(139,124,246,.15);
+    opacity: 0; animation: fadeUp .6s ease .4s forwards;
+    position: relative;
+  }
+  .logo::after {
+    content: '';
+    position: absolute; inset: -3px; border-radius: 18px;
+    border: 1.5px solid rgba(139,124,246,.2);
+    animation: logoPulse 3s ease-in-out infinite;
+  }
+  @keyframes logoPulse {
+    0%,100% { opacity: .3; transform: scale(1); }
+    50% { opacity: .6; transform: scale(1.05); }
+  }
+
+  .brand-name {
+    font-family: var(--font-display); font-size: 24px; font-weight: 700;
+    letter-spacing: -.3px;
+    opacity: 0; animation: fadeUp .6s ease .5s forwards;
+  }
+  .brand-sub {
+    font-size: 13px; color: var(--color-text-sec); font-weight: 500;
+    margin-top: -16px;
+    opacity: 0; animation: fadeUp .6s ease .6s forwards;
+  }
+
+  /* === EMPLOYEE PILLS === */
+  .pills {
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
+    width: 100%;
+    opacity: 0; animation: fadeUp .6s ease .7s forwards;
+  }
+  .pill {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 16px 7px 7px;
+    border-radius: 100px;
+    background: rgba(255,255,255,.04);
+    border: 1.5px solid rgba(255,255,255,.08);
+    cursor: pointer;
+    transition: all .25s cubic-bezier(.4,0,.2,1);
+    font-family: var(--font-body); font-size: 13px; font-weight: 600;
+    color: var(--color-text-sec);
+    position: relative; overflow: hidden;
+  }
+  .pill::before {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(135deg, rgba(139,124,246,.08), transparent);
+    opacity: 0; transition: opacity .25s;
+  }
+  .pill:hover { border-color: rgba(139,124,246,.2); color: var(--color-text); }
+  .pill:hover::before { opacity: 1; }
+  .pill.selected {
+    border-color: rgba(139,124,246,.4);
+    background: rgba(139,124,246,.1);
+    color: var(--color-text);
+    box-shadow: 0 0 16px rgba(139,124,246,.15), 0 0 0 1px rgba(139,124,246,.1) inset;
+  }
+  .pill.selected::before { opacity: 1; }
+  .pill:active { transform: scale(.97); }
+
+  .pill-avatar {
+    width: 30px; height: 30px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-display); font-size: 11px; font-weight: 700;
+    color: var(--color-bg); flex-shrink: 0;
+    transition: transform .2s, box-shadow .2s;
+  }
+  .pill.selected .pill-avatar {
+    transform: scale(1.05);
+    box-shadow: 0 0 8px rgba(139,124,246,.3);
+  }
+  .pill-avatar.admin { background: linear-gradient(135deg, #8B7CF6, #A594FF); }
+  .pill-avatar.manazer { background: linear-gradient(135deg, #7B6EC7, #9B8EF7); }
+  .pill-avatar.cisnik { background: linear-gradient(135deg, #5CC49E, #7DDBB8); }
+
+  /* === PIN DOTS === */
+  .dots {
+    display: flex; gap: 18px; padding: 10px 0;
+    opacity: 0; animation: fadeUp .6s ease .8s forwards;
+  }
+  .dot {
+    width: 18px; height: 18px; border-radius: 50%;
+    border: 2px solid rgba(255,255,255,.12);
+    background: transparent;
+    transition: all .3s cubic-bezier(.34,1.56,.64,1);
+    position: relative;
+  }
+  .dot::after {
+    content: ''; position: absolute; inset: -6px; border-radius: 50%;
+    background: rgba(139,124,246,.15); opacity: 0;
+    transition: opacity .3s, transform .3s;
+    transform: scale(.5);
+  }
+  .dot.filled {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    box-shadow: 0 0 12px rgba(139,124,246,.4);
+    transform: scale(1.15);
+  }
+  .dot.filled::after { opacity: 1; transform: scale(1); }
+  .dot.error {
+    background: var(--color-danger);
+    border-color: var(--color-danger);
+    box-shadow: 0 0 12px rgba(224,112,112,.4);
+    transform: scale(1.15);
+  }
+  .dot.success {
+    background: var(--color-success);
+    border-color: var(--color-success);
+    box-shadow: 0 0 12px rgba(92,196,158,.4);
+    transform: scale(1.15);
+  }
+  .dots.shake { animation: shake .5s ease; }
+
+  /* === NUMPAD === */
+  .numpad {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 10px; width: 100%; max-width: 290px;
+    opacity: 0; animation: fadeUp .6s ease .9s forwards;
+  }
+  .num-btn {
+    height: 68px; border-radius: 16px;
+    border: 1px solid rgba(255,255,255,.06);
+    background: rgba(255,255,255,.03);
+    color: var(--color-text);
+    font-family: var(--font-display); font-size: 26px; font-weight: 600;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all .15s ease;
+    position: relative; overflow: hidden;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .num-btn::after {
+    content: ''; position: absolute; inset: 0; border-radius: 16px;
+    background: radial-gradient(circle at var(--rx, 50%) var(--ry, 50%),
+      rgba(139,124,246,.2) 0%, transparent 60%);
+    opacity: 0; transition: opacity .4s;
+  }
+  .num-btn:hover {
+    background: rgba(255,255,255,.06);
+    border-color: rgba(255,255,255,.1);
+  }
+  .num-btn:active {
+    transform: scale(.94);
+    background: rgba(139,124,246,.08);
+  }
+  .num-btn.ripple::after { opacity: 1; transition: opacity 0s; }
+  .num-btn.fn { font-size: 22px; color: var(--color-text-sec); }
+  .num-btn:disabled { opacity: .2; pointer-events: none; }
+
+  /* === STATUS === */
+  .status {
+    min-height: 22px; font-size: 14px; font-weight: 600; text-align: center;
+    transition: all .3s;
+    opacity: 0; animation: fadeUp .6s ease 1s forwards;
+  }
+  .status.error { color: var(--color-danger); }
+  .status.success { color: var(--color-success); }
+  .status.locked { color: var(--color-danger); }
+
+  /* === PROGRESS BAR === */
+  .progress-bar {
+    position: absolute; bottom: 0; left: 0; right: 0; height: 3px;
+    background: rgba(255,255,255,.03); overflow: hidden;
+    border-radius: 0 0 28px 28px;
+  }
+  .progress-fill {
+    height: 100%; width: 0;
+    background: linear-gradient(90deg, var(--color-accent), var(--color-success));
+    border-radius: 0 2px 2px 0;
+    transition: width .3s ease;
+  }
+
+  /* === CLOCK === */
+  .clock-wrap {
+    margin-top: 20px; text-align: center;
+    opacity: 0; animation: fadeUp .6s ease 1.1s forwards;
+  }
+  .clock {
+    font-family: var(--font-display); font-size: 52px; font-weight: 300;
+    background: linear-gradient(135deg, rgba(139,124,246,.7), rgba(139,124,246,.4));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    line-height: 1.1; letter-spacing: -1px;
+  }
+  .clock-date {
+    font-size: 14px; color: var(--color-text-sec); margin-top: 4px; font-weight: 500;
+  }
+
+  /* === KEYFRAMES === */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20%, 60% { transform: translateX(-8px); }
+    40%, 80% { transform: translateX(8px); }
+  }
+
+  /* === BADGE === */
+  .version-badge {
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    font-size: 11px; color: var(--color-text-dim); font-weight: 600;
+    padding: 4px 12px; border-radius: 20px;
+    background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.05);
+    z-index: 10;
+  }
+
+  input { position: absolute; opacity: 0; pointer-events: none; }
+
+  @media (max-width: 480px) {
+    .card { padding: 28px 24px 24px; border-radius: 24px; }
+    .numpad { max-width: 260px; gap: 8px; }
+    .num-btn { height: 60px; font-size: 24px; border-radius: 14px; }
+    .clock { font-size: 42px; }
+    .brand-name { font-size: 20px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="bg-scene">
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+</div>
+
+<div class="particles" id="particles"></div>
+
+<div class="page">
+  <div class="card">
+    <div class="logo">POS</div>
+    <div class="brand-name">Kaviaren &amp; Bar</div>
+    <div class="brand-sub">Prihlaste sa pre pokracovanie</div>
+
+    <div class="pills" id="pills" role="radiogroup" aria-label="Vyber zamestnanca"></div>
+
+    <div class="dots" id="dots" role="group" aria-label="PIN kod">
+      <div class="dot"></div>
+      <div class="dot"></div>
+      <div class="dot"></div>
+      <div class="dot"></div>
+    </div>
+
+    <div class="numpad" id="numpad" role="group" aria-label="Numericka klavesnica">
+      <button class="num-btn" data-val="1">1</button>
+      <button class="num-btn" data-val="2">2</button>
+      <button class="num-btn" data-val="3">3</button>
+      <button class="num-btn" data-val="4">4</button>
+      <button class="num-btn" data-val="5">5</button>
+      <button class="num-btn" data-val="6">6</button>
+      <button class="num-btn" data-val="7">7</button>
+      <button class="num-btn" data-val="8">8</button>
+      <button class="num-btn" data-val="9">9</button>
+      <button class="num-btn fn" data-val="clear" aria-label="Vymazat">&times;</button>
+      <button class="num-btn" data-val="0">0</button>
+      <button class="num-btn fn" data-val="back" aria-label="Zmazat">&larr;</button>
+    </div>
+
+    <div class="status" id="status" role="status" aria-live="assertive"></div>
+
+    <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+  </div>
+
+  <div class="clock-wrap">
+    <div class="clock" id="clock"></div>
+    <div class="clock-date" id="clockDate"></div>
+  </div>
+</div>
+
+<div class="version-badge">Upgraded Design v2.0</div>
+
+<script>
+(function() {
+  'use strict';
+
+  // Particles
+  var particlesEl = document.getElementById('particles');
+  for (var i = 0; i < 20; i++) {
+    var p = document.createElement('div');
+    p.className = 'particle';
+    p.style.left = Math.random() * 100 + '%';
+    p.style.animationDuration = (8 + Math.random() * 12) + 's';
+    p.style.animationDelay = Math.random() * 10 + 's';
+    p.style.width = p.style.height = (1 + Math.random() * 2) + 'px';
+    p.style.opacity = (.15 + Math.random() * .25).toString();
+    particlesEl.appendChild(p);
+  }
+
+  var STAFF = [
+    { name: 'Martin', surname: 'Kovac', role: 'admin' },
+    { name: 'Jana', surname: 'Kovacova', role: 'manazer' },
+    { name: 'Peter', surname: 'Novak', role: 'cisnik' },
+    { name: 'Eva', surname: 'Horvathova', role: 'cisnik' },
+    { name: 'Tomas', surname: 'Varga', role: 'cisnik' },
+  ];
+
+  var pin = '';
+  var selectedIndex = -1;
+  var pillsEl = document.getElementById('pills');
+  var dotsEl = document.getElementById('dots');
+  var dots = dotsEl.querySelectorAll('.dot');
+  var numpad = document.getElementById('numpad');
+  var statusEl = document.getElementById('status');
+  var progressFill = document.getElementById('progressFill');
+
+  // Build pills
+  STAFF.forEach(function(emp, i) {
+    var initials = emp.name[0] + emp.surname[0];
+    var pill = document.createElement('button');
+    pill.className = 'pill';
+    pill.setAttribute('role', 'radio');
+    pill.setAttribute('aria-checked', 'false');
+    pill.innerHTML = '<span class="pill-avatar ' + emp.role + '">' + initials + '</span><span>' + emp.name + '</span>';
+    pill.addEventListener('click', function() {
+      if (selectedIndex === i) {
+        selectedIndex = -1;
+        pill.classList.remove('selected');
+        pill.setAttribute('aria-checked', 'false');
+      } else {
+        selectedIndex = i;
+        pillsEl.querySelectorAll('.pill').forEach(function(p) {
+          p.classList.remove('selected');
+          p.setAttribute('aria-checked', 'false');
+        });
+        pill.classList.add('selected');
+        pill.setAttribute('aria-checked', 'true');
+      }
+    });
+    pillsEl.appendChild(pill);
+  });
+
+  // Numpad ripple
+  numpad.addEventListener('pointerdown', function(e) {
+    var btn = e.target.closest('.num-btn');
+    if (!btn) return;
+    var rect = btn.getBoundingClientRect();
+    btn.style.setProperty('--rx', ((e.clientX - rect.left) / rect.width * 100) + '%');
+    btn.style.setProperty('--ry', ((e.clientY - rect.top) / rect.height * 100) + '%');
+    btn.classList.add('ripple');
+    setTimeout(function() { btn.classList.remove('ripple'); }, 400);
+  });
+
+  numpad.addEventListener('click', function(e) {
+    var btn = e.target.closest('.num-btn');
+    if (!btn) return;
+    var val = btn.dataset.val;
+    if (val === 'clear') { clearPin(); return; }
+    if (val === 'back') { if (pin.length > 0) { pin = pin.slice(0, -1); updateDots(); } return; }
+    if (pin.length >= 4) return;
+    pin += val;
+    updateDots();
+    if (pin.length === 4) setTimeout(verifyPin, 200);
+  });
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key >= '0' && e.key <= '9') {
+      e.preventDefault();
+      if (pin.length >= 4) return;
+      pin += e.key;
+      updateDots();
+      if (pin.length === 4) setTimeout(verifyPin, 200);
+    } else if (e.key === 'Backspace') {
+      e.preventDefault();
+      if (pin.length > 0) { pin = pin.slice(0, -1); updateDots(); }
+    } else if (e.key === 'Escape' || e.key === 'Delete') {
+      e.preventDefault();
+      clearPin();
+    }
+  });
+
+  function updateDots() {
+    progressFill.style.width = (pin.length * 25) + '%';
+    dots.forEach(function(d, i) {
+      d.className = 'dot' + (i < pin.length ? ' filled' : '');
+    });
+  }
+
+  function clearPin() {
+    pin = '';
+    updateDots();
+    statusEl.textContent = '';
+    statusEl.className = 'status';
+  }
+
+  function verifyPin() {
+    // Demo: 1234 = success, anything else = error
+    if (pin === '1234') {
+      dots.forEach(function(d) { d.className = 'dot success'; });
+      statusEl.textContent = 'Vitajte, ' + (selectedIndex >= 0 ? STAFF[selectedIndex].name : 'Pouzivatel') + '!';
+      statusEl.className = 'status success';
+      progressFill.style.background = 'linear-gradient(90deg, #5CC49E, #7DDBB8)';
+    } else {
+      dots.forEach(function(d) { d.className = 'dot error'; });
+      dotsEl.classList.add('shake');
+      statusEl.textContent = 'Nespravny PIN';
+      statusEl.className = 'status error';
+      setTimeout(function() {
+        dotsEl.classList.remove('shake');
+        clearPin();
+      }, 800);
+      setTimeout(function() {
+        statusEl.textContent = '';
+        statusEl.className = 'status';
+      }, 2500);
+    }
+  }
+
+  // Clock
+  var DAYS = ['Nedela', 'Pondelok', 'Utorok', 'Streda', 'Stvrtok', 'Piatok', 'Sobota'];
+  var MONTHS = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
+  function updateClock() {
+    var now = new Date();
+    document.getElementById('clock').textContent = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+    document.getElementById('clockDate').textContent = DAYS[now.getDay()] + ', ' + now.getDate() + '. ' + MONTHS[now.getMonth()] + ' ' + now.getFullYear();
+  }
+  updateClock();
+  setInterval(updateClock, 1000);
+})();
+</script>
+</body>
+</html>

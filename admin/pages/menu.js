@@ -1,0 +1,591 @@
+let MENU_DATA = [];
+let activeCatId = null;
+let editingProductId = null;
+let formAvailable = true;
+let formVatRate = 23;
+let vatRateTouched = false;
+let catDragIdx = null;
+let catDragEl = null;
+let prodDragIdx = null;
+let prodDragEl = null;
+let _container = null;
+
+const SUPPORTED_VAT_RATES = [5, 19, 23];
+const CATEGORY_VAT_DEFAULTS = Object.freeze({
+  kava: 19,
+  caj: 19,
+  koktaily: 23,
+  pivo: 23,
+  vino: 23,
+  jedlo: 5,
+});
+
+// === DOM helpers (scoped to container) ===
+function qs(sel) { return _container.querySelector(sel); }
+function qsAll(sel) { return _container.querySelectorAll(sel); }
+function byId(id) { return _container.querySelector('#' + id); }
+
+// === Helpers ===
+function fmt(n) { return n.toFixed(2).replace('.', ',') + ' \u20AC'; }
+function getCat(id) { return MENU_DATA.find(c => c.id === id); }
+function getActiveCat() { return getCat(activeCatId); }
+function normalizeText(value) { return String(value || '').trim().toLowerCase(); }
+function isSupportedVatRate(value) { return SUPPORTED_VAT_RATES.includes(Number(value)); }
+function inferVatRateForForm(categoryId, productName) {
+  const category = getCat(Number(categoryId)) || MENU_DATA.find(c => String(c.id) === String(categoryId));
+  const slug = normalizeText(category && category.slug);
+  const name = normalizeText(productName);
+  if (slug === 'pivo' && /nealko|nealkohol|0[,.]0|alkohol\s*free/.test(name)) return 19;
+  return CATEGORY_VAT_DEFAULTS[slug] || 23;
+}
+function normalizeVatRate(v) {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : 23;
+}
+function formatVatRate(v) {
+  const n = normalizeVatRate(v);
+  return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+}
+function normalizeMenuData(menu) {
+  return menu.map(function(cat) {
+    return {
+      ...cat,
+      items: (cat.items || []).map(function(item) {
+        const active = item.available !== undefined ? item.available : (item.active !== undefined ? item.active : true);
+        return {
+          ...item,
+          active: active,
+          available: active,
+          vatRate: normalizeVatRate(item.vatRate),
+        };
+      }),
+    };
+  });
+}
+function syncVatRateSuggestion(force) {
+  if (!force && vatRateTouched) return;
+  const categoryId = byId('fCategory') ? byId('fCategory').value : activeCatId;
+  const productName = byId('fName') ? byId('fName').value : '';
+  formVatRate = inferVatRateForForm(categoryId, productName);
+  if (byId('fVatRate')) byId('fVatRate').value = String(formVatRate);
+}
+
+// === Prompt modal (not available globally in admin SPA) ===
+function showPrompt(title, placeholder, onSubmit, opts) {
+  opts = opts || {};
+  const existing = document.getElementById('dynModal');
+  if (existing) existing.remove();
+  const ov = document.createElement('div');
+  ov.className = 'u-overlay'; ov.id = 'dynModal';
+  ov.innerHTML = '<div class="u-modal"><span class="u-modal-icon">' + (opts.icon || '\u270F\uFE0F') +
+    '</span><div class="u-modal-title">' + title +
+    '</div><div class="u-modal-body"><div class="u-modal-field"><input type="text" id="dynInput" placeholder="' +
+    (placeholder || '') + '" value="' + (opts.defaultValue || '') +
+    '"></div></div><div class="u-modal-btns"><button class="u-btn u-btn-ghost" id="dynCancel">Zrusit</button><button class="u-btn u-btn-ice" id="dynOk">' +
+    (opts.confirmText || 'Potvrdit') + '</button></div></div>';
+  document.body.appendChild(ov);
+  requestAnimationFrame(() => ov.classList.add('show'));
+  setTimeout(() => document.getElementById('dynInput').focus(), 100);
+  function close() { ov.classList.remove('show'); setTimeout(() => ov.remove(), 300); }
+  document.getElementById('dynCancel').onclick = close;
+  document.getElementById('dynOk').onclick = function () {
+    const v = document.getElementById('dynInput').value; close(); if (onSubmit) onSubmit(v);
+  };
+  document.getElementById('dynInput').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('dynOk').click(); }
+  });
+  ov.addEventListener('click', function (e) { if (e.target === ov) close(); });
+}
+
+// === Load menu data ===
+async function loadMenu() {
+  const catList = byId('catList');
+  const prodList = byId('prodList');
+  if (catList) showLoading(catList, 'Nacitavam menu...');
+  try {
+    const menu = await api.get('/menu');
+    if (catList) hideLoading(catList);
+    MENU_DATA = normalizeMenuData(menu);
+    if (MENU_DATA.length > 0 && !activeCatId) {
+      activeCatId = MENU_DATA[0].id;
+    }
+    renderCategories();
+    renderProducts();
+    if (MENU_DATA.length === 0) {
+      if (catList) catList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">\uD83D\uDCC2</div><div class="empty-state-title">Ziadne kategorie</div><div class="empty-state-text">Vytvorte prvu kategoriu pre vase menu</div><button class="btn-outline-accent" onclick="document.getElementById(\'addCatBtn\').click()">Pridat kategoriu</button></div>';
+      if (prodList) prodList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">\uD83D\uDCE6</div><div class="empty-state-title">Ziadne produkty</div><div class="empty-state-text">Najprv pridajte kategoriu</div></div>';
+    }
+  } catch (err) {
+    if (catList) hideLoading(catList);
+    renderError(catList, err.message || 'Chyba pri nacitani menu', loadMenu);
+  }
+}
+
+// === Categories ===
+function renderCategories() {
+  const list = byId('catList');
+  list.innerHTML = MENU_DATA.map((cat, i) => `
+    <button class="cat-item ${cat.id === activeCatId ? 'active' : ''}" data-cat-idx="${i}" type="button">
+      <span class="cat-drag-handle">\u22EE\u22EE</span>
+      <span class="cat-icon">${cat.icon}</span>
+      <div class="cat-info">
+        <div class="cat-name">${cat.label}</div>
+        <div class="cat-count">${cat.items.length} poloziek</div>
+      </div>
+    </button>
+  `).join('');
+
+  list.querySelectorAll('.cat-item').forEach((el, i) => {
+    el.addEventListener('click', () => selectCategory(MENU_DATA[i].id));
+    el.addEventListener('mousedown', (e) => startCatDrag(e, i));
+  });
+}
+
+function selectCategory(id) {
+  activeCatId = id;
+  renderCategories();
+  renderProducts();
+}
+
+// === Category drag & drop ===
+function startCatDrag(e, idx) {
+  if (e.button !== 0) return;
+  const handle = e.target.closest('.cat-drag-handle');
+  if (!handle) return;
+  e.preventDefault();
+  catDragIdx = idx;
+  catDragEl = e.currentTarget;
+  catDragEl.classList.add('dragging');
+  document.addEventListener('mousemove', onCatDrag);
+  document.addEventListener('mouseup', endCatDrag);
+}
+
+function onCatDrag(e) {
+  if (catDragIdx === null) return;
+  const list = byId('catList');
+  const items = list.querySelectorAll('.cat-item');
+  items.forEach((item, i) => {
+    if (i === catDragIdx) return;
+    const rect = item.getBoundingClientRect();
+    const mid = rect.top + rect.height / 2;
+    item.classList.toggle('drag-over', e.clientY < mid && e.clientY > rect.top - 10);
+  });
+}
+
+function endCatDrag() {
+  document.removeEventListener('mousemove', onCatDrag);
+  document.removeEventListener('mouseup', endCatDrag);
+  if (catDragIdx === null) return;
+  const list = byId('catList');
+  const items = list.querySelectorAll('.cat-item');
+  let targetIdx = catDragIdx;
+  items.forEach((item, i) => {
+    if (item.classList.contains('drag-over')) { targetIdx = i; }
+    item.classList.remove('drag-over');
+  });
+  if (targetIdx !== catDragIdx) {
+    const moved = MENU_DATA.splice(catDragIdx, 1)[0];
+    MENU_DATA.splice(targetIdx, 0, moved);
+  }
+  if (catDragEl) catDragEl.classList.remove('dragging');
+  catDragIdx = null; catDragEl = null;
+  renderCategories();
+}
+
+function addCategory() {
+  showPrompt('Nazov novej kategorie', 'napr. Dezerty', function (name) {
+    if (!name || !name.trim()) return;
+    showPrompt('Emoji ikona', 'napr. \uD83C\uDF7D', async function (icon) {
+      icon = icon || '\uD83C\uDF7D';
+      const slug = 'cat_' + Date.now();
+      try {
+        const created = await api.post('/menu/categories', { slug, label: name.trim(), icon, sortKey: MENU_DATA.length, dest: 'dine-in' });
+        activeCatId = created.id || slug;
+        await loadMenu();
+        showToast('Kategoria pridana', true);
+      } catch (err) {
+        showToast(err.message || 'Chyba pridania kategorie', 'error');
+      }
+    }, { icon: '\uD83C\uDF7D', defaultValue: '\uD83C\uDF7D', confirmText: 'Pridat' });
+  }, { icon: '\uD83D\uDCC2', confirmText: 'Dalej' });
+}
+
+// === Products ===
+function renderProducts() {
+  const cat = getActiveCat();
+  const prodTitle = byId('prodTitle');
+  const prodList = byId('prodList');
+  if (!cat) { prodList.innerHTML = ''; prodTitle.textContent = ''; return; }
+  prodTitle.textContent = cat.icon + ' ' + cat.label;
+  if (!cat.items.length) {
+    prodList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">\uD83D\uDCE6</div><div class="empty-state-title">Ziadne produkty</div><div class="empty-state-text">Pridajte prvy produkt do tejto kategorie</div><button class="btn-outline-accent" onclick="document.getElementById(\'addProdBtn\').click()">Pridat produkt</button></div>';
+    return;
+  }
+  prodList.innerHTML = cat.items.map((item, i) => `
+    <div class="prod-row" data-prod-idx="${i}">
+      <span class="prod-drag">\u22EE\u22EE</span>
+      <span class="prod-emoji">${item.emoji}</span>
+      <div class="prod-info">
+        <div class="prod-name">${item.name}</div>
+        <div class="prod-desc">${item.desc}</div>
+        <div style="font-size:12px;color:var(--color-text-sec);margin-top:4px">DPH ${formatVatRate(item.vatRate)}%</div>
+      </div>
+      <div class="prod-price">${fmt(item.price)}</div>
+      <div class="toggle-wrap">
+        <div class="toggle ${(item.available !== undefined ? item.available : item.active) ? 'on' : ''}" data-item-id="${item.id}"><div class="toggle-knob"></div></div>
+      </div>
+      <div class="prod-actions">
+        <button class="act-btn" data-edit-id="${item.id}" title="Upravit">
+          <svg viewBox="0 0 16 16"><path d="M12.1 1.3a1.5 1.5 0 012.1 2.1L5.8 11.8l-3.3.8.8-3.3z"/></svg>
+        </button>
+        <button class="act-btn del" data-del-id="${item.id}" title="Odstranit">
+          <svg viewBox="0 0 16 16"><path d="M5 2V1h6v1h4v2H1V2h4zm0 4v7h6V6H5zm-3 9h12V5H2v10z"/></svg>
+        </button>
+      </div>
+    </div>
+  `).join('');
+
+  // Bind events
+  prodList.querySelectorAll('.prod-row').forEach((el, i) => {
+    el.addEventListener('mousedown', (e) => startProdDrag(e, i));
+  });
+  prodList.querySelectorAll('.toggle').forEach(el => {
+    el.addEventListener('click', (e) => { e.stopPropagation(); toggleAvail(Number(el.dataset.itemId)); });
+  });
+  prodList.querySelectorAll('[data-edit-id]').forEach(el => {
+    el.addEventListener('click', () => openEditProduct(Number(el.dataset.editId)));
+  });
+  prodList.querySelectorAll('[data-del-id]').forEach(el => {
+    el.addEventListener('click', () => deleteProduct(Number(el.dataset.delId)));
+  });
+}
+
+// === Product drag & drop ===
+function startProdDrag(e, idx) {
+  if (e.button !== 0) return;
+  const handle = e.target.closest('.prod-drag');
+  if (!handle) return;
+  e.preventDefault();
+  prodDragIdx = idx;
+  prodDragEl = e.currentTarget;
+  prodDragEl.classList.add('dragging');
+  document.addEventListener('mousemove', onProdDrag);
+  document.addEventListener('mouseup', endProdDrag);
+}
+
+function onProdDrag(e) {
+  if (prodDragIdx === null) return;
+  const list = byId('prodList');
+  const items = list.querySelectorAll('.prod-row');
+  items.forEach((item, i) => {
+    if (i === prodDragIdx) return;
+    const rect = item.getBoundingClientRect();
+    const mid = rect.top + rect.height / 2;
+    item.classList.toggle('drag-over', e.clientY < mid && e.clientY > rect.top - 10);
+  });
+}
+
+function endProdDrag() {
+  document.removeEventListener('mousemove', onProdDrag);
+  document.removeEventListener('mouseup', endProdDrag);
+  if (prodDragIdx === null) return;
+  const cat = getActiveCat();
+  const list = byId('prodList');
+  const items = list.querySelectorAll('.prod-row');
+  let targetIdx = prodDragIdx;
+  items.forEach((item, i) => {
+    if (item.classList.contains('drag-over')) { targetIdx = i; }
+    item.classList.remove('drag-over');
+  });
+  if (targetIdx !== prodDragIdx && cat) {
+    const moved = cat.items.splice(prodDragIdx, 1)[0];
+    cat.items.splice(targetIdx, 0, moved);
+  }
+  if (prodDragEl) prodDragEl.classList.remove('dragging');
+  prodDragIdx = null; prodDragEl = null;
+  renderProducts();
+}
+
+async function toggleAvail(id) {
+  let targetItem = null;
+  MENU_DATA.forEach(cat => {
+    cat.items.forEach(item => { if (item.id === id) targetItem = item; });
+  });
+  if (!targetItem) return;
+  try {
+    const nextAvailable = !(targetItem.available !== undefined ? targetItem.available : targetItem.active);
+    await api.put('/menu/items/' + id, { available: nextAvailable });
+    targetItem.available = nextAvailable;
+    targetItem.active = nextAvailable;
+    renderProducts();
+  } catch (err) {
+    showToast('Chyba: ' + err.message);
+  }
+}
+
+// === Product modal ===
+function populateCategorySelect() {
+  const sel = byId('fCategory');
+  sel.innerHTML = MENU_DATA.map(c => `<option value="${c.id}" ${c.id === activeCatId ? 'selected' : ''}>${c.icon} ${c.label}</option>`).join('');
+}
+
+function openAddProduct() {
+  editingProductId = null;
+  byId('modalTitle').textContent = 'Pridat produkt';
+  byId('fEmoji').value = '';
+  byId('fName').value = '';
+  byId('fDesc').value = '';
+  byId('fPrice').value = '';
+  formAvailable = true;
+  vatRateTouched = false;
+  updateFormToggle();
+  populateCategorySelect();
+  syncVatRateSuggestion(true);
+  byId('productModal').classList.add('show');
+  setTimeout(() => byId('fName').focus(), 100);
+}
+
+function openEditProduct(id) {
+  let item = null, catId = null;
+  MENU_DATA.forEach(cat => { cat.items.forEach(it => { if (it.id === id) { item = it; catId = cat.id; } }); });
+  if (!item) return;
+  editingProductId = id;
+  byId('modalTitle').textContent = 'Upravit produkt';
+  byId('fEmoji').value = item.emoji;
+  byId('fName').value = item.name;
+  byId('fDesc').value = item.desc;
+  byId('fPrice').value = item.price;
+  formAvailable = item.available !== undefined ? item.available : item.active;
+  formVatRate = normalizeVatRate(item.vatRate);
+  vatRateTouched = true;
+  updateFormToggle();
+  populateCategorySelect();
+  byId('fCategory').value = catId;
+  byId('fVatRate').value = String(formVatRate);
+  byId('productModal').classList.add('show');
+  setTimeout(() => byId('fName').focus(), 100);
+}
+
+function closeProductModal() {
+  byId('productModal').classList.remove('show');
+  editingProductId = null;
+  vatRateTouched = false;
+}
+
+function toggleFormAvail() {
+  formAvailable = !formAvailable;
+  updateFormToggle();
+}
+
+function updateFormToggle() {
+  const t = byId('fAvailToggle');
+  const l = byId('fAvailLabel');
+  t.classList.toggle('on', formAvailable);
+  l.textContent = formAvailable ? 'Dostupny' : 'Nedostupny';
+}
+
+async function saveProduct() {
+  var modalEl = byId('productModal');
+  if (modalEl && !validateForm(modalEl)) return;
+
+  const emoji = byId('fEmoji').value.trim() || '\uD83C\uDF7D';
+  const name = byId('fName').value.trim();
+  const desc = byId('fDesc').value.trim();
+  const price = parseFloat(byId('fPrice').value) || 0;
+  const vatRate = parseFloat(byId('fVatRate').value);
+  const catId = byId('fCategory').value;
+  if (!name) { showToast('Zadajte nazov produktu'); return; }
+  if (price <= 0) { showToast('Zadajte platnu cenu'); return; }
+  if (!isSupportedVatRate(vatRate)) {
+    showToast('Portos podporuje iba sadzby DPH 5 %, 19 % a 23 %');
+    return;
+  }
+
+  const btn = byId('modalSaveBtn');
+  if (btn) btnLoading(btn);
+  try {
+    if (editingProductId !== null) {
+      await api.put('/menu/items/' + editingProductId, { name, emoji, price, desc, available: formAvailable, categoryId: catId, vatRate });
+      showToast('Produkt upraveny', true);
+    } else {
+      await api.post('/menu/items', { categoryId: catId, name, emoji, price, desc, available: formAvailable, vatRate });
+      showToast('Produkt pridany', true);
+    }
+    closeProductModal();
+    activeCatId = catId;
+    await loadMenu();
+  } catch (err) {
+    showToast(err.message || 'Chyba ukladania produktu', 'error');
+  } finally {
+    if (btn) btnReset(btn);
+  }
+}
+
+function deleteProduct(id) {
+  let item = null;
+  MENU_DATA.forEach(cat => { cat.items.forEach(it => { if (it.id === id) item = it; }); });
+  if (!item) return;
+  showConfirm('Zmazat', 'Tato akcia sa neda vratit.', async function () {
+    try {
+      await api.del('/menu/items/' + id);
+      await loadMenu();
+      showToast('Produkt odstraneny', true);
+    } catch (err) {
+      showToast('Chyba: ' + err.message);
+    }
+  }, { type: 'danger' });
+}
+
+// === Keyboard handler ===
+function onKeydown(e) {
+  const dyn = document.getElementById('dynModal');
+  if (dyn && dyn.classList.contains('show')) {
+    if (e.key === 'Escape') { const cb = document.getElementById('dynCancel'); if (cb) cb.click(); }
+    return;
+  }
+  const modal = byId('productModal');
+  if (modal && modal.classList.contains('show')) {
+    if (e.key === 'Escape') closeProductModal();
+    return;
+  }
+}
+
+// === EXPORTS ===
+export function init(container) {
+  _container = container;
+  container.className = 'content admin-page-fill';
+
+  // Reset state
+  MENU_DATA = [];
+  activeCatId = null;
+  editingProductId = null;
+  formAvailable = true;
+  formVatRate = 23;
+  vatRateTouched = false;
+  catDragIdx = null;
+  catDragEl = null;
+  prodDragIdx = null;
+  prodDragEl = null;
+
+  container.innerHTML = `
+    <div class="cat-panel">
+      <div class="cat-panel-header">Kategorie <span id="catCount"></span></div>
+      <div class="cat-list" id="catList">
+        <div class="skeleton-row"></div>
+        <div class="skeleton-row"></div>
+        <div class="skeleton-row"></div>
+      </div>
+      <button class="cat-add-btn" id="addCatBtn">+ Pridat kategoriu</button>
+    </div>
+    <div class="prod-panel">
+      <div class="prod-header">
+        <div class="prod-header-title" id="prodTitle">Polozky</div>
+        <button class="prod-add-btn" id="addProdBtn">
+          <svg aria-hidden="true" viewBox="0 0 24 24" class="icon-plus"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Pridat
+        </button>
+      </div>
+      <div class="prod-list" id="prodList">
+        <div class="skeleton-row"></div>
+        <div class="skeleton-row"></div>
+        <div class="skeleton-row"></div>
+        <div class="skeleton-row"></div>
+      </div>
+    </div>
+    <!-- Product Modal -->
+    <div class="u-overlay" id="productModal">
+      <div class="u-modal u-modal-left">
+        <div class="u-modal-title text-center" id="modalTitle">Pridat produkt</div>
+        <div class="u-modal-body">
+          <div class="u-modal-row">
+            <div class="u-modal-field field-emoji">
+              <label for="fEmoji">Emoji</label>
+              <input id="fEmoji" type="text" placeholder="napr. &#9749;" maxlength="4" class="input-emoji">
+            </div>
+            <div class="u-modal-field field-flex-3">
+              <label for="fName">Nazov<span class="required-mark" aria-hidden="true"> *</span></label>
+              <input id="fName" type="text" placeholder="Nazov produktu" aria-required="true" data-validate="required">
+            </div>
+          </div>
+          <div class="u-modal-field">
+            <label for="fDesc">Popis</label>
+            <input id="fDesc" type="text" placeholder="Kratky popis">
+          </div>
+          <div class="u-modal-row">
+            <div class="u-modal-field">
+              <label for="fPrice">Cena (EUR)<span class="required-mark" aria-hidden="true"> *</span></label>
+              <input id="fPrice" type="number" aria-required="true" data-validate="required|number" step="0.10" min="0" placeholder="0.00">
+            </div>
+            <div class="u-modal-field">
+              <label for="fCategory">Kategoria</label>
+              <select id="fCategory"></select>
+            </div>
+          </div>
+          <div class="u-modal-field">
+            <label for="fVatRate">DPH sadzba (%)</label>
+            <select id="fVatRate">
+              <option value="5">5 % - jedlo</option>
+              <option value="19">19 % - nealko napoje</option>
+              <option value="23">23 % - alkohol</option>
+            </select>
+          </div>
+          <div class="u-modal-field">
+            <label>Dostupnost</label>
+            <div class="u-toggle" id="fAvailToggleWrap">
+              <div class="u-toggle-track on" id="fAvailToggle"><div class="u-toggle-knob"></div></div>
+              <span class="u-toggle-label" id="fAvailLabel">Dostupny</span>
+            </div>
+          </div>
+        </div>
+        <div class="u-modal-btns">
+          <button class="u-btn u-btn-ghost" id="modalCancelBtn">Zrusit</button>
+          <button class="u-btn u-btn-ice" id="modalSaveBtn">Ulozit</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Bind button events
+  byId('addCatBtn').addEventListener('click', addCategory);
+  byId('addProdBtn').addEventListener('click', openAddProduct);
+  byId('modalCancelBtn').addEventListener('click', closeProductModal);
+  byId('modalSaveBtn').addEventListener('click', saveProduct);
+  byId('fAvailToggleWrap').addEventListener('click', toggleFormAvail);
+  byId('productModal').addEventListener('click', function (e) { if (e.target === this) closeProductModal(); });
+  byId('fCategory').addEventListener('change', function () { syncVatRateSuggestion(false); });
+  byId('fName').addEventListener('input', function () { syncVatRateSuggestion(false); });
+  byId('fVatRate').addEventListener('change', function () {
+    vatRateTouched = true;
+    formVatRate = normalizeVatRate(this.value);
+  });
+
+  // Inline validation listeners
+  container.querySelectorAll('[data-validate]').forEach(function(input) {
+    input.addEventListener('blur', function() {
+      var rules = this.getAttribute('data-validate').split('|');
+      var self = this;
+      rules.forEach(function(rule) { validateField(self, rule); });
+    });
+    input.addEventListener('input', function() { clearFieldError(this); });
+  });
+
+  // Global keyboard handler
+  document.addEventListener('keydown', onKeydown);
+
+  // Load data
+  loadMenu();
+}
+
+export function destroy() {
+  document.removeEventListener('keydown', onKeydown);
+  document.removeEventListener('mousemove', onCatDrag);
+  document.removeEventListener('mouseup', endCatDrag);
+  document.removeEventListener('mousemove', onProdDrag);
+  document.removeEventListener('mouseup', endProdDrag);
+  // Remove any lingering dynamic modals created by this module
+  const dyn = document.getElementById('dynModal');
+  if (dyn) dyn.remove();
+  _container = null;
+  formVatRate = 23;
+  vatRateTouched = false;
+}

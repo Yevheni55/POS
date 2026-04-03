@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="sk" style="background:var(--color-bg)">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0f0d1a">
+<title>POS Admin</title>
+<link rel="stylesheet" href="/tokens.css">
+<link rel="stylesheet" href="/fonts/fonts.css">
+<link rel="stylesheet" href="admin.css?v=10">
+</head>
+<body>
+<div class="bg-scene"></div>
+<div class="app">
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-icon">POS</div>
+      <span class="logo-text">POS Admin</span>
+    </div>
+    <nav class="nav" id="sidebarNav" aria-label="Hlavná navigácia">
+      <a class="nav-item active" data-page="dashboard" href="#dashboard" title="Dashboard" aria-current="page">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+        Dashboard
+      </a>
+      <a class="nav-item" data-page="menu" href="#menu" title="Menu">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+        Menu
+      </a>
+      <a class="nav-item" data-page="recipes" href="#recipes" title="Receptúry">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 3h18v18H3z" fill="none"/><path d="M9 3v18"/><path d="M3 9h6"/><path d="M3 15h6"/><path d="M15 6h3"/><path d="M15 10h3"/><path d="M15 14h3"/></svg>
+        Receptúry
+      </a>
+      <a class="nav-item" data-page="tables" href="#tables" title="Stoly">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="9" y1="4" x2="9" y2="20"/></svg>
+        Stoly
+      </a>
+      <a class="nav-item" data-page="staff" href="#staff" title="Zamestnanci">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Zamestnanci
+      </a>
+      <a class="nav-item" data-page="reports" href="#reports" title="Reporty">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        Reporty
+      </a>
+      <div class="nav-divider" aria-hidden="true"></div>
+      <span class="nav-section-label">Sklad</span>
+      <a class="nav-item" data-page="inventory-dashboard" href="#inventory-dashboard" title="Prehľad skladu">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+        Prehľad
+      </a>
+      <a class="nav-item" data-page="ingredients" href="#ingredients" title="Suroviny">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        Suroviny
+      </a>
+      <a class="nav-item" data-page="supplies" href="#supplies" title="Tovar">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+        Tovar
+      </a>
+      <a class="nav-item" data-page="suppliers" href="#suppliers" title="Dodávatelia">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+        Dodávatelia
+      </a>
+      <a class="nav-item" data-page="purchase-orders" href="#purchase-orders" title="Objednávky skladu">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
+        Objednávky
+      </a>
+      <a class="nav-item" data-page="stock-movements" href="#stock-movements" title="Pohyby skladu">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+        Pohyby
+      </a>
+      <a class="nav-item" data-page="inventory-audit" href="#inventory-audit" title="Inventúra">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        Inventúra
+      </a>
+      <a class="nav-item" data-page="write-offs" href="#write-offs" title="Odpisy">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+        Odpisy
+      </a>
+      <a class="nav-item" data-page="assets" href="#assets" title="Majetok">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+        Majetok
+      </a>
+      <div class="nav-divider" aria-hidden="true"></div>
+      <a class="nav-item" data-page="settings" href="#settings" title="Nastavenia">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Nastavenia
+      </a>
+    </nav>
+    <div class="sidebar-bottom">
+      <a class="nav-item back" id="backToPOS" href="#" title="Späť na POS">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        Späť na POS
+      </a>
+    </div>
+  </aside>
+
+  <!-- MAIN AREA -->
+  <div class="main-area">
+    <header class="header">
+      <h1 class="header-title" id="pageTitle">Dashboard</h1>
+      <div class="header-right">
+        <button type="button" class="header-back-pos" id="headerBackToPOS" title="Späť na POS" aria-label="Späť na POS">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        </button>
+        <div class="header-clock" id="clock">00:00</div>
+        <div class="admin-badge" id="roleBadge" aria-live="polite">Admin</div>
+        <button type="button" class="logout-btn" onclick="showLogoutModal()">Odhlásiť</button>
+        <div class="header-user">
+          <div class="header-avatar" id="userAvatar">AD</div>
+          <span id="userName">Admin</span>
+        </div>
+      </div>
+    </header>
+    <div class="content" id="pageContent">
+      <!-- Page content rendered here by router -->
+    </div>
+  </div>
+</div>
+
+<!-- Logout Modal -->
+<div class="u-overlay" id="logoutModal" role="dialog" aria-modal="true" aria-labelledby="logoutModalTitle">
+  <div class="u-modal">
+    <span class="u-modal-icon" aria-hidden="true">&#x1F6AA;</span>
+    <div class="u-modal-title" id="logoutModalTitle">Odhlásenie</div>
+    <div class="u-modal-text">Naozaj sa chcete odhlásiť?</div>
+    <div class="u-modal-btns">
+      <button type="button" class="u-btn u-btn-ghost" id="logoutModalCancel" onclick="closeLogoutModal()">Zrušiť</button>
+      <button type="button" class="u-btn u-btn-rose" id="logoutModalConfirm" onclick="confirmLogout()">Odhlásiť</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script src="/components/loading.js"></script>
+<script src="/components/validate.js"></script>
+<script src="/api.js"></script>
+<script>
+var ROLE_LABELS={admin:'Admin',manazer:'Manažér',cisnik:'Čašník'};
+
+// Auth check
+(function(){
+  if(!api.requireAuth()) return;
+  var u=api.getUser();
+  if(u&&u.name){
+    var initials=u.name.split(' ').map(function(w){return w[0]}).join('');
+    document.getElementById('userAvatar').textContent=initials;
+    document.getElementById('userName').textContent=u.name;
+  }
+  var badge=document.getElementById('roleBadge');
+  if(badge){
+    var r=u&&u.role;
+    if(r&&ROLE_LABELS[r]){badge.textContent=ROLE_LABELS[r];badge.style.display='';}
+    else if(r){badge.textContent=r;badge.style.display='';}
+    else{badge.textContent='';badge.style.display='none';}
+  }
+})();
+
+// Clock
+function updateClock(){
+  document.getElementById('clock').textContent=new Date().toLocaleTimeString('sk-SK',{hour:'2-digit',minute:'2-digit'});
+}
+updateClock();setInterval(updateClock,1000);
+
+// Logout modal — focus + Escape
+var logoutModalEl=document.getElementById('logoutModal');
+var focusBeforeLogout=null;
+function onLogoutModalKeydown(e){
+  if(e.key==='Escape'){e.preventDefault();closeLogoutModal();}
+}
+function showLogoutModal(){
+  focusBeforeLogout=document.activeElement;
+  logoutModalEl.classList.add('show');
+  document.addEventListener('keydown',onLogoutModalKeydown);
+  var b=document.getElementById('logoutModalCancel');
+  if(b)setTimeout(function(){b.focus();},10);
+}
+function closeLogoutModal(){
+  logoutModalEl.classList.remove('show');
+  document.removeEventListener('keydown',onLogoutModalKeydown);
+  if(focusBeforeLogout&&typeof focusBeforeLogout.focus==='function')try{focusBeforeLogout.focus();}catch(x){}
+}
+function confirmLogout(){api.logout()}
+logoutModalEl.addEventListener('click',function(e){if(e.target===this)closeLogoutModal()});
+
+// Toast — supports both showToast(msg, true) and showToast(msg, 'success')
+function showToast(msg,type){
+  var t=document.getElementById('toast');
+  t.textContent=msg;
+  var cls='toast show';
+  if(type===true||type==='success')cls+=' success';
+  t.className=cls;
+  setTimeout(function(){t.className='toast'},type==='error'?4000:2500);
+}
+
+function goBackToPOS(e){
+  if(e)e.preventDefault();
+  if(window.parent!==window){
+    window.parent.postMessage('closePosAdmin','*');
+  } else {
+    window.location.href='/pos-enterprise.html';
+  }
+}
+document.getElementById('backToPOS').addEventListener('click',goBackToPOS);
+document.getElementById('headerBackToPOS').addEventListener('click',goBackToPOS);
+
+function escapeHtml(str){
+  if(str==null)return'';
+  var d=document.createElement('div');
+  d.textContent=String(str);
+  return d.innerHTML;
+}
+
+// Dynamic confirm modal — focus + Escape + safe text
+function showConfirm(title,text,onConfirm,opts){
+  opts=opts||{};
+  var type=opts.type||'info';
+  var icon=opts.icon||(type==='danger'?'\u26A0\uFE0F':'\u2139\uFE0F');
+  var btnClass=type==='danger'?'u-btn-rose':'u-btn-mint';
+  var existing=document.getElementById('dynModal');
+  if(existing)existing.remove();
+  var prevFocus=document.activeElement;
+  var ov=document.createElement('div');
+  ov.className='u-overlay show';ov.id='dynModal';
+  ov.setAttribute('role','dialog');
+  ov.setAttribute('aria-modal','true');
+  var ctext=opts.confirmText?escapeHtml(opts.confirmText):'Potvrdiť';
+  ov.innerHTML='<div class="u-modal"><span class="u-modal-icon" aria-hidden="true">'+icon+'</span><div class="u-modal-title">'+escapeHtml(title)+'</div><div class="u-modal-text">'+escapeHtml(text)+'</div><div class="u-modal-btns"><button type="button" class="u-btn u-btn-ghost" id="dynCancel">Zrušiť</button><button type="button" class="u-btn '+btnClass+'" id="dynConfirm">'+ctext+'</button></div></div>';
+  function cleanupDyn(){
+    document.removeEventListener('keydown',onDynKey);
+    if(prevFocus&&typeof prevFocus.focus==='function')try{prevFocus.focus();}catch(x){}
+  }
+  function removeDyn(){
+    if(ov.parentNode)ov.remove();
+    cleanupDyn();
+  }
+  function onDynKey(e){
+    if(e.key==='Escape'){e.preventDefault();removeDyn();}
+  }
+  document.body.appendChild(ov);
+  document.addEventListener('keydown',onDynKey);
+  ov.querySelector('#dynCancel').onclick=function(){removeDyn();};
+  ov.querySelector('#dynConfirm').onclick=function(){removeDyn();onConfirm();};
+  ov.addEventListener('click',function(e){if(e.target===ov)removeDyn();});
+  setTimeout(function(){var x=ov.querySelector('#dynCancel');if(x)x.focus();},0);
+}
+</script>
+<script type="module" src="router.js"></script>
+</body>
+</html>

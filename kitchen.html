@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KDS - Kuchynsky Display</title>
+<link rel="stylesheet" href="/tokens.css">
+<link rel="stylesheet" href="/a11y.css">
+<link rel="stylesheet" href="/fonts/fonts.css">
+<script src="/components/confirm.js"></script>
+<link rel="stylesheet" href="/css/kitchen.css">
+</head>
+<body>
+<a href="#grid" class="skip-link">Preskocit na objednavky</a>
+
+<div class="bg-scene">
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+</div>
+
+<header class="header" id="header">
+  <div class="header-left">
+    <button class="view-btn active-kuchyna" id="btnKuchyna" onclick="setView('kuchyna')">KUCHYNA</button>
+    <button class="view-btn inactive" id="btnBar" onclick="setView('bar')">BAR</button>
+  </div>
+  <div class="header-center" id="clock">00:00:00</div>
+  <div class="header-right">
+    <div class="order-badge" aria-live="polite">Objednavky: <span id="orderCount">0</span></div>
+    <button class="sound-btn on" id="soundBtn" onclick="toggleSound()">Zvuk: ZAP</button>
+  </div>
+</header>
+
+<main class="main">
+  <div class="grid" id="grid"></div>
+</main>
+
+<iframe id="printFrame" class="print-frame"></iframe>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/js/kitchen.js"></script>
+</body>
+</html>
