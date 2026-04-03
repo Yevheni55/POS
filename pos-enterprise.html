@@ -14,6 +14,7 @@
 <link rel="stylesheet" href="/a11y.css">
 <link rel="stylesheet" href="/fonts/fonts.css">
 <link rel="stylesheet" href="/css/pos.css?v=10">
+<link rel="stylesheet" href="/css/header-templates.css?v=1">
 <script src="/components/escHtml.js"></script>
 <script src="/components/toast.js"></script>
 <script src="/components/loading.js"></script>
@@ -23,7 +24,7 @@
 <a href="#main" class="skip-link">Preskocit na obsah</a>
 <div class="bg-scene"></div>
 <div class="app">
-  <header class="header">
+  <header class="header" id="appHeader">
     <div class="header-brand">
       <div class="header-logo">POS</div>
       <div><div class="header-title">Kaviaren & Bar</div><div class="header-subtitle">Pokladnicny system</div></div>
@@ -43,6 +44,7 @@
       </div>
     </div>
     <div class="header-right">
+      <button type="button" class="header-layout-btn" id="headerLayoutBtn" title="Vzhľad hlavičky" aria-label="Prepínač vzhľadu hlavičky">&#9678;</button>
       <button class="admin-btn" onclick="posFullscreen.toggle()" title="Fullscreen" aria-label="Cela obrazovka">&#x26F6;</button>
       <button class="admin-btn" onclick="generateLockCode()" title="Generovat kod zamku" aria-label="Vygenerovať kód zámku">&#128273; Zamok</button>
       <button class="admin-btn" onclick="goAdmin()">Admin</button>
@@ -50,6 +52,20 @@
       <div class="header-user"><div class="header-avatar">…</div>…</div>
     </div>
   </header>
+  <script>
+  (function () {
+    try {
+      var KEY = 'pos_header_template';
+      var ORDER = ['default', 'rail', 'command', 'ledger'];
+      var s = localStorage.getItem(KEY) || 'default';
+      if (ORDER.indexOf(s) < 0) s = 'default';
+      var h = document.getElementById('appHeader');
+      if (!h) return;
+      if (s === 'default') h.removeAttribute('data-header-template');
+      else h.setAttribute('data-header-template', s);
+    } catch (e) { /* ignore */ }
+  })();
+  </script>
 
   <div class="main" id="main">
     <!-- TABLE VIEW -->
@@ -335,6 +351,7 @@
 <script src="/js/pos-ui.js"></script>
 <script src="/js/pos-init.js"></script>
 <script src="/js/pos-mobile.js"></script>
+<script src="/js/header-templates.js?v=1"></script>
 <div class="u-overlay" id="discountModal">
   <div class="u-modal" role="dialog" aria-modal="true" aria-labelledby="discountModalTitle">
     <span class="u-modal-icon" style="font-size:36px">&#127991;</span>
