@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0f0d1a">
+<title>POS — náhľady hlavičiek</title>
+<link rel="stylesheet" href="/tokens.css">
+<link rel="stylesheet" href="/a11y.css">
+<link rel="stylesheet" href="/fonts/fonts.css">
+<link rel="stylesheet" href="/css/pos.css?v=10">
+<link rel="stylesheet" href="/css/header-templates.css?v=1">
+<style>
+  .header-templates-preview-page {
+    min-height: 100vh;
+    padding: 24px 20px 48px;
+    position: relative;
+    z-index: 2;
+  }
+  .header-templates-preview-page h1 {
+    font-family: var(--font-display);
+    font-size: var(--text-6xl);
+    margin-bottom: 8px;
+    color: var(--color-text);
+  }
+  .header-templates-preview-page .lead {
+    color: var(--color-text-sec);
+    margin-bottom: 20px;
+    max-width: 560px;
+    line-height: var(--leading-relaxed);
+  }
+  .header-templates-preview-page .lead a {
+    color: var(--color-accent);
+  }
+  .preview-block {
+    margin-bottom: 28px;
+  }
+  .preview-block h2 {
+    font-family: var(--font-display);
+    font-size: var(--text-md);
+    font-weight: var(--weight-bold);
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-wider);
+    color: var(--color-text-sec);
+    margin-bottom: 10px;
+  }
+  .preview-frame {
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border);
+    overflow: hidden;
+    box-shadow: var(--shadow-md);
+  }
+  .preview-frame .app {
+    height: auto;
+    min-height: 0;
+  }
+  .preview-frame .header-layout-btn {
+    display: none !important;
+  }
+</style>
+</head>
+<body>
+<div class="bg-scene"></div>
+<div class="header-templates-preview-page">
+  <h1>Náhľady hlavičiek</h1>
+  <p class="lead">
+    Všetky štyri vzhľady pod sebou. V reálnom POS prepínate tlačidlom <strong>◎</strong> v hlavičke (šírka &gt; 900px) alebo uloženou voľbou v prehliadači.
+    <a href="/pos-enterprise.html">Otvoriť POS</a>
+  </p>
+
+  <section class="preview-block">
+    <h2>1. Štandard (default)</h2>
+    <div class="preview-frame">
+      <div class="app">
+        <header class="header">
+          <div class="header-brand">
+            <div class="header-logo">POS</div>
+            <div><div class="header-title">Kaviaren &amp; Bar</div><div class="header-subtitle">Pokladnicny system</div></div>
+          </div>
+          <div class="header-center">
+            <div class="view-toggle">
+              <button type="button" class="view-btn active">
+                <svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14"><rect x="1" y="1" width="6" height="6" rx="1" fill="currentColor"/><rect x="9" y="1" width="6" height="6" rx="1" fill="currentColor"/><rect x="1" y="9" width="6" height="6" rx="1" fill="currentColor"/><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor"/></svg>
+                Stoly
+              </button>
+              <button type="button" class="view-btn">
+                <svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14"><rect x="1" y="1" width="14" height="3" rx="1" fill="currentColor"/><rect x="1" y="6" width="14" height="3" rx="1" fill="currentColor"/><rect x="1" y="11" width="14" height="3" rx="1" fill="currentColor"/></svg>
+                Objednavka
+              </button>
+            </div>
+            <div>
+              <div class="header-clock">14:32</div>
+              <div class="header-date">Sobota, 4. apr</div>
+            </div>
+          </div>
+          <div class="header-right">
+            <button type="button" class="admin-btn" aria-hidden="true">&#x26F6;</button>
+            <button type="button" class="admin-btn" aria-hidden="true">Zamok</button>
+            <button type="button" class="admin-btn" aria-hidden="true">Admin</button>
+            <button type="button" class="logout-btn" aria-hidden="true">Odhlasit</button>
+            <div class="header-user"><div class="header-avatar">JK</div>Jana K.</div>
+          </div>
+        </header>
+      </div>
+    </div>
+  </section>
+
+  <section class="preview-block">
+    <h2>2. Lišta (mint) — <code>data-header-template="rail"</code></h2>
+    <div class="preview-frame">
+      <div class="app">
+        <header class="header" data-header-template="rail">
+          <div class="header-brand">
+            <div class="header-logo">POS</div>
+            <div><div class="header-title">Kaviaren &amp; Bar</div><div class="header-subtitle">Pokladnicny system</div></div>
+          </div>
+          <div class="header-center">
+            <div class="view-toggle">
+              <button type="button" class="view-btn active"><svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14"><rect x="1" y="1" width="6" height="6" rx="1" fill="currentColor"/><rect x="9" y="1" width="6" height="6" rx="1" fill="currentColor"/><rect x="1" y="9" width="6" height="6" rx="1" fill="currentColor"/><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor"/></svg>Stoly</button>
+              <button type="button" class="view-btn"><svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14"><rect x="1" y="1" width="14" height="3" rx="1" fill="currentColor"/><rect x="1" y="6" width="14" height="3" rx="1" fill="currentColor"/><rect x="1" y="11" width="14" height="3" rx="1" fill="currentColor"/></svg>Objednavka</button>
+            </div>
+            <div>
+              <div class="header-clock">14:32</div>
+              <div class="header-date">Sobota, 4. apr</div>
+            </div>
+          </div>
+          <div class="header-right">
+            <button type="button" class="admin-btn" aria-hidden="true">&#x26F6;</button>
+            <button type="button" class="admin-btn" aria-hidden="true">Zamok</button>
+            <button type="button" class="admin-btn" aria-hidden="true">Admin</button>
+            <button type="button" class="logout-btn" aria-hidden="true">Odhlasit</button>
+            <div class="header-user"><div class="header-avatar">JK</div>Jana K.</div>
+          </div>
+        </header>
+      </div>
+    </div>
+  </section>
+
+  <section class="preview-block">
+    <h2>3. Panel (operácie) — <code>data-header-template="command"</code></h2>
+    <div class="preview-frame">
+      <div class="app">
+        <header class="header" data-header-template="command">
+          <div class="header-brand">
+            <div class="header-logo">POS</div>
+            <div><div class="header-title">Kaviaren &amp; Bar</div><div class="header-subtitle">Pokladnicny system</div></div>
+          </div>
+          <div class="header-center">
+            <div class="view-toggle">
+              <button type="button" class="view-btn active"><svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14"><rect x="1" y="1" width="6" height="6" rx="1" fill="currentColor"/><rect x="9" y="1" width="6" height="6" rx="1" fill="currentColor"/><rect x="1" y="9" width="6" height="6" rx="1" fill="currentColor"/><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor"/></svg>Stoly</button>
+              <button type="button" class="view-btn"><svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14"><rect x="1" y="1" width="14" height="3" rx="1" fill="currentColor"/><rect x="1" y="6" width="14" height="3" rx="1" fill="currentColor"/><rect x="1" y="11" width="14" height="3" rx="1" fill="currentColor"/></svg>Objednavka</button>
+            </div>
+            <div>
+              <div class="header-clock">14:32</div>
+              <div class="header-date">Sobota, 4. apr</div>
+            </div>
+          </div>
+          <div class="header-right">
+            <button type="button" class="admin-btn" aria-hidden="true">&#x26F6;</button>
+            <button type="button" class="admin-btn" aria-hidden="true">Zamok</button>
+            <button type="button" class="admin-btn" aria-hidden="true">Admin</button>
+            <button type="button" class="logout-btn" aria-hidden="true">Odhlasit</button>
+            <div class="header-user"><div class="header-avatar">JK</div>Jana K.</div>
+          </div>
+        </header>
+      </div>
+    </div>
+  </section>
+
+  <section class="preview-block">
+    <h2>4. Kniha (minimal) — <code>data-header-template="ledger"</code></h2>
+    <div class="preview-frame">
+      <div class="app">
+        <header class="header" data-header-template="ledger">
+          <div class="header-brand">
+            <div class="header-logo">POS</div>
+            <div><div class="header-title">Kaviaren &amp; Bar</div><div class="header-subtitle">Pokladnicny system</div></div>
+          </div>
+          <div class="header-center">
+            <div class="view-toggle">
+              <button type="button" class="view-btn active"><svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14"><rect x="1" y="1" width="6" height="6" rx="1" fill="currentColor"/><rect x="9" y="1" width="6" height="6" rx="1" fill="currentColor"/><rect x="1" y="9" width="6" height="6" rx="1" fill="currentColor"/><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor"/></svg>Stoly</button>
+              <button type="button" class="view-btn"><svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14"><rect x="1" y="1" width="14" height="3" rx="1" fill="currentColor"/><rect x="1" y="6" width="14" height="3" rx="1" fill="currentColor"/><rect x="1" y="11" width="14" height="3" rx="1" fill="currentColor"/></svg>Objednavka</button>
+            </div>
+            <div>
+              <div class="header-clock">14:32</div>
+              <div class="header-date">Sobota, 4. apr</div>
+            </div>
+          </div>
+          <div class="header-right">
+            <button type="button" class="admin-btn" aria-hidden="true">&#x26F6;</button>
+            <button type="button" class="admin-btn" aria-hidden="true">Zamok</button>
+            <button type="button" class="admin-btn" aria-hidden="true">Admin</button>
+            <button type="button" class="logout-btn" aria-hidden="true">Odhlasit</button>
+            <div class="header-user"><div class="header-avatar">JK</div>Jana K.</div>
+          </div>
+        </header>
+      </div>
+    </div>
+  </section>
+</div>
+</body>
+</html>
