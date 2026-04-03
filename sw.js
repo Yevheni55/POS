@@ -11,7 +11,7 @@ var STATIC_ASSETS = [
   '/admin-settings.html',
   '/admin-reports.html',
   '/admin-staff.html',
-  '/css/pos.css?v=11',
+  '/css/pos.css?v=12',
   '/css/kitchen.css',
   '/js/pos-state.js',
   '/js/pos-render.js',

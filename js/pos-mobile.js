@@ -173,13 +173,13 @@ function renderMobOrder() {
   var mobTabsEl=document.getElementById('mobOrderTabs');
   if(mobTabsEl){
     if(tableOrdersList.length>1){
-      mobTabsEl.innerHTML=tableOrdersList.map(o=>`<button class="order-tab${o.id===currentOrderId?' active':''}" role="tab" aria-selected="${o.id===currentOrderId}" onclick="switchAccount(${o.id})">${escHtml(o.label||'Ucet')}</button>`).join('')+`<button class="order-tab order-tab-new" onclick="newAccount()" aria-label="Novy ucet">+</button>`+`<button class="order-tab" onclick="mergeAccounts()" style="color:var(--color-accent);border-color:rgba(139,124,246,.15);font-size:11px">&#x21C4; Spojit</button>`;
-      mobTabsEl.style.display='flex';
+      mobTabsEl.innerHTML=tableOrdersList.map(o=>`<button class="order-tab${o.id===currentOrderId?' active':''}" role="tab" aria-selected="${o.id===currentOrderId}" onclick="switchAccount(${o.id})">${escHtml(o.label||'Ucet')}</button>`).join('')+`<button class="order-tab order-tab-new" onclick="newAccount()" aria-label="Novy ucet">+</button>`+`<button type="button" class="order-tab order-tab-merge" onclick="mergeAccounts()">&#x21C4; Spojit</button>`;
+      mobTabsEl.classList.remove('pos-hidden');
     } else if(tableOrdersList.length===1){
       mobTabsEl.innerHTML=`<button class="order-tab active" role="tab" aria-selected="true">${escHtml(tableOrdersList[0].label||'Ucet 1')}</button><button class="order-tab order-tab-new" onclick="newAccount()" aria-label="Novy ucet">+</button>`;
-      mobTabsEl.style.display='flex';
+      mobTabsEl.classList.remove('pos-hidden');
     } else {
-      mobTabsEl.innerHTML='';mobTabsEl.style.display='none';
+      mobTabsEl.innerHTML='';mobTabsEl.classList.add('pos-hidden');
     }
   }
 

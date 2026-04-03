@@ -1,8 +1,8 @@
 # POS — náčrt nového dizajnového kódu
 
-**Stav:** iba koncept, nie implementácia.  
+**Stav:** sémantická vrstva a kľúčové oblasti POS sú implementované v produkcii (pozri sekciu 10); náčrt ostáva referencia pre ďalšie zjednocovanie.  
 **Zdroje:** `tokens.css`, `css/pos.css`, `pos-enterprise.html`, `login.html`, mobilná vrstva `.mob-*`, modály `.u-*`.  
-**Živá ukážka (HTML, mimo produkčného POS):** [`examples/design-code-showcase.html`](design-code-showcase.html) — triedy `dc-*` a štýly v `examples/design-code-showcase.css`.
+**Živá ukážka (HTML, mimo produkčného POS):** [`examples/design-code-showcase.html`](design-code-showcase.html) — komponenty `dc-*`; tokeny `--dc-*` sú v `:root` v `tokens.css`.
 
 ---
 
@@ -17,12 +17,12 @@
 ### Dlh a riziká
 | Oblast | Poznámka |
 |--------|-----------|
-| **Typografia** | Miešanie `px`, tokenov (`--text-*`) a magických čísel (`17px`, `12px`) v `pos.css`; dve rodiny fontov na POS vs **Bricolage/Newsreader** na `login.html` — vizuálne dva produkty. |
+| **Typografia** | Miešanie `px` a tokenov v `pos.css` sa postupne znižuje; `login.html` používa `var(--font-display)` / `var(--font-body)` ako POS. |
 | **Povrchy** | `rgba(255,255,255,.0x)` sa opakuje na desiatkach miest; chýba **sémantický názov** (napr. `surface-interactive` vs `surface-canvas`). |
 | **Tlačidlá** | `.btn`, `.admin-btn`, `.u-btn-*`, `.mob-btn-*` — rovnaká úloha, rôzne „jazyky“; ťažko držať jednu hierarchiu Primary / Secondary / Tertiary / Destructive. |
 | **Akcent** | Fialová je všade (kategórie, stoly, karta); **rezervovaný** stôl má zlato, ale produktové karty môžu konkurovať rovnakou silou — vizuálna priorita sa mieša. |
 | **Animácie** | `cardIn`, ripple, `translateY` na tlačidlách — na kiosku OK, na dlhej zmene zbytočný šum; chýba **pravidlo kedy animovať**. |
-| **Inline štýly** | V HTML (`pos-enterprise.html`) sú stále `style=` na častiach objednávky/modálov — obchádza tokeny a sťažuje témy. |
+| **Inline štýly** | `pos-enterprise.html` bez `style=`; dynamické skrývanie cez `.pos-hidden` v JS (`pos-render.js`, `pos-mobile.js`, `pos-orders.js`, `pos-payments.js`, `pos-init.js`). Šablóny ešte môžu obsahovať inline štýl tam, kde je dynamická pozícia (napr. stoly na pláne). |
 | **Texty / i18n** | Zmes SK bez diakritiky a občas CZ; dizajn kód by mal počítať s **jednou jazykovou vrstvou** (aspoň konzistentné názvy komponentov v kóde). |
 
 ---
@@ -118,15 +118,34 @@ Nový blok napr. `:root` alebo `[data-theme="pos"]`:
 
 ---
 
-## 8. Mapovanie na súbory (pri budúcej implementácii)
+## 8. Mapovanie na súbory (stav implementácie)
 
-| Krok | Súbor / akcia |
-|------|----------------|
-| 1 | Rozšíriť `tokens.css` o sémantické aliasy (bez zmeny vizuálu). |
-| 2 | Postupne nahrádzať v `pos.css` priame rgba za aliasy v jednej oblasti (napr. order panel). |
-| 3 | Zosúladiť `login.html` fonty s tokenmi. |
-| 4 | Vyčistiť inline štýly v `pos-enterprise.html` do tried. |
-| 5 | Dokumentovať komponenty v jednom mieste (môže byť táto zložka `examples/` alebo `docs/`). |
+| Krok | Súbor / akcia | Stav |
+|------|----------------|------|
+| 1 | `tokens.css` — `--surface-*`, `--text-*`, `--action-*`, `--border-*`, `--accent-amber`, `--touch-target-min`, aliasy `--dc-*` | hotové |
+| 2 | `pos.css` — order panel, header, floor toolbar, segmented/chips, primárne/secondary tlačidlá, `cardIn` 200 ms, odstránený stagger na mriežke produktov | čiastočne (ďalšie bloky môžu ešte používať `--color-*`) |
+| 3 | `login.html` — fonty cez tokeny | hotové |
+| 4 | `pos-enterprise.html` + utility triedy + JS `.pos-hidden` | hotové |
+| 5 | Táto sekcia + ukážka `design-code-showcase` | hotové |
+
+---
+
+## 10. Mapovanie: tokeny a utility triedy
+
+**Sémantické tokeny** (všetko mapuje na existujúce primitives, pozri `:root` v `tokens.css`):
+
+| Token | Význam |
+|--------|--------|
+| `--surface-app`, `--surface-raised`, `--surface-sunken`, `--surface-card` | canvas, panely, toolbar, karty |
+| `--border-default`, `--border-strong`, `--border-focus` | okraje, fokus |
+| `--text-primary`, `--text-secondary`, `--text-muted` | text |
+| `--action-primary` (+ dim, bg, border), `--action-success*`, `--action-danger*` | akcie a stavy |
+| `--accent-amber` | rezervácia / zvýraznenie (zlato) |
+| `--dc-*` | rovnaké ako vyššie, pre `dc-*` komponenty v ukážke |
+
+**Utility triedy v `pos.css`:** `.pos-hidden`, `.pos-subtotal-row`, `.btn-block`, `.u-modal-scroll` (+ `--short` / `--tall`), `.u-modal-icon--lg`, `.u-modal-field--spaced`, `.u-shift-stat` (+ varianty), `.u-modal--help`, `.help-keys-table`, `.u-btn-new-account`, `.manager-pin-input`, `.manager-pin-error`, `.u-modal-loading`, `.order-tab-merge`, `.products-empty-state`, `.discount-list-empty` / `.discount-list-error`.
+
+**Regresná kontrola (manuálne):** prepínač Stoly/Produkty, panel objednávky a ľavý akcent, záložky účtov, zľava/medzisúčet, presun položiek (tlačidlá), PIN modal, help modal, mobilné záložky objednávky, tablet šírka ~1100px (úzky order panel).
 
 ---
 
@@ -136,4 +155,4 @@ Nový blok napr. `:root` alebo `[data-theme="pos"]`:
 
 ---
 
-*Posledná aktualizácia: náčrt podľa stavu repozitára (POS enterprise + tokens + pos.css).*
+*Posledná aktualizácia: doplnené mapovanie po implementácii sémantickej vrstvy a utility tried.*

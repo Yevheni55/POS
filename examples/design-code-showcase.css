@@ -1,6 +1,6 @@
 /**
  * Design code showcase — NOVÝ návrh (dc-*), nie produkčný POS.
- * Sémantické aliasy mapované na existujúce primitives z tokens.css.
+ * Sémantické tokeny sú v tokens.css (:root); tu len komponenty dc-*.
  */
 
 .dc-root {
@@ -9,28 +9,6 @@
   color: var(--dc-text);
   background: var(--dc-surface-app);
   -webkit-font-smoothing: antialiased;
-
-  /* === Sémantická vrstva (podľa POS_DESIGN_CODE_SKETCH.md) === */
-  --dc-surface-app: var(--color-bg);
-  --dc-surface-raised: var(--color-bg-elevated);
-  --dc-surface-sunken: var(--color-bg-sunken);
-  --dc-surface-card: var(--color-bg-surface);
-  --dc-border: var(--color-border);
-  --dc-border-focus: rgba(139, 124, 246, 0.45);
-  --dc-text: var(--color-text);
-  --dc-text-secondary: var(--color-text-sec);
-  --dc-text-muted: var(--color-text-dim);
-  --dc-action-primary: var(--color-accent);
-  --dc-action-primary-bg: var(--color-accent-bg-hover);
-  --dc-action-success: var(--color-success);
-  --dc-action-success-bg: var(--color-success-bg);
-  --dc-action-danger: var(--color-danger);
-  --dc-action-danger-bg: var(--color-danger-bg);
-  --dc-amber: #e8b84a;
-  --dc-touch-min: 44px;
-  --dc-radius: var(--radius-sm);
-  --dc-radius-lg: var(--radius-md);
-  --dc-transition: var(--transition-fast);
 }
 
 .dc-bg-scene {

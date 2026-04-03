@@ -21,9 +21,9 @@
     height: 100%;
     overflow: hidden;
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
-    font-family: 'Bricolage Grotesque', sans-serif;
+    font-family: var(--font-body);
     background: linear-gradient(160deg, #0f0d1a 0%, #161229 45%, #0a0820 100%);
-    color: var(--color-text);
+    color: var(--text-primary);
     -webkit-tap-highlight-color: transparent;
     user-select: none;
   }
@@ -77,20 +77,20 @@
     border-radius: 14px;
     background: linear-gradient(135deg, var(--color-accent), var(--color-accent-dim));
     display: flex; align-items: center; justify-content: center;
-    font-family: 'Newsreader', serif;
+    font-family: var(--font-display);
     font-weight: 800; font-size: 18px;
-    color: #0f0d1a;
+    color: var(--surface-app);
     opacity: 0; animation: fadeInUp .5s ease forwards;
   }
 
   .brand-name {
-    font-family: 'Newsreader', serif;
+    font-family: var(--font-display);
     font-size: 22px; font-weight: 700;
     opacity: 0; animation: fadeInUp .5s ease .08s forwards;
   }
 
   .brand-sub {
-    font-size: 13px; color: var(--color-text-sec);
+    font-size: 13px; color: var(--text-secondary);
     margin-top: -14px;
     opacity: 0; animation: fadeInUp .5s ease .14s forwards;
   }
@@ -100,7 +100,7 @@
     max-width: 320px;
     font-size: 12px;
     line-height: 1.4;
-    color: var(--color-text-sec);
+    color: var(--text-secondary);
     text-align: center;
     opacity: 0;
     animation: fadeInUp .5s ease .17s forwards;
@@ -122,15 +122,15 @@
     border: 1.5px solid var(--color-border);
     cursor: pointer;
     transition: all .2s ease;
-    font-family: 'Bricolage Grotesque', sans-serif;
+    font-family: var(--font-body);
     font-size: 13px; font-weight: 500;
-    color: var(--color-text-sec);
+    color: var(--text-secondary);
   }
   .pill:hover { background: rgba(255,255,255,.07); }
   .pill.selected {
     border-color: var(--color-accent);
     background: rgba(139,124,246,.08);
-    color: var(--color-text);
+    color: var(--text-primary);
     box-shadow: 0 0 12px rgba(139,124,246,.15);
   }
 
@@ -138,9 +138,9 @@
     width: 28px; height: 28px;
     border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
-    font-family: 'Newsreader', serif;
+    font-family: var(--font-display);
     font-size: 11px; font-weight: 700;
-    color: var(--color-bg);
+    color: var(--surface-app);
     flex-shrink: 0;
   }
   .pill-avatar.admin { background: var(--color-accent); }
@@ -192,8 +192,8 @@
     border-radius: 14px;
     border: 1px solid var(--color-border);
     background: var(--color-bg-surface);
-    color: var(--color-text);
-    font-family: 'Newsreader', serif;
+    color: var(--text-primary);
+    font-family: var(--font-display);
     font-size: 24px; font-weight: 700;
     cursor: pointer;
     display: flex; align-items: center; justify-content: center;
@@ -207,7 +207,7 @@
   }
   .num-btn.fn {
     font-size: 20px;
-    color: var(--color-text-sec);
+    color: var(--text-secondary);
   }
   .num-btn:disabled {
     opacity: .25;
@@ -225,7 +225,7 @@
   .status.error { color: var(--color-danger); }
   .status.success { color: var(--color-success); }
   .status.locked { color: var(--color-danger); }
-  .status.pending { color: var(--color-text-sec); }
+  .status.pending { color: var(--text-secondary); }
 
   /* Clock */
   .clock-wrap {
@@ -234,14 +234,14 @@
     opacity: 0; animation: fadeInUp .5s ease .44s forwards;
   }
   .clock {
-    font-family: 'Newsreader', serif;
+    font-family: var(--font-display);
     font-size: 34px; font-weight: 400;
-    color: var(--color-text-sec);
+    color: var(--text-secondary);
     line-height: 1.1;
   }
   .clock-date {
     font-size: 14px;
-    color: var(--color-text-sec);
+    color: var(--text-secondary);
     margin-top: 2px;
   }
 

@@ -380,7 +380,7 @@ setTimeout(function(){var lm=document.getElementById('logoutModal');if(lm)lm.add
 init();
 setupLongPress();
 // Hide edit button for cisnik
-if(getUserRole()==='cisnik'){var eb=document.getElementById('editToggle');if(eb)eb.style.display='none';}
+if(getUserRole()==='cisnik'){var eb=document.getElementById('editToggle');if(eb)eb.classList.add('pos-hidden');}
 document.getElementById('paymentModal').addEventListener('click',function(e){if(e.target===this)closeModal()});
 document.getElementById('noteModal').addEventListener('click',function(e){if(e.target===this)closeNoteModal()});
 document.getElementById('moveModal').addEventListener('click',function(e){if(e.target===this)closeMoveModal()});

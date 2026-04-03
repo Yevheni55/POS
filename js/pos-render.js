@@ -28,7 +28,7 @@ function switchView(v){
   document.getElementById('btnProductView').classList.toggle('active',v==='products');
   document.getElementById('tableView').classList.toggle('active',v==='tables');
   document.getElementById('productsPanel').classList.toggle('active',v==='products');
-  document.querySelector('.order-panel').style.display = v==='tables' ? 'none' : '';
+  document.querySelector('.order-panel').classList.toggle('pos-hidden', v==='tables');
   if(v==='tables')renderFloor();if(v==='products')renderProducts();
 }
 
@@ -229,18 +229,18 @@ function renderProducts(){
     items=MENU[activeCategory].items;
     items.forEach(i=>{itemCats[i.name]=activeCategory});
   }
-  if(!items.length){grid.innerHTML='<div style="grid-column:1/-1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:48px 20px;color:var(--color-text-sec)">' +
-    '<div style="font-size:36px;margin-bottom:12px;opacity:.4">&#128270;</div>' +
-    '<div style="font-family:var(--font-display,Newsreader,serif);font-size:16px;font-weight:600;color:var(--color-text);margin-bottom:4px">Ziadne vysledky</div>' +
-    '<div style="font-size:13px;opacity:.6">Skuste iny nazov alebo kategoriu</div>' +
+  if(!items.length){grid.innerHTML='<div class="products-empty-state" role="status">' +
+    '<div class="products-empty-icon" aria-hidden="true">&#128270;</div>' +
+    '<div class="products-empty-title">Ziadne vysledky</div>' +
+    '<div class="products-empty-hint">Skuste iny nazov alebo kategoriu</div>' +
     '</div>';return}
   const order=getOrder();
-  grid.innerHTML=items.map((item,i)=>{
+  grid.innerHTML=items.map((item)=>{
     const cat=itemCats[item.name]||activeCategory;
     const cc=CAT_COLORS[cat]||'125,211,252';
     const inOrder=order.find(o=>o.name===item.name);
     const qtyBadge=inOrder?`<span class="product-qty-badge">${inOrder.qty}</span>`:'';
-    return `<div class="product-card" data-name="${escHtml(item.name)}" tabindex="0" role="button" style="--cat-color:${cc};animation-delay:${i*20}ms" onclick="addToOrder('${item.name.replace(/'/g,"\\'")}','${item.emoji}',${item.price})" onpointerdown="ripple(event)">
+    return `<div class="product-card" data-name="${escHtml(item.name)}" tabindex="0" role="button" style="--cat-color:${cc}" onclick="addToOrder('${item.name.replace(/'/g,"\\'")}','${item.emoji}',${item.price})" onpointerdown="ripple(event)">
       ${qtyBadge}<span class="product-emoji">${escHtml(item.emoji)}</span><div class="product-name">${escHtml(item.name)}</div><div class="product-desc">${escHtml(item.desc)}</div><div class="product-price">${fmt(item.price)}</div></div>`;
   }).join('');
 }
@@ -310,17 +310,17 @@ function renderOrder(){
     if(tableOrdersList.length>1){
       tabsEl.setAttribute('role','tablist');
       tabsEl.setAttribute('aria-label','Ucty pri stole');
-      tabsEl.innerHTML=tableOrdersList.map(o=>`<button type="button" class="order-tab${o.id===currentOrderId?' active':''}" role="tab" id="order-tab-${o.id}" aria-selected="${o.id===currentOrderId}" aria-controls="orderItems" onclick="switchAccount(${o.id})">${escHtml(o.label||'Ucet')}</button>`).join('')+`<button type="button" class="order-tab order-tab-new" onclick="newAccount()" aria-label="Novy ucet">+</button>`+`<button type="button" class="order-tab" onclick="mergeAccounts()" style="color:var(--color-accent);border-color:rgba(139,124,246,.15);font-size:11px" title="Spojit ucty">&#x21C4; Spojit</button>`;
-      tabsEl.style.display='flex';
+      tabsEl.innerHTML=tableOrdersList.map(o=>`<button type="button" class="order-tab${o.id===currentOrderId?' active':''}" role="tab" id="order-tab-${o.id}" aria-selected="${o.id===currentOrderId}" aria-controls="orderItems" onclick="switchAccount(${o.id})">${escHtml(o.label||'Ucet')}</button>`).join('')+`<button type="button" class="order-tab order-tab-new" onclick="newAccount()" aria-label="Novy ucet">+</button>`+`<button type="button" class="order-tab order-tab-merge" onclick="mergeAccounts()" title="Spojit ucty">&#x21C4; Spojit</button>`;
+      tabsEl.classList.remove('pos-hidden');
     } else if(tableOrdersList.length===1){
       tabsEl.setAttribute('role','tablist');
       tabsEl.setAttribute('aria-label','Ucet');
       tabsEl.innerHTML=`<button type="button" class="order-tab active" role="tab" id="order-tab-single" aria-selected="true" aria-controls="orderItems">${escHtml(tableOrdersList[0].label||'Ucet 1')}</button><button type="button" class="order-tab order-tab-new" onclick="newAccount()" aria-label="Novy ucet">+</button>`;
-      tabsEl.style.display='flex';
+      tabsEl.classList.remove('pos-hidden');
     } else {
       tabsEl.removeAttribute('role');
       tabsEl.removeAttribute('aria-label');
-      tabsEl.innerHTML='';tabsEl.style.display='none';
+      tabsEl.innerHTML='';tabsEl.classList.add('pos-hidden');
     }
   }
   if(orderPanel){
@@ -350,7 +350,7 @@ function updateTotals(){
   const disc=currentOrd?currentOrd.discount:null;
   const discDisplay=document.getElementById('discountDisplay');
   if(discountAmt>0&&discDisplay){
-    discDisplay.style.display='block';
+    discDisplay.classList.remove('pos-hidden');
     document.getElementById('subtotalVal').textContent=fmt(subtotal);
     var lbl='Zlava';
     if(disc){
@@ -363,7 +363,7 @@ function updateTotals(){
     document.getElementById('discountVal').textContent='-'+fmt(discountAmt);
     document.getElementById('total').textContent=fmt(subtotal-discountAmt);
   }else{
-    if(discDisplay)discDisplay.style.display='none';
+    if(discDisplay)discDisplay.classList.add('pos-hidden');
     document.getElementById('total').textContent=fmt(subtotal);
   }
 }
@@ -378,11 +378,11 @@ function showDiscountModal(){
   _selectedDiscountId=null;
   document.getElementById('customDiscountInput').value='';
   var listEl=document.getElementById('discountList');
-  listEl.innerHTML='<div style="text-align:center;color:var(--color-text-dim);padding:12px">Nacitavam...</div>';
+  listEl.innerHTML='<div class="u-modal-loading">Nacitavam...</div>';
   document.getElementById('discountModal').classList.add('show');
   api.get('/discounts').then(function(dList){
     if(!dList.length){
-      listEl.innerHTML='<div style="text-align:center;color:var(--color-text-dim);padding:12px;font-size:12px">Ziadne preddefinovane zlavy</div>';
+      listEl.innerHTML='<div class="discount-list-empty">Ziadne preddefinovane zlavy</div>';
       return;
     }
     listEl.innerHTML=dList.map(function(d){
@@ -390,7 +390,7 @@ function showDiscountModal(){
       return '<div class="discount-item" data-id="'+d.id+'" onclick="selectDiscount('+d.id+',this)"><span class="discount-item-name">'+d.name+'</span><span class="discount-item-value">'+valLabel+'</span></div>';
     }).join('');
   }).catch(function(){
-    listEl.innerHTML='<div style="text-align:center;color:var(--color-danger);padding:12px;font-size:12px">Chyba nacitania</div>';
+    listEl.innerHTML='<div class="discount-list-error">Chyba nacitania</div>';
   });
 }
 

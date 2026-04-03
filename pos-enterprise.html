@@ -13,7 +13,7 @@
 <link rel="stylesheet" href="/tokens.css">
 <link rel="stylesheet" href="/a11y.css">
 <link rel="stylesheet" href="/fonts/fonts.css">
-<link rel="stylesheet" href="/css/pos.css?v=11">
+<link rel="stylesheet" href="/css/pos.css?v=12">
 <script src="/components/escHtml.js"></script>
 <script src="/components/toast.js"></script>
 <script src="/components/loading.js"></script>
@@ -86,18 +86,18 @@
     </div>
 
     <!-- ORDER -->
-    <aside class="order-panel" style="display:none">
+    <aside class="order-panel pos-hidden">
       <div class="order-header">
         <div><div class="order-title">Objednavka</div><div class="order-table-label" id="orderTableLabel">Stol 1</div></div>
         <div class="order-count" id="orderCount">0</div>
       </div>
-      <div class="order-tabs" id="orderTabs" style="display:none"></div>
+      <div class="order-tabs pos-hidden" id="orderTabs"></div>
       <div class="order-items" id="orderItems">
         <div class="order-empty"><div class="order-empty-icon">&#128203;</div><div class="order-empty-title">Prazdna objednavka</div><div class="order-empty-text">Pridajte polozky z menu alebo dvoj-kliknite na stol</div><div class="order-empty-hint"><span>&#8592;</span> Vyberte z menu</div></div>
       </div>
       <div class="order-footer">
-        <div id="discountDisplay" style="display:none">
-          <div style="display:flex;justify-content:space-between;align-items:baseline;padding:2px 0;font-size:12px;color:var(--color-text-sec)"><span>Medzisucet</span><span id="subtotalVal">0,00 &euro;</span></div>
+        <div id="discountDisplay" class="pos-hidden">
+          <div class="pos-subtotal-row"><span>Medzisucet</span><span id="subtotalVal">0,00 &euro;</span></div>
           <div class="discount-line"><span class="discount-label" id="discountLabel">Zlava</span><span id="discountVal">0,00 &euro;</span></div>
         </div>
         <div class="sum-total-wrap"><span class="sum-total-label">Celkom</span><span class="sum-total-val" id="total">0,00 &euro;</span></div>
@@ -111,7 +111,7 @@
             <button class="btn btn-split" onclick="splitBill()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M3 4l18 17"/></svg>Rozdelit ucet</button>
             <button class="btn btn-discount" onclick="showDiscountModal()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>Zlava</button>
           </div>
-          <button class="btn btn-cancel" onclick="clearOrder()" style="width:100%">Zrusit objednavku</button>
+          <button type="button" class="btn btn-cancel btn-block" onclick="clearOrder()">Zrusit objednavku</button>
         </div>
       </div>
     </aside>
@@ -159,7 +159,7 @@
             <div class="mob-order-table" id="mobOrderTable">Stol 1</div>
           </div>
         </div>
-        <div class="order-tabs" id="mobOrderTabs" style="display:none"></div>
+        <div class="order-tabs pos-hidden" id="mobOrderTabs"></div>
         <div class="mob-order-items" id="mobOrderItems">
           <div class="mob-order-empty">
             <div class="mob-order-empty-icon">&#128203;</div>
@@ -228,7 +228,7 @@
   <div class="u-modal" role="dialog" aria-modal="true" aria-labelledby="noteModalTitle">
     <span class="u-modal-icon">&#9998;</span>
     <div class="u-modal-title" id="noteModalTitle">Poznamka k polozke</div>
-    <p class="u-modal-hint" id="noteModalSentHint" style="display:none">Polozka uz bola odoslana — poznamka sa ulozi k uctu. Novy bon sa nevytlaci.</p>
+    <p class="u-modal-hint pos-hidden" id="noteModalSentHint">Polozka uz bola odoslana — poznamka sa ulozi k uctu. Novy bon sa nevytlaci.</p>
     <div class="u-modal-body">
       <div class="u-modal-field">
         <label for="noteInput" class="sr-only">Poznamka k polozke</label><input id="noteInput" type="text" placeholder="Napr. bez cibule, extra ostra..." maxlength="200">
@@ -265,12 +265,12 @@
     <div class="u-modal-title" id="moveModalTitle">Presunúť položky</div>
     <div class="u-modal-text">Vyberte polozky na presun</div>
     <div class="u-modal-body">
-      <div id="moveItemsList" style="max-height:250px;overflow-y:auto"></div>
+      <div id="moveItemsList" class="u-modal-scroll"></div>
     </div>
     <div class="u-modal-btns">
       <button class="u-btn u-btn-ghost" onclick="closeMoveModal()">Zrusit</button>
-      <button class="u-btn u-btn-lavender" id="moveToAccountBtn" onclick="moveToAccount()" style="display:none">Na iny ucet</button>
-      <button class="u-btn u-btn-ice" id="moveToTableBtn" onclick="moveSelectTable()" style="display:none">Na iny stol</button>
+      <button type="button" class="u-btn u-btn-lavender pos-hidden" id="moveToAccountBtn" onclick="moveToAccount()">Na iny ucet</button>
+      <button type="button" class="u-btn u-btn-ice pos-hidden" id="moveToTableBtn" onclick="moveSelectTable()">Na iny stol</button>
     </div>
   </div>
 </div>
@@ -281,8 +281,8 @@
     <span class="u-modal-icon">&#128221;</span>
     <div class="u-modal-title" id="moveAccountModalTitle">Vyberte ucet</div>
     <div class="u-modal-body">
-      <div id="moveAccountList" style="max-height:300px;overflow-y:auto"></div>
-      <button class="u-btn u-btn-ghost" onclick="moveToNewAccount()" style="width:100%;margin-top:8px;border-style:dashed">+ Novy ucet</button>
+      <div id="moveAccountList" class="u-modal-scroll u-modal-scroll--tall"></div>
+      <button type="button" class="u-btn u-btn-ghost u-btn-new-account" onclick="moveToNewAccount()">+ Novy ucet</button>
     </div>
     <div class="u-modal-btns">
       <button class="u-btn u-btn-ghost" onclick="closeMoveAccountModal()">Zrusit</button>
@@ -315,9 +315,9 @@
     <div class="u-modal-text">Storno odoslanej polozky vyzaduje manazersky PIN</div>
     <div class="u-modal-body">
       <div class="u-modal-field">
-        <label for="managerPinInput" class="sr-only">Manazersky PIN</label><input id="managerPinInput" type="password" maxlength="4" placeholder="****" inputmode="numeric" style="text-align:center;font-size:24px;letter-spacing:8px">
+        <label for="managerPinInput" class="sr-only">Manazersky PIN</label><input class="manager-pin-input" id="managerPinInput" type="password" maxlength="4" placeholder="****" inputmode="numeric">
       </div>
-      <div id="managerPinError" style="color:var(--color-danger);font-size:12px;text-align:center;margin-top:6px;display:none"></div>
+      <div id="managerPinError" class="manager-pin-error pos-hidden" role="alert"></div>
     </div>
     <div class="u-modal-btns">
       <button class="u-btn u-btn-ghost" onclick="closeManagerPinModal()">Zrusit</button>
@@ -337,11 +337,11 @@
 <script src="/js/pos-mobile.js"></script>
 <div class="u-overlay" id="discountModal">
   <div class="u-modal" role="dialog" aria-modal="true" aria-labelledby="discountModalTitle">
-    <span class="u-modal-icon" style="font-size:36px">&#127991;</span>
+    <span class="u-modal-icon u-modal-icon--lg" aria-hidden="true">&#127991;</span>
     <div class="u-modal-title" id="discountModalTitle">Aplikovat zlavu</div>
     <div class="u-modal-body">
-      <div id="discountList" style="max-height:200px;overflow-y:auto"></div>
-      <div class="u-modal-field" style="margin-top:12px">
+      <div id="discountList" class="u-modal-scroll u-modal-scroll--short"></div>
+      <div class="u-modal-field u-modal-field--spaced">
         <label for="customDiscountInput">Vlastna zlava (%)</label>
         <input id="customDiscountInput" type="number" min="1" max="100" placeholder="napr. 10">
       </div>
@@ -387,15 +387,15 @@
     <div class="u-modal-body">
       <div class="u-modal-field">
         <label>Pociatocna hotovost</label>
-        <div id="closeShiftOpening" style="font-size:15px;font-weight:600;padding:8px 0">0.00</div>
+        <div id="closeShiftOpening" class="u-shift-stat">0.00</div>
       </div>
       <div class="u-modal-field">
         <label>Hotovostne trzby</label>
-        <div id="closeShiftCashSales" style="font-size:15px;font-weight:600;padding:8px 0">0.00</div>
+        <div id="closeShiftCashSales" class="u-shift-stat">0.00</div>
       </div>
       <div class="u-modal-field">
         <label>Ocakavana hotovost</label>
-        <div id="closeShiftExpected" style="font-size:15px;font-weight:700;padding:8px 0;color:var(--color-accent)">0.00</div>
+        <div id="closeShiftExpected" class="u-shift-stat--accent">0.00</div>
       </div>
       <div class="u-modal-field">
         <label>Skutocna hotovost (EUR)</label>
@@ -403,7 +403,7 @@
       </div>
       <div class="u-modal-field">
         <label>Rozdiel</label>
-        <div id="closeShiftDiff" style="font-size:15px;font-weight:700;padding:8px 0">0.00 EUR</div>
+        <div id="closeShiftDiff" class="u-shift-stat--diff">0.00 EUR</div>
       </div>
     </div>
     <div class="u-modal-btns">
@@ -418,16 +418,16 @@
 </div>
 <!-- Keyboard Help Modal -->
 <div class="u-overlay" id="helpModal">
-  <div class="u-modal" role="dialog" aria-modal="true" aria-labelledby="helpTitle" style="text-align:left">
-    <div class="u-modal-title" id="helpTitle" style="text-align:center">Klavesove skratky</div>
-    <div class="u-modal-body" style="padding:8px 0">
-      <table style="width:100%;font-size:13px;border-collapse:collapse">
-        <tr><td style="padding:6px 8px"><kbd style="background:var(--color-bg-surface);border:1px solid var(--color-border);border-radius:4px;padding:2px 8px;font-family:inherit;font-size:12px;font-weight:600">/</kbd></td><td style="padding:6px 8px">Hladat produkt</td></tr>
-        <tr><td style="padding:6px 8px"><kbd style="background:var(--color-bg-surface);border:1px solid var(--color-border);border-radius:4px;padding:2px 8px;font-family:inherit;font-size:12px;font-weight:600">1-9</kbd></td><td style="padding:6px 8px">Vybrat kategoriu</td></tr>
-        <tr><td style="padding:6px 8px"><kbd style="background:var(--color-bg-surface);border:1px solid var(--color-border);border-radius:4px;padding:2px 8px;font-family:inherit;font-size:12px;font-weight:600">F2</kbd></td><td style="padding:6px 8px">Prepnut stoly / produkty</td></tr>
-        <tr><td style="padding:6px 8px"><kbd style="background:var(--color-bg-surface);border:1px solid var(--color-border);border-radius:4px;padding:2px 8px;font-family:inherit;font-size:12px;font-weight:600">&#8592;&#8593;&#8594;&#8595;</kbd></td><td style="padding:6px 8px">Navigacia v produktovej mriezke</td></tr>
-        <tr><td style="padding:6px 8px"><kbd style="background:var(--color-bg-surface);border:1px solid var(--color-border);border-radius:4px;padding:2px 8px;font-family:inherit;font-size:12px;font-weight:600">Esc</kbd></td><td style="padding:6px 8px">Zavriet modal / zrusit</td></tr>
-        <tr><td style="padding:6px 8px"><kbd style="background:var(--color-bg-surface);border:1px solid var(--color-border);border-radius:4px;padding:2px 8px;font-family:inherit;font-size:12px;font-weight:600">?</kbd></td><td style="padding:6px 8px">Zobrazit tuto pomoc</td></tr>
+  <div class="u-modal u-modal--help" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+    <div class="u-modal-title u-modal-title--center" id="helpTitle">Klavesove skratky</div>
+    <div class="u-modal-body u-modal-body--flush">
+      <table class="help-keys-table">
+        <tr><td><kbd>/</kbd></td><td>Hladat produkt</td></tr>
+        <tr><td><kbd>1-9</kbd></td><td>Vybrat kategoriu</td></tr>
+        <tr><td><kbd>F2</kbd></td><td>Prepnut stoly / produkty</td></tr>
+        <tr><td><kbd>&#8592;&#8593;&#8594;&#8595;</kbd></td><td>Navigacia v produktovej mriezke</td></tr>
+        <tr><td><kbd>Esc</kbd></td><td>Zavriet modal / zrusit</td></tr>
+        <tr><td><kbd>?</kbd></td><td>Zobrazit tuto pomoc</td></tr>
       </table>
     </div>
     <div class="u-modal-btns">

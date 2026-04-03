@@ -476,7 +476,7 @@ function openNoteModal(name, itemId){
   noteItemId = item.id;
   document.getElementById('noteInput').value = item.note || '';
   var hint = document.getElementById('noteModalSentHint');
-  if (hint) hint.style.display = item.sent ? 'block' : 'none';
+  if (hint) hint.classList.toggle('pos-hidden', !item.sent);
   document.getElementById('noteModal').classList.add('show');
   setTimeout(function() { document.getElementById('noteInput').focus(); }, 100);
 }
@@ -485,7 +485,7 @@ function closeNoteModal(){
   noteItemName = null;
   noteItemId = null;
   var hint = document.getElementById('noteModalSentHint');
-  if (hint) hint.style.display = 'none';
+  if (hint) hint.classList.add('pos-hidden');
 }
 async function saveNote(){
   if (_savingNote) return;
@@ -599,8 +599,8 @@ function toggleMoveItem(itemId, el) {
 function updateMoveBtns() {
   var hasItems = moveSelectedItems.length > 0;
   var hasMultipleAccounts = tableOrdersList.length > 1;
-  document.getElementById('moveToAccountBtn').style.display = hasItems && hasMultipleAccounts ? 'flex' : 'none';
-  document.getElementById('moveToTableBtn').style.display = hasItems ? 'flex' : 'none';
+  document.getElementById('moveToAccountBtn').classList.toggle('pos-hidden', !(hasItems && hasMultipleAccounts));
+  document.getElementById('moveToTableBtn').classList.toggle('pos-hidden', !hasItems);
 }
 
 // Option A: move to another account on SAME table
