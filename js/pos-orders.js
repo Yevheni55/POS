@@ -1,0 +1,733 @@
+'use strict';
+// pos-orders.js — Order management: add/remove items, sync, accounts, notes, split, move, merge
+
+// Order — local-first: no API calls until send/payment/table-switch
+var _orderDirty = false; // true when local state differs from server
+var _pendingStorno = []; // tracks qty reductions on sent items for storno print
+var _pendingRemovals = []; // server item IDs removed locally via changeQty (qty→0)
+var _nextLocalOrderItemId = Date.now();
+var _addToastTimer = null;
+var _addToastCount = 0;
+var _addToastEmoji = '';
+var _addToastName = '';
+var _addToastMixed = false;
+var _savingNote = false;
+
+// Debounced render — batches multiple rapid adds into one full render
+var _renderTimer = null;
+function _scheduleRender() {
+  if (_renderTimer) clearTimeout(_renderTimer);
+  _renderTimer = setTimeout(function() {
+    _renderTimer = null;
+    renderOrder();
+    updateQtyBadges();
+  }, 120);
+}
+
+function _getNextLocalOrderItemId() {
+  _nextLocalOrderItemId += 1;
+  return _nextLocalOrderItemId;
+}
+
+function _getMergeKey(item) {
+  return String(item.menuItemId) + '::' + (item.note || '');
+}
+
+function _isServerOrderItem(item) {
+  return typeof item.id === 'number' && item.id <= 1000000000;
+}
+
+function _normalizeLocalOrder(order) {
+  var normalized = [];
+  var unsentSeen = Object.create(null);
+
+  for (var i = 0; i < order.length; i++) {
+    var item = order[i];
+    if (item.sent) {
+      normalized.push(item);
+      continue;
+    }
+
+    var key = _getMergeKey(item);
+    if (unsentSeen[key] === undefined) {
+      unsentSeen[key] = normalized.length;
+      normalized.push(item);
+      continue;
+    }
+
+    var target = normalized[unsentSeen[key]];
+    if (_isServerOrderItem(target) && _isServerOrderItem(item)) {
+      normalized.push(item);
+      continue;
+    }
+
+    target.qty += item.qty;
+    target._localQtyChanged = true;
+    if (!_isServerOrderItem(target) && _isServerOrderItem(item)) {
+      target.id = item.id;
+      if (item.orderId !== undefined) target.orderId = item.orderId;
+    }
+  }
+
+  return normalized;
+}
+
+function _queueAddToast(emoji, name, qtyAdded) {
+  qtyAdded = qtyAdded || 1;
+  if (!_addToastCount) {
+    _addToastEmoji = emoji;
+    _addToastName = name;
+    _addToastMixed = false;
+  } else if (_addToastEmoji !== emoji || _addToastName !== name) {
+    _addToastMixed = true;
+  }
+
+  _addToastCount += qtyAdded;
+  if (_addToastTimer) clearTimeout(_addToastTimer);
+  _addToastTimer = setTimeout(function() {
+    var message;
+    if (_addToastMixed) message = _addToastCount + ' pol. pridanych';
+    else if (_addToastCount > 1) message = _addToastEmoji + ' ' + _addToastName + ' x' + _addToastCount + ' pridane';
+    else message = _addToastEmoji + ' ' + _addToastName + ' pridane';
+
+    _addToastTimer = null;
+    _addToastCount = 0;
+    _addToastEmoji = '';
+    _addToastName = '';
+    _addToastMixed = false;
+    showToast(message);
+  }, 180);
+}
+
+function addToOrder(name, emoji, price) {
+  var menuItemId = MENU_ID_MAP.get(name);
+  if (!menuItemId) return;
+
+  var order = _normalizeLocalOrder(getOrder());
+  var existing = order.find(function(item) {
+    return !item.sent && item.menuItemId === menuItemId && !item.note;
+  });
+  var changedItem;
+  if (existing) {
+    existing.qty += 1;
+    existing._localQtyChanged = true;
+    changedItem = existing;
+  } else {
+    changedItem = {
+      name: name,
+      emoji: emoji,
+      price: price,
+      qty: 1,
+      note: '',
+      menuItemId: menuItemId,
+      id: _getNextLocalOrderItemId()
+    };
+    order.push(changedItem);
+  }
+  setOrder(order);
+  _orderDirty = true;
+  var t = TABLES.find(function(x) { return x.id === selectedTableId; });
+  if (t && t.status === 'free') t.status = 'occupied';
+
+  // Fast-path: append single item to DOM immediately (no full rebuild)
+  var c = document.getElementById('orderItems');
+  var emptyEl = c.querySelector('.order-empty');
+  if (emptyEl) emptyEl.remove();
+  var esc = name.replace(/'/g, "\\'");
+  if (existing) {
+    var existingEl = c.querySelector('.order-item-wrap[data-item-id="' + existing.id + '"]');
+    if (existingEl) {
+      var qtyEl = existingEl.querySelector('.qty-val');
+      if (qtyEl) qtyEl.textContent = existing.qty;
+      var totalEl = existingEl.querySelector('.order-item-total');
+      if (totalEl) totalEl.textContent = fmt(existing.price * existing.qty);
+    }
+  } else {
+    var html = '<div class="order-item-wrap" data-item-id="' + changedItem.id + '" ontouchstart="swipeStart(event,this)" ontouchmove="swipeMove(event,this)" ontouchend="swipeEnd(event,this)">' +
+      '<div class="order-item-inner"><span class="order-item-emoji">' + emoji + '</span>' +
+      '<div class="order-item-info"><div class="order-item-name">' + name + '</div></div>' +
+      '<div class="order-item-qty"><button class="qty-btn" onclick="changeQty(\'' + esc + '\', -1)" onpointerdown="startQtyHold(\'' + esc + '\', -1)">&minus;</button><span class="qty-val">1</span><button class="qty-btn" onclick="changeQty(\'' + esc + '\', 1)" onpointerdown="startQtyHold(\'' + esc + '\', 1)">&plus;</button></div>' +
+      '<div class="order-item-total">' + fmt(price) + '</div></div>' +
+      '<div class="order-item-swipe-left"><button class="swipe-btn swipe-btn-move" onclick="showMoveModal(' + changedItem.id + ')" aria-label="Presunut polozku">&#8599;</button><button class="swipe-btn swipe-btn-note" onclick="openNoteModal(\'' + esc + '\',' + changedItem.id + ')" aria-label="Poznamka">&#9998;</button><button class="swipe-btn swipe-btn-del" onclick="removeItem(\'' + esc + '\')" aria-label="Odstranit polozku">&#10005;</button></div></div>';
+    c.insertAdjacentHTML('afterbegin', html);
+  }
+
+  // Lightweight counter + total update (no full rebuild)
+  var countEl = document.getElementById('orderCount');
+  var newCount = order.reduce(function(s, o) { return s + o.qty; }, 0);
+  countEl.textContent = newCount;
+  countEl.classList.toggle('zero', newCount === 0);
+  countEl.classList.add('bump'); setTimeout(function() { countEl.classList.remove('bump'); }, 250);
+  updateTotals();
+
+  // Update only this item's product card badge
+  updateQtyBadges(menuItemId);
+  var btnSend = document.getElementById('btnSend');
+  if (btnSend) btnSend.disabled = false;
+
+  // Schedule a full render to fix sort order and send-button state after rapid adds settle
+  _scheduleRender();
+
+  _queueAddToast(emoji, name, 1);
+}
+
+// Sync local order state to server — called before send, payment, or table switch
+async function syncOrderToServer() {
+  if (!_orderDirty || !selectedTableId) return;
+  var order = getOrder();
+  if (!order.length && !currentOrderId) { _orderDirty = false; return; }
+
+  try {
+    // Delete items that were removed locally via changeQty (qty→0)
+    if (_pendingRemovals.length && currentOrderId) {
+      for (var ri = 0; ri < _pendingRemovals.length; ri++) {
+        try { await api.del('/orders/' + currentOrderId + '/items/' + _pendingRemovals[ri], { version: currentOrderVersion }); } catch(e) {}
+      }
+      _pendingRemovals = [];
+    }
+
+    // All items removed locally — reload from server to sync state
+    if (!order.length && currentOrderId) {
+      await loadTableOrder(selectedTableId, true);
+      _orderDirty = false;
+      return;
+    }
+
+    // Keep sent items separate, but collapse identical unsent rows before sync.
+    order = _normalizeLocalOrder(order);
+    setOrder(order);
+
+    // Separate unsent (local-only) items from server-synced items
+    var unsentItems = order.filter(function(o) { return !o.sent && typeof o.id === 'number' && o.id > 1000000000; });
+    var existingChanged = order.filter(function(o) { return o.sent || (typeof o.id === 'number' && o.id <= 1000000000); });
+
+    if (!currentOrderId) {
+      // No order on server yet — create with all items (already merged)
+      var items = order.map(function(o) { return { menuItemId: o.menuItemId, qty: o.qty, note: o.note || '' }; });
+      var newOrder = await api.post('/orders', { tableId: selectedTableId, items: items });
+      currentOrderId = newOrder.id;
+      currentOrderVersion = newOrder.version || 1;
+    } else {
+      // Order exists — add unsent items, update changed quantities
+      if (unsentItems.length) {
+        var items = unsentItems.map(function(o) { return { menuItemId: o.menuItemId, qty: o.qty, note: o.note || '' }; });
+        await api.post('/orders/' + currentOrderId + '/items', { items: items, version: currentOrderVersion });
+      }
+      // Update qty for existing items that may have changed (including merged)
+      for (var i = 0; i < existingChanged.length; i++) {
+        var o = existingChanged[i];
+        if (o._localQtyChanged) {
+          var putRes = await api.put('/orders/' + currentOrderId + '/items/' + o.id, { qty: o.qty, version: currentOrderVersion });
+          if (putRes && putRes.orderVersion != null) currentOrderVersion = putRes.orderVersion;
+          o._localQtyChanged = false;
+        }
+      }
+    }
+
+    // Reload from server to get real IDs
+    await loadTableOrder(selectedTableId, true);
+    renderOrder();
+    updateQtyBadges();
+    _orderDirty = false;
+  } catch (e) {
+    console.error('syncOrderToServer error:', e);
+    showToast('Chyba sync: ' + e.message);
+    throw e;
+  }
+}
+
+function changeQty(name,d){
+  const order = getOrder();
+  const item = order.find(o => o.name === name);
+  if (!item) return;
+
+  // Track storno for sent items being reduced
+  var sentQty = item._sentQty || 0;
+  if (d < 0 && sentQty > 0) {
+    var stornoQty = Math.min(-d, Math.min(item.qty, sentQty));
+    if (stornoQty > 0) {
+      var existing = _pendingStorno.find(function(s) { return s.name === name; });
+      if (existing) { existing.qty += stornoQty; }
+      else { _pendingStorno.push({ qty: stornoQty, name: item.name, note: item.note || '', menuItemId: item.menuItemId }); }
+
+      // Show storno reason popup immediately for qty reduction
+      var _miId = item.menuItemId;
+      var _sQty = stornoQty;
+      var _sName = item.name;
+      var _oid = currentOrderId;
+      if (_oid && _miId) {
+        showStornoReason(_sName, _sQty, function(result) {
+          if (!result) return;
+          api.post('/orders/' + _oid + '/storno-write-off', {
+            menuItemId: _miId, qty: _sQty,
+            reason: result.reason, note: result.note, returnToStock: result.returnToStock
+          }).then(function(r) {
+            if (r.action === 'returned') showToast('Suroviny vratene na sklad');
+            else if (r.action === 'write_off') showToast('Odpis: ' + (r.totalCost || 0).toFixed(2) + ' \u20AC');
+          }).catch(function(e) { console.error('changeQty storno write-off error:', e); });
+        });
+      }
+    }
+  }
+
+  const newQty = item.qty + d;
+  if (newQty <= 0) {
+    // Track server items for deletion during sync
+    if (_isServerOrderItem(item) && currentOrderId) {
+      _pendingRemovals.push(item.id);
+    }
+    const idx = order.indexOf(item);
+    if (idx !== -1) order.splice(idx, 1);
+    setOrder(order);
+  } else {
+    item.qty = newQty;
+    item._localQtyChanged = true;
+  }
+  _orderDirty = true;
+  // Fast-path: update the qty display and total inline
+  var wrap = document.querySelector('.order-item-wrap .order-item-name');
+  var wraps = document.querySelectorAll('.order-item-wrap');
+  for (var wi = 0; wi < wraps.length; wi++) {
+    var nameEl = wraps[wi].querySelector('.order-item-name');
+    if (nameEl && nameEl.textContent === name) {
+      if (newQty <= 0) {
+        wraps[wi].remove();
+      } else {
+        var qtyVal = wraps[wi].querySelector('.qty-val');
+        if (qtyVal) qtyVal.textContent = newQty;
+        var totalEl = wraps[wi].querySelector('.order-item-total');
+        if (totalEl) totalEl.textContent = fmt(item.price * newQty);
+      }
+      break;
+    }
+  }
+  updateTotals();
+  updateQtyBadges(item.menuItemId);
+  _scheduleRender();
+}
+async function removeItem(name){
+  const order = getOrder();
+  const item = order.find(o => o.name === name);
+  if (!item) return;
+
+  // If sent and user is cisnik (not manazer/admin), require manager PIN
+  var user = api.getUser();
+  if (item.sent && user && user.role === 'cisnik') {
+    requireManagerPin(function() { doRemoveItem(name); });
+    return;
+  }
+
+  doRemoveItem(name);
+}
+async function doRemoveItem(name){
+  const order = getOrder();
+  const item = order.find(o => o.name === name);
+  if (!item) return;
+
+  var sentQty = item._sentQty || 0;
+  const itemId = item.id;
+  const removedQty = item.qty;
+  const removedName = item.name;
+  const removedNote = item.note || '';
+  const idx = order.indexOf(item);
+  if (idx !== -1) order.splice(idx, 1);
+  setOrder(order);
+  _orderDirty = true;
+  renderOrder();
+  updateQtyBadges();
+  if (isMobile()) renderMobOrder();
+
+  // Only call API for sent items (storno needs server + print)
+  if (sentQty > 0 && currentOrderId) {
+    try {
+      await api.del('/orders/' + currentOrderId + '/items/' + itemId, { version: currentOrderVersion });
+      var table = TABLES.find(function(t) { return t.id === selectedTableId; });
+      var tableName = table ? table.name : String(selectedTableId);
+      var user = api.getUser();
+      var staffName = user ? user.name : '';
+      var dest = getItemDest(removedName) === 'kuchyna' ? 'KUCHYNA' : 'BAR';
+      await api.post('/print/kitchen', {
+        dest: 'STORNO ' + dest,
+        tableName: tableName,
+        staffName: staffName,
+        items: [{ qty: -sentQty, name: removedName, note: removedNote }],
+        orderNum: currentOrderId
+      });
+      showToast('Storno vytlacene: ' + removedName);
+
+      // Show storno reason popup + create write-off
+      var _menuItemId = item.menuItemId;
+      var _orderId = currentOrderId;
+      var _stornoQty = sentQty;
+      showStornoReason(removedName, _stornoQty, function(result) {
+        if (!result) return;
+        api.post('/orders/' + _orderId + '/storno-write-off', {
+          menuItemId: _menuItemId, qty: _stornoQty,
+          reason: result.reason, note: result.note, returnToStock: result.returnToStock
+        }).then(function(r) {
+          if (r.action === 'returned') showToast('Suroviny vratene na sklad');
+          else if (r.action === 'write_off') showToast('Odpis vytvoreny: ' + (r.totalCost || 0).toFixed(2) + ' \u20AC');
+        }).catch(function(e) { console.error('Storno write-off error:', e); });
+      });
+    } catch(e) {
+      console.error('removeItem storno error:', e);
+      showToast('Chyba storno: ' + e.message);
+    }
+  }
+}
+async function clearOrder(){
+  try {
+    if(!getOrder().length)return;
+
+    // Check if any items were sent and user is cisnik — require manager PIN
+    var hasSentItems = getOrder().some(function(item) {
+      return item.sent;
+    });
+    var user = api.getUser();
+    if (hasSentItems && user && user.role === 'cisnik') {
+      requireManagerPin(function() { doClearOrder(); });
+      return;
+    }
+    await doClearOrder();
+  } catch(e) {
+    console.error('clearOrder error:', e);
+    showToast('Chyba: ' + e.message);
+  }
+}
+async function doClearOrder(){
+  try {
+    if(!getOrder().length)return;
+    _pendingStorno = []; // clearOrder handles its own storno prints
+    _pendingRemovals = [];
+
+    // Print storno for all sent items
+    var stornoItems = [];
+    getOrder().forEach(function(item) {
+      var sentQty = item._sentQty || 0;
+      if (sentQty > 0) {
+        stornoItems.push({ qty: -sentQty, name: item.name, note: '' });
+      }
+    });
+    if (stornoItems.length) {
+      var table = TABLES.find(function(t) { return t.id === selectedTableId; });
+      var tableName = table ? table.name : String(selectedTableId);
+      var user = api.getUser();
+      var staffName = user ? user.name : '';
+      // Split storno by dest
+      var foodStorno = stornoItems.filter(function(i) { return getItemDest(i.name) === 'kuchyna'; });
+      var drinkStorno = stornoItems.filter(function(i) { return getItemDest(i.name) !== 'kuchyna'; });
+      var prints = [];
+      if (foodStorno.length) prints.push(api.post('/print/kitchen', { dest:'STORNO KUCHYNA', tableName:tableName, staffName:staffName, items:foodStorno, orderNum:currentOrderId }));
+      if (drinkStorno.length) prints.push(api.post('/print/kitchen', { dest:'STORNO BAR', tableName:tableName, staffName:staffName, items:drinkStorno, orderNum:currentOrderId }));
+      await Promise.all(prints);
+    }
+
+    if (currentOrderId) {
+      await api.del('/orders/' + currentOrderId, { version: currentOrderVersion });
+      currentOrderId = null;
+      currentOrderVersion = null;
+    }
+    await loadTableOrder(selectedTableId, true);
+    renderOrder();
+    if (isMobile()) renderMobOrder();
+    updateTableStatuses();
+    if(currentView==='tables')renderFloor();
+    if(isMobile())renderMobTables();
+    showToast('Objednavka zrusena');
+  } catch(e) {
+    console.error('clearOrder error:', e);
+    showToast('Chyba: ' + e.message);
+  }
+}
+
+async function switchAccount(orderId){
+  const order=tableOrdersList.find(o=>o.id===orderId);
+  if(!order)return;
+  currentOrderId=orderId;
+  currentOrderVersion=order.version||null;
+  tableOrders[selectedTableId]=order.items.map(i=>({
+    id:i.id,name:i.name,emoji:i.emoji,price:i.price,
+    qty:i.qty,note:i.note,menuItemId:i.menuItemId,
+    orderId:order.id,desc:i.desc||'',sent:!!i.sent,
+    _sentQty:i.sent?i.qty:0
+  }));
+  renderOrder();if(isMobile())renderMobOrder();
+}
+async function newAccount(){
+  if(!selectedTableId)return;
+  try {
+    const label='Ucet '+(tableOrdersList.length+1);
+    const newOrder=await api.post('/orders',{tableId:selectedTableId,items:[],label:label});
+    currentOrderId=newOrder.id;
+    currentOrderVersion=newOrder.version||1;
+    await loadTableOrder(selectedTableId, true);
+    renderOrder();if(isMobile())renderMobOrder();
+    showToast('Novy ucet vytvoreny');
+  } catch(e) {
+    showToast(e.message || 'Chyba pri vytvarani uctu', 'error');
+  }
+}
+
+function openNoteModal(name, itemId){
+  var order = getOrder();
+  var item = itemId != null ? order.find(function(o) { return o.id === itemId; }) : order.find(function(o) { return o.name === name; });
+  if (!item) return;
+  noteItemName = item.name;
+  noteItemId = item.id;
+  document.getElementById('noteInput').value = item.note || '';
+  var hint = document.getElementById('noteModalSentHint');
+  if (hint) hint.style.display = item.sent ? 'block' : 'none';
+  document.getElementById('noteModal').classList.add('show');
+  setTimeout(function() { document.getElementById('noteInput').focus(); }, 100);
+}
+function closeNoteModal(){
+  document.getElementById('noteModal').classList.remove('show');
+  noteItemName = null;
+  noteItemId = null;
+  var hint = document.getElementById('noteModalSentHint');
+  if (hint) hint.style.display = 'none';
+}
+async function saveNote(){
+  if (_savingNote) return;
+  try {
+    _savingNote = true;
+    var note = document.getElementById('noteInput').value.trim();
+    var item = noteItemId != null
+      ? getOrder().find(function(o) { return o.id === noteItemId; })
+      : (noteItemName ? getOrder().find(function(o) { return o.name === noteItemName; }) : null);
+    if (!item) { closeNoteModal(); return; }
+
+    if (_isServerOrderItem(item) && currentOrderId) {
+      var itemId = item.id;
+      var putNoteOnce = async function() {
+        var res = await api.put('/orders/' + currentOrderId + '/items/' + itemId, { note: note, version: currentOrderVersion });
+        if (res && res.orderVersion != null) currentOrderVersion = res.orderVersion;
+        await loadTableOrder(selectedTableId, true);
+      };
+      try {
+        await putNoteOnce();
+      } catch (e) {
+        if (e.message && e.message.indexOf('inym pouzivatelom') >= 0) {
+          await loadTableOrder(selectedTableId, true);
+          var after = getOrder().find(function(o) { return o.id === itemId; });
+          if (after && _isServerOrderItem(after) && currentOrderId) await putNoteOnce();
+          else throw e;
+        } else throw e;
+      }
+    } else {
+      item.note = note;
+      setOrder(getOrder());
+      _orderDirty = true;
+    }
+    renderOrder();
+    if (isMobile()) renderMobOrder();
+    closeNoteModal();
+    showToast('Poznamka ulozena', true);
+  } catch(e) {
+    console.error('saveNote error:', e);
+    showToast('Chyba: ' + e.message);
+  } finally {
+    _savingNote = false;
+  }
+}
+
+function splitBill(){
+  if(!getOrder().length||!currentOrderId){showToast('Prazdna objednavka');return}
+  const total=getOrderTotal();
+  document.getElementById('splitCount').value=2;
+  document.getElementById('splitPreview').textContent='Kazdy plati: '+fmt(total/2);
+  document.getElementById('splitModal').classList.add('show');
+}
+
+document.getElementById('splitCount')?.addEventListener('input',function(){
+  const n=parseInt(this.value)||2;
+  const total=getOrderTotal();
+  document.getElementById('splitPreview').textContent='Kazdy plati: '+fmt(total/n);
+});
+
+async function confirmSplit(){
+  const parts=parseInt(document.getElementById('splitCount').value)||2;
+  try{
+    await api.post('/orders/'+currentOrderId+'/split',{parts});
+    document.getElementById('splitModal').classList.remove('show');
+    await loadTableOrder(selectedTableId, true);
+    renderOrder();
+    if(isMobile()) renderMobOrder();
+    showToast('Ucet rozdeleny na '+parts+' casti',true);
+  }catch(e){
+    showToast('Chyba: '+e.message);
+  }
+}
+
+function closeSplitModal(){
+  document.getElementById('splitModal').classList.remove('show');
+}
+
+// === Move items between tables ===
+var moveSelectedItems = [];
+var moveMode = false;
+var moveSourceTableId = null;
+var moveSourceOrderId = null;
+
+function showMoveModal(itemId) {
+  var order = getOrder();
+  moveSelectedItems = itemId ? [itemId] : [];
+  moveSourceTableId = selectedTableId;
+  moveSourceOrderId = currentOrderId;
+
+  var itemsHtml = order.map(function(o) {
+    var sel = moveSelectedItems.indexOf(o.id) >= 0 ? ' selected' : '';
+    return '<div class="move-item-row' + sel + '" onclick="toggleMoveItem(' + o.id + ',this)">' +
+      '<div class="move-check">&#10003;</div>' +
+      '<span style="font-size:16px">' + o.emoji + '</span>' +
+      '<span style="flex:1;font-size:13px;font-weight:600">' + o.qty + 'x ' + o.name + '</span>' +
+      '<span style="font-size:12px;color:var(--color-accent)">' + fmt(o.price * o.qty) + '</span>' +
+    '</div>';
+  }).join('');
+  document.getElementById('moveItemsList').innerHTML = itemsHtml;
+  updateMoveBtns();
+  document.getElementById('moveModal').classList.add('show');
+}
+
+function toggleMoveItem(itemId, el) {
+  var idx = moveSelectedItems.indexOf(itemId);
+  if (idx >= 0) { moveSelectedItems.splice(idx, 1); el.classList.remove('selected'); }
+  else { moveSelectedItems.push(itemId); el.classList.add('selected'); }
+  updateMoveBtns();
+}
+
+function updateMoveBtns() {
+  var hasItems = moveSelectedItems.length > 0;
+  var hasMultipleAccounts = tableOrdersList.length > 1;
+  document.getElementById('moveToAccountBtn').style.display = hasItems && hasMultipleAccounts ? 'flex' : 'none';
+  document.getElementById('moveToTableBtn').style.display = hasItems ? 'flex' : 'none';
+}
+
+// Option A: move to another account on SAME table
+function moveToAccount() {
+  document.getElementById('moveModal').classList.remove('show');
+  var list = tableOrdersList.filter(function(o) { return o.id !== currentOrderId; });
+  document.getElementById('moveAccountList').innerHTML = list.map(function(o) {
+    return '<div class="move-table-row" onclick="confirmMoveToAccount(' + o.id + ')">' +
+      '<span style="font-weight:600">' + (o.label || 'Ucet') + '</span>' +
+      '<span style="color:var(--color-text-sec);font-size:12px">' + (o.items ? o.items.length + ' pol.' : '') + '</span>' +
+    '</div>';
+  }).join('');
+  document.getElementById('moveAccountModal').classList.add('show');
+}
+
+async function confirmMoveToAccount(targetOrderId) {
+  try {
+    await api.post('/orders/' + moveSourceOrderId + '/move-items', {
+      itemIds: moveSelectedItems, targetTableId: selectedTableId, targetOrderId: targetOrderId
+    });
+    document.getElementById('moveAccountModal').classList.remove('show');
+    await loadTableOrder(selectedTableId, true);
+    currentOrderId = targetOrderId;
+    var _movedOrder = tableOrdersList.find(function(o){ return o.id === targetOrderId; });
+    currentOrderVersion = _movedOrder ? (_movedOrder.version || null) : null;
+    renderOrder();
+    if (isMobile()) renderMobOrder();
+    showToast(moveSelectedItems.length + ' pol. presunutych', true);
+    moveSelectedItems = [];
+  } catch(e) { showToast('Chyba: ' + e.message); }
+}
+
+async function moveToNewAccount() {
+  try {
+    var label = 'Ucet ' + (tableOrdersList.length + 1);
+    var newOrder = await api.post('/orders', { tableId: selectedTableId, items: [], label: label });
+    await confirmMoveToAccount(newOrder.id);
+  } catch(e) { showToast('Chyba: ' + e.message); }
+}
+
+function closeMoveAccountModal() {
+  document.getElementById('moveAccountModal').classList.remove('show');
+}
+
+// Option B: move to ANOTHER TABLE — 2-step with table view
+function moveSelectTable() {
+  document.getElementById('moveModal').classList.remove('show');
+  moveMode = true;
+  document.getElementById('moveBannerCount').textContent = moveSelectedItems.length;
+  document.getElementById('moveBanner').classList.add('show');
+  if (!isMobile()) { switchView('tables'); }
+  else { switchMobTab('mobTabTables'); }
+}
+
+function cancelMoveMode() {
+  moveMode = false;
+  moveSelectedItems = [];
+  moveSourceTableId = null;
+  moveSourceOrderId = null;
+  document.getElementById('moveBanner').classList.remove('show');
+}
+
+async function handleMoveToTable(targetTableId) {
+  if (targetTableId === moveSourceTableId) { showToast('Vyberte INY stol'); return; }
+  try {
+    await api.post('/orders/' + moveSourceOrderId + '/move-items', {
+      itemIds: moveSelectedItems, targetTableId: targetTableId
+    });
+    var targetTable = TABLES.find(function(t) { return t.id === targetTableId; });
+    showToast(moveSelectedItems.length + ' pol. → ' + (targetTable ? targetTable.name : 'stol'), true);
+    cancelMoveMode();
+    await loadTableOrder(selectedTableId, true);
+    // Refresh target table cache for correct status display
+    if (targetTableId !== selectedTableId) {
+      try {
+        var targetOrders = await api.get('/orders/table/' + targetTableId);
+        allOrdersCache[targetTableId] = Array.isArray(targetOrders) ? targetOrders : [];
+      } catch(e) { /* skip */ }
+    }
+    renderOrder();
+    if (isMobile()) renderMobOrder();
+    updateTableStatuses();
+    renderFloor();
+    if (isMobile()) renderMobTables();
+  } catch(e) { showToast('Chyba: ' + e.message); }
+}
+
+function closeMoveModal() {
+  document.getElementById('moveModal').classList.remove('show');
+  moveSelectedItems = [];
+}
+
+// === MERGE ACCOUNTS ===
+async function mergeAccounts() {
+  if (tableOrdersList.length < 2) { showToast('Len 1 ucet'); return; }
+  var totalItems = tableOrdersList.reduce(function(s, o) { return s + (o.items ? o.items.length : 0); }, 0);
+  var totalAmount = tableOrdersList.reduce(function(s, o) {
+    return s + (o.items ? o.items.reduce(function(s2, i) { return s2 + parseFloat(i.price) * i.qty; }, 0) : 0);
+  }, 0);
+  showConfirm(
+    'Spojit ucty',
+    'Spojit ' + tableOrdersList.length + ' uctov (' + totalItems + ' poloziek, ' + fmt(totalAmount) + ') do jedneho?',
+    doMergeAccounts,
+    { icon: '\u21C4', confirmText: 'Spojit' }
+  );
+}
+
+async function doMergeAccounts() {
+  var targetOrderId = tableOrdersList[0].id;
+  var toMerge = tableOrdersList.filter(function(o) { return o.id !== targetOrderId; });
+  try {
+    for (var i = 0; i < toMerge.length; i++) {
+      var items = toMerge[i].items;
+      if (items && items.length) {
+        var itemIds = items.map(function(it) { return it.id; });
+        await api.post('/orders/' + toMerge[i].id + '/move-items', {
+          itemIds: itemIds, targetTableId: selectedTableId, targetOrderId: targetOrderId
+        });
+      }
+      try { await api.del('/orders/' + toMerge[i].id); } catch(e) {}
+    }
+    await loadTableOrder(selectedTableId, true);
+    currentOrderId = targetOrderId;
+    var _mergedOrder = tableOrdersList.find(function(o){ return o.id === targetOrderId; });
+    currentOrderVersion = _mergedOrder ? (_mergedOrder.version || null) : null;
+    renderOrder();
+    if (isMobile()) renderMobOrder();
+    showToast('Ucty spojene', true);
+  } catch(e) { showToast('Chyba: ' + e.message); }
+}
