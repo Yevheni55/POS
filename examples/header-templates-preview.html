@@ -4,32 +4,43 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#0f0d1a">
-<title>POS — náhľady hlavičiek</title>
+<title>POS — náčrtky hlavičky (iba náhľad)</title>
 <link rel="stylesheet" href="/tokens.css">
 <link rel="stylesheet" href="/a11y.css">
 <link rel="stylesheet" href="/fonts/fonts.css">
 <link rel="stylesheet" href="/css/pos.css?v=10">
-<link rel="stylesheet" href="/css/header-templates.css?v=1">
+<link rel="stylesheet" href="/examples/header-sketches.css?v=1">
 <style>
-  .header-templates-preview-page {
+  .sketches-page {
     min-height: 100vh;
     padding: 24px 20px 48px;
     position: relative;
     z-index: 2;
   }
-  .header-templates-preview-page h1 {
+  .sketches-page h1 {
     font-family: var(--font-display);
     font-size: var(--text-6xl);
     margin-bottom: 8px;
     color: var(--color-text);
   }
-  .header-templates-preview-page .lead {
+  .sketches-page .lead {
     color: var(--color-text-sec);
-    margin-bottom: 20px;
-    max-width: 560px;
+    margin-bottom: 12px;
+    max-width: 640px;
     line-height: var(--leading-relaxed);
   }
-  .header-templates-preview-page .lead a {
+  .sketches-page .note {
+    font-size: var(--text-sm);
+    color: var(--color-text-dim);
+    margin-bottom: 24px;
+    max-width: 640px;
+    line-height: var(--leading-relaxed);
+    padding: 12px 14px;
+    border-radius: var(--radius-sm);
+    border: 1px dashed var(--color-border);
+    background: rgba(255, 255, 255, 0.02);
+  }
+  .sketches-page .lead a {
     color: var(--color-accent);
   }
   .preview-block {
@@ -39,10 +50,13 @@
     font-family: var(--font-display);
     font-size: var(--text-md);
     font-weight: var(--weight-bold);
-    text-transform: uppercase;
-    letter-spacing: var(--tracking-wider);
     color: var(--color-text-sec);
     margin-bottom: 10px;
+  }
+  .preview-block p.meta {
+    font-size: var(--text-sm);
+    color: var(--color-text-dim);
+    margin: -4px 0 10px;
   }
   .preview-frame {
     border-radius: var(--radius-md);
@@ -54,22 +68,23 @@
     height: auto;
     min-height: 0;
   }
-  .preview-frame .header-layout-btn {
-    display: none !important;
-  }
 </style>
 </head>
 <body>
 <div class="bg-scene"></div>
-<div class="header-templates-preview-page">
-  <h1>Náhľady hlavičiek</h1>
+<div class="sketches-page">
+  <h1>Náčrtky hlavičky</h1>
   <p class="lead">
-    Všetky štyri vzhľady pod sebou. V reálnom POS prepínate tlačidlom <strong>◎</strong> v hlavičke (šírka &gt; 900px) alebo uloženou voľbou v prehliadači.
-    <a href="/pos-enterprise.html">Otvoriť POS</a>
+    Tri jemné vylepšenia v <strong>rovnakom dizajnovom kóde</strong> ako POS (tokens, fialový akcent, Manrope/Sora).
+    <a href="/pos-enterprise.html">Späť na POS</a> — produkčná hlavička je bez týchto experimentov.
+  </p>
+  <p class="note" lang="ru">
+    Это только наброски в превью. В основной экран POS они не подключены — когда выберете вариант, перенесём вручную в <code>pos.css</code>.
   </p>
 
   <section class="preview-block">
-    <h2>1. Štandard (default)</h2>
+    <h2>Súčasná produkčná hlavička</h2>
+    <p class="meta">Bez <code>data-header-sketch</code> — ako v <code>pos-enterprise.html</code></p>
     <div class="preview-frame">
       <div class="app">
         <header class="header">
@@ -106,10 +121,11 @@
   </section>
 
   <section class="preview-block">
-    <h2>2. Lišta (mint) — <code>data-header-template="rail"</code></h2>
+    <h2>Náčrt 1 — Rytmus</h2>
+    <p class="meta">Väčšie medzery, tabuľkové čísla v čase, jemnejší toggle</p>
     <div class="preview-frame">
       <div class="app">
-        <header class="header" data-header-template="rail">
+        <header class="header" data-header-sketch="1">
           <div class="header-brand">
             <div class="header-logo">POS</div>
             <div><div class="header-title">Kaviaren &amp; Bar</div><div class="header-subtitle">Pokladnicny system</div></div>
@@ -137,10 +153,11 @@
   </section>
 
   <section class="preview-block">
-    <h2>3. Panel (operácie) — <code>data-header-template="command"</code></h2>
+    <h2>Náčrt 2 — Skupina akcií</h2>
+    <p class="meta">Kompaktnejšie logo, inset toggle, pravý blok v „kapsule“</p>
     <div class="preview-frame">
       <div class="app">
-        <header class="header" data-header-template="command">
+        <header class="header" data-header-sketch="2">
           <div class="header-brand">
             <div class="header-logo">POS</div>
             <div><div class="header-title">Kaviaren &amp; Bar</div><div class="header-subtitle">Pokladnicny system</div></div>
@@ -168,10 +185,11 @@
   </section>
 
   <section class="preview-block">
-    <h2>4. Kniha (minimal) — <code>data-header-template="ledger"</code></h2>
+    <h2>Náčrt 3 — Hierarchia</h2>
+    <p class="meta">Väčší názov prevádzky, výraznejší aktívny prepínač, čitateľnejší čas</p>
     <div class="preview-frame">
       <div class="app">
-        <header class="header" data-header-template="ledger">
+        <header class="header" data-header-sketch="3">
           <div class="header-brand">
             <div class="header-logo">POS</div>
             <div><div class="header-title">Kaviaren &amp; Bar</div><div class="header-subtitle">Pokladnicny system</div></div>
