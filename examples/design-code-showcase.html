@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0f0d1a">
+  <title>POS — ukážka nového dizajnového kódu (dc-*)</title>
+  <link rel="stylesheet" href="/tokens.css">
+  <link rel="stylesheet" href="/fonts/fonts.css">
+  <link rel="stylesheet" href="/examples/design-code-showcase.css?v=1">
+</head>
+<body class="dc-root">
+  <div class="dc-bg-scene" aria-hidden="true"></div>
+  <div class="dc-page">
+    <header class="dc-topbar">
+      <div>
+        <h1 class="dc-title">Nový dizajn kód</h1>
+        <p class="dc-subtitle">
+          Samostatná ukážka — triedy <code>dc-*</code> a sémantické tokeny <code>--dc-*</code>.
+          Nie je napojená na <code>pos-enterprise.html</code> ani na <code>pos.css</code>.
+        </p>
+      </div>
+      <div class="dc-links">
+        <span class="dc-badge">Náhľad</span>
+        <a href="/examples/POS_DESIGN_CODE_SKETCH.md">Náčrt (MD)</a>
+        <a href="/pos-enterprise.html">Skutočný POS</a>
+      </div>
+    </header>
+
+    <section class="dc-section" aria-labelledby="sec-surfaces">
+      <h2 class="dc-section-title" id="sec-surfaces">1. Povrchy (sémantika)</h2>
+      <p class="dc-section-desc">
+        <code>--dc-surface-app</code>, <code>raised</code>, <code>sunken</code>, <code>card</code> — komponenty používajú len tieto názvy; mapovanie na primitives je v <code>design-code-showcase.css</code>.
+      </p>
+      <div class="dc-surface-grid">
+        <div class="dc-swatch dc-swatch--app"><span>surface-app</span><code>--dc-surface-app</code></div>
+        <div class="dc-swatch dc-swatch--raised"><span>surface-raised</span><code>--dc-surface-raised</code></div>
+        <div class="dc-swatch dc-swatch--sunken"><span>surface-sunken</span><code>--dc-surface-sunken</code></div>
+        <div class="dc-swatch dc-swatch--card"><span>surface-card</span><code>--dc-surface-card</code></div>
+      </div>
+    </section>
+
+    <section class="dc-section" aria-labelledby="sec-type">
+      <h2 class="dc-section-title" id="sec-type">2. Typografia</h2>
+      <p class="dc-section-desc">Display vs body; peniaze a počty s <code>tabular-nums</code>.</p>
+      <div class="dc-type-stack">
+        <div class="dc-text-label">Popisok / stav</div>
+        <div class="dc-text-title">Mapa stolov</div>
+        <div class="dc-text-body">Bežný text položky alebo nápovedy pre obsluhu. Čitateľné pri slabom osvetlení.</div>
+        <div class="dc-text-money">127,50 €</div>
+      </div>
+    </section>
+
+    <section class="dc-section" aria-labelledby="sec-buttons">
+      <h2 class="dc-section-title" id="sec-buttons">3. Tlačidlá (jedna hierarchia)</h2>
+      <p class="dc-section-desc">Primary / Secondary (akcent) / Success / Tertiary / Destructive — jedna sada tried <code>dc-btn--*</code>.</p>
+      <div class="dc-btn-row">
+        <button type="button" class="dc-btn dc-btn--primary">Poslať objednávku</button>
+        <button type="button" class="dc-btn dc-btn--secondary">Karta</button>
+        <button type="button" class="dc-btn dc-btn--success">Hotovosť</button>
+        <button type="button" class="dc-btn dc-btn--tertiary">Rozdeliť účet</button>
+        <button type="button" class="dc-btn dc-btn--destructive">Zrušiť objednávku</button>
+      </div>
+    </section>
+
+    <section class="dc-section" aria-labelledby="sec-segment">
+      <h2 class="dc-section-title" id="sec-segment">4. Prepínač režimu</h2>
+      <p class="dc-section-desc">Spoločný vzor pre Stoly / Objednávka (min. výška dotyku).</p>
+      <div class="dc-segmented" role="group" aria-label="Režim">
+        <button type="button" class="dc-segment is-active">Stoly</button>
+        <button type="button" class="dc-segment">Objednávka</button>
+      </div>
+    </section>
+
+    <section class="dc-section" aria-labelledby="sec-shell">
+      <h2 class="dc-section-title" id="sec-shell">5. Shell: chrome + workspace + order dock</h2>
+      <p class="dc-section-desc">
+        Toolbar používa <code>surface-sunken</code>; order panel má výraznejšiu ľavú hranu (<code>action-primary</code>).
+      </p>
+      <div class="dc-shell">
+        <div class="dc-shell-chrome">
+          <div class="dc-shell-brand">
+            <span class="dc-shell-logo">P</span>
+            Kaviareň
+          </div>
+          <span class="dc-shell-time">14:32</span>
+        </div>
+        <div class="dc-shell-main">
+          <div class="dc-shell-toolbar">Mapa · zóny · legenda</div>
+          <div class="dc-shell-workspace">Workspace (mapa / menu)</div>
+        </div>
+        <aside class="dc-shell-dock">
+          <div class="dc-shell-dock-title">Objednávka</div>
+          <div class="dc-shell-dock-total">42,80 €</div>
+          <button type="button" class="dc-btn dc-btn--primary">Poslať</button>
+        </aside>
+      </div>
+    </section>
+
+    <section class="dc-section" aria-labelledby="sec-cards">
+      <h2 class="dc-section-title" id="sec-cards">6. Produkt a riadok</h2>
+      <p class="dc-section-desc">Cena na karte ako <strong>solid</strong> farba (bez gradientu) podľa náčrtu.</p>
+      <div class="dc-grid-2">
+        <div class="dc-product">
+          <div class="dc-product-emoji" aria-hidden="true">☕</div>
+          <div class="dc-product-name">Espresso doppio</div>
+          <div class="dc-product-price">2,40 €</div>
+        </div>
+        <div class="dc-order-line">
+          <div>
+            <div class="dc-order-line-name">Espresso doppio</div>
+            <div class="dc-order-line-qty">2 ×</div>
+          </div>
+          <div class="dc-order-line-price">4,80 €</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="dc-section" aria-labelledby="sec-modal">
+      <h2 class="dc-section-title" id="sec-modal">7. Dialóg (statický)</h2>
+      <p class="dc-section-desc">Rovnaká hierarchia tlačidiel ako pri platbe.</p>
+      <div class="dc-modal-demo">
+        <h3>Potvrdiť platbu</h3>
+        <p>Hotovosť 42,80 €. Po potvrdení sa uzavrie účet.</p>
+        <div class="dc-modal-actions">
+          <button type="button" class="dc-btn dc-btn--primary">Potvrdiť</button>
+          <button type="button" class="dc-btn dc-btn--tertiary">Zrušiť</button>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+    document.querySelectorAll('.dc-segmented').forEach(function (group) {
+      group.addEventListener('click', function (e) {
+        var btn = e.target.closest('.dc-segment');
+        if (!btn || !group.contains(btn)) return;
+        group.querySelectorAll('.dc-segment').forEach(function (b) { b.classList.remove('is-active'); });
+        btn.classList.add('is-active');
+      });
+    });
+  </script>
+</body>
+</html>

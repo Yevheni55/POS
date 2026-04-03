@@ -1,7 +1,8 @@
 # POS — náčrt nového dizajnového kódu
 
 **Stav:** iba koncept, nie implementácia.  
-**Zdroje:** `tokens.css`, `css/pos.css`, `pos-enterprise.html`, `login.html`, mobilná vrstva `.mob-*`, modály `.u-*`.
+**Zdroje:** `tokens.css`, `css/pos.css`, `pos-enterprise.html`, `login.html`, mobilná vrstva `.mob-*`, modály `.u-*`.  
+**Živá ukážka (HTML, mimo produkčného POS):** [`examples/design-code-showcase.html`](design-code-showcase.html) — triedy `dc-*` a štýly v `examples/design-code-showcase.css`.
 
 ---
 
