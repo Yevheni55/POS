@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0f0d1a">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icons/icon-192.svg">
+<title>POS System — Enterprise</title>
+<link rel="stylesheet" href="/tokens.css">
+<link rel="stylesheet" href="/a11y.css">
+<link rel="stylesheet" href="/fonts/fonts.css">
+<link rel="stylesheet" href="/css/pos.css?v=10">
+<script src="/components/escHtml.js"></script>
+<script src="/components/toast.js"></script>
+<script src="/components/loading.js"></script>
+<script src="/components/confirm.js"></script>
+</head>
+<body>
+<a href="#main" class="skip-link">Preskocit na obsah</a>
+<div class="bg-scene"></div>
+<div class="app">
+  <header class="header">
+    <div class="header-brand">
+      <div class="header-logo">POS</div>
+      <div><div class="header-title">Kaviaren & Bar</div><div class="header-subtitle">Pokladnicny system</div></div>
+    </div>
+    <div class="header-center">
+      <div class="view-toggle">
+        <button class="view-btn active" id="btnTableView" onclick="switchView('tables')">
+          <svg aria-hidden="true" viewBox="0 0 16 16"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>Stoly
+        </button>
+        <button class="view-btn" id="btnProductView" onclick="switchView('products')">
+          <svg aria-hidden="true" viewBox="0 0 16 16"><rect x="1" y="1" width="14" height="3" rx="1"/><rect x="1" y="6" width="14" height="3" rx="1"/><rect x="1" y="11" width="14" height="3" rx="1"/></svg>Objednavka
+        </button>
+      </div>
+      <div>
+        <div class="header-clock" id="clock">00:00</div>
+        <div class="header-date" id="date"></div>
+      </div>
+    </div>
+    <div class="header-right">
+      <button class="admin-btn" onclick="posFullscreen.toggle()" title="Fullscreen" aria-label="Cela obrazovka">&#x26F6;</button>
+      <button class="admin-btn" onclick="generateLockCode()" title="Generovat kod zamku" aria-label="Vygenerovať kód zámku">&#128273; Zamok</button>
+      <button class="admin-btn" onclick="goAdmin()">Admin</button>
+      <button class="logout-btn" onclick="showLogoutModal()">Odhlasit</button>
+      <div class="header-user"><div class="header-avatar">…</div>…</div>
+    </div>
+  </header>
+
+  <div class="main" id="main">
+    <!-- TABLE VIEW -->
+    <div class="table-view active" id="tableView">
+      <div class="floor-toolbar">
+        <div class="floor-toolbar-left">
+          <div class="floor-title">Mapa stolov</div>
+          <div class="floor-zones" id="floorZones"></div>
+        </div>
+        <div class="floor-toolbar-right">
+          <div class="floor-stats">
+            <div class="floor-stat"><span class="stat-dot free"></span>Volny</div>
+            <div class="floor-stat"><span class="stat-dot occupied"></span>Obsadeny</div>
+            <div class="floor-stat"><span class="stat-dot reserved"></span>Rezervovany</div>
+          </div>
+          <button class="edit-toggle" id="editToggle" onclick="toggleEdit()">
+            <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M12.1 1.3a1.5 1.5 0 012.1 2.1L5.8 11.8l-3.3.8.8-3.3z"/></svg>
+            <span id="editLabel">Upravit</span>
+          </button>
+        </div>
+      </div>
+      <div class="floor-canvas" id="floorCanvas"></div>
+    </div>
+
+    <!-- PRODUCTS VIEW -->
+    <div class="products-panel" id="productsPanel">
+      <div class="search-wrap">
+        <span class="search-icon">&#128269;</span>
+        <label for="searchInput" class="sr-only">Hladat produkt</label><input class="search-input" id="searchInput" type="text" placeholder="Hladat produkt..." autocomplete="off">
+        <span class="search-hint">/</span>
+      </div>
+      <div class="categories" id="categories"></div>
+      <div class="products-grid" id="productsGrid"></div>
+    </div>
+
+    <!-- ORDER -->
+    <aside class="order-panel" style="display:none">
+      <div class="order-header">
+        <div><div class="order-title">Objednavka</div><div class="order-table-label" id="orderTableLabel">Stol 1</div></div>
+        <div class="order-count" id="orderCount">0</div>
+      </div>
+      <div class="order-tabs" id="orderTabs" style="display:none"></div>
+      <div class="order-items" id="orderItems">
+        <div class="order-empty"><div class="order-empty-icon">&#128203;</div><div class="order-empty-title">Prazdna objednavka</div><div class="order-empty-text">Pridajte polozky z menu alebo dvoj-kliknite na stol</div><div class="order-empty-hint"><span>&#8592;</span> Vyberte z menu</div></div>
+      </div>
+      <div class="order-footer">
+        <div id="discountDisplay" style="display:none">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;padding:2px 0;font-size:12px;color:var(--color-text-sec)"><span>Medzisucet</span><span id="subtotalVal">0,00 &euro;</span></div>
+          <div class="discount-line"><span class="discount-label" id="discountLabel">Zlava</span><span id="discountVal">0,00 &euro;</span></div>
+        </div>
+        <div class="sum-total-wrap"><span class="sum-total-label">Celkom</span><span class="sum-total-val" id="total">0,00 &euro;</span></div>
+        <div class="actions">
+          <button class="btn btn-send" id="btnSend" onclick="sendToKitchen()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>Poslat objednavku</button>
+          <div class="pay-row">
+            <button class="btn btn-cash" onclick="initiatePayment('hotovost')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M2 9h2M20 9h2M2 15h2M20 15h2"/></svg>Hotovost</button>
+            <button class="btn btn-card" onclick="initiatePayment('karta')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>Karta</button>
+          </div>
+          <div class="extra-row">
+            <button class="btn btn-split" onclick="splitBill()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M3 4l18 17"/></svg>Rozdelit ucet</button>
+            <button class="btn btn-discount" onclick="showDiscountModal()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>Zlava</button>
+          </div>
+          <button class="btn btn-cancel" onclick="clearOrder()" style="width:100%">Zrusit objednavku</button>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<!-- MOBILE APP -->
+<div class="mob-app">
+  <div class="mob-header">
+    <div class="mob-header-left">
+      <div class="mob-logo">POS</div>
+      <div class="mob-header-info">
+        <div class="mob-header-table" id="mobTableLabel">Stol 1</div>
+        <div class="mob-header-user" id="mobUserName"></div>
+      </div>
+    </div>
+    <div class="mob-header-right">
+      <span class="mob-header-clock" id="mobClock">00:00</span>
+      <button class="mob-logout-btn" onclick="showLogoutModal()" aria-label="Odhlasenie">&times;</button>
+    </div>
+  </div>
+
+  <div class="mob-content">
+    <!-- Tab 1: Tables -->
+    <div class="mob-tab-content active" id="mobTabTables" role="tabpanel" aria-labelledby="mobTabBtnTables" aria-hidden="false">
+      <div class="mob-tables" id="mobTablesList"></div>
+    </div>
+    <!-- Tab 2: Menu -->
+    <div class="mob-tab-content" id="mobTabMenu" role="tabpanel" aria-labelledby="mobTabBtnMenu" aria-hidden="true">
+      <div class="mob-menu">
+        <div class="mob-search">
+          <span class="mob-search-icon">&#128269;</span>
+          <label for="mobSearchInput" class="sr-only">Hladat produkt</label><input type="search" id="mobSearchInput" placeholder="Hladat produkt..." autocomplete="off" enterkeyhint="search" inputmode="search">
+        </div>
+        <div class="mob-cats" id="mobCats"></div>
+        <div class="mob-products" id="mobProducts"></div>
+      </div>
+    </div>
+    <!-- Tab 3: Order -->
+    <div class="mob-tab-content" id="mobTabOrder" role="tabpanel" aria-labelledby="mobTabBtnOrder" aria-hidden="true">
+      <div class="mob-order">
+        <div class="mob-order-header">
+          <div>
+            <div class="mob-order-title">Objednavka</div>
+            <div class="mob-order-table" id="mobOrderTable">Stol 1</div>
+          </div>
+        </div>
+        <div class="order-tabs" id="mobOrderTabs" style="display:none"></div>
+        <div class="mob-order-items" id="mobOrderItems">
+          <div class="mob-order-empty">
+            <div class="mob-order-empty-icon">&#128203;</div>
+            <div class="mob-order-empty-text">Prazdna objednavka</div>
+          </div>
+        </div>
+        <div class="mob-order-footer">
+          <div class="mob-footer-main">
+            <div class="mob-total-compact">
+              <div class="mob-total-label">Celkom</div>
+              <div class="mob-total-val" id="mobTotal">0,00 &euro;</div>
+            </div>
+            <button class="mob-btn-send" id="mobBtnSend" onclick="sendToKitchen()">Poslat</button>
+            <button class="mob-btn-zaplatit" onclick="toggleMobPayDrawer()">Zaplatit</button>
+          </div>
+          <div class="mob-pay-drawer" id="mobPayDrawer">
+            <div class="mob-pay-drawer-inner">
+              <div class="mob-pay-row">
+                <button class="mob-btn-pay cash" onclick="initiatePayment('hotovost')">Hotovost</button>
+                <button class="mob-btn-pay card" onclick="initiatePayment('karta')">Karta</button>
+              </div>
+              <button class="mob-btn-cancel" onclick="clearOrder();closeMobPayDrawer()">Zrusit objednavku</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Mobile tab bar -->
+<nav class="mob-tab-bar" role="tablist" aria-label="Hlavná navigácia POS">
+  <button type="button" class="mob-tab active" role="tab" id="mobTabBtnTables" aria-selected="true" aria-controls="mobTabTables" tabindex="0" data-tab="mobTabTables" onclick="switchMobTab('mobTabTables')">
+    <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+    Stoly
+  </button>
+  <button type="button" class="mob-tab" role="tab" id="mobTabBtnMenu" aria-selected="false" aria-controls="mobTabMenu" tabindex="-1" data-tab="mobTabMenu" onclick="switchMobTab('mobTabMenu')">
+    <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    Menu
+  </button>
+  <button type="button" class="mob-tab" role="tab" id="mobTabBtnOrder" aria-selected="false" aria-controls="mobTabOrder" tabindex="-1" data-tab="mobTabOrder" onclick="switchMobTab('mobTabOrder')">
+    <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></svg>
+    <span class="mob-tab-badge" id="mobOrderBadge"></span>
+    Objed.
+  </button>
+</nav>
+
+<div class="offline-banner" id="offlineBanner">
+  <span>⚠️ OFFLINE</span> — data sa synchronizuju po obnoveni pripojenia
+  <span class="offline-queue" id="offlineQueueCount"></span>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="u-overlay" id="paymentModal">
+  <div class="u-modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <span class="u-modal-icon" id="modalIcon"></span>
+    <div class="u-modal-title" id="modalTitle">Platba</div>
+    <div class="u-modal-amount" id="modalAmount"></div>
+    <div class="u-modal-method" id="modalMethod"></div>
+    <div class="u-modal-btns">
+      <button class="u-btn u-btn-ghost" onclick="closeModal()">Spat<span class="kbd">Esc</span></button>
+      <button class="u-btn u-btn-mint" onclick="confirmPayment()">Potvrdit<span class="kbd">Enter</span></button>
+    </div>
+  </div>
+</div>
+<div class="u-overlay" id="noteModal">
+  <div class="u-modal" role="dialog" aria-modal="true" aria-labelledby="noteModalTitle">
+    <span class="u-modal-icon">&#9998;</span>
+    <div class="u-modal-title" id="noteModalTitle">Poznamka k polozke</div>
+    <p class="u-modal-hint" id="noteModalSentHint" style="display:none">Polozka uz bola odoslana — poznamka sa ulozi k uctu. Novy bon sa nevytlaci.</p>
+    <div class="u-modal-body">
+      <div class="u-modal-field">
+        <label for="noteInput" class="sr-only">Poznamka k polozke</label><input id="noteInput" type="text" placeholder="Napr. bez cibule, extra ostra..." maxlength="200">
+      </div>
+    </div>
+    <div class="u-modal-btns">
+      <button class="u-btn u-btn-ghost" onclick="closeNoteModal()">Zrusit</button>
+      <button class="u-btn u-btn-ice" onclick="saveNote()">Ulozit</button>
+    </div>
+  </div>
+</div>
+
+<div class="u-overlay" id="splitModal">
+  <div class="u-modal" role="dialog" aria-modal="true" aria-labelledby="splitModalTitle">
+    <span class="u-modal-icon">&#128101;</span>
+    <div class="u-modal-title" id="splitModalTitle">Rozdelit ucet</div>
+    <div class="u-modal-body">
+      <div class="u-modal-field">
+        <label for="splitCount">Pocet osob</label>
+        <input id="splitCount" type="number" min="2" max="10" value="2">
+      </div>
+      <div class="u-modal-text" id="splitPreview">Kazdy plati: 0,00 EUR</div>
+    </div>
+    <div class="u-modal-btns">
+      <button class="u-btn u-btn-ghost" onclick="closeSplitModal()">Zrusit</button>
+      <button class="u-btn u-btn-ice" onclick="confirmSplit()">Rozdelit</button>
+    </div>
+  </div>
+</div>
+
+<div class="u-overlay" id="moveModal">
+  <div class="u-modal" role="dialog" aria-modal="true" aria-labelledby="moveModalTitle">
+    <span class="u-modal-icon">&#8599;&#65039;</span>
+    <div class="u-modal-title" id="moveModalTitle">Presunúť položky</div>
+    <div class="u-modal-text">Vyberte polozky na presun</div>
+    <div class="u-modal-body">
+      <div id="moveItemsList" style="max-height:250px;overflow-y:auto"></div>
+    </div>
+    <div class="u-modal-btns">
+      <button class="u-btn u-btn-ghost" onclick="closeMoveModal()">Zrusit</button>
+      <button class="u-btn u-btn-lavender" id="moveToAccountBtn" onclick="moveToAccount()" style="display:none">Na iny ucet</button>
+      <button class="u-btn u-btn-ice" id="moveToTableBtn" onclick="moveSelectTable()" style="display:none">Na iny stol</button>
+    </div>
+  </div>
+</div>
+
+<!-- Account picker for same-table moves -->
+<div class="u-overlay" id="moveAccountModal">
+  <div class="u-modal" role="dialog" aria-modal="true" aria-labelledby="moveAccountModalTitle">
+    <span class="u-modal-icon">&#128221;</span>
+    <div class="u-modal-title" id="moveAccountModalTitle">Vyberte ucet</div>
+    <div class="u-modal-body">
+      <div id="moveAccountList" style="max-height:300px;overflow-y:auto"></div>
+      <button class="u-btn u-btn-ghost" onclick="moveToNewAccount()" style="width:100%;margin-top:8px;border-style:dashed">+ Novy ucet</button>
+    </div>
+    <div class="u-modal-btns">
+      <button class="u-btn u-btn-ghost" onclick="closeMoveAccountModal()">Zrusit</button>
+    </div>
+  </div>
+</div>
+
+<!-- Move: pick table banner (shown over table view) -->
+<div class="move-banner" id="moveBanner">
+  <span>&#8599;&#65039; Vyberte cielovy stol pre <strong id="moveBannerCount">0</strong> poloziek</span>
+  <button onclick="cancelMoveMode()">Zrusit</button>
+</div>
+
+<!-- Account Picker Sheet -->
+<div class="ap-overlay" id="accountPicker" onclick="if(event.target===this)closeAccountPicker()">
+  <div class="ap-sheet">
+    <div class="ap-handle"></div>
+    <div class="ap-header">
+      <div class="ap-title" id="apTitle">Vyberte ucet</div>
+      <div class="ap-table-badge" id="apTableBadge">Stol 1</div>
+    </div>
+    <div class="ap-cards" id="apCards"></div>
+  </div>
+</div>
+
+<div class="u-overlay" id="managerPinModal">
+  <div class="u-modal" role="dialog" aria-modal="true" aria-labelledby="managerPinModalTitle">
+    <span class="u-modal-icon">&#128272;</span>
+    <div class="u-modal-title" id="managerPinModalTitle">Manazersky PIN</div>
+    <div class="u-modal-text">Storno odoslanej polozky vyzaduje manazersky PIN</div>
+    <div class="u-modal-body">
+      <div class="u-modal-field">
+        <label for="managerPinInput" class="sr-only">Manazersky PIN</label><input id="managerPinInput" type="password" maxlength="4" placeholder="****" inputmode="numeric" style="text-align:center;font-size:24px;letter-spacing:8px">
+      </div>
+      <div id="managerPinError" style="color:var(--color-danger);font-size:12px;text-align:center;margin-top:6px;display:none"></div>
+    </div>
+    <div class="u-modal-btns">
+      <button class="u-btn u-btn-ghost" onclick="closeManagerPinModal()">Zrusit</button>
+      <button class="u-btn u-btn-ice" onclick="verifyManagerPin()">Overit</button>
+    </div>
+  </div>
+</div>
+
+<script src="api.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+<script src="/js/pos-state.js"></script>
+<script src="/js/pos-render.js"></script>
+<script src="/js/pos-orders.js"></script>
+<script src="/js/pos-payments.js"></script>
+<script src="/js/pos-ui.js"></script>
+<script src="/js/pos-init.js"></script>
+<script src="/js/pos-mobile.js"></script>
+<div class="u-overlay" id="discountModal">
+  <div class="u-modal" role="dialog" aria-modal="true" aria-labelledby="discountModalTitle">
+    <span class="u-modal-icon" style="font-size:36px">&#127991;</span>
+    <div class="u-modal-title" id="discountModalTitle">Aplikovat zlavu</div>
+    <div class="u-modal-body">
+      <div id="discountList" style="max-height:200px;overflow-y:auto"></div>
+      <div class="u-modal-field" style="margin-top:12px">
+        <label for="customDiscountInput">Vlastna zlava (%)</label>
+        <input id="customDiscountInput" type="number" min="1" max="100" placeholder="napr. 10">
+      </div>
+    </div>
+    <div class="u-modal-btns">
+      <button class="u-btn u-btn-ghost" onclick="closeDiscountModal()">Zrusit</button>
+      <button class="u-btn u-btn-ice" onclick="applyDiscount()">Aplikovat</button>
+    </div>
+  </div>
+</div>
+<div class="u-overlay" id="logoutModal">
+  <div class="u-modal" role="dialog" aria-modal="true" aria-labelledby="logoutModalTitle">
+    <span class="u-modal-icon">&#128682;</span>
+    <div class="u-modal-title" id="logoutModalTitle">Odhlasenie</div>
+    <div class="u-modal-text">Naozaj sa chcete odhlasit?</div>
+    <div class="u-modal-btns">
+      <button class="u-btn u-btn-ghost" onclick="closeLogoutModal()">Zrusit</button>
+      <button class="u-btn u-btn-rose" onclick="confirmLogout()">Odhlasit</button>
+    </div>
+  </div>
+</div>
+<div class="u-overlay" id="shiftModal">
+  <div class="u-modal" role="dialog" aria-modal="true" aria-labelledby="shiftModalTitle">
+    <span class="u-modal-icon">&#128336;</span>
+    <div class="u-modal-title" id="shiftModalTitle">Otvorit zmenu</div>
+    <div class="u-modal-text">Zadajte pociatocny stav hotovosti v pokladni</div>
+    <div class="u-modal-body">
+      <div class="u-modal-field">
+        <label>Hotovost (EUR)</label>
+        <input id="shiftCashInput" type="number" step="0.01" placeholder="0.00" value="0">
+      </div>
+    </div>
+    <div class="u-modal-btns">
+      <button class="u-btn u-btn-mint" onclick="openShift()">Otvorit zmenu</button>
+    </div>
+  </div>
+</div>
+<div class="u-overlay" id="closeShiftModal">
+  <div class="u-modal" role="dialog" aria-modal="true" aria-labelledby="closeShiftModalTitle">
+    <span class="u-modal-icon">&#128200;</span>
+    <div class="u-modal-title" id="closeShiftModalTitle">Uzavriet zmenu</div>
+    <div class="u-modal-text">Skontrolujte stav hotovosti a uzavrite zmenu</div>
+    <div class="u-modal-body">
+      <div class="u-modal-field">
+        <label>Pociatocna hotovost</label>
+        <div id="closeShiftOpening" style="font-size:15px;font-weight:600;padding:8px 0">0.00</div>
+      </div>
+      <div class="u-modal-field">
+        <label>Hotovostne trzby</label>
+        <div id="closeShiftCashSales" style="font-size:15px;font-weight:600;padding:8px 0">0.00</div>
+      </div>
+      <div class="u-modal-field">
+        <label>Ocakavana hotovost</label>
+        <div id="closeShiftExpected" style="font-size:15px;font-weight:700;padding:8px 0;color:var(--color-accent)">0.00</div>
+      </div>
+      <div class="u-modal-field">
+        <label>Skutocna hotovost (EUR)</label>
+        <input id="closeShiftActualInput" type="number" step="0.01" placeholder="0.00" value="0" oninput="updateCloseShiftDiff()">
+      </div>
+      <div class="u-modal-field">
+        <label>Rozdiel</label>
+        <div id="closeShiftDiff" style="font-size:15px;font-weight:700;padding:8px 0">0.00 EUR</div>
+      </div>
+    </div>
+    <div class="u-modal-btns">
+      <button class="u-btn u-btn-ghost" onclick="closeCloseShiftModal()">Zrusit</button>
+      <button class="u-btn u-btn-rose" onclick="confirmCloseShift()">Uzavriet a odhlasit</button>
+    </div>
+  </div>
+</div>
+<div class="qty-popup" id="qtyPopup">
+  <div class="qty-popup-title" id="qtyPopupTitle">Mnozstvo</div>
+  <div class="qty-popup-grid" id="qtyPopupGrid"></div>
+</div>
+<!-- Keyboard Help Modal -->
+<div class="u-overlay" id="helpModal">
+  <div class="u-modal" role="dialog" aria-modal="true" aria-labelledby="helpTitle" style="text-align:left">
+    <div class="u-modal-title" id="helpTitle" style="text-align:center">Klavesove skratky</div>
+    <div class="u-modal-body" style="padding:8px 0">
+      <table style="width:100%;font-size:13px;border-collapse:collapse">
+        <tr><td style="padding:6px 8px"><kbd style="background:var(--color-bg-surface);border:1px solid var(--color-border);border-radius:4px;padding:2px 8px;font-family:inherit;font-size:12px;font-weight:600">/</kbd></td><td style="padding:6px 8px">Hladat produkt</td></tr>
+        <tr><td style="padding:6px 8px"><kbd style="background:var(--color-bg-surface);border:1px solid var(--color-border);border-radius:4px;padding:2px 8px;font-family:inherit;font-size:12px;font-weight:600">1-9</kbd></td><td style="padding:6px 8px">Vybrat kategoriu</td></tr>
+        <tr><td style="padding:6px 8px"><kbd style="background:var(--color-bg-surface);border:1px solid var(--color-border);border-radius:4px;padding:2px 8px;font-family:inherit;font-size:12px;font-weight:600">F2 / Tab</kbd></td><td style="padding:6px 8px">Prepnut stoly / produkty</td></tr>
+        <tr><td style="padding:6px 8px"><kbd style="background:var(--color-bg-surface);border:1px solid var(--color-border);border-radius:4px;padding:2px 8px;font-family:inherit;font-size:12px;font-weight:600">&#8592;&#8593;&#8594;&#8595;</kbd></td><td style="padding:6px 8px">Navigacia v produktovej mriezke</td></tr>
+        <tr><td style="padding:6px 8px"><kbd style="background:var(--color-bg-surface);border:1px solid var(--color-border);border-radius:4px;padding:2px 8px;font-family:inherit;font-size:12px;font-weight:600">Esc</kbd></td><td style="padding:6px 8px">Zavriet modal / zrusit</td></tr>
+        <tr><td style="padding:6px 8px"><kbd style="background:var(--color-bg-surface);border:1px solid var(--color-border);border-radius:4px;padding:2px 8px;font-family:inherit;font-size:12px;font-weight:600">?</kbd></td><td style="padding:6px 8px">Zobrazit tuto pomoc</td></tr>
+      </table>
+    </div>
+    <div class="u-modal-btns">
+      <button class="u-btn u-btn-ghost" onclick="document.getElementById('helpModal').classList.remove('show')">Zavriet</button>
+    </div>
+  </div>
+</div>
+<script>if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js')}</script>
+</body>
+</html>
