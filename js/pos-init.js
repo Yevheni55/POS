@@ -257,7 +257,9 @@ function connectWS() {
 
 async function runPosBootstrap() {
   await initPOS();
-  if (typeof initMobile === 'function' && isMobile()) initMobile();
+  setTimeout(function() {
+    if (typeof initMobile === 'function' && isMobile()) initMobile();
+  }, 0);
 }
 
 async function init() {

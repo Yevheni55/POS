@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0f0d1a">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icons/icon-192.svg">
+<title>POS - Prihlasenie</title>
+<link rel="stylesheet" href="/tokens.css">
+<link rel="stylesheet" href="/a11y.css">
+<link rel="stylesheet" href="/fonts/fonts.css">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  button, a, input { touch-action: manipulation; -webkit-touch-callout: none; }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    font-family: 'Bricolage Grotesque', sans-serif;
+    background: linear-gradient(160deg, #0f0d1a 0%, #161229 45%, #0a0820 100%);
+    color: var(--color-text);
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+
+  body::before, body::after {
+    content: '';
+    position: fixed;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 0;
+  }
+  body::before {
+    width: 600px; height: 600px;
+    top: -200px; left: -200px;
+    background: radial-gradient(circle, rgba(139,124,246,.08) 0%, transparent 70%);
+  }
+  body::after {
+    width: 500px; height: 500px;
+    bottom: -150px; right: -150px;
+    background: radial-gradient(circle, rgba(139,124,246,.05) 0%, transparent 70%);
+  }
+
+  .page {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    position: relative;
+    z-index: 1;
+    padding: 20px;
+  }
+
+  /* Glass card */
+  .card {
+    width: 100%;
+    max-width: 400px;
+    background: rgba(12,20,30,.92);
+    border: 1px solid var(--color-border);
+    border-radius: 24px;
+    padding: 32px 28px 28px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 22px;
+  }
+
+  /* Logo */
+  .logo {
+    width: 56px; height: 56px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, var(--color-accent), var(--color-accent-dim));
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Newsreader', serif;
+    font-weight: 800; font-size: 18px;
+    color: #0f0d1a;
+    opacity: 0; animation: fadeInUp .5s ease forwards;
+  }
+
+  .brand-name {
+    font-family: 'Newsreader', serif;
+    font-size: 22px; font-weight: 700;
+    opacity: 0; animation: fadeInUp .5s ease .08s forwards;
+  }
+
+  .brand-sub {
+    font-size: 13px; color: var(--color-text-sec);
+    margin-top: -14px;
+    opacity: 0; animation: fadeInUp .5s ease .14s forwards;
+  }
+
+  .pin-hint {
+    width: 100%;
+    max-width: 320px;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--color-text-sec);
+    text-align: center;
+    opacity: 0;
+    animation: fadeInUp .5s ease .17s forwards;
+  }
+
+  /* Employee pills */
+  .pills {
+    display: flex; flex-wrap: wrap;
+    justify-content: center; gap: 8px;
+    width: 100%;
+    opacity: 0; animation: fadeInUp .5s ease .2s forwards;
+  }
+
+  .pill {
+    display: flex; align-items: center; gap: 7px;
+    padding: 6px 14px 6px 6px;
+    border-radius: 100px;
+    background: var(--color-bg-surface);
+    border: 1.5px solid var(--color-border);
+    cursor: pointer;
+    transition: all .2s ease;
+    font-family: 'Bricolage Grotesque', sans-serif;
+    font-size: 13px; font-weight: 500;
+    color: var(--color-text-sec);
+  }
+  .pill:hover { background: rgba(255,255,255,.07); }
+  .pill.selected {
+    border-color: var(--color-accent);
+    background: rgba(139,124,246,.08);
+    color: var(--color-text);
+    box-shadow: 0 0 12px rgba(139,124,246,.15);
+  }
+
+  .pill-avatar {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Newsreader', serif;
+    font-size: 11px; font-weight: 700;
+    color: var(--color-bg);
+    flex-shrink: 0;
+  }
+  .pill-avatar.admin { background: var(--color-accent); }
+  .pill-avatar.manazer { background: var(--color-accent-dim); }
+  .pill-avatar.cisnik { background: var(--color-success); }
+
+  /* PIN dots */
+  .dots {
+    display: flex; gap: 16px;
+    padding: 8px 0;
+    opacity: 0; animation: fadeInUp .5s ease .28s forwards;
+  }
+  .dot {
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,.15);
+    background: transparent;
+    transition: all .2s ease;
+  }
+  .dot.filled {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    box-shadow: 0 0 10px rgba(139,124,246,.35);
+  }
+  .dot.error {
+    background: var(--color-danger);
+    border-color: var(--color-danger);
+    box-shadow: 0 0 10px rgba(224,112,112,.35);
+  }
+  .dot.success {
+    background: var(--color-success);
+    border-color: var(--color-success);
+    box-shadow: 0 0 10px rgba(92,196,158,.35);
+  }
+  .dots.shake { animation: shake .5s ease; }
+
+  /* Numpad */
+  .numpad {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    width: 100%;
+    max-width: 280px;
+    opacity: 0; animation: fadeInUp .5s ease .36s forwards;
+  }
+
+  .num-btn {
+    height: 64px;
+    border-radius: 14px;
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-surface);
+    color: var(--color-text);
+    font-family: 'Newsreader', serif;
+    font-size: 24px; font-weight: 700;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all .12s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .num-btn:hover { background: rgba(255,255,255,.07); }
+  .num-btn:active, .num-btn.active-flash {
+    transform: scale(0.93);
+    background: rgba(255,255,255,.1);
+  }
+  .num-btn.fn {
+    font-size: 20px;
+    color: var(--color-text-sec);
+  }
+  .num-btn:disabled {
+    opacity: .25;
+    pointer-events: none;
+  }
+
+  /* Status message */
+  .status {
+    min-height: 20px;
+    font-size: 14px;
+    font-weight: 500;
+    text-align: center;
+    transition: opacity .3s;
+  }
+  .status.error { color: var(--color-danger); }
+  .status.success { color: var(--color-success); }
+  .status.locked { color: var(--color-danger); }
+  .status.pending { color: var(--color-text-sec); }
+
+  /* Clock */
+  .clock-wrap {
+    margin-top: 16px;
+    text-align: center;
+    opacity: 0; animation: fadeInUp .5s ease .44s forwards;
+  }
+  .clock {
+    font-family: 'Newsreader', serif;
+    font-size: 34px; font-weight: 400;
+    color: var(--color-text-sec);
+    line-height: 1.1;
+  }
+  .clock-date {
+    font-size: 14px;
+    color: var(--color-text-sec);
+    margin-top: 2px;
+  }
+
+  /* Keyframes */
+  @keyframes fadeInUp {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20%, 60% { transform: translateX(-8px); }
+    40%, 80% { transform: translateX(8px); }
+  }
+
+  /* prevent virtual keyboard */
+  input { position: absolute; opacity: 0; pointer-events: none; }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <div class="card">
+    <div class="logo">POS</div>
+    <div class="brand-name">Kaviaren &amp; Bar</div>
+    <div class="brand-sub">Prihlaste sa pre pokracovanie</div>
+    <p class="pin-hint">Ktorý účet sa otvorí, určí váš PIN — výber mena len zvýrazní profil, neprihlasuje.</p>
+
+    <div class="pills" id="pills" role="radiogroup" aria-label="Vyber zamestnanca"></div>
+
+    <div class="dots" id="dots" role="group" aria-label="PIN kod - 4 cifry">
+      <div class="dot"></div>
+      <div class="dot"></div>
+      <div class="dot"></div>
+      <div class="dot"></div>
+    </div>
+
+    <div class="numpad" id="numpad" role="group" aria-label="Numericka klavesnica">
+      <button class="num-btn" data-val="1">1</button>
+      <button class="num-btn" data-val="2">2</button>
+      <button class="num-btn" data-val="3">3</button>
+      <button class="num-btn" data-val="4">4</button>
+      <button class="num-btn" data-val="5">5</button>
+      <button class="num-btn" data-val="6">6</button>
+      <button class="num-btn" data-val="7">7</button>
+      <button class="num-btn" data-val="8">8</button>
+      <button class="num-btn" data-val="9">9</button>
+      <button class="num-btn fn" data-val="clear" aria-label="Vymazat PIN">&times;</button>
+      <button class="num-btn" data-val="0">0</button>
+      <button class="num-btn fn" data-val="back" aria-label="Zmazat poslednu cifru">&larr;</button>
+    </div>
+
+    <div class="status" id="status" role="status" aria-live="assertive"></div>
+  </div>
+
+  <div class="clock-wrap">
+    <div class="clock" id="clock"></div>
+    <div class="clock-date" id="clockDate"></div>
+  </div>
+</div>
+
+<script src="api.js"></script>
+<script>
+(function() {
+  'use strict';
+
+  const STAFF = [
+    { name: 'Martin', surname: 'Kovac',     role: 'admin' },
+    { name: 'Jana',   surname: 'Kovacova',   role: 'manazer' },
+    { name: 'Peter',  surname: 'Novak',      role: 'cisnik' },
+    { name: 'Eva',    surname: 'Horvathova', role: 'cisnik' },
+    { name: 'Tomas',  surname: 'Varga',      role: 'cisnik' },
+  ];
+
+  const MAX_ATTEMPTS = 5;
+  const LOCKOUT_SEC = 60;
+
+  let pin = '';
+  let selectedIndex = -1;
+  let attempts = 0;
+  let locked = false;
+  let lockTimer = null;
+
+  const pillsEl = document.getElementById('pills');
+  const dotsEl = document.getElementById('dots');
+  const dots = dotsEl.querySelectorAll('.dot');
+  const numpad = document.getElementById('numpad');
+  const statusEl = document.getElementById('status');
+  const clockEl = document.getElementById('clock');
+  const clockDateEl = document.getElementById('clockDate');
+
+  // Build pills
+  STAFF.forEach(function(emp, i) {
+    const initials = emp.name[0] + emp.surname[0];
+    const pill = document.createElement('button');
+    pill.className = 'pill';
+    pill.setAttribute('role', 'radio');
+    pill.setAttribute('aria-checked', 'false');
+    pill.innerHTML =
+      '<span class="pill-avatar ' + emp.role + '">' + initials + '</span>' +
+      '<span>' + emp.name + '</span>';
+    pill.addEventListener('click', function() {
+      if (locked) return;
+      if (selectedIndex === i) {
+        selectedIndex = -1;
+        pill.classList.remove('selected');
+        pill.setAttribute('aria-checked', 'false');
+      } else {
+        selectedIndex = i;
+        pillsEl.querySelectorAll('.pill').forEach(function(p) { p.classList.remove('selected'); p.setAttribute('aria-checked', 'false'); });
+        pill.classList.add('selected');
+        pill.setAttribute('aria-checked', 'true');
+      }
+    });
+    pillsEl.appendChild(pill);
+  });
+
+  // Keyboard handler
+  document.addEventListener('keydown', function(e) {
+    if (locked) return;
+    if (e.key >= '0' && e.key <= '9') {
+      e.preventDefault();
+      if (pin.length >= 4) return;
+      pin += e.key;
+      updateDots();
+      // Visual feedback on matching numpad button
+      var btn = document.querySelector('.num-btn[data-val="' + e.key + '"]');
+      if (btn) { btn.classList.add('active-flash'); setTimeout(function(){ btn.classList.remove('active-flash'); }, 150); }
+      if (pin.length === 4) setTimeout(verifyPin, 150);
+    } else if (e.key === 'Backspace') {
+      e.preventDefault();
+      if (pin.length > 0) { pin = pin.slice(0, -1); updateDots(); }
+    } else if (e.key === 'Escape' || e.key === 'Delete') {
+      e.preventDefault();
+      clearPin();
+    }
+  });
+
+  // Numpad handler
+  numpad.addEventListener('click', function(e) {
+    var btn = e.target.closest('.num-btn');
+    if (!btn || locked) return;
+    var val = btn.dataset.val;
+
+    if (val === 'clear') {
+      clearPin();
+      return;
+    }
+    if (val === 'back') {
+      if (pin.length > 0) {
+        pin = pin.slice(0, -1);
+        updateDots();
+      }
+      return;
+    }
+
+    if (pin.length >= 4) return;
+    pin += val;
+    updateDots();
+
+    if (pin.length === 4) {
+      setTimeout(verifyPin, 150);
+    }
+  });
+
+  function updateDots() {
+    dots.forEach(function(d, i) {
+      d.className = 'dot' + (i < pin.length ? ' filled' : '');
+    });
+    dotsEl.setAttribute('aria-label', 'PIN kod - ' + pin.length + ' zo 4 cifier zadanych');
+  }
+
+  function clearPin() {
+    pin = '';
+    updateDots();
+    clearStatus();
+  }
+
+  function clearStatus() {
+    statusEl.textContent = '';
+    statusEl.className = 'status';
+  }
+
+  function verifyPin() {
+    setNumpadDisabled(true);
+    statusEl.textContent = 'Prihlasujem…';
+    statusEl.className = 'status pending';
+    api.login(pin).then(function(data) {
+      onSuccess(data.user);
+    }).catch(function(err) {
+      setNumpadDisabled(false);
+      onFail(err.message);
+    });
+  }
+
+  function onSuccess(user) {
+    dots.forEach(function(d) {
+      d.className = 'dot success';
+    });
+    statusEl.textContent = 'Vitajte, ' + user.name + '!';
+    statusEl.className = 'status success';
+    setNumpadDisabled(true);
+
+    setTimeout(function() {
+      if (posFullscreen.isActive()) {
+        localStorage.setItem('pos_fs_restore', '1');
+      }
+      window.location.href = 'pos-enterprise.html';
+    }, 800);
+  }
+
+  function onFail(message) {
+    attempts++;
+    dots.forEach(function(d) { d.className = 'dot error'; });
+    dotsEl.classList.add('shake');
+    statusEl.textContent = message || 'Nespravny PIN';
+    statusEl.className = 'status error';
+
+    setTimeout(function() {
+      dotsEl.classList.remove('shake');
+      pin = '';
+      updateDots();
+    }, 600);
+
+    setTimeout(function() {
+      if (!locked) {
+        statusEl.textContent = '';
+        statusEl.className = 'status';
+      }
+    }, 2000);
+
+    if (attempts >= MAX_ATTEMPTS) {
+      startLockout();
+    }
+  }
+
+  function startLockout() {
+    locked = true;
+    setNumpadDisabled(true);
+    var remaining = LOCKOUT_SEC;
+
+    function tick() {
+      statusEl.textContent = 'Prihlasenie zablokovane na ' + remaining + ' sekund';
+      statusEl.className = 'status locked';
+      if (remaining <= 0) {
+        locked = false;
+        attempts = 0;
+        setNumpadDisabled(false);
+        clearPin();
+        clearStatus();
+        return;
+      }
+      remaining--;
+      lockTimer = setTimeout(tick, 1000);
+    }
+    tick();
+  }
+
+  function setNumpadDisabled(state) {
+    numpad.querySelectorAll('.num-btn').forEach(function(b) {
+      b.disabled = state;
+    });
+  }
+
+  // Clock
+  var DAYS = ['Nedela', 'Pondelok', 'Utorok', 'Streda', 'Stvrtok', 'Piatok', 'Sobota'];
+  var MONTHS = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
+
+  function updateClock() {
+    var now = new Date();
+    var h = String(now.getHours()).padStart(2, '0');
+    var m = String(now.getMinutes()).padStart(2, '0');
+    clockEl.textContent = h + ':' + m;
+
+    var day = DAYS[now.getDay()];
+    var d = now.getDate();
+    var mon = MONTHS[now.getMonth()];
+    var y = now.getFullYear();
+    clockDateEl.textContent = day + ', ' + d + '. ' + mon + ' ' + y;
+  }
+  updateClock();
+  setInterval(updateClock, 1000);
+})();
+</script>
+<script>if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js')}</script>
+</body>
+</html>
