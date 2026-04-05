@@ -37,6 +37,15 @@ function normalizeFiscalOutcome(result, err) {
     return { kind: 'success', tone: 'success', message: 'Platba uspesna. Fiskalizacia prebehla v Portose.' };
   }
 
+  if (status === 'online_success' || status === 'reconciled_online_success') {
+    return {
+      kind: 'success',
+      tone: 'success',
+      message:
+        'Platba uspesna. Doklad je v eKase. Papier ma tlacit Portos (CHDU). Ak blok neprisiel, v .env musi byt PORTOS_PRINTER_NAME=pos (nie nazov tlačiarne).',
+    };
+  }
+
   if (status === 'success' || status === 'ok' || status === 'registered' || status === 'done' || httpStatus === 200) {
     return { kind: 'success', tone: 'success', message: 'Platba uspesna. Fiskalizacia prebehla v Portose.' };
   }

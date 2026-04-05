@@ -1,7 +1,22 @@
 const DEFAULT_BASE_URL = 'http://localhost:3010';
 const DEFAULT_CASH_REGISTER_CODE = '88812345678900001';
+/** Nie názov tlačiarne vo Windows — NineDigit API: `pos` = papier/CHDU, `pdf`, `email`. */
 const DEFAULT_PRINTER_NAME = 'pos';
 const DEFAULT_TIMEOUT_MS = 10_000;
+
+const RECEIPT_OUTPUT_CHANNELS = new Set(['pos', 'pdf', 'email']);
+
+function normalizeReceiptOutputChannel(raw) {
+  const v = String(raw ?? DEFAULT_PRINTER_NAME).trim().toLowerCase();
+  if (RECEIPT_OUTPUT_CHANNELS.has(v)) return v;
+  const original = String(raw ?? '').trim();
+  if (original) {
+    console.warn(
+      `[Portos] PORTOS_PRINTER_NAME="${original}" must be "pos" (paper/CHDU), "pdf", or "email" — not a Windows printer name. Using "pos".`,
+    );
+  }
+  return 'pos';
+}
 
 function isTruthy(value) {
   return /^(1|true|yes|on)$/i.test(String(value || ''));
@@ -17,7 +32,7 @@ export function getPortosConfig() {
     enabled: isTruthy(process.env.PORTOS_ENABLED),
     baseUrl: process.env.PORTOS_BASE_URL || DEFAULT_BASE_URL,
     cashRegisterCode: process.env.PORTOS_CASH_REGISTER_CODE || DEFAULT_CASH_REGISTER_CODE,
-    printerName: process.env.PORTOS_PRINTER_NAME || DEFAULT_PRINTER_NAME,
+    printerName: normalizeReceiptOutputChannel(process.env.PORTOS_PRINTER_NAME || DEFAULT_PRINTER_NAME),
     timeoutMs: toInt(process.env.PORTOS_TIMEOUT_MS, DEFAULT_TIMEOUT_MS),
   };
 }

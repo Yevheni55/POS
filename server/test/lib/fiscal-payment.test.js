@@ -8,8 +8,18 @@ import {
   buildPaymentExternalId,
   sanitizeForFiscalPrinter,
 } from '../../lib/fiscal-payment.js';
+import { getPortosConfig } from '../../lib/portos.js';
 
 describe('fiscal-payment helpers', () => {
+  it('maps invalid PORTOS_PRINTER_NAME to pos (NineDigit API channel, not Windows name)', () => {
+    const prev = process.env.PORTOS_PRINTER_NAME;
+    process.env.PORTOS_PRINTER_NAME = 'EPSON_USB';
+    const { printerName } = getPortosConfig();
+    if (prev === undefined) delete process.env.PORTOS_PRINTER_NAME;
+    else process.env.PORTOS_PRINTER_NAME = prev;
+    assert.equal(printerName, 'pos');
+  });
+
   it('allocates discount across mixed VAT groups without losing cents', () => {
     const items = [
       { name: 'Burger', qty: 1, price: 8.5, vatRate: 10 },
