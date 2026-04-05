@@ -25,6 +25,10 @@ services:
     env_file: ./server/.env
     environment:
       DATABASE_URL: postgresql://pos:pos@db:5432/pos
+      # Portos beží na hostiteľovi (3010), nie v kontajneri — localhost by smeroval do app kontajnera
+      PORTOS_BASE_URL: http://host.docker.internal:3010
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       db:
         condition: service_healthy
