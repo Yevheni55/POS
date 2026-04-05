@@ -34,6 +34,42 @@ export class PortosTransportError extends Error {
   }
 }
 
+/** Undici/fetch often wraps the real errno in `cause` (ECONNREFUSED, ENOTFOUND, …). */
+function explainFetchError(error) {
+  if (!error || typeof error !== 'object') return '';
+  const c = error.cause;
+  if (c && typeof c === 'object') {
+    if (c.code && c.message) return `${c.code}: ${c.message}`;
+    if (c.message) return c.message;
+    if (Array.isArray(c.errors)) {
+      const first = c.errors.find((e) => e && (e.message || e.code));
+      if (first?.message) return first.message;
+      if (first?.code) return String(first.code);
+    }
+  }
+  if (error.code && error.message) return `${error.code}: ${error.message}`;
+  if (error.message && error.message !== 'fetch failed') return error.message;
+  return '';
+}
+
+function portosUnreachableMessage(error, { timedOut }) {
+  const { baseUrl } = getPortosConfig();
+  const detail = explainFetchError(error);
+  if (timedOut) {
+    return detail
+      ? `Portos neodpovedal v čas (${detail}). Nastavené URL: ${baseUrl}`
+      : `Portos neodpovedal v čas. Nastavené URL: ${baseUrl}`;
+  }
+  if (detail) {
+    return `Portos request failed: ${detail}. Nastavené URL: ${baseUrl}`;
+  }
+  return (
+    `Portos request failed — server nevie kontaktovať Portos na ${baseUrl}. ` +
+    'Ak POS beží v Dockeri a Portos na tom istom PC, v compose musí byť napr. ' +
+    'PORTOS_BASE_URL=http://host.docker.internal:3010 (nie localhost).'
+  );
+}
+
 function buildUrl(baseUrl, path, query) {
   const url = new URL(path, baseUrl);
   for (const [key, value] of Object.entries(query || {})) {
@@ -74,9 +110,9 @@ async function portosRequest(method, path, { query, body, timeoutMs } = {}) {
     };
   } catch (error) {
     if (error?.name === 'AbortError') {
-      throw new PortosTransportError('Portos request timed out', error);
+      throw new PortosTransportError(portosUnreachableMessage(error, { timedOut: true }), error);
     }
-    throw new PortosTransportError('Portos request failed', error);
+    throw new PortosTransportError(portosUnreachableMessage(error, { timedOut: false }), error);
   } finally {
     clearTimeout(timer);
   }
