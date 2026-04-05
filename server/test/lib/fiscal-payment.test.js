@@ -6,6 +6,7 @@ import {
   buildCashRegisterRequestContext,
   buildFiscalReceiptItems,
   buildPaymentExternalId,
+  sanitizeForFiscalPrinter,
 } from '../../lib/fiscal-payment.js';
 
 describe('fiscal-payment helpers', () => {
@@ -40,6 +41,15 @@ describe('fiscal-payment helpers', () => {
     assert.equal(items[3].type, 'Discount');
   });
 
+  it('strips emoji and diacritics from fiscal line names for printer-safe ASCII', () => {
+    const items = buildFiscalReceiptItems(
+      [{ name: 'Pivo \u017Elt\u00E9 \uD83C\uDF7A', qty: 1, price: 2.5, vatRate: 19 }],
+      0,
+    );
+    assert.equal(items[0].name, 'Pivo zlte');
+    assert.equal(sanitizeForFiscalPrinter(''), 'Polozka');
+  });
+
   it('builds a deterministic Portos cash receipt request context', () => {
     process.env.PORTOS_CASH_REGISTER_CODE = '88812345678900001';
     process.env.PORTOS_PRINTER_NAME = 'pos';
@@ -58,7 +68,7 @@ describe('fiscal-payment helpers', () => {
     assert.equal(context.request.externalId, 'order-42-payment');
     assert.equal(context.request.data.cashRegisterCode, '88812345678900001');
     assert.equal(context.print.printerName, 'pos');
-    assert.equal(context.request.data.payments[0].name, 'Hotovosť');
+    assert.equal(context.request.data.payments[0].name, 'Hotovost');
     assert.equal(context.request.data.payments[0].amount, 8.5);
   });
 });

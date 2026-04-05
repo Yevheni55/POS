@@ -5,6 +5,39 @@ export const PAYMENT_METHOD_LABELS = {
   karta: 'Karta',
 };
 
+/** CHDU / staršie fiškálne tlačiarne často nezvládnu UTF-8 ani emoji — výsledok sú náhodné symboly. */
+const FOLD_EXTRA = {
+  ľ: 'l',
+  Ľ: 'L',
+  ł: 'l',
+  Ł: 'L',
+  ŕ: 'r',
+  Ŕ: 'R',
+  ô: 'o',
+  Ô: 'O',
+  ď: 'd',
+  Ď: 'D',
+  ť: 't',
+  Ť: 'T',
+  ň: 'n',
+  Ň: 'N',
+};
+
+export function sanitizeForFiscalPrinter(text) {
+  if (text == null || text === '') return 'Polozka';
+  let s = String(text).normalize('NFKC');
+  s = s.replace(/\p{Extended_Pictographic}/gu, '');
+  s = s.replace(/[\uFE0F\u200D]/g, '');
+  s = s.normalize('NFD').replace(/\p{M}/gu, '');
+  for (const [from, to] of Object.entries(FOLD_EXTRA)) {
+    s = s.split(from).join(to);
+  }
+  s = s.replace(/[^\x20-\x7E]/g, '');
+  s = s.replace(/\s+/g, ' ').trim();
+  const out = s.slice(0, 120);
+  return out.length ? out : 'Polozka';
+}
+
 function roundMoney(value) {
   return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 }
@@ -51,7 +84,7 @@ export function allocateDiscountAcrossVatGroups(items, discountAmount) {
     .filter((allocation) => allocation.amount > 0)
     .map((allocation) => ({
       type: 'Discount',
-      name: 'Z\u013Eava',
+      name: sanitizeForFiscalPrinter('Z\u013Eava'),
       price: -allocation.amount,
       unitPrice: -allocation.amount,
       quantity: {
@@ -67,7 +100,7 @@ export function allocateDiscountAcrossVatGroups(items, discountAmount) {
 export function buildFiscalReceiptItems(items, discountAmount = 0) {
   const receiptItems = items.map((item) => ({
     type: 'Positive',
-    name: item.name,
+    name: sanitizeForFiscalPrinter(item.name),
     price: roundMoney(item.price * item.qty),
     unitPrice: roundMoney(item.price),
     quantity: {
@@ -90,7 +123,7 @@ export function buildCashRegisterRequestContext({ orderId, items, discountAmount
       data: {
         items: buildFiscalReceiptItems(items, discountAmount),
         payments: [{
-          name: PAYMENT_METHOD_LABELS[method] || method,
+          name: sanitizeForFiscalPrinter(PAYMENT_METHOD_LABELS[method] || method),
           amount: roundMoney(expectedTotal),
         }],
         roundingAmount: 0,
