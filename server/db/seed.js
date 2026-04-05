@@ -15,11 +15,27 @@ async function seed() {
   console.log('Seeding database...');
 
   // Clear existing data (order matters for FK constraints)
+  await db.execute(rawSql`DELETE FROM idempotency_keys`);
+  await db.execute(rawSql`DELETE FROM print_queue`);
+  await db.execute(rawSql`DELETE FROM fiscal_documents`);
   await db.execute(rawSql`DELETE FROM payments`);
   await db.execute(rawSql`DELETE FROM order_items`);
+  await db.execute(rawSql`DELETE FROM order_events`);
   await db.execute(rawSql`DELETE FROM orders`);
+  await db.execute(rawSql`DELETE FROM shifts`);
+  await db.execute(rawSql`DELETE FROM asset_depreciations`);
+  await db.execute(rawSql`DELETE FROM assets`);
+  await db.execute(rawSql`DELETE FROM write_offs`);
+  await db.execute(rawSql`DELETE FROM inventory_audits`);
+  await db.execute(rawSql`DELETE FROM purchase_orders`);
+  await db.execute(rawSql`DELETE FROM stock_movements`);
+  await db.execute(rawSql`DELETE FROM recipes`);
   await db.execute(rawSql`DELETE FROM menu_items`);
   await db.execute(rawSql`DELETE FROM menu_categories`);
+  await db.execute(rawSql`DELETE FROM ingredients`);
+  await db.execute(rawSql`DELETE FROM suppliers`);
+  await db.execute(rawSql`DELETE FROM discounts`);
+  await db.execute(rawSql`DELETE FROM printers`);
   await db.execute(rawSql`DELETE FROM tables`);
   await db.execute(rawSql`DELETE FROM staff`);
 
