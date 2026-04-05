@@ -8,6 +8,8 @@
     "db:push": "drizzle-kit push",
     "db:seed": "node db/seed.js",
     "portos:readiness": "node scripts/portos-readiness.mjs",
+    "portos:baud-scan": "node scripts/portos-baud-scan.mjs",
+    "portos:printer-test": "node scripts/portos-printer-test.mjs",
     "portos:vat-sync": "node scripts/portos-vat-sync.mjs --apply",
     "test": "node scripts/run-tests.mjs full",
     "test:watch": "node scripts/run-tests.mjs watch",
