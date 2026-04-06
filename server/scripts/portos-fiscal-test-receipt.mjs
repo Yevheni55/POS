@@ -43,8 +43,9 @@ console.log(
 );
 
 const outcome = await registerCashReceipt(requestPayload);
+const { raw, ...summary } = outcome;
 
-console.log(JSON.stringify({ step: 'result', ...outcome }, null, 2));
+console.log(JSON.stringify({ step: 'result', ...summary }, null, 2));
 
 if (outcome.resultMode !== 'online_success' && outcome.resultMode !== 'offline_accepted') {
   process.exit(1);
