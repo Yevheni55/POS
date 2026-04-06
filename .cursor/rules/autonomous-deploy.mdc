@@ -1,11 +1,11 @@
 ---
-description: Run POS shop-PC deploy yourself; default host Tailscale 100.95.68.84
+description: Run POS shop-PC deploy yourself; default host Tailscale 100.95.64.38
 alwaysApply: true
 ---
 
 # Autonomous operations (POS)
 
 - **Do not** end with “run this yourself” when the task is deploy, sync to the shop PC, or remote Docker — **execute** tar/scp/ssh (Git Bash + `SSH_ASKPASS` if present) from the workspace machine, same pattern as historical Home-PC deploys.
-- **Default remote:** `surfs@100.95.68.84` (Tailscale IPv4; Windows user from `whoami`, not PC name), project path on host `C:\POS`. For LAN use `REMOTE_HOST=surfs@<local-ip>` or override in `deploy.sh` if the IP changes.
+- **Default remote:** `surfs@100.95.64.38` (Tailscale IPv4; Windows user from `whoami`, not PC name), project path on host `C:\POS`. For LAN use `REMOTE_HOST=surfs@<local-ip>` or override in `deploy.sh` if the IP changes.
 - **Flow:** `tar` project (exclude `node_modules`, `.git`), `scp` to `C:/POS/pos-deploy.tgz`, remote PowerShell — `docker compose down` (omit `-v` unless fresh DB requested), extract, `docker compose up -d --build`, then `docker compose exec -T app` → `npm run db:push` and `npm run db:seed` when DB is new or schema changed.
 - **Preflight:** `ping` the target IP; if unreachable, say so once and stop — do not ask the user to paste passwords in chat. Never store or repeat passwords from messages.

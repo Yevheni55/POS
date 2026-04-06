@@ -1,5 +1,5 @@
 # Run on your HOME PC (PowerShell), where Tailscale is connected.
-# Usage: .\diagnose-tailscale-from-home.ps1 -BarIp 100.95.68.84
+# Usage: .\diagnose-tailscale-from-home.ps1 -BarIp 100.95.64.38
 
 param(
   [Parameter(Mandatory = $true)]
