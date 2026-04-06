@@ -2,7 +2,7 @@
 # Requires: Docker Desktop running (Linux engine). Portos on this machine if you use fiscal printing.
 # If `docker info` fails with WSL / dockerDesktopLinuxEngine: run scripts\enable-wsl-for-docker-desktop.ps1 as Administrator, reboot, open Docker Desktop once on an interactive session.
 # Over SSH: install credential shim once — copy scripts\docker-credential-desktop-ssh.cmd to %USERPROFILE%\bin\docker-credential-desktop.cmd (see scripts\apply-docker-ssh-cli-fix.ps1).
-# NOT for the router — use the workstation IP (often 192.168.0.x, not .1).
+# NOT for the router — use the workstation LAN IP (e.g. 192.168.1.x), not the gateway (.1).
 
 . (Join-Path $PSScriptRoot 'apply-docker-ssh-cli-fix.ps1')
 
