@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>POS Admin — Redesign Mockup</title>
+<link rel="stylesheet" href="/tokens.css">
+<link rel="stylesheet" href="/fonts/fonts.css">
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;overflow:hidden}
+body{font-family:var(--font-body);color:var(--color-text);background:#0f0d1a;-webkit-font-smoothing:antialiased}
+
+/* === BG === */
+.bg-scene{position:fixed;inset:0;z-index:0;background:linear-gradient(160deg,#0f0d1a 0%,#161229 40%,#110e22 70%,#0a0820 100%)}
+.bg-scene::before{content:'';position:absolute;width:900px;height:900px;top:-20%;left:15%;border-radius:50%;background:radial-gradient(circle,rgba(139,124,246,.08),transparent 70%)}
+.bg-scene::after{content:'';position:absolute;width:600px;height:600px;bottom:-15%;right:5%;border-radius:50%;background:radial-gradient(circle,rgba(0,229,185,.05),transparent 70%)}
+
+/* === LAYOUT === */
+.app{position:relative;z-index:2;display:flex;height:100vh}
+
+/* === SIDEBAR — glass panel === */
+.sidebar{
+  width:240px;flex-shrink:0;display:flex;flex-direction:column;
+  background:rgba(12,10,28,.6);
+  backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);
+  border-right:1px solid rgba(255,255,255,.06);
+  padding:20px 0;
+}
+.sidebar-logo{display:flex;align-items:center;gap:12px;padding:0 20px 24px;border-bottom:1px solid rgba(255,255,255,.06);margin-bottom:16px}
+.logo-icon{
+  width:42px;height:42px;border-radius:12px;
+  background:linear-gradient(135deg,var(--color-accent),var(--color-accent-dim));
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--font-display);font-weight:800;font-size:15px;color:#0f0d1a;
+  box-shadow:0 0 20px rgba(139,124,246,.25);
+}
+.logo-text{font-family:var(--font-display);font-size:18px;font-weight:700;letter-spacing:-.3px}
+.logo-sub{font-size:10px;color:var(--color-text-sec);font-weight:500;margin-top:1px}
+
+.nav{flex:1;display:flex;flex-direction:column;gap:2px;padding:0 12px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.06) transparent}
+.nav-item{
+  display:flex;align-items:center;gap:11px;padding:10px 14px;border-radius:10px;
+  text-decoration:none;color:var(--color-text-sec);font-size:13px;font-weight:600;
+  transition:all .2s;cursor:pointer;position:relative;
+}
+.nav-item:hover{color:var(--color-text);background:rgba(255,255,255,.04)}
+.nav-item.active{
+  color:#fff;
+  background:rgba(139,124,246,.1);
+  box-shadow:inset 3px 0 0 var(--color-accent),0 0 20px rgba(139,124,246,.08);
+}
+.nav-item.active::after{
+  content:'';position:absolute;left:0;top:8px;bottom:8px;width:3px;
+  border-radius:0 2px 2px 0;
+  background:var(--color-accent);
+  box-shadow:0 0 8px rgba(139,124,246,.6);
+}
+.nav-item svg{width:18px;height:18px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.nav-divider{height:1px;background:rgba(255,255,255,.04);margin:10px 12px}
+.nav-section{display:block;padding:6px 20px;font-size:9px;font-weight:700;color:var(--color-text-dim);text-transform:uppercase;letter-spacing:1.5px}
+.sidebar-bottom{padding:14px 12px 0;border-top:1px solid rgba(255,255,255,.04);margin-top:auto}
+.nav-item.back{color:var(--color-text-dim);font-size:12px}
+
+/* === MAIN === */
+.main-area{flex:1;display:flex;flex-direction:column;overflow:hidden}
+
+/* === HEADER — glass bar === */
+.header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:14px 28px;
+  background:rgba(12,10,28,.5);
+  backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border-bottom:1px solid rgba(255,255,255,.06);
+  flex-shrink:0;
+}
+.header-title{font-family:var(--font-display);font-size:22px;font-weight:700;letter-spacing:-.3px}
+.header-right{display:flex;align-items:center;gap:16px}
+.header-clock{
+  font-family:var(--font-display);font-size:18px;font-weight:600;letter-spacing:-.2px;
+  background:linear-gradient(135deg,var(--color-accent),#00E5B9);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+}
+.header-date{font-size:10px;color:var(--color-text-sec);text-align:center;margin-top:1px}
+.admin-badge{
+  padding:5px 12px;border-radius:8px;
+  background:rgba(139,124,246,.08);border:1px solid rgba(139,124,246,.12);
+  color:var(--color-accent-dim);font-size:11px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.5px;
+}
+.logout-btn{
+  padding:6px 14px;border-radius:8px;border:1px solid rgba(224,112,112,.15);
+  background:rgba(224,112,112,.06);color:var(--color-danger);
+  font-family:var(--font-body);font-size:12px;font-weight:600;cursor:pointer;
+  transition:all .2s;
+}
+.logout-btn:hover{background:rgba(224,112,112,.12);border-color:rgba(224,112,112,.25)}
+.header-user{display:flex;align-items:center;gap:8px;padding:5px 14px 5px 6px;border-radius:20px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);font-size:12px;font-weight:600}
+.header-avatar{
+  width:32px;height:32px;border-radius:50%;
+  background:linear-gradient(135deg,rgba(139,124,246,.25),rgba(0,229,185,.15));
+  display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px;
+  border:1px solid rgba(139,124,246,.2);
+}
+
+/* === CONTENT === */
+.content{
+  flex:1;min-height:0;overflow-y:auto;padding:24px 28px;
+  scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.06) transparent;
+  position:relative;
+}
+.content::before{
+  content:'';position:fixed;pointer-events:none;z-index:0;
+  top:0;left:240px;right:0;bottom:0;
+  background:
+    radial-gradient(1px 1px at 15% 20%, rgba(255,255,255,.3), transparent),
+    radial-gradient(1px 1px at 35% 55%, rgba(255,255,255,.2), transparent),
+    radial-gradient(1.2px 1.2px at 55% 12%, rgba(255,255,255,.15), transparent),
+    radial-gradient(1px 1px at 70% 70%, rgba(255,255,255,.25), transparent),
+    radial-gradient(1px 1px at 88% 35%, rgba(255,255,255,.18), transparent),
+    radial-gradient(.8px .8px at 25% 85%, rgba(255,255,255,.12), transparent),
+    radial-gradient(1px 1px at 60% 45%, rgba(255,255,255,.1), transparent),
+    radial-gradient(1.2px 1.2px at 92% 80%, rgba(255,255,255,.2), transparent);
+  animation:starPulse 6s ease-in-out infinite alternate;
+}
+@keyframes starPulse{0%{opacity:.6}100%{opacity:1}}
+.content>*{position:relative;z-index:1}
+
+.section-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--color-text-sec);margin-bottom:12px;margin-top:20px}
+.section-label:first-child{margin-top:0}
+
+/* === STAT CARDS — neon glass === */
+.stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px}
+.stat-card{
+  background:rgba(12,10,28,.5);
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:16px;padding:20px 18px;
+  display:flex;align-items:center;gap:16px;
+  transition:all .25s;position:relative;overflow:hidden;
+}
+.stat-card::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,var(--glow-color,.2),transparent);
+}
+.stat-card:hover{
+  border-color:rgba(255,255,255,.12);
+  box-shadow:0 0 30px var(--glow-shadow,rgba(139,124,246,.06));
+  transform:translateY(-2px);
+}
+.stat-card.accent{--glow-color:rgba(139,124,246,.3);--glow-shadow:rgba(139,124,246,.08);border-color:rgba(139,124,246,.12)}
+.stat-card.mint{--glow-color:rgba(0,229,185,.3);--glow-shadow:rgba(0,229,185,.06);border-color:rgba(0,229,185,.1)}
+.stat-card.amber{--glow-color:rgba(232,184,74,.3);--glow-shadow:rgba(232,184,74,.06);border-color:rgba(232,184,74,.1)}
+.stat-card.rose{--glow-color:rgba(224,112,112,.25);--glow-shadow:rgba(224,112,112,.05);border-color:rgba(224,112,112,.1)}
+
+.stat-icon{
+  width:48px;height:48px;border-radius:14px;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+}
+.stat-icon.accent{background:rgba(139,124,246,.1);color:var(--color-accent);box-shadow:0 0 12px rgba(139,124,246,.1)}
+.stat-icon.mint{background:rgba(0,229,185,.08);color:#00E5B9;box-shadow:0 0 12px rgba(0,229,185,.08)}
+.stat-icon.amber{background:rgba(232,184,74,.08);color:#E8B84A;box-shadow:0 0 12px rgba(232,184,74,.08)}
+.stat-icon.rose{background:rgba(224,112,112,.08);color:var(--color-danger);box-shadow:0 0 12px rgba(224,112,112,.08)}
+.stat-icon svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.stat-label{font-size:11px;color:var(--color-text-sec);font-weight:500;margin-bottom:4px;text-transform:uppercase;letter-spacing:.3px}
+.stat-value{font-family:var(--font-display);font-size:24px;font-weight:700;line-height:1.15;letter-spacing:-.3px}
+.stat-change{font-size:11px;font-weight:600;margin-top:4px;display:flex;align-items:center;gap:4px}
+.stat-change.up{color:#00E5B9}
+.stat-change.neutral{color:var(--color-text-sec)}
+.stat-change .arrow{font-size:13px}
+
+/* === ROW / PANELS — glass === */
+.row{display:grid;grid-template-columns:1.6fr 1fr;gap:16px;margin-bottom:20px}
+.row.single{grid-template-columns:1fr}
+
+.panel{
+  background:rgba(12,10,28,.45);
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  border:1px solid rgba(255,255,255,.06);
+  border-radius:16px;padding:22px 20px;
+  position:relative;overflow:hidden;
+}
+.panel::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(139,124,246,.15),transparent);
+}
+.panel-title{
+  font-family:var(--font-display);font-size:15px;font-weight:700;
+  margin-bottom:16px;display:flex;align-items:center;gap:8px;
+  color:var(--color-text);
+}
+.panel-title svg{width:16px;height:16px;stroke:var(--color-accent);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+/* === BAR CHART === */
+.bar-chart{display:flex;align-items:flex-end;gap:12px;height:180px;padding-top:10px}
+.bar-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;height:100%}
+.bar-wrapper{flex:1;width:100%;display:flex;align-items:flex-end;justify-content:center}
+.bar{
+  width:100%;max-width:48px;border-radius:8px 8px 4px 4px;
+  min-height:4px;position:relative;
+  transition:all .4s cubic-bezier(.34,1.56,.64,1);
+}
+.bar.dim{background:rgba(139,124,246,.2)}
+.bar.highlight{
+  background:linear-gradient(180deg,var(--color-accent),rgba(139,124,246,.4));
+  box-shadow:0 0 16px rgba(139,124,246,.2);
+}
+.bar-amount{
+  font-family:var(--font-display);font-size:11px;font-weight:600;
+  color:var(--color-text-sec);text-align:center;
+  opacity:0;transition:opacity .2s;
+}
+.bar-col:hover .bar-amount{opacity:1}
+.bar-label{font-size:11px;font-weight:600;color:var(--color-text-dim)}
+
+/* === TOP PRODUCTS === */
+.product-list{display:flex;flex-direction:column;gap:2px}
+.product-row{
+  display:grid;grid-template-columns:24px 1fr 36px 52px 72px;
+  align-items:center;gap:10px;padding:8px 10px;border-radius:8px;font-size:12px;
+  transition:background .15s;
+}
+.product-row:nth-child(odd){background:rgba(255,255,255,.02)}
+.product-row:hover{background:rgba(255,255,255,.04)}
+.product-rank{font-family:var(--font-display);font-weight:700;font-size:13px;color:var(--color-text-dim);text-align:center}
+.product-row:nth-child(1) .product-rank{color:var(--color-accent)}
+.product-row:nth-child(2) .product-rank{color:var(--color-text-sec)}
+.product-row:nth-child(3) .product-rank{color:#CD7F32}
+.product-name{font-weight:600;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.product-qty{font-family:var(--font-display);font-weight:600;font-size:12px;color:var(--color-text-sec);text-align:center}
+.product-revenue{font-family:var(--font-display);font-weight:700;font-size:12px;color:var(--color-accent);text-align:right}
+.product-bar-wrap{width:100%;height:5px;border-radius:3px;background:rgba(255,255,255,.05);overflow:hidden}
+.product-bar-fill{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--color-accent),var(--color-accent-dim))}
+
+/* === PAYMENT METHODS — donut + legend === */
+.pay-visual{display:flex;align-items:center;justify-content:center;gap:28px;flex-wrap:wrap}
+.pay-donut{
+  position:relative;width:120px;height:120px;border-radius:50%;flex-shrink:0;
+  box-shadow:0 0 0 1px rgba(255,255,255,.06) inset;
+}
+.pay-donut::after{
+  content:'';position:absolute;inset:28px;border-radius:50%;
+  background:rgba(12,10,28,.8);
+  box-shadow:0 1px 0 rgba(0,0,0,.2) inset;
+}
+.pay-legend{list-style:none;margin:0;padding:0;flex:1;min-width:180px;max-width:300px}
+.pay-legend-row{
+  display:grid;grid-template-columns:10px 1fr auto;gap:10px;align-items:center;
+  padding:9px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px;
+}
+.pay-legend-row:last-child{border-bottom:none}
+.pay-swatch{width:10px;height:10px;border-radius:3px}
+.pay-label{font-weight:600;color:var(--color-text)}
+.pay-val{font-family:var(--font-display);font-weight:600;color:var(--color-text-sec);text-align:right;white-space:nowrap}
+
+/* === UZAVIERKA PANEL === */
+.uz-lead{font-size:12px;line-height:1.5;color:var(--color-text-sec);margin-bottom:14px}
+.uz-methods{font-size:13px;color:var(--color-text);margin-bottom:16px;font-weight:500;line-height:1.6}
+.uz-methods strong{color:var(--color-accent);font-weight:700}
+.btn-outline{
+  display:inline-flex;align-items:center;gap:7px;
+  padding:8px 16px;border-radius:8px;
+  border:1px solid rgba(139,124,246,.15);
+  background:rgba(139,124,246,.06);
+  color:var(--color-accent);font-family:var(--font-body);
+  font-size:12px;font-weight:700;cursor:pointer;
+  transition:all .2s;text-decoration:none;
+}
+.btn-outline:hover{background:rgba(139,124,246,.12);border-color:rgba(139,124,246,.25);box-shadow:0 0 16px rgba(139,124,246,.08)}
+.btn-outline svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+/* === HEALTH STATUS === */
+.health-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.health-item{
+  display:flex;align-items:center;gap:10px;padding:10px 12px;
+  border-radius:10px;background:rgba(255,255,255,.02);font-size:12px;
+  border:1px solid rgba(255,255,255,.04);
+}
+.health-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.health-dot.ok{background:#00E5B9;box-shadow:0 0 8px rgba(0,229,185,.5)}
+.health-dot.warn{background:#E8B84A;box-shadow:0 0 8px rgba(232,184,74,.4)}
+.health-label{font-weight:600;flex:1}
+.health-val{font-family:var(--font-display);font-weight:600;color:var(--color-text-sec);font-size:11px}
+
+.actions-row{display:flex;gap:10px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<div class="bg-scene"></div>
+<div class="app">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-icon">POS</div>
+      <div><div class="logo-text">POS Admin</div><div class="logo-sub">Kaviareň &amp; Bar</div></div>
+    </div>
+    <nav class="nav">
+      <a class="nav-item active" href="#">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+        Dashboard
+      </a>
+      <a class="nav-item" href="#">
+        <svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+        Menu
+      </a>
+      <a class="nav-item" href="#">
+        <svg viewBox="0 0 24 24"><path d="M3 3h18v18H3z" fill="none"/><path d="M9 3v18"/><path d="M3 9h6"/><path d="M3 15h6"/><path d="M15 6h3"/><path d="M15 10h3"/><path d="M15 14h3"/></svg>
+        Receptúry
+      </a>
+      <a class="nav-item" href="#">
+        <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="9" y1="4" x2="9" y2="20"/></svg>
+        Stoly
+      </a>
+      <a class="nav-item" href="#">
+        <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Zamestnanci
+      </a>
+      <a class="nav-item" href="#">
+        <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        Reporty
+      </a>
+      <div class="nav-divider"></div>
+      <span class="nav-section">Sklad</span>
+      <a class="nav-item" href="#">
+        <svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+        Prehľad
+      </a>
+      <a class="nav-item" href="#">
+        <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        Suroviny
+      </a>
+      <a class="nav-item" href="#">
+        <svg viewBox="0 0 24 24"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+        Tovar
+      </a>
+      <div class="nav-divider"></div>
+      <a class="nav-item" href="#">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Nastavenia
+      </a>
+    </nav>
+    <div class="sidebar-bottom">
+      <a class="nav-item back" href="/pos-enterprise.html">
+        <svg viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        Späť na POS
+      </a>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <div class="main-area">
+    <header class="header">
+      <h1 class="header-title">Dashboard</h1>
+      <div class="header-right">
+        <div>
+          <div class="header-clock">01:26</div>
+          <div class="header-date">Utorok, 7. apr</div>
+        </div>
+        <div class="admin-badge">Admin</div>
+        <button class="logout-btn">Odhlásiť</button>
+        <div class="header-user">
+          <div class="header-avatar">AD</div>
+          <span>Admin</span>
+        </div>
+      </div>
+    </header>
+
+    <div class="content">
+      <div class="section-label">Prehľad dňa</div>
+
+      <!-- STAT CARDS -->
+      <div class="stat-grid">
+        <div class="stat-card accent">
+          <div class="stat-icon accent">
+            <svg viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          </div>
+          <div>
+            <div class="stat-label">Dnešné tržby</div>
+            <div class="stat-value">1 247,50 &euro;</div>
+            <div class="stat-change up"><span class="arrow">&#9650;</span> 42 platieb</div>
+          </div>
+        </div>
+        <div class="stat-card mint">
+          <div class="stat-icon mint">
+            <svg viewBox="0 0 24 24"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+          </div>
+          <div>
+            <div class="stat-label">Objednávky dnes</div>
+            <div class="stat-value">38</div>
+            <div class="stat-change up"><span class="arrow">&#9650;</span> 3 otvorené</div>
+          </div>
+        </div>
+        <div class="stat-card amber">
+          <div class="stat-icon amber">
+            <svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+          </div>
+          <div>
+            <div class="stat-label">Priemerný účet</div>
+            <div class="stat-value">32,83 &euro;</div>
+            <div class="stat-change neutral">priemerný účet</div>
+          </div>
+        </div>
+        <div class="stat-card rose">
+          <div class="stat-icon rose">
+            <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="9" y1="4" x2="9" y2="20"/></svg>
+          </div>
+          <div>
+            <div class="stat-label">Obsadenosť stolov</div>
+            <div class="stat-value">62%</div>
+            <div class="stat-change neutral">10 / 16 stolov</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MIDDLE ROW -->
+      <div class="row">
+        <div class="panel">
+          <div class="panel-title">
+            <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            Tržby za týždeň
+          </div>
+          <div class="bar-chart">
+            <div class="bar-col"><div class="bar-amount">420 &euro;</div><div class="bar-wrapper"><div class="bar dim" style="height:35%"></div></div><div class="bar-label">Po</div></div>
+            <div class="bar-col"><div class="bar-amount">680 &euro;</div><div class="bar-wrapper"><div class="bar dim" style="height:57%"></div></div><div class="bar-label">Ut</div></div>
+            <div class="bar-col"><div class="bar-amount">540 &euro;</div><div class="bar-wrapper"><div class="bar dim" style="height:45%"></div></div><div class="bar-label">St</div></div>
+            <div class="bar-col"><div class="bar-amount">890 &euro;</div><div class="bar-wrapper"><div class="bar dim" style="height:74%"></div></div><div class="bar-label">Št</div></div>
+            <div class="bar-col"><div class="bar-amount">1 200 &euro;</div><div class="bar-wrapper"><div class="bar highlight" style="height:100%"></div></div><div class="bar-label">Pi</div></div>
+            <div class="bar-col"><div class="bar-amount">1 050 &euro;</div><div class="bar-wrapper"><div class="bar dim" style="height:88%"></div></div><div class="bar-label">So</div></div>
+            <div class="bar-col"><div class="bar-amount">310 &euro;</div><div class="bar-wrapper"><div class="bar dim" style="height:26%"></div></div><div class="bar-label">Ne</div></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-title">
+            <svg viewBox="0 0 24 24"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+            Top produkty dnes
+          </div>
+          <div class="product-list">
+            <div class="product-row"><div class="product-rank">1</div><div class="product-name">&#9749; Espresso</div><div class="product-qty">24</div><div class="product-bar-wrap"><div class="product-bar-fill" style="width:100%"></div></div><div class="product-revenue">48,00 &euro;</div></div>
+            <div class="product-row"><div class="product-rank">2</div><div class="product-name">&#127866; Plzeň 12°</div><div class="product-qty">18</div><div class="product-bar-wrap"><div class="product-bar-fill" style="width:75%"></div></div><div class="product-revenue">45,00 &euro;</div></div>
+            <div class="product-row"><div class="product-rank">3</div><div class="product-name">&#127865; Mojito</div><div class="product-qty">12</div><div class="product-bar-wrap"><div class="product-bar-fill" style="width:50%"></div></div><div class="product-revenue">84,00 &euro;</div></div>
+            <div class="product-row"><div class="product-rank">4</div><div class="product-name">&#127861; Čaj zelený</div><div class="product-qty">9</div><div class="product-bar-wrap"><div class="product-bar-fill" style="width:38%"></div></div><div class="product-revenue">18,00 &euro;</div></div>
+            <div class="product-row"><div class="product-rank">5</div><div class="product-name">&#127828; Burger classic</div><div class="product-qty">7</div><div class="product-bar-wrap"><div class="product-bar-fill" style="width:29%"></div></div><div class="product-revenue">59,50 &euro;</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAYMENT METHODS -->
+      <div class="row single">
+        <div class="panel">
+          <div class="panel-title">
+            <svg viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+            Platobné metódy dnes
+          </div>
+          <div class="pay-visual">
+            <div class="pay-donut" style="background:conic-gradient(#8b7cf6 0% 58%,#00E5B9 58% 92%,#E8B84A 92% 100%)"></div>
+            <ul class="pay-legend">
+              <li class="pay-legend-row">
+                <span class="pay-swatch" style="background:#8b7cf6"></span>
+                <span class="pay-label">Hotovosť</span>
+                <span class="pay-val">723,40 &euro; &middot; 58% &middot; 24&times;</span>
+              </li>
+              <li class="pay-legend-row">
+                <span class="pay-swatch" style="background:#00E5B9"></span>
+                <span class="pay-label">Karta</span>
+                <span class="pay-val">424,10 &euro; &middot; 34% &middot; 15&times;</span>
+              </li>
+              <li class="pay-legend-row">
+                <span class="pay-swatch" style="background:#E8B84A"></span>
+                <span class="pay-label">Stravenky</span>
+                <span class="pay-val">100,00 &euro; &middot; 8% &middot; 3&times;</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-label">Uzávierka a stav</div>
+
+      <!-- UZAVIERKA + HEALTH -->
+      <div class="row">
+        <div class="panel">
+          <div class="panel-title">
+            <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            Dnešná uzávierka
+          </div>
+          <p class="uz-lead">Rozpis platieb pre kontrolu a tlač Z-reportu.</p>
+          <div class="uz-methods">
+            Hotovosť: <strong>723,40 &euro;</strong> (24&times;)
+            &nbsp;|&nbsp; Karta: <strong>424,10 &euro;</strong> (15&times;)
+            &nbsp;|&nbsp; Stravenky: <strong>100,00 &euro;</strong> (3&times;)
+          </div>
+          <div class="actions-row">
+            <a href="#reports" class="btn-outline">Kompletný report</a>
+            <button class="btn-outline">
+              <svg viewBox="0 0 24 24"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+              Tlačiť uzávierku
+            </button>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-title">
+            <svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+            Stav systému
+          </div>
+          <div class="health-grid">
+            <div class="health-item"><div class="health-dot ok"></div><div class="health-label">Databáza</div><div class="health-val">2ms</div></div>
+            <div class="health-item"><div class="health-dot ok"></div><div class="health-label">Portos / CHDU</div><div class="health-val">online</div></div>
+            <div class="health-item"><div class="health-dot ok"></div><div class="health-label">Tlačiareň</div><div class="health-val">ready</div></div>
+            <div class="health-item"><div class="health-dot warn"></div><div class="health-label">Sklad</div><div class="health-val">3 nízke</div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</body>
+</html>
