@@ -55,19 +55,17 @@ function setZone(id){activeZone=id;renderFloorZones();renderFloor()}
 function renderFloor(){
   const canvas=document.getElementById('floorCanvas');
   const filtered=TABLES.filter(t=>t.zone===activeZone);
-  const sl={free:'Volny',occupied:'Obsad.',reserved:'Rez.'};
+  const sl={free:'VOLN\u00DD',occupied:'OBSADEN\u00C9',reserved:'REZ.'};
 
   canvas.innerHTML=filtered.map(t=>{
     const ord=tableOrders[t.id]||[];
     const total=ord.reduce((s,o)=>s+o.price*o.qty,0);
     const isSel=t.id===selectedTableId;
     const shapeClass=t.shape==='round'?'round':t.shape==='large'?'large':'';
-    // Edit mode: absolute px. Normal mode: percentage-based positioning
     let posStyle;
     if(editMode){
       posStyle=`left:${t.x}px;top:${t.y}px`;
     } else {
-      // Compute reference space from actual table coordinates + chip padding
       if(!renderFloor._refW){
         var maxX=0,maxY=0;
         TABLES.forEach(function(tb){if(tb.x>maxX)maxX=tb.x;if(tb.y>maxY)maxY=tb.y});
