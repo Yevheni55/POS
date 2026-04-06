@@ -1,10 +1,12 @@
 #!/bin/sh
 # Push to production: bundle → scp → import → trigger deploy
-# Usage: ./push-deploy.sh
+# Usage:
+#   REMOTE_HOST=surfspirit@192.168.0.101 ./deploy.sh
+# Override REMOTE_HOST if the workstation uses another user or IP.
 
 set -e
 
-REMOTE_HOST="surfspirit@192.168.0.104"
+REMOTE_HOST="${REMOTE_HOST:-surfspirit@192.168.0.101}"
 BUNDLE="/tmp/pos-deploy.bundle"
 BARE_REPO="C:/POS-bare"
 
