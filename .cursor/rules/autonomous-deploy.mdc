@@ -6,6 +6,6 @@ alwaysApply: true
 # Autonomous operations (POS)
 
 - **Do not** end with “run this yourself” when the task is deploy, sync to the shop PC, or remote Docker — **execute** tar/scp/ssh (Git Bash + `SSH_ASKPASS` if present) from the workspace machine, same pattern as historical Home-PC deploys.
-- **Default remote:** `surfspirit@192.168.0.103`, project path on host `C:\POS`. Override via `REMOTE_HOST` in `deploy.sh` if the user gives another IP/user.
+- **Default remote:** `surfs@192.168.0.103` (Windows user from `whoami`, not PC name), project path on host `C:\POS`. Override via `REMOTE_HOST` in `deploy.sh` if the user gives another IP/user.
 - **Flow:** `tar` project (exclude `node_modules`, `.git`), `scp` to `C:/POS/pos-deploy.tgz`, remote PowerShell — `docker compose down` (omit `-v` unless fresh DB requested), extract, `docker compose up -d --build`, then `docker compose exec -T app` → `npm run db:push` and `npm run db:seed` when DB is new or schema changed.
 - **Preflight:** `ping` the target IP; if unreachable, say so once and stop — do not ask the user to paste passwords in chat. Never store or repeat passwords from messages.
