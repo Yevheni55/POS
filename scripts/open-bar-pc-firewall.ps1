@@ -13,7 +13,8 @@ Get-NetConnectionProfile | ForEach-Object {
 $rules = @(
   @{ Name = 'POS SSH 22'; Port = 22 },
   @{ Name = 'POS HTTP 3000'; Port = 3000 },
-  @{ Name = 'POS HTTPS 3443'; Port = 3443 }
+  @{ Name = 'POS HTTPS 3443'; Port = 3443 },
+  @{ Name = 'Portos HTTP API 3010'; Port = 3010 }
 )
 
 foreach ($r in $rules) {
@@ -30,7 +31,8 @@ foreach ($r in $rules) {
 $tsRules = @(
   @{ Name = 'POS SSH 22 (Tailscale peers)'; Port = 22 },
   @{ Name = 'POS HTTP 3000 (Tailscale peers)'; Port = 3000 },
-  @{ Name = 'POS HTTPS 3443 (Tailscale peers)'; Port = 3443 }
+  @{ Name = 'POS HTTPS 3443 (Tailscale peers)'; Port = 3443 },
+  @{ Name = 'Portos API 3010 (Tailscale peers)'; Port = 3010 }
 )
 foreach ($r in $tsRules) {
   if (Get-NetFirewallRule -DisplayName $r.Name -ErrorAction SilentlyContinue) {
