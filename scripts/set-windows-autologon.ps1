@@ -1,5 +1,7 @@
 #Requires -RunAsAdministrator
 # One-time on the bar PC: automatic sign-in after reboot (local account).
+# If you see "running scripts is disabled": run set-windows-autologon.cmd as Administrator, or:
+#   powershell -ExecutionPolicy Bypass -File "C:\POS\scripts\set-windows-autologon.ps1"
 # Security: password is stored in the registry (Winlogon) — use a dedicated kiosk-style account with minimal rights if possible.
 
 $ErrorActionPreference = 'Stop'

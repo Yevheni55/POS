@@ -35,5 +35,6 @@ if (-not $rd) {
 }
 
 Write-Host ''
-Write-Host 'Auto-logon (no password prompt at boot): run as Administrator:'
-Write-Host '  .\scripts\set-windows-autologon.ps1'
+Write-Host 'Auto-logon (no password prompt at boot): right-click Run as administrator:'
+Write-Host '  C:\POS\scripts\set-windows-autologon.cmd'
+Write-Host 'Or: powershell -ExecutionPolicy Bypass -File C:\POS\scripts\set-windows-autologon.ps1'
