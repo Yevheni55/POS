@@ -41,3 +41,24 @@ Test-NetConnection -ComputerName 100.95.68.84 -Port 3000
 ```
 
 `TcpTestSucceeded : True` — порт досяжний; якщо `False` — firewall на касі або POS не слухає порт.
+
+Або повна діагностика (з каталогу репозиторію `scripts`):
+
+```powershell
+.\diagnose-tailscale-from-home.ps1 -BarIp 100.95.68.84
+```
+
+На **касі** (від адміна):
+
+```powershell
+cd C:\POS
+powershell -ExecutionPolicy Bypass -File .\scripts\diagnose-pos-on-bar-pc.ps1
+```
+
+### 6. Обидва в одному tailnet
+
+У [admin console](https://login.tailscale.com/admin/machines) мають бути **обидва** пристрої, статус **Connected**, один акаунт. Якщо каса **Expired** — натисни **Reauthenticate**.
+
+### 7. ACL у Tailscale
+
+Якщо в **Access controls** є кастомний `acl.hujson`, який **забороняє** трафік між нодами — дозволь хоча б `TCP 3000` між твоїм ПК і касою (або тимчасово спрости ACL до дефолту для перевірки).
