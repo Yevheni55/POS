@@ -49,6 +49,22 @@ cd C:\POS
 docker compose up -d
 ```
 
+## 3b. Тестовий фіскальний чек (тільки тестова каса eKāsa)
+
+Після зеленого `portos-readiness` можна один раз перевірити повний **`cash_register`** (1 €, DPH 19 %, готівка):
+
+```bash
+cd server && npm run portos:fiscal-test
+```
+
+У Docker на касі (якщо скрипт ще не в образі — скопіюй `server/scripts/portos-fiscal-test-receipt.mjs` у контейнер або перезбери образ):
+
+```powershell
+docker compose exec -T app sh -c "cd /app/server && node scripts/portos-fiscal-test-receipt.mjs"
+```
+
+Очікувано: `resultMode` = `online_success`, `receiptNumber`, `okp` у виводі.
+
 ## 4. В адмінці POS
 
 Увійти як **manazer** або **admin** → інтеграції / статус Portos (`GET /api/integrations/portos/status`) — має бути без помилок, `serviceReachable` тощо.
