@@ -20,110 +20,104 @@ export function init(container) {
   _container = container;
   container.innerHTML = `
     <div class="dashboard-page">
-    <div class="dashboard-exec-head">
-      <h2 class="dashboard-exec-title">Prehľad pre vedenie</h2>
-      <p class="dashboard-exec-sub" id="dashboardExecDate"></p>
-    </div>
+    <div class="dashboard-section-label">Prehľad dňa</div>
+    <!-- STAT CARDS -->
     <div class="stat-grid">
-      <div class="stat-card accent">
-        <div class="stat-card-main">
-          <div class="stat-icon accent">
-            <svg aria-hidden="true" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-          </div>
-          <div class="stat-info" data-stat="revenue">
-            <div class="stat-label">Dnešné tržby</div>
-            <div class="stat-value skeleton skeleton-text">&nbsp;</div>
-            <div class="stat-change skeleton skeleton-text">&nbsp;</div>
-          </div>
+      <div class="stat-card">
+        <div class="stat-icon lavender">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
         </div>
-        <div class="stat-progress-bar" aria-hidden="true"><span class="stat-progress-fill stat-progress-fill--accent" data-stat-fill="revenue" style="width:0%"></span></div>
+        <div class="stat-info" data-stat="revenue">
+          <div class="stat-label">Dnešné tržby</div>
+          <div class="stat-value skeleton skeleton-text">&nbsp;</div>
+          <div class="stat-change skeleton skeleton-text">&nbsp;</div>
+        </div>
       </div>
-      <div class="stat-card mint">
-        <div class="stat-card-main">
-          <div class="stat-icon mint">
-            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
-          </div>
-          <div class="stat-info" data-stat="orders">
-            <div class="stat-label">Objednávky dnes</div>
-            <div class="stat-value skeleton skeleton-text">&nbsp;</div>
-            <div class="stat-change skeleton skeleton-text">&nbsp;</div>
-          </div>
+      <div class="stat-card">
+        <div class="stat-icon lavender">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
         </div>
-        <div class="stat-progress-bar" aria-hidden="true"><span class="stat-progress-fill stat-progress-fill--mint" data-stat-fill="orders" style="width:0%"></span></div>
+        <div class="stat-info" data-stat="orders">
+          <div class="stat-label">Objednávky dnes</div>
+          <div class="stat-value skeleton skeleton-text">&nbsp;</div>
+          <div class="stat-change skeleton skeleton-text">&nbsp;</div>
+        </div>
       </div>
-      <div class="stat-card amber">
-        <div class="stat-card-main">
-          <div class="stat-icon amber">
-            <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
-          </div>
-          <div class="stat-info" data-stat="avg">
-            <div class="stat-label">Priemerný účet</div>
-            <div class="stat-value skeleton skeleton-text">&nbsp;</div>
-            <div class="stat-change skeleton skeleton-text">&nbsp;</div>
-          </div>
+      <div class="stat-card">
+        <div class="stat-icon lavender">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
         </div>
-        <div class="stat-progress-bar" aria-hidden="true"><span class="stat-progress-fill stat-progress-fill--amber" data-stat-fill="avg" style="width:0%"></span></div>
+        <div class="stat-info" data-stat="avg">
+          <div class="stat-label">Priemerný účet</div>
+          <div class="stat-value skeleton skeleton-text">&nbsp;</div>
+          <div class="stat-change skeleton skeleton-text">&nbsp;</div>
+        </div>
       </div>
-      <div class="stat-card rose">
-        <div class="stat-card-main">
-          <div class="stat-icon rose">
-            <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="9" y1="4" x2="9" y2="20"/></svg>
-          </div>
-          <div class="stat-info" data-stat="occupancy">
-            <div class="stat-label">Obsadenosť stolov</div>
-            <div class="stat-value skeleton skeleton-text">&nbsp;</div>
-            <div class="stat-change skeleton skeleton-text">&nbsp;</div>
-          </div>
+      <div class="stat-card">
+        <div class="stat-icon amber">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="9" y1="4" x2="9" y2="20"/></svg>
         </div>
-        <div class="stat-progress-bar" aria-hidden="true"><span class="stat-progress-fill stat-progress-fill--rose" data-stat-fill="occupancy" style="width:0%"></span></div>
+        <div class="stat-info" data-stat="occupancy">
+          <div class="stat-label">Obsadenosť stolov</div>
+          <div class="stat-value skeleton skeleton-text">&nbsp;</div>
+          <div class="stat-change skeleton skeleton-text">&nbsp;</div>
+        </div>
       </div>
     </div>
 
+    <!-- MIDDLE ROW -->
     <div class="row">
+      <!-- Weekly Revenue -->
       <div class="col-60">
         <div class="panel">
-          <div class="panel-title">Výkon tržieb (týždeň)</div>
-          <p class="panel-sublegend"><span class="legend-dot legend-dot--this"></span> Tento týždeň</p>
-          <div class="bar-chart bar-chart--area" id="barChart">
+          <div class="panel-title">Tržby za týždeň</div>
+          <div class="bar-chart" id="barChart">
             <div class="loading-placeholder" style="width:100%">Načítavam…</div>
           </div>
         </div>
       </div>
+
+      <!-- Top Products -->
       <div class="col-40">
         <div class="panel">
-          <div class="panel-title">Top predaj dnes</div>
-          <div class="product-list dashboard-product-list dashboard-top-sellers" id="topProducts">
+          <div class="panel-title">Top produkty dnes</div>
+          <div class="product-list dashboard-product-list" id="topProducts">
             <div class="loading-placeholder">Načítavam…</div>
           </div>
         </div>
       </div>
     </div>
 
+    <!-- PAYMENT METHODS -->
     <div class="row dashboard-row-single">
-      <div class="col-100">
+      <div class="col-50">
         <div class="panel">
-          <div class="panel-title">Rozdelenie platieb</div>
-          <div class="pay-distribution-grid" id="payDistributionGrid">
+          <div class="panel-title">Platobné metódy dnes</div>
+          <div class="occ-chart" id="occChart">
             <div class="loading-placeholder">Načítavam…</div>
           </div>
         </div>
       </div>
     </div>
 
+    <div class="dashboard-section-label">Uzávierka a tlač</div>
+    <!-- DNESNA UZAVIERKA (bez opakovania KPI — tie sú v kartách vyššie) -->
     <div class="row dashboard-row-single">
-      <div class="col-100">
-        <div class="panel closure-panel" id="closurePanel">
+      <div class="col-50">
+        <div class="panel" id="uzavierkaPanel">
           <div class="panel-title">
-            <svg aria-hidden="true" viewBox="0 0 24 24" class="panel-icon panel-icon-accent"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-            Stav uzávierky
+            <svg aria-hidden="true" viewBox="0 0 24 24" class="panel-icon panel-icon-accent"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            Dnešná uzávierka
           </div>
-          <div class="closure-card" id="closureChecklist"></div>
-          <div class="closure-actions">
-            <button type="button" class="btn-outline-accent" id="btnClosureRemind">Pripomenúť tím</button>
-            <a href="#reports" class="btn-outline-muted">Detailný audit / reporty</a>
-            <button type="button" class="btn-outline-accent" id="btnQuickPrintZ">
+          <p class="dashboard-uz-lead">Rozpis platieb pre kontrolu a tlač Z-reportu (súčty sú zhodné s prehľadom vyššie).</p>
+          <div id="uzPayments" class="loading-placeholder" style="margin-bottom:12px"></div>
+          <div class="flex-row">
+            <a href="#reports" class="btn-outline-accent">
+              Kompletný report
+            </a>
+            <button id="btnQuickPrintZ" class="btn-outline-accent">
               <svg aria-hidden="true" viewBox="0 0 24 24" style="width:14px;height:14px"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
-              Tlačiť Z-report
+              Tlačiť uzávierku
             </button>
           </div>
         </div>
@@ -131,18 +125,6 @@ export function init(container) {
     </div>
     </div>
   `;
-
-  var execDate = container.querySelector('#dashboardExecDate');
-  if (execDate) {
-    execDate.textContent = new Date().toLocaleDateString('sk-SK', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-  }
-
-  var remindBtn = container.querySelector('#btnClosureRemind');
-  if (remindBtn) {
-    remindBtn.addEventListener('click', function() {
-      showToast('Pripomienka: skontrolujte uzávierku a tlač Z-reportu.', true);
-    });
-  }
 
   refreshDashboardData();
   interval = setInterval(function() {
@@ -194,12 +176,6 @@ function skOpenOrdersLabel(n) {
   return n + ' otvorených objednávok';
 }
 
-function setStatFill(which, pct) {
-  if (!_container) return;
-  var el = _container.querySelector('[data-stat-fill="' + which + '"]');
-  if (el) el.style.width = Math.min(100, Math.max(0, pct)) + '%';
-}
-
 async function loadStats() {
   if (!_container) return;
   var c = _container;
@@ -211,27 +187,21 @@ async function loadStats() {
   var avgChange = c.querySelector('[data-stat="avg"] .stat-change');
   var occValue = c.querySelector('[data-stat="occupancy"] .stat-value');
   var occChange = c.querySelector('[data-stat="occupancy"] .stat-change');
-  var revNum = 0;
-  var ordNum = 0;
-  var avgNum = 0;
-  var occPct = 0;
 
   try {
     var today = ymdLocal(new Date());
     var summary = await api.get('/reports/summary?from=' + encodeURIComponent(today) + '&to=' + encodeURIComponent(today));
     if (summary) {
       if (summary.revenue && revValue) {
-        revNum = Number(summary.revenue.total) || 0;
-        revValue.innerHTML = revNum.toLocaleString('sk-SK', {minimumFractionDigits:2}) + ' &euro;';
+        revValue.innerHTML = Number(summary.revenue.total).toLocaleString('sk-SK', {minimumFractionDigits:2}) + ' &euro;';
         revValue.classList.remove('skeleton', 'skeleton-text');
       }
       if (revChange) {
-        revChange.textContent = summary.revenue.payments + ' platieb · dnes';
+        revChange.textContent = summary.revenue.payments + ' platieb';
         revChange.className = 'stat-change ' + (summary.revenue.total > 0 ? 'up' : 'neutral');
       }
       if (summary.orders && ordValue) {
-        ordNum = summary.orders.total;
-        ordValue.textContent = ordNum;
+        ordValue.textContent = summary.orders.total;
         ordValue.classList.remove('skeleton', 'skeleton-text');
       }
       if (summary.orders && ordChange) {
@@ -239,8 +209,8 @@ async function loadStats() {
         ordChange.className = 'stat-change ' + (summary.orders.open > 0 ? 'up' : 'neutral');
       }
       if (summary.orders && summary.orders.total > 0 && avgValue) {
-        avgNum = summary.revenue.total / summary.orders.total;
-        avgValue.innerHTML = avgNum.toLocaleString('sk-SK', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' &euro;';
+        var avg = summary.revenue.total / summary.orders.total;
+        avgValue.innerHTML = avg.toLocaleString('sk-SK', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' &euro;';
         avgValue.classList.remove('skeleton', 'skeleton-text');
       } else if (avgValue) {
         avgValue.innerHTML = '0,00 &euro;';
@@ -251,7 +221,9 @@ async function loadStats() {
         avgChange.textContent = 'priemerný účet';
       }
 
+      // Render top products from summary
       renderTopProducts(summary.topItems || []);
+      // Render payment methods from summary
       renderPaymentMethods(summary.methods || []);
     }
   } catch (err) {
@@ -266,9 +238,9 @@ async function loadStats() {
       var tablesWithOrders = new Set();
       if (orders) orders.forEach(function(o) { tablesWithOrders.add(o.tableId); });
       var occupied = tablesWithOrders.size;
-      occPct = Math.round((occupied / total) * 100);
+      var pct = Math.round((occupied / total) * 100);
       if (occValue) {
-        occValue.textContent = occPct + '%';
+        occValue.textContent = pct + '%';
         occValue.classList.remove('skeleton', 'skeleton-text');
       }
       if (occChange) {
@@ -279,11 +251,6 @@ async function loadStats() {
   } catch (err) {
     showToast(err.message || 'Chyba načítania stolov', 'error');
   }
-
-  setStatFill('revenue', Math.min(100, (revNum / 2800) * 100));
-  setStatFill('orders', Math.min(100, (ordNum / 55) * 100));
-  setStatFill('avg', Math.min(100, (avgNum / 45) * 100));
-  setStatFill('occupancy', occPct);
 }
 
 async function loadBarChart() {
@@ -325,7 +292,7 @@ async function loadBarChart() {
       var pct = Math.round((rev / max) * 100);
       var isMax = rev === max && rev > 0;
       var barStyle = isMax ? 'height:' + pct + '%' : 'height:' + pct + '%;background:rgba(139,124,246,.3)';
-      var barClass = isMax ? 'bar highlight bar--gradient' : 'bar bar--gradient';
+      var barClass = isMax ? 'bar highlight' : 'bar';
       html += '<div class="bar-col">' +
         '<div class="bar-amount">' + fmtEur(rev) + '</div>' +
         '<div class="bar-wrapper"><div class="' + barClass + '" style="' + barStyle + '"></div></div>' +
@@ -350,23 +317,16 @@ function renderTopProducts(topItems) {
     listEl.innerHTML = '<div class="loading-placeholder">Žiadne produkty dnes</div>';
     return;
   }
-  var slice = topItems.slice(0, 5);
-  var maxRev = 0;
-  slice.forEach(function(p) {
-    var r = Number(p.revenue) || 0;
-    if (r > maxRev) maxRev = r;
-  });
-  if (maxRev === 0) maxRev = 1;
-  var colors = ['var(--color-accent)', '#00E5B9', '#E8B84A', 'var(--color-accent-dim)', 'var(--color-danger)'];
+  var maxQty = topItems[0].qty || 1;
   var html = '';
-  slice.forEach(function(p, i) {
-    var barW = Math.round(((Number(p.revenue) || 0) / maxRev) * 100);
+  topItems.forEach(function(p, i) {
+    var barW = Math.round(((p.qty || 0) / maxQty) * 100);
     var displayName = (p.emoji ? p.emoji + ' ' : '') + (p.name || '');
-    var fillColor = colors[i % colors.length];
-    html += '<div class="product-row product-row--seller">' +
+    html += '<div class="product-row">' +
       '<div class="product-rank">' + (i + 1) + '</div>' +
-      '<div class="product-name-block"><div class="product-name">' + displayName + '</div>' +
-      '<div class="product-bar-wrap product-bar-wrap--seller"><div class="product-bar-fill" style="width:' + barW + '%;background:' + fillColor + '"></div></div></div>' +
+      '<div class="product-name">' + displayName + '</div>' +
+      '<div class="product-qty">' + (p.qty || 0) + '</div>' +
+      '<div class="product-bar-wrap"><div class="product-bar-fill" style="width:' + barW + '%"></div></div>' +
       '<div class="product-revenue">' + fmtEur(p.revenue || 0) + '</div>' +
       '</div>';
   });
@@ -375,85 +335,84 @@ function renderTopProducts(topItems) {
 
 function renderPaymentMethods(methods) {
   if (!_container) return;
-  var grid = _container.querySelector('#payDistributionGrid');
-  if (!grid) return;
+  var chartEl = _container.querySelector('#occChart');
+  if (!chartEl) return;
   if (!methods || methods.length === 0) {
-    grid.innerHTML = '<div class="loading-placeholder">Žiadne platby</div>';
+    chartEl.innerHTML = '<div class="loading-placeholder">Žiadne platby</div>';
     return;
   }
-  var buckets = [
-    { label: 'VISA / MC', short: 'Karta', icon: '💳', color: '#6366f1', amt: 0, count: 0 },
-    { label: 'AMEX', short: 'AMEX', icon: '💳', color: '#38bdf8', amt: 0, count: 0 },
-    { label: 'Hotovosť', short: 'Hotovosť', icon: '💵', color: '#4ade80', amt: 0, count: 0 },
-    { label: 'Digitálne', short: 'Iné', icon: '📱', color: '#c799ff', amt: 0, count: 0 }
-  ];
-  methods.forEach(function(m) {
-    var raw = String(m.method || '').toLowerCase();
-    var t = Number(m.total) || 0;
-    var cnt = Number(m.count) || 0;
-    var idx = 3;
-    if (raw === 'hotovost' || raw === 'cash') idx = 2;
-    else if (raw.indexOf('amex') >= 0) idx = 1;
-    else if (raw === 'karta' || raw === 'card' || raw.indexOf('visa') >= 0 || raw.indexOf('mc') >= 0) idx = 0;
-    buckets[idx].amt += t;
-    buckets[idx].count += cnt;
-  });
-  var totalAmt = buckets.reduce(function(s, b) { return s + b.amt; }, 0);
+  var methodLabels = {hotovost: 'Hotovosť', karta: 'Karta', cash: 'Hotovosť', card: 'Karta'};
+  var totalAmt = 0;
+  methods.forEach(function(m) { totalAmt += Number(m.total) || 0; });
   if (totalAmt <= 0) {
-    grid.innerHTML = '<div class="loading-placeholder">Žiadne platby</div>';
+    chartEl.innerHTML = '<div class="loading-placeholder">Žiadne platby</div>';
     return;
   }
-  var html = '';
-  buckets.forEach(function(b) {
-    var share = Math.round((b.amt / totalAmt) * 100);
-    html += '<div class="pay-method-card">' +
-      '<div class="pay-method-icon" style="background:' + b.color + '22;color:' + b.color + ';box-shadow:0 0 20px ' + b.color + '33">' + b.icon + '</div>' +
-      '<div class="pay-method-body">' +
-      '<div class="pay-method-name">' + b.label + '</div>' +
-      '<div class="pay-method-amt">' + fmtEur(b.amt) + '</div>' +
-      '<div class="pay-method-meta">' + share + '% · ' + b.count + '×</div>' +
-      '</div></div>';
-  });
-  grid.innerHTML = html;
-}
 
-function closureRow(done, title, sub) {
-  var icon = done
-    ? '<span class="closure-icon closure-icon--ok" aria-hidden="true">&#10003;</span>'
-    : '<span class="closure-icon closure-icon--pending" aria-hidden="true">&#9711;</span>';
-  var cls = done ? 'closure-item closure-item--done' : 'closure-item closure-item--pending';
-  return '<div class="' + cls + '">' + icon + '<div class="closure-item-text"><div class="closure-item-title">' + title + '</div>' +
-    (sub ? '<div class="closure-item-sub">' + sub + '</div>' : '') + '</div></div>';
+  var colors = ['#8b7cf6', '#5cc49e', '#60a5fa', '#d4a853'];
+  var html = '';
+  var useDonut = methods.length <= 4;
+
+  if (useDonut) {
+    var cumPct = 0;
+    var stops = [];
+    methods.forEach(function(m, i) {
+      var t = Number(m.total) || 0;
+      var startPct = cumPct;
+      cumPct += (t / totalAmt) * 100;
+      stops.push(colors[i % colors.length] + ' ' + startPct + '% ' + cumPct + '%');
+    });
+    html += '<div class="dashboard-pay-visual" role="group" aria-label="Platobné metódy">';
+    html += '<div class="dashboard-pay-donut" style="background:conic-gradient(' + stops.join(',') + ')" role="img" aria-hidden="true"></div>';
+    html += '<ul class="dashboard-pay-legend">';
+    methods.forEach(function(m, i) {
+      var label = methodLabels[m.method] || (m.method.charAt(0).toUpperCase() + m.method.slice(1));
+      var share = Math.round((Number(m.total) / totalAmt) * 100);
+      html += '<li class="dashboard-pay-legend-row">' +
+        '<span class="dashboard-pay-swatch" style="background:' + colors[i % colors.length] + '"></span>' +
+        '<span class="dashboard-pay-legend-label">' + label + '</span>' +
+        '<span class="dashboard-pay-legend-val">' + fmtEur(m.total) + ' · ' + share + '% · ' + m.count + '×</span></li>';
+    });
+    html += '</ul></div>';
+  } else {
+    var maxTotal = 0;
+    methods.forEach(function(m) { if (m.total > maxTotal) maxTotal = m.total; });
+    if (maxTotal === 0) maxTotal = 1;
+    html += '<div class="dashboard-pay-bars">';
+    methods.forEach(function(m) {
+      var pct = Math.round((m.total / maxTotal) * 100);
+      var label = methodLabels[m.method] || (m.method.charAt(0).toUpperCase() + m.method.slice(1));
+      html += '<div class="occ-row">' +
+        '<div class="occ-hour">' + label + '</div>' +
+        '<div class="occ-bar-wrap"><div class="occ-bar-fill" style="width:' + pct + '%;background:linear-gradient(90deg,var(--color-accent),var(--color-accent-dim))"></div></div>' +
+        '<div class="occ-pct" style="width:auto;min-width:60px;text-align:right">' + fmtEur(m.total) + ' (' + m.count + 'x)</div>' +
+        '</div>';
+    });
+    html += '</div>';
+  }
+  chartEl.innerHTML = html;
 }
 
 async function loadUzavierka() {
   if (!_container) return;
-  var listEl = _container.querySelector('#closureChecklist');
-  var closurePanel = _container.querySelector('#closurePanel');
-  if (closurePanel) showLoading(closurePanel, 'Načítavam uzávierku…');
+  var uzPanel = _container.querySelector('#uzavierkaPanel');
+  if (uzPanel) showLoading(uzPanel, 'Načítavam uzávierku…');
   try {
     var today = ymdLocal(new Date());
     var data = await api.get('/reports/z-report?date=' + encodeURIComponent(today));
-    if (closurePanel) hideLoading(closurePanel);
-    var pm = (data && data.paymentMethods) ? data.paymentMethods : [];
-    var hasPm = pm.length > 0;
-    var summaryLine = hasPm
-      ? pm.map(function(x) {
-        return x.method.charAt(0).toUpperCase() + x.method.slice(1) + ': ' + fmtEur(x.total);
-      }).join(' · ')
-      : 'Žiadne platby v dátach uzávierky';
-    if (listEl) {
-      listEl.innerHTML =
-        closureRow(true, 'Denné dáta načítané', today) +
-        closureRow(hasPm, 'Platobné súčty skontrolované', summaryLine) +
-        closureRow(false, 'Tlač Z-reportu', 'Odporúčame pred koncom zmeny');
+    if (uzPanel) hideLoading(uzPanel);
+    var el4 = _container.querySelector('#uzPayments');
+    if (data && el4) {
+      var pmHtml = (data.paymentMethods || []).map(function(pm) {
+        var label = pm.method.charAt(0).toUpperCase() + pm.method.slice(1);
+        return label + ': ' + fmtEur(pm.total) + ' (' + pm.count + 'x)';
+      }).join(' \u00A0|\u00A0 ');
+      el4.innerHTML = pmHtml || 'Žiadne platby';
+    } else if (el4) {
+      el4.textContent = 'Žiadne platby';
     }
   } catch (err) {
-    if (closurePanel) hideLoading(closurePanel);
-    if (listEl) {
-      listEl.innerHTML = closureRow(true, 'Prehľad dostupný', 'Detail uzávierky nie je k dispozícii') +
-        closureRow(false, 'Skúste neskôr', err.message || 'Chyba API');
-    }
+    if (uzPanel) hideLoading(uzPanel);
     showToast(err.message || 'Chyba načítania uzávierky', 'error');
   }
 }

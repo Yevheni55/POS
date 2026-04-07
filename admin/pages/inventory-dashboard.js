@@ -147,7 +147,7 @@ function renderMovements(movements) {
 var TEMPLATE = `
   <!-- STAT CARDS -->
   <div class="stat-grid grid-3col">
-    <div class="stat-card mint">
+    <div class="stat-card">
       <div class="stat-icon mint">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
       </div>
@@ -156,8 +156,8 @@ var TEMPLATE = `
         <div class="stat-value skeleton skeleton-text" id="statTotal">&nbsp;</div>
       </div>
     </div>
-    <div class="stat-card rose">
-      <div class="stat-icon rose">
+    <div class="stat-card">
+      <div class="stat-icon" style="background:rgba(224,112,112,.12);color:var(--color-danger)">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
       </div>
       <div class="stat-info">
@@ -165,8 +165,8 @@ var TEMPLATE = `
         <div class="stat-value skeleton skeleton-text" id="statLow">&nbsp;</div>
       </div>
     </div>
-    <div class="stat-card accent">
-      <div class="stat-icon accent">
+    <div class="stat-card">
+      <div class="stat-icon lavender">
         <svg aria-hidden="true" viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
       </div>
       <div class="stat-info">

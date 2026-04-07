@@ -668,21 +668,21 @@ function statusTone(value) {
 }
 
 function toneStyle(tone) {
-  if (tone === 'success') return 'background:rgba(0,229,185,.1);color:#00E5B9;border:1px solid rgba(0,229,185,.25);';
-  if (tone === 'warning') return 'background:rgba(232,184,74,.1);color:#E8B84A;border:1px solid rgba(232,184,74,.25);';
-  if (tone === 'danger') return 'background:rgba(224,112,112,.1);color:var(--color-danger);border:1px solid rgba(224,112,112,.25);';
-  return 'background:rgba(255,255,255,.06);color:var(--color-text-sec);border:1px solid rgba(255,255,255,.1);';
+  if (tone === 'success') return 'background:rgba(16,185,129,.12);color:#047857;border:1px solid rgba(16,185,129,.25);';
+  if (tone === 'warning') return 'background:rgba(245,158,11,.12);color:#b45309;border:1px solid rgba(245,158,11,.25);';
+  if (tone === 'danger') return 'background:rgba(239,68,68,.12);color:#b91c1c;border:1px solid rgba(239,68,68,.25);';
+  return 'background:rgba(148,163,184,.14);color:#334155;border:1px solid rgba(148,163,184,.22);';
 }
 
 function renderPortosCard(title, value, details) {
   var tone = statusTone(value);
-  var html = '<div class="portos-card">';
-  html += '<div class="portos-card-title">' + escapeHtml(title) + '</div>';
+  var html = '<div style="border:1px solid rgba(148,163,184,.22);border-radius:14px;padding:12px;background:rgba(255,255,255,.65);min-height:96px;display:flex;flex-direction:column;gap:10px;">';
+  html += '<div style="font-size:12px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:#64748b;">' + escapeHtml(title) + '</div>';
   html += '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start;">';
   html += '<span style="display:inline-flex;align-items:center;padding:6px 10px;border-radius:999px;font-size:12px;font-weight:700;' + toneStyle(tone) + '">' + escapeHtml(formatPortosValue(value) || 'Neznamy') + '</span>';
   html += '</div>';
   if (details) {
-    html += '<div style="font-size:12px;line-height:1.5;color:var(--color-text-sec);white-space:pre-wrap;">' + escapeHtml(details) + '</div>';
+    html += '<div style="font-size:12px;line-height:1.5;color:#475569;white-space:pre-wrap;">' + escapeHtml(details) + '</div>';
   }
   html += '</div>';
   return html;
