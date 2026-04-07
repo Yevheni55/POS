@@ -23,8 +23,8 @@ export function init(container) {
     <div class="dashboard-section-label">Prehľad dňa</div>
     <!-- STAT CARDS -->
     <div class="stat-grid">
-      <div class="stat-card">
-        <div class="stat-icon lavender">
+      <div class="stat-card accent">
+        <div class="stat-icon accent">
           <svg aria-hidden="true" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
         </div>
         <div class="stat-info" data-stat="revenue">
@@ -33,8 +33,8 @@ export function init(container) {
           <div class="stat-change skeleton skeleton-text">&nbsp;</div>
         </div>
       </div>
-      <div class="stat-card">
-        <div class="stat-icon lavender">
+      <div class="stat-card mint">
+        <div class="stat-icon mint">
           <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
         </div>
         <div class="stat-info" data-stat="orders">
@@ -43,8 +43,8 @@ export function init(container) {
           <div class="stat-change skeleton skeleton-text">&nbsp;</div>
         </div>
       </div>
-      <div class="stat-card">
-        <div class="stat-icon lavender">
+      <div class="stat-card amber">
+        <div class="stat-icon amber">
           <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
         </div>
         <div class="stat-info" data-stat="avg">
@@ -53,8 +53,8 @@ export function init(container) {
           <div class="stat-change skeleton skeleton-text">&nbsp;</div>
         </div>
       </div>
-      <div class="stat-card">
-        <div class="stat-icon amber">
+      <div class="stat-card rose">
+        <div class="stat-icon rose">
           <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="9" y1="4" x2="9" y2="20"/></svg>
         </div>
         <div class="stat-info" data-stat="occupancy">
