@@ -21,31 +21,39 @@
   --color-border-hover: rgba(255,255,255,.14);      /* interactive (was .12) */
   --color-border-strong: rgba(255,255,255,.20);     /* modals, active elements */
 
-  /* Accent — WCAG AA compliant on --color-bg */
-  --color-accent: #8B7CF6;          /* Brightened purple: ~5.2:1 on #0f0d1a */
-  --color-accent-dim: #7B6EC7;      /* For gradients */
-  --color-accent-bg: rgba(139,124,246,.08);
-  --color-accent-bg-hover: rgba(139,124,246,.15);
-  --color-accent-border: rgba(139,124,246,.12);
-  --color-accent-glow: rgba(139,124,246,.2);
+  /* Accent — Stitch-aligned lavender purple */
+  --color-accent: #c799ff;          /* Stitch primary — bright lavender */
+  --color-accent-dim: #b085f5;      /* Mid-tone for gradients */
+  --color-accent-bg: rgba(199,153,255,.08);
+  --color-accent-bg-hover: rgba(199,153,255,.15);
+  --color-accent-border: rgba(199,153,255,.12);
+  --color-accent-glow: rgba(199,153,255,.2);
 
-  /* Success */
-  --color-success: #5CC49E;         /* 7.2:1 — passes */
-  --color-success-bg: rgba(92,196,158,.08);
-  --color-success-border: rgba(92,196,158,.15);
+  /* Success — Stitch secondary cyan */
+  --color-success: #4af8e3;         /* Stitch secondary — bright cyan-teal */
+  --color-success-bg: rgba(74,248,227,.08);
+  --color-success-border: rgba(74,248,227,.15);
 
-  /* Danger */
-  --color-danger: #E07070;          /* Brightened from #D46B6B: ~5.0:1 */
-  --color-danger-bg: rgba(224,112,112,.08);
-  --color-danger-border: rgba(224,112,112,.15);
+  /* Danger — Stitch error pink-red */
+  --color-danger: #ff6e84;          /* Stitch error — warm pink-red */
+  --color-danger-bg: rgba(255,110,132,.08);
+  --color-danger-border: rgba(255,110,132,.15);
+
+  /* Tertiary — Stitch warm gold */
+  --color-tertiary: #ffc563;
+  --color-tertiary-bg: rgba(255,197,99,.08);
+  --color-tertiary-border: rgba(255,197,99,.15);
 
   /* Text */
   --color-text: rgba(220,240,245,.92);
   --color-text-sec: rgba(220,240,245,.55);   /* Bumped from .48 for AA compliance */
   --color-text-dim: rgba(220,240,245,.25);   /* Decorative only */
 
+  /* Glass surface for cards (neutral Stitch-style) */
+  --color-surface-card: rgba(38,38,38,.6);
+
   /* Focus ring */
-  --color-focus: #8B7CF6;
+  --color-focus: #c799ff;
 
   /* === SPACING === */
   --space-1: 4px;
@@ -57,16 +65,16 @@
   --space-8: 32px;
   --space-12: 48px;
 
-  /* === RADIUS — 5 tiers only === */
+  /* === RADIUS — 5 tiers (Stitch-aligned, rounder) === */
   --radius-xs: 4px;     /* badges, indicators, kbd */
   --radius-sm: 8px;     /* buttons, inputs, chips */
-  --radius-md: 14px;    /* cards, panels, table-chips */
-  --radius-lg: 22px;    /* modals, sheets */
+  --radius-md: 12px;    /* cards, panels, table-chips */
+  --radius-lg: 16px;    /* modals, sheets */
   --radius-full: 9999px; /* pills, circles */
 
-  /* === TYPOGRAPHY === */
-  --font-display: 'Sora', sans-serif;
-  --font-body: 'Manrope', sans-serif;
+  /* === TYPOGRAPHY — Stitch: Manrope (display) + Inter (body) === */
+  --font-display: 'Manrope', 'Sora', sans-serif;
+  --font-body: 'Inter', 'Manrope', sans-serif;
 
   /* Type Scale — harmonized from 9px–36px */
   --text-2xs: 9px;
@@ -91,13 +99,13 @@
   --weight-bold: 700;
   --weight-extrabold: 800;
 
-  /* Line Height — tuned for Sora/Manrope metrics */
+  /* Line Height — tuned for Manrope/Inter metrics */
   --leading-tight: 1.15;
   --leading-snug: 1.3;
   --leading-normal: 1.45;
   --leading-relaxed: 1.6;
 
-  /* Letter Spacing — Sora is wide, keep display text tight */
+  /* Letter Spacing — Manrope is wide at display sizes, keep tight */
   --tracking-tight: -.3px;
   --tracking-normal: 0;
   --tracking-wide: .3px;
@@ -113,7 +121,7 @@
   --shadow-sm: 0 2px 8px rgba(0,0,0,.25);
   --shadow-md: 0 4px 20px rgba(0,0,0,.3);
   --shadow-lg: 0 8px 40px rgba(0,0,0,.4);
-  --shadow-glow: 0 0 16px rgba(139,124,246,.15);
+  --shadow-glow: 0 0 16px rgba(199,153,255,.15);
 
   /* === Z-INDEX === */
   --z-base: 1;
@@ -134,7 +142,7 @@
   --surface-card: var(--color-bg-surface);
   --border-default: var(--color-border);
   --border-strong: var(--color-border-strong);
-  --border-focus: rgba(139, 124, 246, 0.45);
+  --border-focus: rgba(199, 153, 255, 0.45);
   --text-primary: var(--color-text);
   --text-secondary: var(--color-text-sec);
   --text-muted: var(--color-text-dim);
@@ -149,7 +157,7 @@
   --action-danger: var(--color-danger);
   --action-danger-bg: var(--color-danger-bg);
   --action-danger-border: var(--color-danger-border);
-  --accent-amber: #e8b84a;
+  --accent-amber: #ffc563;
   --touch-target-min: 44px;
 
   /* dc-* — shared with examples/design-code-showcase.css */
@@ -196,7 +204,7 @@ input[type="checkbox"]:hover {
 input[type="checkbox"]:checked {
   background: var(--color-accent);
   border-color: var(--color-accent);
-  box-shadow: 0 0 8px rgba(139,124,246,.25);
+  box-shadow: 0 0 8px rgba(199,153,255,.25);
 }
 input[type="checkbox"]:checked::after {
   content: '';
@@ -208,7 +216,7 @@ input[type="checkbox"]:checked::after {
 }
 input[type="checkbox"]:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(139,124,246,.2);
+  box-shadow: 0 0 0 3px rgba(199,153,255,.2);
 }
 
 /* Radio — custom dark theme */
@@ -228,8 +236,8 @@ input[type="radio"]:hover {
 }
 input[type="radio"]:checked {
   border-color: var(--color-accent);
-  background: rgba(139,124,246,.1);
-  box-shadow: 0 0 8px rgba(139,124,246,.2);
+  background: rgba(199,153,255,.1);
+  box-shadow: 0 0 8px rgba(199,153,255,.2);
 }
 input[type="radio"]:checked::after {
   content: '';
@@ -241,7 +249,7 @@ input[type="radio"]:checked::after {
 }
 input[type="radio"]:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(139,124,246,.2);
+  box-shadow: 0 0 0 3px rgba(199,153,255,.2);
 }
 
 /* Labels next to checkboxes/radios */
