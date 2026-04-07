@@ -659,7 +659,8 @@ textarea.form-input,textarea.form-select,.u-modal-field textarea{height:auto;min
 .date-input:hover{border-color:var(--color-border-hover);background:rgba(255,255,255,.04)}
 .date-input:focus{border-color:rgba(139,124,246,.35);box-shadow:0 0 0 3px rgba(139,124,246,.08);background:rgba(255,255,255,.05)}
 .date-sep{color:var(--color-text-dim);font-size:12px}
-.btn-export{margin-left:auto;padding:var(--space-2) var(--space-5);border-radius:var(--radius-sm);border:1px solid var(--color-accent-glow);background:var(--color-accent-bg);color:var(--color-accent);font-family:var(--font-body);font-size:var(--text-base);font-weight:var(--weight-bold);cursor:pointer;transition:all var(--transition-fast);display:flex;align-items:center;gap:6px;min-height:var(--btn-h-sm)}
+.filter-bar-actions{display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap}
+.btn-export{padding:var(--space-2) var(--space-5);border-radius:var(--radius-sm);border:1px solid var(--color-accent-glow);background:var(--color-accent-bg);color:var(--color-accent);font-family:var(--font-body);font-size:var(--text-base);font-weight:var(--weight-bold);cursor:pointer;transition:all var(--transition-fast);display:flex;align-items:center;gap:6px;min-height:var(--btn-h-sm);white-space:nowrap}
 .btn-export:hover{background:rgba(139,124,246,.16)}
 .btn-export svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 
