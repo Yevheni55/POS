@@ -40,14 +40,12 @@ function applyPosSettings() {
     // Header title/subtitle
     var name = s.sName || '';
     var subtitle = 'Pokladnicny system';
-    var titleEl = document.querySelector('.header-title');
-    var subEl = document.querySelector('.header-subtitle');
-    if (titleEl && name) titleEl.textContent = name;
-    if (subEl) subEl.textContent = subtitle;
+    var venueEl = document.getElementById('posVenueName');
+    if (venueEl && name) venueEl.textContent = name;
     if (name) document.title = name + ' — POS';
-    var logoEl = document.querySelector('.header-logo');
+    var logoEl = document.querySelector('.pos-sidebar-venue-icon');
     if (logoEl && name) {
-      var initials = name.split(/\s+/).map(function(w) { return w[0]; }).join('').slice(0, 3).toUpperCase();
+      var initials = name.split(/\s+/).map(function(w) { return w[0]; }).join('').slice(0, 2).toUpperCase();
       logoEl.textContent = initials;
     }
   } catch (e) { /* ignore parse errors */ }
@@ -98,6 +96,7 @@ async function initPOS() {
   }
   renderProducts();
   applyPosSettings();
+  if (typeof syncPosChrome === 'function') syncPosChrome();
   if (mainEl) hideLoading(mainEl);
 
   // Connect WebSocket for real-time sync
@@ -346,9 +345,14 @@ async function confirmCloseShift(){
 function closeCloseShiftModal(){ document.getElementById('closeShiftModal').classList.remove('show'); }
 
 // Logout
-function goAdmin(){
+function goAdmin(pageHash){
   var role=getUserRole();
   if(role==='cisnik'){showToast('Pristup len pre admina/manazera');return}
+  var src='/admin/';
+  if(pageHash){
+    var frag=String(pageHash).replace(/^#/,'');
+    if(frag)src+='#'+frag;
+  }
   let ov=document.getElementById('adminOverlay');
   if(!ov){
     ov=document.createElement('div');
@@ -357,12 +361,12 @@ function goAdmin(){
     const iframe=document.createElement('iframe');
     iframe.id='adminFrame';
     iframe.style.cssText='width:100%;height:100%;border:none;background:var(--color-bg)';
-    iframe.src='/admin/';
+    iframe.src=src;
     ov.appendChild(iframe);
     document.body.appendChild(ov);
   }
   ov.style.display='block';
-  document.getElementById('adminFrame').src='/admin/';
+  document.getElementById('adminFrame').src=src;
 }
 // Close admin overlay via postMessage
 window.addEventListener('message',function(e){

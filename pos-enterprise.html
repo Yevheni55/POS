@@ -13,7 +13,7 @@
 <link rel="stylesheet" href="/tokens.css">
 <link rel="stylesheet" href="/a11y.css">
 <link rel="stylesheet" href="/fonts/fonts.css">
-<link rel="stylesheet" href="/css/pos.css?v=14">
+<link rel="stylesheet" href="/css/pos.css?v=15">
 <script src="/components/escHtml.js"></script>
 <script src="/components/toast.js"></script>
 <script src="/components/loading.js"></script>
@@ -23,95 +23,138 @@
 <a href="#main" class="skip-link">Preskocit na obsah</a>
 <div class="bg-scene"></div>
 <div class="app">
-  <header class="header">
-    <div class="header-brand">
-      <div class="header-logo">POS</div>
-      <div><div class="header-title">Kaviaren & Bar</div><div class="header-subtitle">Pokladnicny system</div></div>
-    </div>
+  <header class="header header--nocturnal">
+    <div class="header-brand"><span class="header-brand-mark">NOCTURNAL POS</span></div>
     <div class="header-center">
-      <div class="view-toggle">
-        <button class="view-btn active" id="btnTableView" onclick="switchView('tables')">
-          <svg aria-hidden="true" viewBox="0 0 16 16"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>Stoly
+      <div class="view-toggle" role="tablist" aria-label="Pohľad">
+        <button type="button" class="view-btn" id="btnProductView" onclick="switchView('products')" role="tab" aria-selected="false">
+          <svg aria-hidden="true" viewBox="0 0 16 16"><rect x="1" y="1" width="14" height="3" rx="1"/><rect x="1" y="6" width="14" height="3" rx="1"/><rect x="1" y="11" width="14" height="3" rx="1"/></svg>Terminál
         </button>
-        <button class="view-btn" id="btnProductView" onclick="switchView('products')">
-          <svg aria-hidden="true" viewBox="0 0 16 16"><rect x="1" y="1" width="14" height="3" rx="1"/><rect x="1" y="6" width="14" height="3" rx="1"/><rect x="1" y="11" width="14" height="3" rx="1"/></svg>Objednavka
+        <button type="button" class="view-btn active" id="btnTableView" onclick="switchView('tables')" role="tab" aria-selected="true">
+          <svg aria-hidden="true" viewBox="0 0 16 16"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>Mapa stolov
         </button>
       </div>
-      <div>
+      <div class="header-datetime">
         <div class="header-clock" id="clock">00:00</div>
         <div class="header-date" id="date"></div>
       </div>
     </div>
     <div class="header-right">
-      <button class="admin-btn" onclick="posFullscreen.toggle()" title="Fullscreen" aria-label="Cela obrazovka">&#x26F6;</button>
-      <button class="admin-btn" onclick="generateLockCode()" title="Generovat kod zamku" aria-label="Vygenerovať kód zámku">&#128273; Zamok</button>
-      <button class="admin-btn" onclick="goAdmin()">Admin</button>
-      <button class="logout-btn" onclick="showLogoutModal()">Odhlasit</button>
-      <div class="header-user"><div class="header-avatar">…</div>…</div>
+      <div class="header-server-pill" title="Obsluha"><span class="header-server-dot" aria-hidden="true"></span><span id="headerServerName">…</span></div>
+      <button type="button" class="header-icon-btn" onclick="posFullscreen.toggle()" title="Celá obrazovka" aria-label="Celá obrazovka">&#x26F6;</button>
+      <button type="button" class="header-icon-btn" onclick="goAdmin()" title="Admin" aria-label="Admin"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00-.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9c-.09.32-.13.65-.13 1s.04.68.13 1a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></button>
+      <button type="button" class="header-icon-btn header-icon-btn--danger" onclick="showLogoutModal()" title="Odhlásiť" aria-label="Odhlásiť">&#128682;</button>
     </div>
   </header>
 
-  <div class="main" id="main">
-    <!-- TABLE VIEW -->
-    <div class="table-view active" id="tableView">
-      <div class="floor-toolbar">
-        <div class="floor-toolbar-left">
-          <div class="floor-title">Mapa stolov</div>
-          <div class="floor-zones" id="floorZones"></div>
+  <div class="pos-body view-tables" id="posBody">
+    <aside class="pos-sidebar" aria-label="Hlavná navigácia">
+      <div class="pos-sidebar-venue">
+        <div class="pos-sidebar-venue-icon" aria-hidden="true">KB</div>
+        <div class="pos-sidebar-venue-text">
+          <div class="pos-sidebar-venue-name" id="posVenueName">Kaviaren &amp; Bar</div>
+          <div class="pos-sidebar-venue-shift" id="posVenueShift">Zmena: aktívna</div>
         </div>
-        <div class="floor-toolbar-right">
-          <div class="floor-stats">
-            <div class="floor-stat"><span class="stat-dot free"></span>Voln&yacute;</div>
-            <div class="floor-stat"><span class="stat-dot occupied"></span>Obsaden&yacute;</div>
-            <div class="floor-stat"><span class="stat-dot reserved"></span>Rezervovan&yacute;</div>
+      </div>
+      <nav class="pos-sidebar-nav">
+        <button type="button" class="pos-nav-item" data-pos-view="products" id="posNavTerminal" onclick="posSidebarGo('products')">
+          <span class="pos-nav-ico" aria-hidden="true">&#9632;</span><span class="pos-nav-label">Terminál</span>
+        </button>
+        <button type="button" class="pos-nav-item active" data-pos-view="tables" id="posNavTables" onclick="posSidebarGo('tables')">
+          <span class="pos-nav-ico" aria-hidden="true">&#9638;</span><span class="pos-nav-label">Mapa stolov</span>
+        </button>
+        <button type="button" class="pos-nav-item" onclick="goAdmin('inventory-dashboard')">
+          <span class="pos-nav-ico" aria-hidden="true">&#128230;</span><span class="pos-nav-label">Sklad</span>
+        </button>
+        <button type="button" class="pos-nav-item" onclick="goAdmin('dashboard')">
+          <span class="pos-nav-ico" aria-hidden="true">&#128200;</span><span class="pos-nav-label">Analytika</span>
+        </button>
+        <button type="button" class="pos-nav-item" onclick="goAdmin('staff')">
+          <span class="pos-nav-ico" aria-hidden="true">&#128101;</span><span class="pos-nav-label">Tím</span>
+        </button>
+        <button type="button" class="pos-nav-item" onclick="goAdmin('settings')">
+          <span class="pos-nav-ico" aria-hidden="true">&#9881;</span><span class="pos-nav-label">Nastavenia</span>
+        </button>
+      </nav>
+      <div class="pos-sidebar-bottom">
+        <button type="button" class="pos-sidebar-link" onclick="showToast('Kontaktujte správcu systému.')">Podpora</button>
+        <button type="button" class="pos-sidebar-link" onclick="generateLockCode()">Zámok</button>
+        <button type="button" class="pos-sidebar-clockout" onclick="showLogoutModal()">Ukončiť zmenu</button>
+      </div>
+    </aside>
+
+    <div class="cat-strip-wrap" aria-hidden="false">
+      <div class="cat-strip" id="catStrip" role="tablist" aria-label="Kategórie menu"></div>
+    </div>
+
+    <div class="pos-center" id="main">
+      <div class="table-view active" id="tableView">
+        <div class="floor-toolbar">
+          <div class="floor-toolbar-left">
+            <div class="floor-title">Mapa stolov</div>
+            <div class="floor-zones" id="floorZones"></div>
           </div>
-          <button class="edit-toggle" id="editToggle" onclick="toggleEdit()">
-            <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M12.1 1.3a1.5 1.5 0 012.1 2.1L5.8 11.8l-3.3.8.8-3.3z"/></svg>
-            <span id="editLabel">Upravit</span>
-          </button>
+          <div class="floor-toolbar-right">
+            <div class="floor-stats">
+              <div class="floor-stat"><span class="stat-dot free"></span>Voln&yacute;</div>
+              <div class="floor-stat"><span class="stat-dot occupied"></span>Obsaden&yacute;</div>
+              <div class="floor-stat"><span class="stat-dot reserved"></span>Rezervovan&yacute;</div>
+            </div>
+            <button class="edit-toggle" id="editToggle" onclick="toggleEdit()">
+              <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M12.1 1.3a1.5 1.5 0 012.1 2.1L5.8 11.8l-3.3.8.8-3.3z"/></svg>
+              <span id="editLabel">Upravit</span>
+            </button>
+          </div>
         </div>
+        <div class="floor-canvas" id="floorCanvas"></div>
       </div>
-      <div class="floor-canvas" id="floorCanvas"></div>
+
+      <div class="products-panel" id="productsPanel">
+        <div class="search-wrap">
+          <span class="search-icon">&#128269;</span>
+          <label for="searchInput" class="sr-only">Hladat produkt</label><input class="search-input" id="searchInput" type="text" placeholder="Hladat produkt..." autocomplete="off">
+          <span class="search-hint">/</span>
+        </div>
+        <div class="categories pos-hidden" id="categories" aria-hidden="true"></div>
+        <div class="products-grid" id="productsGrid"></div>
+      </div>
     </div>
 
-    <!-- PRODUCTS VIEW -->
-    <div class="products-panel" id="productsPanel">
-      <div class="search-wrap">
-        <span class="search-icon">&#128269;</span>
-        <label for="searchInput" class="sr-only">Hladat produkt</label><input class="search-input" id="searchInput" type="text" placeholder="Hladat produkt..." autocomplete="off">
-        <span class="search-hint">/</span>
-      </div>
-      <div class="categories" id="categories"></div>
-      <div class="products-grid" id="productsGrid"></div>
-    </div>
-
-    <!-- ORDER -->
     <aside class="order-panel pos-hidden">
-      <div class="order-header">
-        <div><div class="order-title">Objednavka</div><div class="order-table-label" id="orderTableLabel">Stol 1</div></div>
-        <div class="order-count" id="orderCount">0</div>
+      <div class="order-header order-header--nocturnal">
+        <div class="order-header-top">
+          <span class="order-status-badge" id="orderStatusBadge">Vyberte položky</span>
+          <span class="order-count order-count--pill" id="orderCount">0</span>
+        </div>
+        <div class="order-table-hero" id="orderTableHero">Stôl</div>
+        <span class="sr-only" id="orderTableLabel">Stôl</span>
+        <div class="order-table-stats">
+          <div class="order-stat-box"><span class="order-stat-label">Hostia</span><span class="order-stat-val" id="orderStatGuests">&mdash;</span></div>
+          <div class="order-stat-box"><span class="order-stat-label">Čas</span><span class="order-stat-val" id="orderStatTime">&mdash;</span></div>
+        </div>
       </div>
       <div class="order-tabs pos-hidden" id="orderTabs"></div>
       <div class="order-items" id="orderItems">
         <div class="order-empty"><div class="order-empty-icon">&#128203;</div><div class="order-empty-title">Prazdna objednavka</div><div class="order-empty-text">Pridajte polozky z menu alebo dvoj-kliknite na stol</div><div class="order-empty-hint"><span>&#8592;</span> Vyberte z menu</div></div>
       </div>
-      <div class="order-footer">
-        <div id="discountDisplay" class="pos-hidden">
-          <div class="pos-subtotal-row"><span>Medzisucet</span><span id="subtotalVal">0,00 &euro;</span></div>
-          <div class="discount-line"><span class="discount-label" id="discountLabel">Zlava</span><span id="discountVal">0,00 &euro;</span></div>
+      <div class="order-footer order-footer--nocturnal">
+        <div class="order-summary-rows">
+          <div class="order-summary-row"><span>Medzisúčet</span><span id="orderSummarySubtotal">0,00 &euro;</span></div>
+          <div id="discountDisplay" class="order-summary-row order-summary-row--discount pos-hidden"><span class="discount-label" id="discountLabel">Zľava</span><span id="discountVal">&mdash;</span></div>
+          <div class="order-summary-row order-summary-row--muted"><span>Daň</span><span id="orderSummaryTax">0,00 &euro;</span></div>
+          <div class="order-summary-row order-summary-row--total"><span>K úhrade</span><span class="sum-total-val" id="total">0,00 &euro;</span></div>
         </div>
-        <div class="sum-total-wrap"><span class="sum-total-label">Celkom</span><span class="sum-total-val" id="total">0,00 &euro;</span></div>
-        <div class="actions">
-          <button class="btn btn-send" id="btnSend" onclick="sendToKitchen()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>Poslat objednavku</button>
+        <div class="actions order-actions-nocturnal">
+          <div class="order-actions-squares">
+            <button type="button" class="btn btn-split" onclick="splitBill()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M3 4l18 17"/></svg><span>Rozdeliť</span></button>
+            <button type="button" class="btn btn-discount" onclick="showDiscountModal()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg><span>Zľava</span></button>
+          </div>
           <div class="pay-row">
-            <button class="btn btn-cash" onclick="initiatePayment('hotovost')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M2 9h2M20 9h2M2 15h2M20 15h2"/></svg>Hotovost</button>
-            <button class="btn btn-card" onclick="initiatePayment('karta')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>Karta</button>
+            <button type="button" class="btn btn-cash" onclick="initiatePayment('hotovost')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M2 9h2M20 9h2M2 15h2M20 15h2"/></svg>Hotovosť</button>
+            <button type="button" class="btn btn-card" onclick="initiatePayment('karta')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y="10" x2="23" y2="10"/></svg>Karta</button>
           </div>
-          <div class="extra-row">
-            <button class="btn btn-split" onclick="splitBill()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M3 4l18 17"/></svg>Rozdelit ucet</button>
-            <button class="btn btn-discount" onclick="showDiscountModal()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>Zlava</button>
-          </div>
-          <button type="button" class="btn btn-cancel btn-block" onclick="clearOrder()">Zrusit objednavku</button>
+          <button type="button" class="btn btn-send" id="btnSend" onclick="sendToKitchen()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>Odoslať objednávku</button>
+          <button type="button" class="btn btn-cancel btn-block" onclick="clearOrder()">Zrušiť objednávku</button>
         </div>
       </div>
     </aside>

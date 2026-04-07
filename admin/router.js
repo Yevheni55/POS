@@ -68,6 +68,11 @@ async function navigate(page) {
     else a.removeAttribute('aria-current');
   });
 
+  document.querySelectorAll('.header-tab').forEach(function(a) {
+    var tabPage = a.getAttribute('data-tab-page');
+    a.classList.toggle('active', tabPage === page);
+  });
+
   // Update header title
   titleEl.textContent = pageTitles[page] || page;
 

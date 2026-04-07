@@ -59,11 +59,12 @@ function renderMobTables() {
 async function mobSelectTable(id) {
   if (moveMode) { await handleMoveToTable(id); return; }
   selectedTableId = id;
+  _tableSessionStart = Date.now();
   const t = TABLES.find(x => x.id === id);
   if (t) {
     document.getElementById('mobTableLabel').textContent = t.name;
     document.getElementById('mobOrderTable').textContent = t.name;
-    document.getElementById('orderTableLabel').textContent = t.name;
+    if (typeof setOrderTableName === 'function') setOrderTableName(t.name);
   }
   await loadTableOrder(id);
   if (navigator.vibrate) navigator.vibrate(10);

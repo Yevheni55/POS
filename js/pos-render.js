@@ -17,6 +17,33 @@ function _toastSendKitchenError(err){
   if(typeof showToast==='function')showToast(msg,'error');
 }
 
+function posSidebarGo(view){
+  if(view==='products'||view==='tables')switchView(view);
+}
+
+function syncPosChrome(){
+  var body=document.getElementById('posBody');
+  if(body){
+    body.classList.toggle('view-products',currentView==='products');
+    body.classList.toggle('view-tables',currentView==='tables');
+  }
+  document.querySelectorAll('.pos-nav-item[data-pos-view]').forEach(function(el){
+    el.classList.toggle('active',el.getAttribute('data-pos-view')===currentView);
+  });
+  var bp=document.getElementById('btnProductView');
+  var bt=document.getElementById('btnTableView');
+  if(bp){bp.classList.toggle('active',currentView==='products');bp.setAttribute('aria-selected',currentView==='products'?'true':'false')}
+  if(bt){bt.classList.toggle('active',currentView==='tables');bt.setAttribute('aria-selected',currentView==='tables'?'true':'false')}
+}
+
+function setOrderTableName(name){
+  var hero=document.getElementById('orderTableHero');
+  var lab=document.getElementById('orderTableLabel');
+  var n=name||'';
+  if(hero)hero.textContent=n;
+  if(lab)lab.textContent=n;
+}
+
 function switchView(v){
   // Auto-send to kitchen when leaving table (also flush storno + dirty state)
   if(v==='tables' && (_orderDirty || _pendingStorno.length || getOrder().length)) {
@@ -29,7 +56,9 @@ function switchView(v){
   document.getElementById('tableView').classList.toggle('active',v==='tables');
   document.getElementById('productsPanel').classList.toggle('active',v==='products');
   document.querySelector('.order-panel').classList.toggle('pos-hidden', v==='tables');
-  if(v==='tables')renderFloor();if(v==='products')renderProducts();
+  syncPosChrome();
+  if(v==='tables')renderFloor();
+  if(v==='products'){renderProducts();renderCatStrip()}
 }
 
 // Edit mode
@@ -93,8 +122,9 @@ function renderFloor(){
 async function selectTableAndLoadOrder(id){
   _pendingStorno = [];
   selectedTableId=id;
+  _tableSessionStart=Date.now();
   const t=TABLES.find(x=>x.id===id);
-  document.getElementById('orderTableLabel').textContent=t?t.name:'';
+  setOrderTableName(t?t.name:'');
   renderFloor();
   await loadTableOrder(id);
   if (tableOrdersList.length > 1 && isMobile()) {
@@ -117,8 +147,9 @@ async function openTable(id){
   }
   _pendingStorno = [];
   selectedTableId=id;
+  _tableSessionStart=Date.now();
   const t=TABLES.find(x=>x.id===id);
-  document.getElementById('orderTableLabel').textContent=t?t.name:'';
+  setOrderTableName(t?t.name:'');
   await loadTableOrder(id);
   // If multiple accounts, show picker before opening products
   if (tableOrdersList.length > 1) {
@@ -204,13 +235,22 @@ async function pickNewAccount(openProducts) {
   }
 }
 
-// Categories
-function renderCategories(){
-  document.getElementById('categories').innerHTML=Object.entries(MENU).map(([key,cat])=>
-    `<button class="cat-btn ${key===activeCategory?'active':''}" onclick="setCategory('${key}')"><span class="cat-icon">${cat.icon}</span>${cat.label}<span class="cat-key">${cat.key}</span></button>`
+// Categories — vertical strip (desktop); hidden horizontal row kept for a11y/tests
+function renderCatStrip(){
+  var strip=document.getElementById('catStrip');
+  if(!strip)return;
+  strip.innerHTML=Object.entries(MENU).map(([key,cat])=>
+    `<button type="button" class="cat-strip-item ${key===activeCategory?'active':''}" role="tab" aria-selected="${key===activeCategory}" onclick="setCategory('${key}')"><span class="cat-strip-icon">${cat.icon}</span><span class="cat-strip-label">${escHtml(cat.label)}</span>${cat.key?`<span class="cat-strip-key">${cat.key}</span>`:''}</button>`
   ).join('');
 }
-function setCategory(key){activeCategory=key;searchQuery='';document.getElementById('searchInput').value='';renderCategories();renderProducts()}
+function renderCategories(){
+  var legacy=document.getElementById('categories');
+  if(legacy)legacy.innerHTML=Object.entries(MENU).map(([key,cat])=>
+    `<button type="button" class="cat-btn ${key===activeCategory?'active':''}" onclick="setCategory('${key}')"><span class="cat-icon">${cat.icon}</span>${cat.label}<span class="cat-key">${cat.key}</span></button>`
+  ).join('');
+  renderCatStrip();
+}
+function setCategory(key){activeCategory=key;searchQuery='';var si=document.getElementById('searchInput');if(si)si.value='';renderCategories();renderProducts()}
 
 (function(){var searchTimer=null;document.getElementById('searchInput').addEventListener('input',function(e){searchQuery=e.target.value.toLowerCase().trim();clearTimeout(searchTimer);searchTimer=setTimeout(function(){renderProducts()},200)})})();
 
@@ -239,7 +279,10 @@ function renderProducts(){
     const inOrder=order.find(o=>o.name===item.name);
     const qtyBadge=inOrder?`<span class="product-qty-badge">${inOrder.qty}</span>`:'';
     return `<div class="product-card" data-name="${escHtml(item.name)}" tabindex="0" role="button" style="--cat-color:${cc}" onclick="addToOrder('${item.name.replace(/'/g,"\\'")}','${item.emoji}',${item.price})" onpointerdown="ripple(event)">
-      ${qtyBadge}<span class="product-emoji">${escHtml(item.emoji)}</span><div class="product-name">${escHtml(item.name)}</div><div class="product-desc">${escHtml(item.desc)}</div><div class="product-price">${fmt(item.price)}</div></div>`;
+      <div class="product-card-image"><span class="product-emoji">${escHtml(item.emoji)}</span></div>
+      <span class="product-price-badge">${fmt(item.price)}</span>
+      ${qtyBadge}
+      <div class="product-card-body"><div class="product-name">${escHtml(item.name)}</div><div class="product-desc">${escHtml(item.desc)}</div></div></div>`;
   }).join('');
 }
 
@@ -297,10 +340,24 @@ function renderOrder(){
   const order=getOrder(),c=document.getElementById('orderItems');
   const countEl=document.getElementById('orderCount');
   const newCount=order.reduce((s,o)=>s+o.qty,0);
-  const oldCount=parseInt(countEl.textContent)||0;
-  countEl.textContent=newCount;
-  countEl.classList.toggle('zero',newCount===0);
-  if(newCount!==oldCount&&newCount>0){countEl.classList.add('bump');setTimeout(()=>countEl.classList.remove('bump'),250)}
+  const oldCount=parseInt(countEl&&countEl.textContent)||0;
+  if(countEl){
+    countEl.textContent=newCount;
+    countEl.classList.toggle('zero',newCount===0);
+    if(newCount!==oldCount&&newCount>0){countEl.classList.add('bump');setTimeout(function(){countEl.classList.remove('bump')},250)}
+  }
+  var stBadge=document.getElementById('orderStatusBadge');
+  if(stBadge)stBadge.textContent=order.length?'ČAKÁ NA PLATBU':'Vyberte položky';
+  var gEl=document.getElementById('orderStatGuests');
+  var timeEl=document.getElementById('orderStatTime');
+  var tb=TABLES.find(function(x){return x.id===selectedTableId});
+  if(gEl)gEl.textContent=tb&&tb.seats!=null?String(tb.seats):'\u2014';
+  if(timeEl){
+    if(typeof _tableSessionStart==='number'&&_tableSessionStart){
+      var min=Math.max(0,Math.floor((Date.now()-_tableSessionStart)/60000));
+      timeEl.textContent=min+' min';
+    }else timeEl.textContent='\u2014';
+  }
   // Render account tabs
   var tabsEl=document.getElementById('orderTabs');
   var orderPanel=document.getElementById('orderItems');
@@ -325,17 +382,28 @@ function renderOrder(){
     if(tableOrdersList.length)orderPanel.setAttribute('role','tabpanel');
     else orderPanel.removeAttribute('role');
   }
-  if(!order.length){c.innerHTML=`<div class="order-empty"><div class="order-empty-icon">&#128203;</div><div class="order-empty-title">Prazdna objednavka</div><div class="order-empty-text">Pridajte polozky z menu alebo kliknite na stol</div><div class="order-empty-hint"><span>&#8592;</span> Vyberte z menu</div></div>`}
-  else{var sorted=order.slice().sort(function(a,b){return (b.id||0)-(a.id||0)});c.innerHTML=sorted.map(o=>{
+  function orderItemRow(o){
     const esc=o.name.replace(/'/g,"\\'");
     const _isSent=o.sent;
     return `<div class="order-item-wrap" data-item-id="${o.id}" ontouchstart="swipeStart(event,this)" ontouchmove="swipeMove(event,this)" ontouchend="swipeEnd(event,this)" onmousedown="swipeStart(event,this)" onmousemove="swipeMove(event,this)" onmouseup="swipeEnd(event,this)">
   <div class="order-item-inner${_isSent?' sent':''}"><span class="order-item-emoji">${escHtml(o.emoji)}</span>
   <div class="order-item-info order-item-info--note" role="button" tabindex="0" onclick="openNoteModal('${esc}', ${o.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openNoteModal('${esc}', ${o.id});}"><div class="order-item-name">${escHtml(o.name)}</div>${o.note?`<div class="order-item-note">${escHtml(o.note)}</div>`:'<div class="order-item-note order-item-note-placeholder">+ poznamka</div>'}</div>
-  <div class="order-item-qty"><button class="qty-btn" onclick="changeQty('${esc}', -1)" onpointerdown="startQtyHold('${esc}', -1)">&minus;</button><span class="qty-val">${o.qty}</span><button class="qty-btn" onclick="changeQty('${esc}', 1)" onpointerdown="startQtyHold('${esc}', 1)">+</button></div>
+  <div class="order-item-qty"><button type="button" class="qty-btn" onclick="changeQty('${esc}', -1)" onpointerdown="startQtyHold('${esc}', -1)">&minus;</button><span class="qty-val">${o.qty}</span><button type="button" class="qty-btn" onclick="changeQty('${esc}', 1)" onpointerdown="startQtyHold('${esc}', 1)">+</button></div>
   <div class="order-item-total">${fmt(o.price*o.qty)}</div></div>
-  <div class="order-item-swipe-left"><button class="swipe-btn swipe-btn-move" onclick="showMoveModal(${o.id})" aria-label="Presunut polozku">&#8599;</button><button class="swipe-btn swipe-btn-note" onclick="openNoteModal('${esc}', ${o.id})" aria-label="Poznamka">&#9998;</button><button class="swipe-btn swipe-btn-del" onclick="removeItem('${esc}')" aria-label="Odstranit polozku">&#10005;</button></div>
-</div>`}).join('')}
+  <div class="order-item-swipe-left"><button type="button" class="swipe-btn swipe-btn-move" onclick="showMoveModal(${o.id})" aria-label="Presunut polozku">&#8599;</button><button type="button" class="swipe-btn swipe-btn-note" onclick="openNoteModal('${esc}', ${o.id})" aria-label="Poznamka">&#9998;</button><button type="button" class="swipe-btn swipe-btn-del" onclick="removeItem('${esc}')" aria-label="Odstranit polozku">&#10005;</button></div>
+</div>`;
+  }
+  if(!order.length){c.innerHTML=`<div class="order-empty"><div class="order-empty-icon">&#128203;</div><div class="order-empty-title">Prazdna objednavka</div><div class="order-empty-text">Pridajte polozky z menu alebo kliknite na stol</div><div class="order-empty-hint"><span>&#8592;</span> Vyberte z menu</div></div>`}
+  else{
+    var sorted=order.slice().sort(function(a,b){return (b.id||0)-(a.id||0)});
+    var unsent=sorted.filter(function(o){return !o.sent});
+    var sent=sorted.filter(function(o){return o.sent});
+    var parts=[];
+    unsent.forEach(function(o){parts.push(orderItemRow(o))});
+    if(unsent.length&&sent.length)parts.push('<div class="previously-paid-divider" role="separator"><span>Už odoslané</span></div>');
+    sent.forEach(function(o){parts.push(orderItemRow(o))});
+    c.innerHTML=parts.join('');
+  }
   // Update send button state
   const btnSend=document.getElementById('btnSend');
   if(btnSend){btnSend.disabled=!order.length;}
@@ -347,22 +415,28 @@ function updateTotals(){
   const discountAmt=currentOrd&&currentOrd.discountAmount?parseFloat(currentOrd.discountAmount):0;
   const disc=currentOrd?currentOrd.discount:null;
   const discDisplay=document.getElementById('discountDisplay');
+  var subEl=document.getElementById('orderSummarySubtotal');
+  var taxEl=document.getElementById('orderSummaryTax');
+  var totEl=document.getElementById('total');
+  if(subEl)subEl.textContent=fmt(subtotal);
+  if(taxEl)taxEl.textContent=fmt(0);
   if(discountAmt>0&&discDisplay){
     discDisplay.classList.remove('pos-hidden');
-    document.getElementById('subtotalVal').textContent=fmt(subtotal);
-    var lbl='Zlava';
+    var lbl='Zľava';
     if(disc){
-      lbl=disc.name||(disc.type==='percent'?'Zlava -'+disc.value+'%':'Zlava -'+fmt(disc.value));
+      lbl=disc.name||(disc.type==='percent'?'Zľava -'+disc.value+'%':'Zľava -'+fmt(disc.value));
     }else if(currentOrd&&currentOrd.discountAmount&&!currentOrd.discountId){
       var pct=subtotal>0?Math.round(discountAmt/subtotal*100):0;
-      lbl='Zlava -'+pct+'%';
+      lbl='Zľava -'+pct+'%';
     }
-    document.getElementById('discountLabel').innerHTML=lbl+' <button class="discount-remove" onclick="removeDiscount()" title="Odstranit zlavu" aria-label="Odstranit zlavu">&times;</button>';
-    document.getElementById('discountVal').textContent='-'+fmt(discountAmt);
-    document.getElementById('total').textContent=fmt(subtotal-discountAmt);
+    var dl=document.getElementById('discountLabel');
+    if(dl)dl.innerHTML=escHtml(lbl)+' <button type="button" class="discount-remove" onclick="removeDiscount()" title="Odstrániť zľavu" aria-label="Odstrániť zľavu">&times;</button>';
+    var dv=document.getElementById('discountVal');
+    if(dv)dv.textContent='-'+fmt(discountAmt);
+    if(totEl)totEl.textContent=fmt(subtotal-discountAmt);
   }else{
     if(discDisplay)discDisplay.classList.add('pos-hidden');
-    document.getElementById('total').textContent=fmt(subtotal);
+    if(totEl)totEl.textContent=fmt(subtotal);
   }
 }
 

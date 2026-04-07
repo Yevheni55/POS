@@ -5,15 +5,9 @@
 if (!api.requireAuth()) throw 'no auth';
 const session = api.getUser();
 (function(){
-  const avatarEl = document.querySelector('.header-avatar');
-  const userEl = document.querySelector('.header-user');
-  if (avatarEl && session && session.name) {
-    const initials = session.name.split(' ').map(w=>w[0]).join('');
-    avatarEl.textContent = initials;
-  }
-  if (userEl && session && session.name) {
-    const avatarHtml = userEl.querySelector('.header-avatar').outerHTML;
-    userEl.innerHTML = avatarHtml + escHtml(session.name);
+  const serverName = document.getElementById('headerServerName');
+  if (serverName && session && session.name) {
+    serverName.textContent = session.name;
   }
 })();
 
@@ -162,6 +156,8 @@ function getUserRole() {
 
 // ===== STATE =====
 let currentView='tables', activeZone='interior', selectedTableId=null, activeCategory=null;
+/** When current table was opened (ms) for order panel "time at table". */
+let _tableSessionStart=null;
 let searchQuery='', tipPercent=0, noteItemName=null, noteItemId=null, pendingPaymentMethod=null;
 let editMode=false;
 let currentOrderId=null;

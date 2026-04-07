@@ -7,13 +7,20 @@
 <title>POS Admin</title>
 <link rel="stylesheet" href="/tokens.css">
 <link rel="stylesheet" href="/fonts/fonts.css">
-<link rel="stylesheet" href="admin.css?v=13">
+<link rel="stylesheet" href="admin.css?v=14">
 </head>
 <body>
 <div class="bg-scene"></div>
 <div class="app">
   <!-- SIDEBAR -->
   <aside class="sidebar">
+    <div class="sidebar-venue">
+      <div class="sidebar-venue-icon" id="adminVenueIcon">KB</div>
+      <div>
+        <div class="sidebar-venue-name" id="adminVenueName">Kaviaren &amp; Bar</div>
+        <div class="sidebar-venue-shift">Zmena: aktívna</div>
+      </div>
+    </div>
     <div class="sidebar-logo">
       <div class="logo-icon">POS</div>
       <span class="logo-text">POS Admin</span>
@@ -87,6 +94,11 @@
         Nastavenia
       </a>
     </nav>
+    <div class="sidebar-actions">
+      <button type="button" class="sidebar-action-btn" onclick="adminSupportTap()">Podpora</button>
+      <button type="button" class="sidebar-action-btn" onclick="adminLockTap()">Zámok</button>
+      <button type="button" class="sidebar-action-btn sidebar-action-btn--danger" onclick="showLogoutModal()">Ukončiť zmenu</button>
+    </div>
     <div class="sidebar-bottom">
       <a class="nav-item back" id="backToPOS" href="#" title="Späť na POS">
         <svg aria-hidden="true" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
@@ -97,9 +109,21 @@
 
   <!-- MAIN AREA -->
   <div class="main-area">
-    <header class="header">
-      <h1 class="header-title" id="pageTitle">Dashboard</h1>
+    <header class="header header--nocturnal">
+      <div class="header-left-cluster">
+        <span class="header-brand-mark">NOCTURNAL POS</span>
+        <nav class="header-tabs" aria-label="Rýchla navigácia">
+          <a class="header-tab" data-tab-page="tables" href="#tables">Pôdorys</a>
+          <a class="header-tab" data-tab-page="dashboard" href="#dashboard">Analytika</a>
+          <a class="header-tab" data-tab-page="inventory-dashboard" href="#inventory-dashboard">Sklad</a>
+        </nav>
+      </div>
+      <h1 class="header-title header-title--compact" id="pageTitle">Dashboard</h1>
       <div class="header-right">
+        <label class="sr-only" for="adminHeaderSearch">Hľadať</label>
+        <input type="search" class="header-search" id="adminHeaderSearch" placeholder="Hľadať…" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();showToast('Použite ľavé menu alebo záložky.');}">
+        <button type="button" class="header-tab-icon-btn" title="Upozornenia" aria-label="Upozornenia" onclick="showToast('Žiadne nové upozornenia.')">&#128276;</button>
+        <button type="button" class="header-tab-icon-btn" title="Nastavenia" aria-label="Nastavenia" onclick="window.location.hash='#settings';">&#9881;</button>
         <button type="button" class="header-back-pos" id="headerBackToPOS" title="Späť na POS" aria-label="Späť na POS">
           <svg aria-hidden="true" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
         </button>
@@ -149,6 +173,18 @@ var ROLE_LABELS={admin:'Admin',manazer:'Manažér',cisnik:'Čašník'};
     document.getElementById('userAvatar').textContent=initials;
     document.getElementById('userName').textContent=u.name;
   }
+  try{
+    var raw=localStorage.getItem('pos_settings');
+    if(raw){
+      var s=JSON.parse(raw);
+      if(s&&s.sName){
+        var av=document.getElementById('adminVenueName');
+        var ic=document.getElementById('adminVenueIcon');
+        if(av)av.textContent=s.sName;
+        if(ic)ic.textContent=String(s.sName).split(/\s+/).map(function(w){return w[0]}).join('').slice(0,2).toUpperCase();
+      }
+    }
+  }catch(e){}
   var badge=document.getElementById('roleBadge');
   if(badge){
     var r=u&&u.role;
@@ -193,6 +229,17 @@ function showToast(msg,type){
   if(type===true||type==='success')cls+=' success';
   t.className=cls;
   setTimeout(function(){t.className='toast'},type==='error'?4000:2500);
+}
+
+function adminSupportTap(){
+  showToast('Kontaktujte správcu systému alebo prevádzku.');
+}
+function adminLockTap(){
+  if(window.parent&&window.parent!==window&&typeof window.parent.generateLockCode==='function'){
+    window.parent.generateLockCode();
+  }else{
+    showToast('Zámok: otvorte funkciu z hlavného POS terminálu.');
+  }
 }
 
 function goBackToPOS(e){
