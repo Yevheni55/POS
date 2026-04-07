@@ -313,7 +313,7 @@ router.post('/z-report', async (req, res) => {
     if (!date) return res.status(400).json({ error: 'Chyba datum' });
 
     // Fetch Z-report data from internal API logic
-    const reportRes = await fetch(`http://localhost:${process.env.PORT || 3000}/api/reports/z-report?date=${date}`, {
+    const reportRes = await fetch(`http://localhost:${process.env.PORT || 3080}/api/reports/z-report?date=${date}`, {
       headers: { 'Authorization': req.headers.authorization },
     });
     if (!reportRes.ok) {

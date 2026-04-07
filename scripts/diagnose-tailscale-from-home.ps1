@@ -26,10 +26,10 @@ Write-Host "=== tailscale ping $BarIp (stops after ~10 tries or Ctrl+C) ==="
 & $ts ping $BarIp 2>&1 | Select-Object -First 20
 
 Write-Host ''
-Write-Host "=== TCP 3000 and 22 to $BarIp ==="
-Test-NetConnection -ComputerName $BarIp -Port 3000 -WarningAction SilentlyContinue | Select-Object ComputerName, RemotePort, TcpTestSucceeded
+Write-Host "=== TCP 3080 and 22 to $BarIp ==="
+Test-NetConnection -ComputerName $BarIp -Port 3080 -WarningAction SilentlyContinue | Select-Object ComputerName, RemotePort, TcpTestSucceeded
 Test-NetConnection -ComputerName $BarIp -Port 22 -WarningAction SilentlyContinue | Select-Object ComputerName, RemotePort, TcpTestSucceeded
 
 Write-Host ''
-Write-Host 'If ping works but TCP 3000 is False: POS/Docker down or Windows Firewall on bar PC.'
+Write-Host 'If ping works but TCP 3080 is False: POS/Docker down or Windows Firewall on bar PC.'
 Write-Host 'If ping fails: different Tailscale accounts, ACL, or bar node offline — check https://login.tailscale.com/admin/machines'

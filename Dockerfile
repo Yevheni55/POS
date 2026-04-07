@@ -9,7 +9,7 @@ RUN cd server && npm ci
 # Copy entire project (server + frontend files)
 COPY . .
 
-EXPOSE 3000
+EXPOSE 3080
 
 WORKDIR /app/server
 CMD ["node", "server.js"]

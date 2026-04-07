@@ -20,11 +20,12 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3080:3080"
       - "3443:3443"
     env_file: ./server/.env
     environment:
       DATABASE_URL: postgresql://pos:pos@db:5432/pos
+      PORT: "3080"
       # Portos beží na hostiteľovi (3010), nie v kontajneri — localhost by smeroval do app kontajnera
       PORTOS_BASE_URL: http://host.docker.internal:3010
     extra_hosts:

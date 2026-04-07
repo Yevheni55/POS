@@ -32,7 +32,7 @@ const app = express();
 
 const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim())
-  : ['http://localhost:3000', 'https://localhost:3443'];
+  : ['http://localhost:3000', 'http://localhost:3080', 'https://localhost:3443'];
 
 // Middleware
 app.use(helmet({

@@ -1,5 +1,5 @@
 # Run on the BAR PC as Administrator (PowerShell).
-# Checks Docker, listening ports, firewall rules for 3000/22.
+# Checks Docker, listening ports, firewall rules for 3080/22.
 
 $ErrorActionPreference = 'Continue'
 
@@ -17,8 +17,8 @@ if ($ts) {
 }
 
 Write-Host ''
-Write-Host '=== Listening on 3000 / 22 (IPv4) ==='
-netstat -an | Select-String -Pattern ':3000\s|:22\s'
+Write-Host '=== Listening on 3080 / 22 (IPv4) ==='
+netstat -an | Select-String -Pattern ':3080\s|:22\s'
 
 Write-Host ''
 Write-Host '=== Docker (C:\POS) ==='
@@ -42,5 +42,5 @@ Get-NetFirewallRule -ErrorAction SilentlyContinue |
   Format-Table -AutoSize
 
 Write-Host ''
-Write-Host 'If nothing listens on 0.0.0.0:3000: run docker compose up -d in C:\POS'
+Write-Host 'If nothing listens on 0.0.0.0:3080: run docker compose up -d in C:\POS'
 Write-Host 'If listen OK but home cannot connect: re-run scripts\open-bar-pc-firewall.ps1 as Admin'

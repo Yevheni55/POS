@@ -12,7 +12,7 @@ Get-NetConnectionProfile | ForEach-Object {
 
 $rules = @(
   @{ Name = 'POS SSH 22'; Port = 22 },
-  @{ Name = 'POS HTTP 3000'; Port = 3000 },
+  @{ Name = 'POS HTTP 3080'; Port = 3080 },
   @{ Name = 'POS HTTPS 3443'; Port = 3443 },
   @{ Name = 'Portos HTTP API 3010'; Port = 3010 }
 )
@@ -30,7 +30,7 @@ foreach ($r in $rules) {
 # Tailscale peers use 100.64.0.0/10; some Windows builds treat the TUN adapter as Public — explicit remote helps.
 $tsRules = @(
   @{ Name = 'POS SSH 22 (Tailscale peers)'; Port = 22 },
-  @{ Name = 'POS HTTP 3000 (Tailscale peers)'; Port = 3000 },
+  @{ Name = 'POS HTTP 3080 (Tailscale peers)'; Port = 3080 },
   @{ Name = 'POS HTTPS 3443 (Tailscale peers)'; Port = 3443 },
   @{ Name = 'Portos API 3010 (Tailscale peers)'; Port = 3010 }
 )
@@ -44,5 +44,5 @@ foreach ($r in $tsRules) {
 }
 
 Write-Host ''
-Write-Host 'Done. LAN: http://<local-ip>:3000  |  From home (Tailscale): http://<tailscale-ip>:3000'
+Write-Host 'Done. LAN: http://<local-ip>:3080  |  From home (Tailscale): http://<tailscale-ip>:3080'
 Write-Host 'The browser device must run Tailscale too (or use Tailscale on the PC you browse from).'

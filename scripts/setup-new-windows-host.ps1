@@ -37,5 +37,5 @@ docker compose exec -T app sh -c "cd /app/server && npm run db:push && npm run d
 
 $ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -like '192.168.*' -or $_.IPAddress -like '10.*' } | Select-Object -First 1).IPAddress
 Write-Host ""
-Write-Host "Done. Open POS: http://localhost:3000"
-if ($ip) { Write-Host "From LAN: http://${ip}:3000" }
+Write-Host "Done. Open POS: http://localhost:3080"
+if ($ip) { Write-Host "From LAN: http://${ip}:3080" }

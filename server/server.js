@@ -11,7 +11,7 @@ import { startIdempotencyCleanup } from './middleware/idempotency.js';
 import { startPrintQueue } from './routes/print.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3080;
 const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
 
 // HTTP server
