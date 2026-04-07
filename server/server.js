@@ -75,7 +75,12 @@ process.on('SIGINT', () => { logCrash('SIGNAL', new Error('SIGINT')); process.ex
 httpServer.listen(PORT, () => {
   const msg = `[${new Date().toISOString()}] Server started on port ${PORT}\n`;
   fs.appendFileSync(LOG_FILE, msg);
+  const loginUrl = `http://localhost:${PORT}/login.html`;
   console.log(`POS server running on http://localhost:${PORT}`);
+  console.log(`Open POS login: ${loginUrl}`);
+  if (Number(PORT) !== 3000) {
+    console.log('(If http://localhost:3000 shows 404, another app is using port 3000 — use the URL above.)');
+  }
   startIdempotencyCleanup();
   startPrintQueue();
 });
