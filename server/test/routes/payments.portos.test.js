@@ -333,4 +333,78 @@ describe('Portos payment integration', () => {
     assert.match(res.body.error, /Portos podporuje iba sadzby DPH/);
     assert.equal(called, false);
   });
+
+  it('rejects fiscal storno for cisnik (403)', async () => {
+    const { cisnik, table1, itemBurger } = fixtures;
+    const order = await createOpenOrder(table1.id, cisnik.id, [
+      { menuItemId: itemBurger.id, qty: 1 },
+    ]);
+
+    global.fetch = async () => mockJsonResponse(200, buildRegisterSuccess({
+      externalId: `order-${order.id}-payment`,
+      receiptNumber: 40,
+      receiptId: 'O-S1',
+    }));
+
+    const paymentRes = await request
+      .post('/api/payments')
+      .set('Authorization', `Bearer ${tokens.cisnik()}`)
+      .send({ orderId: order.id, method: 'hotovost', amount: 8.50 });
+
+    const stornoRes = await request
+      .post(`/api/payments/${paymentRes.body.payment.id}/fiscal-storno`)
+      .set('Authorization', `Bearer ${tokens.cisnik()}`)
+      .send({});
+
+    assert.equal(stornoRes.status, 403);
+  });
+
+  it('registers fiscal storno for manager and stores second fiscal row', async () => {
+    const { cisnik, table1, itemBurger } = fixtures;
+    const order = await createOpenOrder(table1.id, cisnik.id, [
+      { menuItemId: itemBurger.id, qty: 1 },
+    ]);
+
+    let callIndex = 0;
+    global.fetch = async () => {
+      callIndex += 1;
+      if (callIndex === 1) {
+        return mockJsonResponse(200, buildRegisterSuccess({
+          externalId: `order-${order.id}-payment`,
+          receiptNumber: 41,
+          receiptId: 'O-ORIG',
+        }));
+      }
+      return mockJsonResponse(200, buildRegisterSuccess({
+        externalId: `order-${order.id}-payment-storno`,
+        receiptNumber: 42,
+        receiptId: 'O-STORNO',
+      }));
+    };
+
+    const paymentRes = await request
+      .post('/api/payments')
+      .set('Authorization', `Bearer ${tokens.cisnik()}`)
+      .send({ orderId: order.id, method: 'hotovost', amount: 8.50 });
+
+    assert.equal(paymentRes.status, 201);
+
+    const stornoRes = await request
+      .post(`/api/payments/${paymentRes.body.payment.id}/fiscal-storno`)
+      .set('Authorization', `Bearer ${tokens.manazer()}`)
+      .send({});
+
+    assert.equal(stornoRes.status, 200);
+    assert.equal(stornoRes.body.ok, true);
+    assert.equal(stornoRes.body.fiscal.status, 'online_success');
+    assert.equal(stornoRes.body.fiscal.receiptId, 'O-STORNO');
+    assert.equal(callIndex, 2);
+
+    const docs = await testDb.select().from(schema.fiscalDocuments)
+      .where(eq(schema.fiscalDocuments.paymentId, paymentRes.body.payment.id));
+    assert.equal(docs.length, 2);
+    const stornoDoc = docs.find((d) => d.externalId === `order-${order.id}-payment-storno`);
+    assert.ok(stornoDoc);
+    assert.equal(stornoDoc.sourceType, 'storno');
+  });
 });

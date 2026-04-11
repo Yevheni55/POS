@@ -6,6 +6,8 @@ import {
   buildCashRegisterRequestContext,
   buildFiscalReceiptItems,
   buildPaymentExternalId,
+  buildPaymentStornoExternalId,
+  buildStornoCashRegisterRequestContext,
   sanitizeForFiscalPrinter,
 } from '../../lib/fiscal-payment.js';
 import { getPortosConfig } from '../../lib/portos.js';
@@ -80,5 +82,59 @@ describe('fiscal-payment helpers', () => {
     assert.equal(context.print.printerName, 'pos');
     assert.equal(context.request.data.payments[0].name, 'Hotovost');
     assert.equal(context.request.data.payments[0].amount, 8.5);
+  });
+
+  it('builds storno cash register payload with correction lines and inverted payments', () => {
+    process.env.PORTOS_CASH_REGISTER_CODE = '88812345678900001';
+
+    const original = {
+      request: {
+        data: {
+          cashRegisterCode: '88812345678900001',
+          receiptType: 'CashRegister',
+          items: [
+            {
+              type: 'Positive',
+              name: 'Pivo',
+              quantity: { amount: 1, unit: 'ks' },
+              unitPrice: 2.5,
+              price: 2.5,
+              vatRate: 19,
+              description: null,
+            },
+            {
+              type: 'Discount',
+              name: 'Zlava',
+              quantity: { amount: 1, unit: 'ks' },
+              unitPrice: -0.5,
+              price: -0.5,
+              vatRate: 19,
+              description: null,
+            },
+          ],
+          payments: [{ name: 'Hotovost', amount: 2 }],
+          roundingAmount: 0,
+        },
+        externalId: 'order-9-payment',
+      },
+      print: { printerName: 'pos' },
+    };
+
+    const storno = buildStornoCashRegisterRequestContext({
+      originalRequestPayload: original,
+      referenceReceiptId: 'O-REF-123',
+      orderId: 9,
+    });
+
+    assert.equal(buildPaymentStornoExternalId(9), 'order-9-payment-storno');
+    assert.equal(storno.request.externalId, 'order-9-payment-storno');
+    assert.equal(storno.request.data.items.length, 2);
+    assert.equal(storno.request.data.items[0].type, 'correction');
+    assert.equal(storno.request.data.items[0].referenceReceiptId, 'O-REF-123');
+    assert.equal(storno.request.data.items[0].unitPrice, -2.5);
+    assert.equal(storno.request.data.items[0].price, -2.5);
+    assert.equal(storno.request.data.items[1].unitPrice, 0.5);
+    assert.equal(storno.request.data.items[1].price, 0.5);
+    assert.equal(storno.request.data.payments[0].amount, -2);
   });
 });

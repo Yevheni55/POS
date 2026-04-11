@@ -244,6 +244,16 @@ function getTemplate() {
       <div class="flex-row gap-2 mt-3">
         <button class="btn-save btn-sm" id="btnRefreshPortos">Obnovit stav</button>
       </div>
+      <div id="fiscalStornoPanel" class="mt-3" style="padding-top:12px;border-top:1px solid var(--color-border, #2a2638)">
+        <div class="form-group" style="max-width:420px">
+          <label for="fiscalStornoPaymentId">Fiškálne STORNO (omyl, už vytlačený blok)</label>
+          <p class="text-muted" style="font-size:12px;margin:0 0 8px;line-height:1.4">ID platby z databázy (rovnaké ako pri kopii dokladu). Iba manažér/admin. Odošle opravný doklad do eKasy cez Portos a vytlačí na CHDU podľa nastavenia.</p>
+          <div class="flex-row gap-2" style="align-items:center;flex-wrap:wrap">
+            <input class="form-input" id="fiscalStornoPaymentId" type="number" min="1" step="1" placeholder="napr. 42" style="max-width:140px">
+            <button type="button" class="btn-save btn-sm" id="btnFiscalStorno" style="background:var(--color-danger, #c44)">Odoslať STORNO</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- SECTION 6: Vzhladove nastavenia -->
@@ -754,6 +764,42 @@ async function loadPortosStatus() {
   }
 }
 
+function applyFiscalStornoPanelRole() {
+  var panel = byId('fiscalStornoPanel');
+  if (!panel) return;
+  var u = typeof api.getUser === 'function' ? api.getUser() : null;
+  var ok = u && (u.role === 'manazer' || u.role === 'admin');
+  panel.style.display = ok ? '' : 'none';
+}
+
+function submitFiscalStorno() {
+  var u = api.getUser();
+  if (!u || (u.role !== 'manazer' && u.role !== 'admin')) {
+    showToast('Iba manažér alebo admin.', 'error');
+    return;
+  }
+  var input = byId('fiscalStornoPaymentId');
+  var id = input ? parseInt(input.value, 10) : NaN;
+  if (!id || id < 1) {
+    showToast('Zadaj platné ID platby.', 'error');
+    return;
+  }
+  showConfirm(
+    'Fiškálne STORNO',
+    'Naozaj odoslať opravný doklad (STORNO) do eKasy pre platbu #' + id + '? Tlač cez Portos podľa PORTOS_PRINTER_NAME.',
+    async function () {
+      try {
+        var r = await api.post('/payments/' + id + '/fiscal-storno', {});
+        var st = r.fiscal && r.fiscal.status ? r.fiscal.status : 'ok';
+        showToast('STORNO odoslané (' + st + ').', true);
+      } catch (e) {
+        showToast(e.message || 'Chyba STORNO', 'error');
+      }
+    },
+    { type: 'danger', confirmText: 'Odoslať STORNO' }
+  );
+}
+
 async function loadDiscounts() {
   var el = byId('discountsTable');
   if (el) showLoading(el, 'Nacitavam zlavy...');
@@ -938,6 +984,11 @@ function onContainerClick(e) {
     return;
   }
 
+  if (target.id === 'btnFiscalStorno' || target.closest('#btnFiscalStorno')) {
+    submitFiscalStorno();
+    return;
+  }
+
   // Discount buttons
   if (target.id === 'btnAddDiscount' || target.closest('#btnAddDiscount')) {
     showAddDiscountForm();
@@ -1008,6 +1059,7 @@ export function init(container) {
 
   loadSettings();
   loadPrinters();
+  applyFiscalStornoPanelRole();
   loadPortosStatus();
   loadDiscounts();
 }

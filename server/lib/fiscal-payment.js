@@ -50,6 +50,11 @@ export function buildPaymentExternalId(orderId) {
   return `order-${orderId}-payment`;
 }
 
+/** Jednoznačné externalId pre storno doklad k danej objednávke (eKasa / Portos). */
+export function buildPaymentStornoExternalId(orderId) {
+  return `order-${orderId}-payment-storno`;
+}
+
 export function allocateDiscountAcrossVatGroups(items, discountAmount) {
   const normalizedDiscount = roundMoney(discountAmount || 0);
   if (normalizedDiscount <= 0) return [];
@@ -136,6 +141,79 @@ export function buildCashRegisterRequestContext({ orderId, items, discountAmount
     },
     print: {
       printerName: config.printerName,
+    },
+  };
+}
+
+/**
+ * Storno už vytlačeného / zaevidovaného pokladničného dokladu (omyl obsluhy).
+ * Podľa NineDigit: nový doklad s položkami typu correction, záporné ceny, referenceReceiptId = id alebo OKP pôvodu.
+ * @param {object} params
+ * @param {object} params.originalRequestPayload — uložený kontext z pôvodnej platby (request + print)
+ * @param {string} params.referenceReceiptId — response.data.id z eKasy alebo OKP pri offline
+ * @param {number} params.orderId
+ */
+export function buildStornoCashRegisterRequestContext({ originalRequestPayload, referenceReceiptId, orderId }) {
+  const config = getPortosConfig();
+  const payload = typeof originalRequestPayload === 'string'
+    ? JSON.parse(originalRequestPayload)
+    : originalRequestPayload;
+
+  const data = payload?.request?.data;
+  if (!data || !Array.isArray(data.items) || !data.items.length) {
+    throw new Error('Chýbajú položky pôvodného fiškálneho requestu');
+  }
+
+  const ref = String(referenceReceiptId || '').trim();
+  if (!ref) {
+    throw new Error('Chýba referencia na pôvodný doklad (číslo dokladu eKasa alebo OKP)');
+  }
+
+  const correctionItems = data.items.map((item) => {
+    const t = String(item.type || '').toLowerCase();
+    if (t !== 'positive' && t !== 'discount') {
+      throw new Error(`Nepodporovaný typ položky pre STORNO: ${item.type}`);
+    }
+    const qty = item.quantity || {};
+    return {
+      type: 'correction',
+      referenceReceiptId: ref,
+      name: item.name,
+      quantity: {
+        amount: Number(qty.amount),
+        unit: qty.unit || 'ks',
+      },
+      unitPrice: roundMoney(-Number(item.unitPrice)),
+      price: roundMoney(-Number(item.price)),
+      vatRate: item.vatRate,
+      description: item.description ?? null,
+    };
+  });
+
+  const payments = (data.payments || []).map((p) => ({
+    name: p.name,
+    amount: roundMoney(-Number(p.amount)),
+  }));
+
+  if (!payments.length) {
+    throw new Error('Chýbajú platby v pôvodnom doklade');
+  }
+
+  return {
+    request: {
+      data: {
+        items: correctionItems,
+        payments,
+        roundingAmount: data.roundingAmount ?? 0,
+        receiptType: data.receiptType || 'CashRegister',
+        headerText: data.headerText ?? null,
+        footerText: data.footerText ?? null,
+        cashRegisterCode: data.cashRegisterCode || config.cashRegisterCode,
+      },
+      externalId: buildPaymentStornoExternalId(orderId),
+    },
+    print: {
+      printerName: payload.print?.printerName || config.printerName,
     },
   };
 }

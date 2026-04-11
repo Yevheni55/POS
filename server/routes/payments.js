@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { and, eq } from 'drizzle-orm';
 
 import { db } from '../db/index.js';
+import { requireRole } from '../middleware/requireRole.js';
 import {
   fiscalDocuments,
   menuItems,
@@ -13,6 +14,9 @@ import {
 import { logEvent } from '../lib/audit.js';
 import {
   buildCashRegisterRequestContext,
+  buildPaymentExternalId,
+  buildPaymentStornoExternalId,
+  buildStornoCashRegisterRequestContext,
 } from '../lib/fiscal-payment.js';
 import { emitEvent } from '../lib/emit.js';
 import { formatSupportedVatRates, isSupportedVatRate } from '../lib/menu-vat.js';
@@ -27,6 +31,14 @@ import { validate } from '../middleware/validate.js';
 import { createPaymentSchema } from '../schemas/payments.js';
 
 const router = Router();
+const mgr = requireRole('manazer', 'admin');
+
+const STORNO_ELIGIBLE_MODES = new Set([
+  'online_success',
+  'offline_accepted',
+  'reconciled_online_success',
+  'reconciled_offline_accepted',
+]);
 
 function roundMoney(value) {
   return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
@@ -47,9 +59,9 @@ function parseJsonField(value) {
   }
 }
 
-function buildFiscalDocumentValues({ orderId, paymentId = null, requestPayload, outcome }) {
+function buildFiscalDocumentValues({ orderId, paymentId = null, requestPayload, outcome, sourceType = 'payment' }) {
   return {
-    sourceType: 'payment',
+    sourceType,
     sourceId: orderId,
     orderId,
     paymentId,
@@ -498,14 +510,30 @@ router.get('/:id/fiscal', async (req, res) => {
   const [payment] = await db.select().from(payments).where(eq(payments.id, paymentId));
   if (!payment) return res.status(404).json({ error: 'Platba nenajdena' });
 
-  const [document] = await db.select().from(fiscalDocuments).where(eq(fiscalDocuments.paymentId, paymentId));
-  if (!document) return res.status(404).json({ error: 'Fiskalny doklad nenajdeny' });
+  const docs = await db.select().from(fiscalDocuments).where(eq(fiscalDocuments.paymentId, paymentId));
+  if (!docs.length) return res.status(404).json({ error: 'Fiskalny doklad nenajdeny' });
+
+  const saleExternalId = buildPaymentExternalId(payment.orderId);
+  const stornoExternalId = buildPaymentStornoExternalId(payment.orderId);
+  const document = docs.find((d) => d.externalId === saleExternalId) || docs[0];
+  const stornoRow = docs.find((d) => d.externalId === stornoExternalId);
+
+  const referenceReceiptId = document.receiptId || document.okp;
+  const stornoEligible = Boolean(
+    isPortosEnabled()
+    && STORNO_ELIGIBLE_MODES.has(document.resultMode)
+    && referenceReceiptId
+    && !stornoRow,
+  );
 
   res.json({
     ...document,
     processDate: document.processDate ? new Date(document.processDate).toISOString() : null,
     requestJson: parseJsonField(document.requestJson),
     responseJson: parseJsonField(document.responseJson),
+    stornoEligible,
+    stornoDone: Boolean(stornoRow),
+    stornoExternalId,
   });
 });
 
@@ -518,22 +546,153 @@ router.post('/:id/receipt-copy', async (req, res) => {
     return res.status(400).json({ error: 'Portos nie je zapnuty' });
   }
 
-  const [document] = await db.select().from(fiscalDocuments).where(eq(fiscalDocuments.paymentId, paymentId));
-  if (!document?.externalId) {
+  const saleExternalId = buildPaymentExternalId(payment.orderId);
+  const [document] = await db.select().from(fiscalDocuments).where(
+    and(eq(fiscalDocuments.paymentId, paymentId), eq(fiscalDocuments.externalId, saleExternalId)),
+  );
+  const fallback = document || (await db.select().from(fiscalDocuments).where(eq(fiscalDocuments.paymentId, paymentId)))[0];
+  if (!fallback?.externalId) {
     return res.status(404).json({ error: 'Fiskalny doklad nema dostupny externalId' });
   }
 
   try {
-    const result = await printCopyByExternalId(document.externalId);
+    const result = await printCopyByExternalId(fallback.externalId);
     res.status(result.httpStatus || 200).json({
       ok: true,
       printed: result.printed,
-      externalId: document.externalId,
+      externalId: fallback.externalId,
     });
   } catch (error) {
     console.error('Receipt copy error:', error);
     res.status(503).json({ error: 'Kopiu dokladu sa nepodarilo vytlacit' });
   }
+});
+
+router.post('/:id/fiscal-storno', mgr, async (req, res) => {
+  const paymentId = Number.parseInt(req.params.id, 10);
+  if (!Number.isFinite(paymentId)) {
+    return res.status(400).json({ error: 'Neplatne ID platby' });
+  }
+
+  const [payment] = await db.select().from(payments).where(eq(payments.id, paymentId));
+  if (!payment) return res.status(404).json({ error: 'Platba nenajdena' });
+
+  if (!isPortosEnabled()) {
+    return res.status(400).json({ error: 'Portos nie je zapnuty' });
+  }
+
+  const saleExternalId = buildPaymentExternalId(payment.orderId);
+  const stornoExternalId = buildPaymentStornoExternalId(payment.orderId);
+
+  const [existingStorno] = await db.select().from(fiscalDocuments).where(eq(fiscalDocuments.externalId, stornoExternalId));
+  if (existingStorno) {
+    return res.status(409).json({ error: 'Storno pre tuto objednavku uz bolo odoslane', fiscal: toFiscalResponse(existingStorno) });
+  }
+
+  const [saleDoc] = await db.select().from(fiscalDocuments).where(
+    and(eq(fiscalDocuments.paymentId, paymentId), eq(fiscalDocuments.externalId, saleExternalId)),
+  );
+  if (!saleDoc) {
+    return res.status(404).json({ error: 'Nenasiel sa povodny fiškálny doklad platby' });
+  }
+
+  if (!STORNO_ELIGIBLE_MODES.has(saleDoc.resultMode)) {
+    return res.status(400).json({
+      error: 'Storno je mozne len pre uspesne zaevidovany doklad (online/offline/reconciled)',
+      fiscal: toFiscalResponse(saleDoc),
+    });
+  }
+
+  const referenceReceiptId = saleDoc.receiptId || saleDoc.okp;
+  if (!referenceReceiptId) {
+    return res.status(400).json({
+      error: 'Chýba ID dokladu ani OKP — storno nie je mozne bez referencie na pôvod',
+      fiscal: toFiscalResponse(saleDoc),
+    });
+  }
+
+  let requestPayload;
+  try {
+    const rawPayload = parseJsonField(saleDoc.requestJson);
+    requestPayload = buildStornoCashRegisterRequestContext({
+      originalRequestPayload: rawPayload,
+      referenceReceiptId,
+      orderId: payment.orderId,
+    });
+  } catch (err) {
+    console.error('Fiscal storno build error:', err);
+    return res.status(400).json({
+      error: err instanceof Error ? err.message : 'Nepodarilo sa zostavit STORNO doklad',
+    });
+  }
+
+  let fiscalOutcome;
+  try {
+    const initialOutcome = await registerCashReceipt(requestPayload);
+    fiscalOutcome = await resolveFiscalAttempt({ requestPayload, initialOutcome });
+  } catch (error) {
+    if (!(error instanceof PortosTransportError)) {
+      console.error('Unexpected Portos storno error:', error);
+    }
+    fiscalOutcome = await resolveFiscalAttempt({
+      requestPayload,
+      initialOutcome: buildTransportFailure(requestPayload, error instanceof Error ? error : new Error(String(error))),
+    });
+  }
+
+  if (
+    fiscalOutcome.resultMode === 'validation_error'
+    || fiscalOutcome.resultMode === 'rejected'
+    || (
+      fiscalOutcome.resultMode !== 'online_success'
+      && fiscalOutcome.resultMode !== 'offline_accepted'
+      && fiscalOutcome.resultMode !== 'reconciled_online_success'
+      && fiscalOutcome.resultMode !== 'reconciled_offline_accepted'
+    )
+  ) {
+    await upsertFiscalDocument(db, buildFiscalDocumentValues({
+      orderId: payment.orderId,
+      paymentId,
+      requestPayload,
+      outcome: fiscalOutcome,
+      sourceType: 'storno',
+    }));
+
+    return res.status(fiscalOutcome.httpStatus || 503).json({
+      error: fiscalOutcome.errorDetail || 'Storno doklad bol odmietnuty alebo zlyhal',
+      fiscal: {
+        status: fiscalOutcome.resultMode,
+        externalId: requestPayload.request.externalId,
+        errorCode: fiscalOutcome.errorCode,
+        errorDetail: fiscalOutcome.errorDetail,
+      },
+    });
+  }
+
+  const stornoDoc = await upsertFiscalDocument(db, buildFiscalDocumentValues({
+    orderId: payment.orderId,
+    paymentId,
+    requestPayload,
+    outcome: fiscalOutcome,
+    sourceType: 'storno',
+  }));
+
+  await logEvent(db, {
+    orderId: payment.orderId,
+    type: 'fiscal_storno',
+    payload: {
+      paymentId,
+      saleExternalId,
+      stornoExternalId,
+      receiptId: fiscalOutcome.receiptId,
+    },
+    staffId: req.user.id,
+  });
+
+  res.status(fiscalOutcome.httpStatus || 200).json({
+    ok: true,
+    fiscal: toFiscalResponse(stornoDoc),
+  });
 });
 
 export default router;
