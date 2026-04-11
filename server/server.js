@@ -6,7 +6,9 @@ import { createServer } from 'http';
 import { createServer as createHttpsServer } from 'https';
 import { Server as SocketServer } from 'socket.io';
 
-import { app, ALLOWED_ORIGINS } from './app.js';
+import { app } from './app.js';
+import { corsOriginCallback } from './lib/cors-origin.js';
+import { getPortosConfig, isPortosEnabled } from './lib/portos.js';
 import { startIdempotencyCleanup } from './middleware/idempotency.js';
 import { startPrintQueue } from './routes/print.js';
 
@@ -27,9 +29,9 @@ try {
 } catch (e) { /* no certs = no HTTPS, that's fine */ }
 
 const ioServer = httpsServer || httpServer;
-const io = new SocketServer(ioServer, { cors: { origin: ALLOWED_ORIGINS } });
+const io = new SocketServer(ioServer, { cors: { origin: corsOriginCallback } });
 // Also attach to HTTP server if HTTPS exists
-if (httpsServer) new SocketServer(httpServer, { cors: { origin: ALLOWED_ORIGINS } });
+if (httpsServer) new SocketServer(httpServer, { cors: { origin: corsOriginCallback } });
 
 // Auth middleware for sockets
 io.use((socket, next) => {
@@ -81,6 +83,10 @@ httpServer.listen(PORT, () => {
   if (Number(PORT) !== 3000) {
     console.log('(If http://localhost:3000 shows 404, another app is using port 3000 — use the URL above.)');
   }
+  const pc = getPortosConfig();
+  console.log(
+    `[Portos] Fiscal integration ${isPortosEnabled() ? 'ENABLED' : 'DISABLED'} | PORTOS_BASE_URL=${pc.baseUrl} | cashRegister=${pc.cashRegisterCode}`,
+  );
   startIdempotencyCleanup();
   startPrintQueue();
 });

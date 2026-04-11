@@ -25,14 +25,11 @@ import invoiceScanRoutes from './routes/invoice-scan.js';
 import ttlockRoutes from './routes/ttlock.js';
 import portosRoutes from './routes/portos.js';
 import { idempotency } from './middleware/idempotency.js';
+import { ALLOWED_ORIGINS, corsOriginCallback } from './lib/cors-origin.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
-
-const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
-  ? process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim())
-  : ['http://localhost:3000', 'http://localhost:3080', 'https://localhost:3443'];
 
 // Middleware
 app.use(helmet({
@@ -40,7 +37,7 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false,
 }));
 app.use(compression());
-app.use(cors({ origin: ALLOWED_ORIGINS }));
+app.use(cors({ origin: corsOriginCallback }));
 app.use(express.json({ limit: '20mb' }));
 
 // Serve fonts with long cache (1 year)
