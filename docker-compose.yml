@@ -26,8 +26,10 @@ services:
     environment:
       DATABASE_URL: postgresql://pos:pos@db:5432/pos
       PORT: "3080"
-      # Portos beží na hostiteľovi (3010), nie v kontajneri — localhost by smeroval do app kontajnera
-      PORTOS_BASE_URL: http://host.docker.internal:3010
+      # Portos na tom istom PC ako Docker: nechaj predvolené. Ak Portos beží na INOM PC, vytvor .env vedľa tohto súboru:
+      #   PORTOS_BASE_URL=http://IP_TOHO_PC:3010
+      # Premenná sa berie pri `docker compose up` z koreňového .env alebo z prostredia; server/.env ju pre tento kľúč v kontajneri prepíše compose.
+      PORTOS_BASE_URL: ${PORTOS_BASE_URL:-http://host.docker.internal:3010}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
