@@ -14,24 +14,37 @@ function readFiscalPayload(source) {
   return source.fiscal || source.portos || source.receipt || source.document || source.result || null;
 }
 
+/** API chyby maju telo v err.data; uspesna odpoved ma fiscal priamo na koreni. */
+function readFiscalFromPaymentResponse(result, err) {
+  return readFiscalPayload(result) || readFiscalPayload(err && err.data) || readFiscalPayload(err);
+}
+
 function normalizeFiscalOutcome(result, err) {
   if (err && err.status === 409) {
     return { kind: 'blocked', tone: 'error', message: err.message || 'Objednavka sa zmenila, skus to prosim znovu.' };
   }
 
   if (err && (err.status === 400 || err.status === 403)) {
-    return { kind: 'blocked', tone: 'error', message: err.message || 'Portos zablokoval fiskalizaciu.' };
+    var fe = readFiscalFromPaymentResponse(null, err);
+    var fd = (fe && (fe.errorDetail || fe.message)) || '';
+    return {
+      kind: 'blocked',
+      tone: 'error',
+      message: fd || err.message || 'Portos zablokoval fiskalizaciu.',
+    };
   }
 
   if (err && err.name === 'TypeError' && /fetch/i.test(err.message || '')) {
     return { kind: 'offline_queued', tone: 'warning', message: 'Platba bola ulozena offline a synchronizuje sa neskor.' };
   }
 
-  var source = err || result || {};
-  var fiscal = readFiscalPayload(source);
+  var fiscal = readFiscalFromPaymentResponse(result, err);
   var status = String((fiscal && (fiscal.status || fiscal.state || fiscal.resultMode || fiscal.mode || fiscal.result)) || '').toLowerCase();
   var httpStatus = fiscal && Number(fiscal.httpStatus || fiscal.statusCode || fiscal.code);
-  var message = (err && err.message) || (fiscal && (fiscal.message || fiscal.errorDetail || fiscal.error || '')) || '';
+  var message =
+    (fiscal && (fiscal.message || fiscal.errorDetail || fiscal.error || '')) ||
+    (err && err.message) ||
+    '';
 
   if (fiscal && fiscal.isSuccessful === true) {
     return { kind: 'success', tone: 'success', message: 'Platba uspesna. Fiskalizacia prebehla v Portose.' };
@@ -54,6 +67,16 @@ function normalizeFiscalOutcome(result, err) {
     return { kind: 'offline_accepted', tone: 'warning', message: 'Platba uspesna. Portos ju prijal offline a dokonci ju neskor.' };
   }
 
+  if (status === 'disabled') {
+    return {
+      kind: 'no_fiscal',
+      tone: 'warning',
+      title: 'Platba bez eKasy',
+      message:
+        'Ucet v POS je zatvoreny, ale fiskalizacia cez Portos na serveri je vypnuta (PORTOS_ENABLED). V Portose sa doklad nevytvoril — zapnite ju v server/.env a restartujte backend.',
+    };
+  }
+
   if (status === 'ambiguous' || status === 'unknown' || status === 'needs_reconciliation' || /ambiguous|reconcil|overit|overenie/i.test(message)) {
     return { kind: 'ambiguous', tone: 'warning', message: 'Stav fiskalizacie je nejasny. Neposielaj to hned znovu.' };
   }
@@ -63,18 +86,33 @@ function normalizeFiscalOutcome(result, err) {
   }
 
   if (err) {
+    if (fiscal && (status === 'ambiguous' || status === 'unknown' || status === 'needs_reconciliation')) {
+      return { kind: 'ambiguous', tone: 'warning', message: message || 'Stav fiskalizacie je nejasny. Neposielaj to hned znovu.' };
+    }
     return { kind: 'blocked', tone: 'error', message: message || 'Platbu sa nepodarilo spracovat.' };
+  }
+
+  if (result && (result.payment != null || result.alreadyProcessed) && !fiscal) {
+    return {
+      kind: 'no_fiscal',
+      tone: 'warning',
+      title: 'Chyba odpovede',
+      message: 'Platba bola prijata, ale server neposlal stav fiskalizacie. Skontroluj admin / logy backendu.',
+    };
   }
 
   return { kind: 'success', tone: 'success', message: 'Platba uspesna.' };
 }
 
-function setPaymentFeedback(text, tone) {
+function setPaymentFeedback(text, tone, titleOverride) {
   var methodEl = document.getElementById('modalMethod');
   var titleEl = document.getElementById('modalTitle');
   if (methodEl) methodEl.textContent = text;
-  if (titleEl && tone === 'error') titleEl.textContent = 'Platba zablokovana';
-  if (titleEl && tone === 'warning') titleEl.textContent = 'Platba caka na overenie';
+  if (titleEl) {
+    if (titleOverride) titleEl.textContent = titleOverride;
+    else if (tone === 'error') titleEl.textContent = 'Platba zablokovana';
+    else if (tone === 'warning') titleEl.textContent = 'Platba caka na overenie';
+  }
 }
 
 function finalizeSuccessfulPayment(message, tone) {
@@ -229,7 +267,7 @@ async function confirmPayment() {
     }
 
     var outcome = normalizeFiscalOutcome(paymentResult, null);
-    setPaymentFeedback(outcome.message, outcome.tone);
+    setPaymentFeedback(outcome.message, outcome.tone, outcome.title);
 
     if (outcome.kind === 'blocked' || outcome.kind === 'ambiguous') {
       showToast(outcome.message, outcome.tone);
@@ -240,7 +278,7 @@ async function confirmPayment() {
   } catch (e) {
     console.error('confirmPayment error:', e);
     var outcome = normalizeFiscalOutcome(null, e);
-    setPaymentFeedback(outcome.message, outcome.tone);
+    setPaymentFeedback(outcome.message, outcome.tone, outcome.title);
     showToast(outcome.message, outcome.tone);
   } finally {
     if (btn) btnReset(btn);

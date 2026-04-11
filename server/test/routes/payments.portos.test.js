@@ -187,9 +187,13 @@ describe('Portos payment integration', () => {
     ]);
 
     let callIndex = 0;
-    global.fetch = async () => {
+    // Všetky POST cash_register zlyhajú (3× retry), potom GET receipt vráti doklad — bez skutočného Portos.
+    global.fetch = async (url) => {
       callIndex += 1;
-      if (callIndex === 1) throw new Error('socket hang up');
+      const u = String(url);
+      if (u.includes('cash_register')) {
+        throw new Error('socket hang up');
+      }
       return mockJsonResponse(200, buildRegisterSuccess({
         externalId: `order-${order.id}-payment`,
         receiptNumber: 36,
@@ -204,7 +208,7 @@ describe('Portos payment integration', () => {
 
     assert.equal(res.status, 201);
     assert.equal(res.body.fiscal.status, 'reconciled_online_success');
-    assert.equal(callIndex, 2);
+    assert.equal(callIndex, 4);
   });
 
   it('uses lookup and copy flow after Portos print error instead of new sale', async () => {

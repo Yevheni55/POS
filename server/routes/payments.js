@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 
 import { db } from '../db/index.js';
 import { requireRole } from '../middleware/requireRole.js';
@@ -21,7 +21,7 @@ import {
 import { emitEvent } from '../lib/emit.js';
 import { formatSupportedVatRates, isSupportedVatRate } from '../lib/menu-vat.js';
 import {
-  findReceiptByExternalId,
+  findReceiptByExternalIdWithRetry,
   isPortosEnabled,
   PortosTransportError,
   printCopyByExternalId,
@@ -118,6 +118,20 @@ async function upsertFiscalDocument(txOrDb, values) {
   return document;
 }
 
+/** Predajný doklad (nie STORNO) — pri viacerých riadkoch na orderId bez ORDER BY PostgreSQL vracal náhodný riadok. */
+async function selectSaleFiscalDocumentForOrder(txOrDb, orderId) {
+  const saleExt = buildPaymentExternalId(orderId);
+  const byExt = await txOrDb.select().from(fiscalDocuments).where(eq(fiscalDocuments.externalId, saleExt)).limit(1);
+  if (byExt.length) return byExt[0];
+  const fallback = await txOrDb
+    .select()
+    .from(fiscalDocuments)
+    .where(and(eq(fiscalDocuments.orderId, orderId), eq(fiscalDocuments.sourceType, 'payment')))
+    .orderBy(desc(fiscalDocuments.id))
+    .limit(1);
+  return fallback[0] ?? null;
+}
+
 function toFiscalResponse(document) {
   if (!document) return { status: 'disabled', copyAvailable: false };
 
@@ -143,7 +157,7 @@ async function loadExistingPaymentSnapshot(orderId) {
   if (!order) return { order: null, payment: null, fiscalDocument: null };
 
   const [payment] = await db.select().from(payments).where(eq(payments.orderId, orderId));
-  const [fiscalDocument] = await db.select().from(fiscalDocuments).where(eq(fiscalDocuments.orderId, orderId));
+  const fiscalDocument = await selectSaleFiscalDocumentForOrder(db, orderId);
 
   return { order, payment, fiscalDocument };
 }
@@ -189,7 +203,7 @@ async function finalizeLocalPayment({ orderContext, method, amount, fiscalOutcom
     const [existingPayment] = await tx.select().from(payments).where(eq(payments.orderId, orderContext.order.id));
     if (existingPayment) {
       const [existingOrder] = await tx.select().from(orders).where(eq(orders.id, orderContext.order.id));
-      const [existingFiscalDocument] = await tx.select().from(fiscalDocuments).where(eq(fiscalDocuments.orderId, orderContext.order.id));
+      const existingFiscalDocument = await selectSaleFiscalDocumentForOrder(tx, orderContext.order.id);
 
       return {
         created: false,
@@ -207,7 +221,7 @@ async function finalizeLocalPayment({ orderContext, method, amount, fiscalOutcom
     if (!closedOrder) {
       const [currentOrder] = await tx.select().from(orders).where(eq(orders.id, orderContext.order.id));
       const [paymentAfterClose] = await tx.select().from(payments).where(eq(payments.orderId, orderContext.order.id));
-      const [fiscalAfterClose] = await tx.select().from(fiscalDocuments).where(eq(fiscalDocuments.orderId, orderContext.order.id));
+      const fiscalAfterClose = await selectSaleFiscalDocumentForOrder(tx, orderContext.order.id);
 
       if (paymentAfterClose) {
         return {
@@ -263,7 +277,12 @@ async function finalizeLocalPayment({ orderContext, method, amount, fiscalOutcom
 async function resolveFiscalAttempt({ requestPayload, initialOutcome }) {
   const externalId = requestPayload.request.externalId;
 
-  if (initialOutcome.httpStatus === 200 || initialOutcome.httpStatus === 202) {
+  // Musí súhlasiť s normalizeRegisterResult (200 aj 201 = úspech). Predtým 201 spadlo do lookupu → náhodný 503/ambiguous.
+  if (
+    initialOutcome.httpStatus === 200 ||
+    initialOutcome.httpStatus === 201 ||
+    initialOutcome.httpStatus === 202
+  ) {
     return initialOutcome;
   }
 
@@ -272,7 +291,7 @@ async function resolveFiscalAttempt({ requestPayload, initialOutcome }) {
   }
 
   try {
-    const existingReceipt = await findReceiptByExternalId(externalId);
+    const existingReceipt = await findReceiptByExternalIdWithRetry(externalId);
     if (!existingReceipt) {
       return {
         ...initialOutcome,
@@ -328,6 +347,25 @@ function buildTransportFailure(requestPayload, error) {
     requestJson: JSON.stringify(requestPayload),
     responseJson: JSON.stringify({ error: error.message }),
   };
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Krátke opakovania pri výpadku host.docker.internal / siete. externalId je idempotentné voči Portos. */
+async function registerCashReceiptWithRetry(requestPayload, { maxAttempts = 3 } = {}) {
+  let lastError;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await registerCashReceipt(requestPayload);
+    } catch (e) {
+      lastError = e;
+      if (!(e instanceof PortosTransportError) || attempt === maxAttempts) throw e;
+      await sleep(400 * attempt);
+    }
+  }
+  throw lastError;
 }
 
 router.post('/', validate(createPaymentSchema), async (req, res) => {
@@ -410,7 +448,7 @@ router.post('/', validate(createPaymentSchema), async (req, res) => {
 
   let fiscalOutcome;
   try {
-    const initialOutcome = await registerCashReceipt(requestPayload);
+    const initialOutcome = await registerCashReceiptWithRetry(requestPayload);
     fiscalOutcome = await resolveFiscalAttempt({ requestPayload, initialOutcome });
   } catch (error) {
     if (!(error instanceof PortosTransportError)) {
@@ -628,7 +666,7 @@ router.post('/:id/fiscal-storno', mgr, async (req, res) => {
 
   let fiscalOutcome;
   try {
-    const initialOutcome = await registerCashReceipt(requestPayload);
+    const initialOutcome = await registerCashReceiptWithRetry(requestPayload);
     fiscalOutcome = await resolveFiscalAttempt({ requestPayload, initialOutcome });
   } catch (error) {
     if (!(error instanceof PortosTransportError)) {

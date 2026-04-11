@@ -19,7 +19,11 @@ function normalizeReceiptOutputChannel(raw) {
 }
 
 function isTruthy(value) {
-  return /^(1|true|yes|on)$/i.test(String(value || ''));
+  const s = String(value ?? '')
+    .trim()
+    .replace(/^\uFEFF/, '')
+    .replace(/^["']|["']$/g, '');
+  return /^(1|true|yes|on)$/i.test(s);
 }
 
 function toInt(value, fallback) {
@@ -143,10 +147,12 @@ function stringifyErrorDetail(payload) {
 
 function normalizeRegisterResult(status, data, requestPayload) {
   const requestData = data?.request?.data || {};
+  // Niektoré inštancie Portos/NineDigit vracajú 201 Created namiesto 200 — inak by sme mali resultMode "error" a platbu zablokovali.
+  const httpOk = status === 200 || status === 201;
 
   return {
     httpStatus: status,
-    resultMode: status === 200
+    resultMode: httpOk
       ? 'online_success'
       : status === 202
         ? 'offline_accepted'
@@ -260,7 +266,31 @@ export async function findReceiptByExternalId(externalId) {
   });
 
   if (response.status === 404) return null;
-  return normalizeReceiptResult(response.data);
+  if (response.status !== 200 && response.status !== 201) return null;
+
+  const parsed = normalizeReceiptResult(response.data);
+  if (!parsed.receiptId && !parsed.okp) return null;
+  return parsed;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Portos niekedy ešte nevráti doklad hneď po POST; krátke opakovania znížia falošné "ambiguous".
+ */
+export async function findReceiptByExternalIdWithRetry(externalId, { tries = 5, delayMs = 450 } = {}) {
+  for (let i = 0; i < tries; i++) {
+    if (i > 0) await sleep(delayMs);
+    try {
+      const receipt = await findReceiptByExternalId(externalId);
+      if (receipt) return receipt;
+    } catch {
+      /* ďalší pokus */
+    }
+  }
+  return null;
 }
 
 export async function printCopyByExternalId(externalId) {
