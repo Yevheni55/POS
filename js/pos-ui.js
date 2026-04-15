@@ -261,12 +261,13 @@ document.addEventListener('keydown',function(e){
   var pModal=document.getElementById('promptModal');
   if(pModal&&pModal.classList.contains('show')){
     if(e.key==='Escape'){e.preventDefault();document.getElementById('promptCancel').click()}return}
-  // Move account modal
-  if(document.getElementById('moveAccountModal').classList.contains('show')){
-    if(e.key==='Escape'){e.preventDefault();closeMoveAccountModal()}return}
-  // Move modal
-  if(document.getElementById('moveModal').classList.contains('show')){
-    if(e.key==='Escape'){e.preventDefault();closeMoveModal()}return}
+  // Table picker overlay
+  var tpEl=document.getElementById('tablePicker');
+  if(tpEl&&tpEl.classList.contains('show')){
+    if(e.key==='Escape'){e.preventDefault();closeTablePicker()}return}
+  // Inline move mode
+  if(moveMode){
+    if(e.key==='Escape'){e.preventDefault();exitMoveMode()}return}
   // Manager PIN modal
   if(document.getElementById('managerPinModal').classList.contains('show')){
     if(e.key==='Escape'){e.preventDefault();closeManagerPinModal()}if(e.key==='Enter'){e.preventDefault();verifyManagerPin()}return}
@@ -479,7 +480,7 @@ document.addEventListener('pointerdown',function(e){
 let qtyHoldTimer=null;
 let qtyHoldInterval=null;
 
-function startQtyHold(name,delta){
+function startQtyHold(name,delta,itemId){
   clearQtyHold();
   qtyHoldTimer=setTimeout(function(){
     // Accumulate qty changes and batch render via rAF
@@ -492,7 +493,7 @@ function startQtyHold(name,delta){
           _holdRAF=null;
           var flush=_holdAccum;
           _holdAccum=0;
-          if(flush!==0) changeQty(name,flush);
+          if(flush!==0) changeQty(name,flush,itemId);
         });
       }
     },150);

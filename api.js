@@ -171,6 +171,35 @@ const api = {
     return this.get('/integrations/portos/status');
   },
 
+  getCompanyProfile() {
+    return this.get('/company-profile');
+  },
+
+  updateCompanyProfile(body) {
+    return this.put('/company-profile', body);
+  },
+
+  getCompanyProfilePortosCompare() {
+    return this.get('/company-profile/portos-compare');
+  },
+
+  searchFiscalDocuments(params = {}) {
+    const query = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === '') return;
+      query.set(key, String(value));
+    });
+    return this.get('/fiscal-documents/search?' + query.toString());
+  },
+
+  getFiscalDocument(id) {
+    return this.get('/fiscal-documents/' + id);
+  },
+
+  stornoFiscalDocument(id) {
+    return this.post('/fiscal-documents/' + id + '/storno', {});
+  },
+
   invalidateMenu() {
     this._menuCache = null;
     this._menuCacheTime = 0;

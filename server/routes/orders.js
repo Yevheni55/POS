@@ -6,8 +6,9 @@ import { logEvent } from '../lib/audit.js';
 import { emitEvent } from '../lib/emit.js';
 import { enrichOrders } from '../lib/order-queries.js';
 import { validate } from '../middleware/validate.js';
-import { createOrderSchema, addItemsSchema, updateItemSchema, batchSchema, splitSchema, moveItemsSchema, discountSchema } from '../schemas/orders.js';
+import { createOrderSchema, addItemsSchema, updateItemSchema, batchSchema, splitSchema, moveItemsSchema, discountSchema, stornoSendSchema } from '../schemas/orders.js';
 import { deductStockForSentItems, applyWriteOff } from '../lib/stock.js';
+import { asyncRoute } from '../lib/async-route.js';
 import { writeOffs, writeOffItems, ingredients, recipes } from '../db/schema.js';
 
 const router = Router();
@@ -20,12 +21,11 @@ const VERSION_CONFLICT_MSG = 'Objednavka bola zmenena inym pouzivatelom';
  * If version is undefined, bumps unconditionally (backwards-compatible).
  */
 async function bumpVersion(txOrDb, orderId, version) {
-  const where = version !== undefined
-    ? and(eq(orders.id, orderId), eq(orders.version, version))
-    : eq(orders.id, orderId);
+  const conditions = [eq(orders.id, orderId), eq(orders.status, 'open')];
+  if (version !== undefined) conditions.push(eq(orders.version, version));
   const [updated] = await txOrDb.update(orders)
     .set({ version: sql`${orders.version} + 1` })
-    .where(where)
+    .where(and(...conditions))
     .returning();
   return updated || null;
 }
@@ -34,27 +34,66 @@ class VersionConflictError extends Error {
   constructor() { super(VERSION_CONFLICT_MSG); this.name = 'VersionConflictError'; }
 }
 
+async function consolidateSentOrderItems(tx, orderId) {
+  const sentRows = await tx.select({
+    id: orderItems.id,
+    menuItemId: orderItems.menuItemId,
+    note: orderItems.note,
+    qty: orderItems.qty,
+  })
+    .from(orderItems)
+    .where(and(eq(orderItems.orderId, orderId), eq(orderItems.sent, true)))
+    .orderBy(orderItems.id);
+
+  if (sentRows.length < 2) return;
+
+  const grouped = new Map();
+  const duplicateIds = [];
+
+  for (const row of sentRows) {
+    const key = `${row.menuItemId}::${row.note || ''}`;
+    const existing = grouped.get(key);
+    if (!existing) {
+      grouped.set(key, { id: row.id, qty: row.qty });
+      continue;
+    }
+
+    existing.qty += row.qty;
+    duplicateIds.push(row.id);
+  }
+
+  if (!duplicateIds.length) return;
+
+  for (const keeper of grouped.values()) {
+    await tx.update(orderItems)
+      .set({ qty: keeper.qty })
+      .where(eq(orderItems.id, keeper.id));
+  }
+
+  await tx.delete(orderItems).where(inArray(orderItems.id, duplicateIds));
+}
+
 // GET /api/orders — all open orders (with items)
-router.get('/', async (req, res) => {
+router.get('/', asyncRoute(async (req, res) => {
   const allOrders = await db.select().from(orders)
     .where(eq(orders.status, 'open'))
     .orderBy(desc(orders.createdAt));
 
   res.json(await enrichOrders(allOrders));
-});
+}));
 
 // GET /api/orders/table/:tableId — get all open orders for a table (array)
-router.get('/table/:tableId', async (req, res) => {
+router.get('/table/:tableId', asyncRoute(async (req, res) => {
   const tid = +req.params.tableId;
   const allOrders = await db.select().from(orders)
     .where(and(eq(orders.tableId, tid), eq(orders.status, 'open')))
     .orderBy(orders.createdAt);
 
   res.json(await enrichOrders(allOrders));
-});
+}));
 
 // POST /api/orders — create order
-router.post('/', validate(createOrderSchema), async (req, res) => {
+router.post('/', validate(createOrderSchema), asyncRoute(async (req, res) => {
   const { tableId, items, label } = req.body;
   const staffId = req.user.id;
 
@@ -73,24 +112,27 @@ router.post('/', validate(createOrderSchema), async (req, res) => {
     .limit(1);
   if (currentShift) shiftId = currentShift.id;
 
-  // Set table to occupied
-  await db.update(tables).set({ status: 'occupied' }).where(eq(tables.id, tableId));
+  // Atomic: table status + order + items in one transaction
+  const order = await db.transaction(async (tx) => {
+    await tx.update(tables).set({ status: 'occupied' }).where(eq(tables.id, tableId));
 
-  const [order] = await db.insert(orders).values({ tableId, staffId, shiftId, label: orderLabel }).returning();
+    const [order] = await tx.insert(orders).values({ tableId, staffId, shiftId, label: orderLabel }).returning();
 
-  if (items && items.length) {
-    await db.insert(orderItems).values(
-      items.map(i => ({ orderId: order.id, menuItemId: i.menuItemId, qty: i.qty, note: i.note || '' }))
-    );
-  }
+    if (items && items.length) {
+      await tx.insert(orderItems).values(
+        items.map(i => ({ orderId: order.id, menuItemId: i.menuItemId, qty: i.qty, note: i.note || '' }))
+      );
+    }
+    return order;
+  });
 
   logEvent(db, { orderId: order.id, type: 'order_created', payload: { tableId, label: orderLabel, itemCount: items?.length || 0 }, staffId }).catch(e => console.error('Audit log error:', e));
   emitEvent(req,'order:created', { tableId, orderId: order.id });
   res.status(201).json(order);
-});
+}));
 
 // POST /api/orders/:id/items — add items to existing order
-router.post('/:id/items', validate(addItemsSchema), async (req, res) => {
+router.post('/:id/items', validate(addItemsSchema), asyncRoute(async (req, res) => {
   const { items, version } = req.body;
   const orderId = +req.params.id;
 
@@ -111,10 +153,10 @@ router.post('/:id/items', validate(addItemsSchema), async (req, res) => {
     if (e instanceof VersionConflictError) return res.status(409).json({ error: VERSION_CONFLICT_MSG });
     throw e;
   }
-});
+}));
 
 // PUT /api/orders/:orderId/items/:itemId — update item qty/note
-router.put('/:orderId/items/:itemId', validate(updateItemSchema), async (req, res) => {
+router.put('/:orderId/items/:itemId', validate(updateItemSchema), asyncRoute(async (req, res) => {
   const orderId = +req.params.orderId;
   const itemId = +req.params.itemId;
   const { qty, note, version } = req.body;
@@ -148,10 +190,10 @@ router.put('/:orderId/items/:itemId', validate(updateItemSchema), async (req, re
     if (e instanceof VersionConflictError) return res.status(409).json({ error: VERSION_CONFLICT_MSG });
     throw e;
   }
-});
+}));
 
 // DELETE /api/orders/:orderId/items/:itemId
-router.delete('/:orderId/items/:itemId', async (req, res) => {
+router.delete('/:orderId/items/:itemId', asyncRoute(async (req, res) => {
   const orderId = +req.params.orderId;
   const itemId = +req.params.itemId;
   const { version } = req.body || {};
@@ -170,10 +212,10 @@ router.delete('/:orderId/items/:itemId', async (req, res) => {
     if (e instanceof VersionConflictError) return res.status(409).json({ error: VERSION_CONFLICT_MSG });
     throw e;
   }
-});
+}));
 
 // POST /api/orders/:id/batch — batch operations
-router.post('/:id/batch', validate(batchSchema), async (req, res) => {
+router.post('/:id/batch', validate(batchSchema), asyncRoute(async (req, res) => {
   const orderId = +req.params.id;
   const { operations, version } = req.body;
 
@@ -213,10 +255,10 @@ router.post('/:id/batch', validate(batchSchema), async (req, res) => {
     if (e instanceof VersionConflictError) return res.status(409).json({ error: VERSION_CONFLICT_MSG });
     throw e;
   }
-});
+}));
 
 // POST /api/orders/:id/close — close order (after payment)
-router.post('/:id/close', async (req, res) => {
+router.post('/:id/close', asyncRoute(async (req, res) => {
   const orderId = +req.params.id;
   const { version } = req.body || {};
 
@@ -247,10 +289,10 @@ router.post('/:id/close', async (req, res) => {
     if (e instanceof VersionConflictError) return res.status(409).json({ error: VERSION_CONFLICT_MSG });
     throw e;
   }
-});
+}));
 
 // POST /api/orders/:id/send — mark all unsent items as sent + deduct stock
-router.post('/:id/send', async (req, res) => {
+router.post('/:id/send', asyncRoute(async (req, res) => {
   const orderId = +req.params.id;
 
   const { unsentItems, stockResult } = await db.transaction(async (tx) => {
@@ -268,6 +310,7 @@ router.post('/:id/send', async (req, res) => {
     }
 
     const stockResult = await deductStockForSentItems(tx, unsentItems, req.user.id, orderId);
+    await consolidateSentOrderItems(tx, orderId);
     return { unsentItems, stockResult };
   });
 
@@ -278,10 +321,10 @@ router.post('/:id/send', async (req, res) => {
   logEvent(db, { orderId, type: 'order_sent', payload: { itemCount: unsentItems.length }, staffId: req.user.id }).catch(e => console.error('Audit log error:', e));
   emitEvent(req,'order:sent', { orderId });
   res.json({ markedItems: unsentItems });
-});
+}));
 
 // POST /api/orders/:id/send-and-print — mark unsent as sent, deduct stock, return items for printing
-router.post('/:id/send-and-print', async (req, res) => {
+router.post('/:id/send-and-print', asyncRoute(async (req, res) => {
   const orderId = +req.params.id;
 
   const { unsentItems, stockResult } = await db.transaction(async (tx) => {
@@ -300,6 +343,7 @@ router.post('/:id/send-and-print', async (req, res) => {
       .where(and(eq(orderItems.orderId, orderId), eq(orderItems.sent, false)));
 
     const stockResult = await deductStockForSentItems(tx, unsentItems, req.user.id, orderId);
+    await consolidateSentOrderItems(tx, orderId);
     return { unsentItems, stockResult };
   });
 
@@ -315,197 +359,224 @@ router.post('/:id/send-and-print', async (req, res) => {
     printed: unsentItems.length,
     items: unsentItems.map(i => ({ id: i.id, name: i.name, emoji: i.emoji, qty: i.qty, note: i.note, menuItemId: i.menuItemId }))
   });
-});
+}));
+
+// POST /api/orders/:id/send-storno-and-print — log storno dispatch and return normalized items for printing
+router.post('/:id/send-storno-and-print', validate(stornoSendSchema), asyncRoute(async (req, res) => {
+  const orderId = +req.params.id;
+  const requestedItems = req.body.items || [];
+
+  const [order] = await db.select({ id: orders.id }).from(orders).where(eq(orders.id, orderId)).limit(1);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  if (!requestedItems.length) return res.json({ printed: 0, items: [] });
+
+  const menuItemIds = [...new Set(requestedItems.map((item) => item.menuItemId))];
+  const menuRows = await db.select({
+    id: menuItems.id,
+    name: menuItems.name,
+    emoji: menuItems.emoji,
+  })
+    .from(menuItems)
+    .where(inArray(menuItems.id, menuItemIds));
+
+  const menuById = new Map(menuRows.map((row) => [row.id, row]));
+  const missingMenuItemId = menuItemIds.find((id) => !menuById.has(id));
+  if (missingMenuItemId) {
+    return res.status(400).json({ error: 'Menu item not found', menuItemId: missingMenuItemId });
+  }
+
+  const stornoItems = requestedItems.map((item) => {
+    const menuRow = menuById.get(item.menuItemId);
+    return {
+      menuItemId: item.menuItemId,
+      name: menuRow.name,
+      emoji: menuRow.emoji,
+      qty: item.qty,
+      note: item.note || '',
+    };
+  });
+
+  await logEvent(db, {
+    orderId,
+    type: 'order_storno_sent',
+    payload: {
+      itemCount: stornoItems.length,
+      items: stornoItems.map((item) => ({
+        menuItemId: item.menuItemId,
+        qty: item.qty,
+        note: item.note,
+      })),
+    },
+    staffId: req.user.id,
+  });
+
+  emitEvent(req, 'order:storno-sent', { orderId });
+  res.json({ printed: stornoItems.length, items: stornoItems });
+}));
 
 // POST /api/orders/:id/split — split bill into multiple orders
-router.post('/:id/split', validate(splitSchema), async (req, res) => {
+router.post('/:id/split', validate(splitSchema), asyncRoute(async (req, res) => {
   const orderId = +req.params.id;
   const { parts, itemGroups } = req.body;
 
-  // Get the original order
-  const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
-  if (!order) return res.status(404).json({ error: 'Order not found' });
-  if (order.status !== 'open') return res.status(400).json({ error: 'Order is not open' });
+  const result = await db.transaction(async (tx) => {
+    // Get the original order (locked inside tx)
+    const [order] = await tx.select().from(orders).where(eq(orders.id, orderId));
+    if (!order) return { status: 404, error: 'Order not found' };
+    if (order.status !== 'open') return { status: 400, error: 'Order is not open' };
 
-  // Get all items for this order
-  const items = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
-  if (!items.length) return res.status(400).json({ error: 'Order has no items' });
+    // Get all items for this order
+    const items = await tx.select().from(orderItems).where(eq(orderItems.orderId, orderId));
+    if (!items.length) return { status: 400, error: 'Order has no items' };
 
-  if (itemGroups && Array.isArray(itemGroups)) {
-    // === Split by item groups ===
-    const newOrderIds = [];
+    if (itemGroups && Array.isArray(itemGroups)) {
+      // === Split by item groups ===
+      const newOrderIds = [];
 
-    for (let i = 0; i < itemGroups.length; i++) {
-      const groupItemIds = itemGroups[i];
-      if (!groupItemIds.length) continue;
+      for (let i = 0; i < itemGroups.length; i++) {
+        const groupItemIds = itemGroups[i];
+        if (!groupItemIds.length) continue;
 
-      // Determine label number based on existing open orders for this table
-      const existing = await db.select().from(orders)
+        const existing = await tx.select().from(orders)
+          .where(and(eq(orders.tableId, order.tableId), eq(orders.status, 'open')));
+        const label = 'Ucet ' + (existing.length + 1);
+
+        const [newOrder] = await tx.insert(orders).values({
+          tableId: order.tableId, staffId: order.staffId, shiftId: order.shiftId, label,
+        }).returning();
+
+        for (const itemId of groupItemIds) {
+          await tx.update(orderItems)
+            .set({ orderId: newOrder.id })
+            .where(and(eq(orderItems.id, itemId), eq(orderItems.orderId, orderId)));
+        }
+        newOrderIds.push(newOrder.id);
+      }
+
+      const remaining = await tx.select().from(orderItems).where(eq(orderItems.orderId, orderId));
+      if (!remaining.length) {
+        await tx.delete(orders).where(eq(orders.id, orderId));
+      }
+      return { ok: true, newOrderIds, tableId: order.tableId, originalOrderId: orderId };
+
+    } else {
+      // === Equal split ===
+      const n = Math.max(2, Math.min(10, parseInt(parts) || 2));
+      const groups = Array.from({ length: n }, () => []);
+      items.forEach((item, idx) => { groups[idx % n].push(item); });
+
+      const existingOrders = await tx.select().from(orders)
         .where(and(eq(orders.tableId, order.tableId), eq(orders.status, 'open')));
-      const label = 'Ucet ' + (existing.length + 1);
+      const baseCount = existingOrders.filter(o => o.id !== orderId).length;
 
-      const [newOrder] = await db.insert(orders).values({
-        tableId: order.tableId,
-        staffId: order.staffId,
-        shiftId: order.shiftId,
-        label,
-      }).returning();
+      const newOrderIds = [];
+      for (let i = 0; i < n; i++) {
+        const label = 'Ucet ' + (baseCount + i + 1);
+        const [newOrder] = await tx.insert(orders).values({
+          tableId: order.tableId, staffId: order.staffId, shiftId: order.shiftId, label,
+        }).returning();
 
-      // Move items to new order
-      for (const itemId of groupItemIds) {
-        await db.update(orderItems)
-          .set({ orderId: newOrder.id })
-          .where(and(eq(orderItems.id, itemId), eq(orderItems.orderId, orderId)));
+        for (const item of groups[i]) {
+          await tx.update(orderItems).set({ orderId: newOrder.id }).where(eq(orderItems.id, item.id));
+        }
+        newOrderIds.push(newOrder.id);
       }
 
-      newOrderIds.push(newOrder.id);
+      await tx.delete(orders).where(eq(orders.id, orderId));
+      return { ok: true, newOrderIds, tableId: order.tableId, originalOrderId: orderId };
     }
+  });
 
-    // Check if original order still has items
-    // Log audit BEFORE potential delete (cascade would remove audit records)
-    const logOrderId = newOrderIds[0] || orderId;
-    logEvent(db, { orderId: logOrderId, type: 'order_split', payload: { originalOrderId: orderId, newOrderIds }, staffId: req.user.id }).catch(e => console.error('Audit log error:', e));
+  if (result.error) return res.status(result.status).json({ error: result.error });
 
-    const remaining = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
-    if (!remaining.length) {
-      await db.delete(orders).where(eq(orders.id, orderId));
-    }
-
-    emitEvent(req, 'order:split', { tableId: order.tableId });
-    res.json({ newOrderIds });
-
-  } else {
-    // === Equal split ===
-    const n = Math.max(2, Math.min(10, parseInt(parts) || 2));
-
-    // Distribute items round-robin into N groups
-    const groups = Array.from({ length: n }, () => []);
-    items.forEach((item, idx) => {
-      groups[idx % n].push(item);
-    });
-
-    // Get current count of open orders for label numbering
-    const existingOrders = await db.select().from(orders)
-      .where(and(eq(orders.tableId, order.tableId), eq(orders.status, 'open')));
-    // We'll delete the original, so label numbering starts from existing count (minus the original)
-    const baseCount = existingOrders.filter(o => o.id !== orderId).length;
-
-    const newOrderIds = [];
-
-    for (let i = 0; i < n; i++) {
-      const label = 'Ucet ' + (baseCount + i + 1);
-
-      const [newOrder] = await db.insert(orders).values({
-        tableId: order.tableId,
-        staffId: order.staffId,
-        shiftId: order.shiftId,
-        label,
-      }).returning();
-
-      // Move items from their group to new order
-      for (const item of groups[i]) {
-        await db.update(orderItems)
-          .set({ orderId: newOrder.id })
-          .where(eq(orderItems.id, item.id));
-      }
-
-      newOrderIds.push(newOrder.id);
-    }
-
-    // Log audit BEFORE delete (cascade would remove audit records)
-    const logOrderId = newOrderIds[0] || orderId;
-    logEvent(db, { orderId: logOrderId, type: 'order_split', payload: { originalOrderId: orderId, newOrderIds }, staffId: req.user.id }).catch(e => console.error('Audit log error:', e));
-
-    // Delete original order (all items have been moved)
-    await db.delete(orders).where(eq(orders.id, orderId));
-
-    emitEvent(req, 'order:split', { tableId: order.tableId });
-    res.json({ newOrderIds });
-  }
-});
+  const logOrderId = result.newOrderIds[0] || result.originalOrderId;
+  logEvent(db, { orderId: logOrderId, type: 'order_split', payload: { originalOrderId: result.originalOrderId, newOrderIds: result.newOrderIds }, staffId: req.user.id }).catch(e => console.error('Audit log error:', e));
+  emitEvent(req, 'order:split', { tableId: result.tableId });
+  res.json({ newOrderIds: result.newOrderIds });
+}));
 
 // POST /api/orders/:id/move-items — move items to another table
-router.post('/:id/move-items', validate(moveItemsSchema), async (req, res) => {
+router.post('/:id/move-items', validate(moveItemsSchema), asyncRoute(async (req, res) => {
   const sourceOrderId = +req.params.id;
   const { itemIds, targetTableId, targetOrderId } = req.body;
 
   if (!itemIds || !itemIds.length) return res.status(400).json({ error: 'itemIds required' });
   if (!targetTableId && !targetOrderId) return res.status(400).json({ error: 'targetTableId or targetOrderId required' });
 
-  // Verify source order exists
-  const [sourceOrder] = await db.select().from(orders).where(eq(orders.id, sourceOrderId));
-  if (!sourceOrder) return res.status(404).json({ error: 'Source order not found' });
+  const result = await db.transaction(async (tx) => {
+    // Verify source order exists
+    const [sourceOrder] = await tx.select().from(orders).where(eq(orders.id, sourceOrderId));
+    if (!sourceOrder) return { status: 404, error: 'Source order not found' };
 
-  let destOrderId = targetOrderId;
+    let destOrderId = targetOrderId;
 
-  if (destOrderId) {
-    // Verify target order exists and is open
-    const [targetOrder] = await db.select().from(orders).where(eq(orders.id, destOrderId));
-    if (!targetOrder || targetOrder.status !== 'open') {
-      return res.status(400).json({ error: 'Target order not found or not open' });
-    }
-  } else {
-    // Find open order on target table, or create new one
-    const [existingOrder] = await db.select().from(orders)
-      .where(and(eq(orders.tableId, targetTableId), eq(orders.status, 'open')))
-      .limit(1);
-
-    if (existingOrder) {
-      destOrderId = existingOrder.id;
+    if (destOrderId) {
+      const [targetOrder] = await tx.select().from(orders).where(eq(orders.id, destOrderId));
+      if (!targetOrder || targetOrder.status !== 'open') {
+        return { status: 400, error: 'Target order not found or not open' };
+      }
     } else {
-      // Create new order on target table
-      const existing = await db.select().from(orders)
-        .where(and(eq(orders.tableId, targetTableId), eq(orders.status, 'open')));
-      const label = 'Ucet ' + (existing.length + 1);
+      const [existingOrder] = await tx.select().from(orders)
+        .where(and(eq(orders.tableId, targetTableId), eq(orders.status, 'open')))
+        .limit(1);
 
-      const [newOrder] = await db.insert(orders).values({
-        tableId: targetTableId,
-        staffId: sourceOrder.staffId,
-        shiftId: sourceOrder.shiftId,
-        label,
-      }).returning();
-      destOrderId = newOrder.id;
+      if (existingOrder) {
+        destOrderId = existingOrder.id;
+      } else {
+        const existing = await tx.select().from(orders)
+          .where(and(eq(orders.tableId, targetTableId), eq(orders.status, 'open')));
+        const label = 'Ucet ' + (existing.length + 1);
+
+        const [newOrder] = await tx.insert(orders).values({
+          tableId: targetTableId, staffId: sourceOrder.staffId, shiftId: sourceOrder.shiftId, label,
+        }).returning();
+        destOrderId = newOrder.id;
+      }
     }
-  }
 
-  // Move items: update orderId for each item
-  for (const itemId of itemIds) {
-    await db.update(orderItems)
-      .set({ orderId: destOrderId })
-      .where(and(eq(orderItems.id, itemId), eq(orderItems.orderId, sourceOrderId)));
-  }
-
-  // Check if source order has no items left — delete it
-  const remaining = await db.select().from(orderItems).where(eq(orderItems.orderId, sourceOrderId));
-  if (!remaining.length) {
-    await db.delete(orders).where(eq(orders.id, sourceOrderId));
-    // Free source table if no other open orders
-    const otherOrders = await db.select().from(orders)
-      .where(and(eq(orders.tableId, sourceOrder.tableId), eq(orders.status, 'open')));
-    if (!otherOrders.length) {
-      await db.update(tables).set({ status: 'free' }).where(eq(tables.id, sourceOrder.tableId));
+    // Move items atomically
+    for (const itemId of itemIds) {
+      await tx.update(orderItems)
+        .set({ orderId: destOrderId })
+        .where(and(eq(orderItems.id, itemId), eq(orderItems.orderId, sourceOrderId)));
     }
-  }
 
-  // Set target table to occupied
-  const tid = targetTableId || (await db.select().from(orders).where(eq(orders.id, destOrderId)))[0]?.tableId;
-  if (tid) {
-    await db.update(tables).set({ status: 'occupied' }).where(eq(tables.id, tid));
-  }
+    // Check if source order has no items left
+    const remaining = await tx.select().from(orderItems).where(eq(orderItems.orderId, sourceOrderId));
+    let sourceDeleted = false;
+    if (!remaining.length) {
+      await tx.delete(orders).where(eq(orders.id, sourceOrderId));
+      sourceDeleted = true;
+      const otherOrders = await tx.select().from(orders)
+        .where(and(eq(orders.tableId, sourceOrder.tableId), eq(orders.status, 'open')));
+      if (!otherOrders.length) {
+        await tx.update(tables).set({ status: 'free' }).where(eq(tables.id, sourceOrder.tableId));
+      }
+    }
 
-  const auditOrderId = remaining.length ? sourceOrderId : destOrderId;
-  await logEvent(db, {
-    orderId: auditOrderId,
-    type: 'items_moved',
-    payload: { sourceOrderId, itemIds, targetOrderId: destOrderId, sourceOrderDeleted: !remaining.length },
-    staffId: req.user.id,
+    // Set target table to occupied
+    const tid = targetTableId || (await tx.select().from(orders).where(eq(orders.id, destOrderId)))[0]?.tableId;
+    if (tid) {
+      await tx.update(tables).set({ status: 'occupied' }).where(eq(tables.id, tid));
+    }
+
+    return { ok: true, destOrderId, sourceDeleted, sourceTableId: sourceOrder.tableId, targetTableId: tid };
   });
-  emitEvent(req,'items:moved', { sourceTableId: sourceOrder.tableId, targetTableId: tid });
-  res.json({ movedItems: itemIds, targetOrderId: destOrderId });
-});
+
+  if (result.error) return res.status(result.status).json({ error: result.error });
+
+  const auditOrderId = result.sourceDeleted ? result.destOrderId : sourceOrderId;
+  logEvent(db, {
+    orderId: auditOrderId, type: 'items_moved',
+    payload: { sourceOrderId, itemIds, targetOrderId: result.destOrderId, sourceOrderDeleted: result.sourceDeleted },
+    staffId: req.user.id,
+  }).catch(e => console.error('Audit log error:', e));
+  emitEvent(req,'items:moved', { sourceTableId: result.sourceTableId, targetTableId: result.targetTableId });
+  res.json({ movedItems: itemIds, targetOrderId: result.destOrderId });
+}));
 
 // POST /api/orders/:id/discount — apply discount to order
-router.post('/:id/discount', validate(discountSchema), async (req, res) => {
+router.post('/:id/discount', validate(discountSchema), asyncRoute(async (req, res) => {
   const orderId = +req.params.id;
   const { discountId, customPercent, version } = req.body;
 
@@ -570,10 +641,10 @@ router.post('/:id/discount', validate(discountSchema), async (req, res) => {
     if (e instanceof VersionConflictError) return res.status(409).json({ error: VERSION_CONFLICT_MSG });
     throw e;
   }
-});
+}));
 
 // DELETE /api/orders/:id/discount — remove discount from order
-router.delete('/:id/discount', async (req, res) => {
+router.delete('/:id/discount', asyncRoute(async (req, res) => {
   const orderId = +req.params.id;
   const { version } = req.body || {};
 
@@ -600,10 +671,10 @@ router.delete('/:id/discount', async (req, res) => {
     if (e instanceof VersionConflictError) return res.status(409).json({ error: VERSION_CONFLICT_MSG });
     throw e;
   }
-});
+}));
 
 // DELETE /api/orders/:id — cancel order (manazer/admin only)
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', asyncRoute(async (req, res) => {
   if (req.user.role === 'cisnik') {
     return res.status(403).json({ error: 'Pristup odmietnuty' });
   }
@@ -639,10 +710,10 @@ router.delete('/:id', async (req, res) => {
     if (e instanceof VersionConflictError) return res.status(409).json({ error: VERSION_CONFLICT_MSG });
     throw e;
   }
-});
+}));
 
 // POST /api/orders/:id/storno-write-off — create write-off from POS storno
-router.post('/:id/storno-write-off', async (req, res) => {
+router.post('/:id/storno-write-off', asyncRoute(async (req, res) => {
   const orderId = +req.params.id;
   const { menuItemId, qty, reason, note, returnToStock } = req.body;
   const staffId = req.user.id;
@@ -723,18 +794,18 @@ router.post('/:id/storno-write-off', async (req, res) => {
 
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message || 'Storno write-off failed' });
+    res.status(500).json({ error: 'Storno write-off failed' });
   }
-});
+}));
 
 // GET /api/orders/:id/events — audit log for an order (manazer/admin only)
-router.get('/:id/events', async (req, res) => {
+router.get('/:id/events', asyncRoute(async (req, res) => {
   if (req.user.role === 'cisnik') return res.status(403).json({ error: 'Pristup odmietnuty' });
   const orderId = +req.params.id;
   const events = await db.select().from(orderEvents)
     .where(eq(orderEvents.orderId, orderId))
     .orderBy(orderEvents.createdAt);
   res.json(events);
-});
+}));
 
 export default router;

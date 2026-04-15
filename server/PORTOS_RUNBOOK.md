@@ -6,18 +6,20 @@ Last verified: `2026-04-02`
 
 The backend and Portos integration were verified on `2026-04-02` against the local Windows workstation runtime.
 
-| Check | Result |
-| --- | --- |
-| Database schema | `fiscal_documents` table present |
-| Database schema | `menu_items.vat_rate` column present |
-| Backend route | `GET /api/integrations/portos/status` returned `200` |
-| Portos connectivity | `Up` |
-| CHDU / storage | `CHDU Lite v1.5`, serial `3587077614` |
-| Fiscal printer | `Ready` |
-| Paper state | `Ready` |
-| Cash register code | `88812345678900001` |
-| Certificate | valid, expiry `2026-11-15T11:03:57+01:00` |
-| CHDU serial port | `COM3` |
+
+| Check               | Result                                               |
+| ------------------- | ---------------------------------------------------- |
+| Database schema     | `fiscal_documents` table present                     |
+| Database schema     | `menu_items.vat_rate` column present                 |
+| Backend route       | `GET /api/integrations/portos/status` returned `200` |
+| Portos connectivity | `Up`                                                 |
+| CHDU / storage      | `CHDU Lite v1.5`, serial `3587077614`                |
+| Fiscal printer      | `Ready`                                              |
+| Paper state         | `Ready`                                              |
+| Cash register code  | `88812345678900001`                                  |
+| Certificate         | valid, expiry `2026-11-15T11:03:57+01:00`            |
+| CHDU serial port    | `COM3`                                               |
+
 
 ## Runtime Configuration
 
@@ -78,12 +80,14 @@ Do not let an automated agent create a live fiscal sale without human approval. 
 13. Run `node scripts/portos-pilot-item.mjs deactivate` immediately after the mixed-VAT scenario.
 14. Fill in `server/PORTOS_PILOT_LOG.md`.
 15. Only after cash, card, mixed VAT, and receipt copy pass should Portos stay enabled for wider use.
+
 For each successful payment, verify:
-   - POS shows a fiscal success state
-   - the customer receipt comes from Portos
-   - the order closes
-   - the payment row exists
-   - `GET /api/payments/:id/fiscal` returns the saved fiscal metadata
+
+- POS shows a fiscal success state
+- the customer receipt comes from Portos
+- the order closes
+- the payment row exists
+- `GET /api/payments/:id/fiscal` returns the saved fiscal metadata
 
 ## Cashier Rules During Pilot
 
@@ -106,9 +110,9 @@ If Portos blocks pilot payments or the cashier flow becomes unstable:
 1. Set `PORTOS_ENABLED=false` in `server/.env`.
 2. Restart the backend.
 3. Verify:
-   - `GET /api/health` responds
-   - `GET /api/integrations/portos/status` still responds
-   - `enabled` is now `false`
+  - `GET /api/health` responds
+  - `GET /api/integrations/portos/status` still responds
+  - `enabled` is now `false`
 4. Continue payments on the legacy non-Portos path while the issue is investigated.
 
 ## Sign-Off Checklist
@@ -122,3 +126,4 @@ If Portos blocks pilot payments or the cashier flow becomes unstable:
 - `payments` and `fiscal_documents` data match the real receipt.
 - Legacy kitchen/bar printing is either verified or explicitly accepted as a separate blocker.
 - Mixed-VAT UAT is completed before final accounting sign-off.
+

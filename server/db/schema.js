@@ -133,8 +133,24 @@ export const payments = pgTable('payments', {
   amount: numeric('amount', { precision: 10, scale: 2 }).notNull(),
   createdAt: timestamp('created_at').defaultNow(),
 }, (t) => [
-  index('payments_order_id_idx').on(t.orderId),
+  uniqueIndex('payments_order_id_uidx').on(t.orderId),
 ]);
+
+export const companyProfiles = pgTable('company_profiles', {
+  id: serial('id').primaryKey(),
+  businessName: varchar('business_name', { length: 150 }).notNull().default(''),
+  ico: varchar('ico', { length: 32 }).notNull().default(''),
+  dic: varchar('dic', { length: 32 }).notNull().default(''),
+  icDph: varchar('ic_dph', { length: 32 }).notNull().default(''),
+  registeredAddress: varchar('registered_address', { length: 250 }).notNull().default(''),
+  branchName: varchar('branch_name', { length: 150 }).notNull().default(''),
+  branchAddress: varchar('branch_address', { length: 250 }).notNull().default(''),
+  cashRegisterCode: varchar('cash_register_code', { length: 32 }).notNull().default(''),
+  contactPhone: varchar('contact_phone', { length: 50 }).notNull().default(''),
+  contactEmail: varchar('contact_email', { length: 120 }).notNull().default(''),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
 
 export const fiscalDocuments = pgTable('fiscal_documents', {
   id: serial('id').primaryKey(),

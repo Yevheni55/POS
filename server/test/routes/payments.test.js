@@ -58,12 +58,14 @@ describe('POST /api/payments', () => {
   let fixtures = {};
 
   before(async () => {
+    process.env.PORTOS_ENABLED = 'false';
     await truncateAll();
     fixtures = await seed();
   });
 
   // Wipe transactional rows before each test; keep menu/staff/tables seed
   beforeEach(async () => {
+    process.env.PORTOS_ENABLED = 'false';
     await testDb.execute(
       sql.raw('TRUNCATE order_events, payments, order_items, orders RESTART IDENTITY CASCADE')
     );

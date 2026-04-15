@@ -99,9 +99,38 @@ async function loadAllOrders() {
 function updateTableStatuses() {
   TABLES.forEach(function(t) {
     // Only update occupied/free — preserve reserved and other manual statuses
-    if (t.status === 'reserved') return;
-    t.status = allOrdersCache[t.id] && allOrdersCache[t.id].length ? 'occupied' : 'free';
+    refreshTableStatus(t.id);
   });
+}
+
+function _hasItemsInOrderItems(items) {
+  return Array.isArray(items) && items.some(function(item) {
+    return Number(item && item.qty) > 0;
+  });
+}
+
+function _tableHasAnyItems(tableId) {
+  if (selectedTableId === tableId) {
+    if (_hasItemsInOrderItems(tableOrders[tableId])) return true;
+    if (tableOrdersList && tableOrdersList.length) {
+      return tableOrdersList.some(function(order) {
+        if (order.id === currentOrderId) return _hasItemsInOrderItems(tableOrders[tableId]);
+        return _hasItemsInOrderItems(order.items);
+      });
+    }
+    return false;
+  }
+
+  var cachedOrders = allOrdersCache[tableId] || [];
+  return cachedOrders.some(function(order) {
+    return _hasItemsInOrderItems(order && order.items);
+  });
+}
+
+function refreshTableStatus(tableId) {
+  var table = TABLES.find(function(t) { return t.id === tableId; });
+  if (!table || table.status === 'reserved') return;
+  table.status = _tableHasAnyItems(tableId) ? 'occupied' : 'free';
 }
 
 async function loadTableOrder(tableId, forceRefresh) {
@@ -133,6 +162,7 @@ async function loadTableOrder(tableId, forceRefresh) {
       tableOrders[tableId] = [];
       tableOrdersList = [];
     }
+    refreshTableStatus(tableId);
     _persistTableOrdersNow();
   } catch(e) {
     console.error('loadTableOrder error:', e);
@@ -195,4 +225,8 @@ function savePositions(){
 }
 
 function getOrder(){return tableOrders[selectedTableId]||[]}
-function setOrder(o){tableOrders[selectedTableId]=o;_persistTableOrders()}
+function setOrder(o){
+  tableOrders[selectedTableId]=o;
+  if (selectedTableId != null) refreshTableStatus(selectedTableId);
+  _persistTableOrders();
+}

@@ -5,6 +5,9 @@ const DEFAULT_PRINTER_NAME = 'pos';
 const DEFAULT_TIMEOUT_MS = 10_000;
 
 const RECEIPT_OUTPUT_CHANNELS = new Set(['pos', 'pdf', 'email']);
+const REGISTER_SUCCESS_STATUSES = new Set([200, 201]);
+const LOOKUP_SUCCESS_STATUSES = new Set([200, 201]);
+const PRINT_COPY_SUCCESS_STATUSES = new Set([200, 201]);
 
 function normalizeReceiptOutputChannel(raw) {
   const v = String(raw ?? DEFAULT_PRINTER_NAME).trim().toLowerCase();
@@ -145,10 +148,36 @@ function stringifyErrorDetail(payload) {
   return '';
 }
 
+function hasBlockedHardwareHint(errorDetail) {
+  const detail = String(errorDetail || '').toLowerCase();
+  if (!detail) return false;
+
+  return (
+    /com\d+/i.test(detail) ||
+    detail.includes('chdu') ||
+    detail.includes('printer') ||
+    detail.includes('storage') ||
+    detail.includes('tlaciar') ||
+    detail.includes('tla\u010diar') ||
+    detail.includes('ulozisk') ||
+    detail.includes('\u00falo\u017eisk')
+  );
+}
+
+function isClearlyBlockedPortosFailure({ status, errorCode, errorDetail }) {
+  const numericErrorCode = Number(errorCode);
+  if (numericErrorCode === -503) return true;
+  if (numericErrorCode === -100 && hasBlockedHardwareHint(errorDetail)) return true;
+  return (status === 500 || status === 503) && hasBlockedHardwareHint(errorDetail);
+}
+
 function normalizeRegisterResult(status, data, requestPayload) {
   const requestData = data?.request?.data || {};
+  const errorCode = data?.code ?? data?.error?.code ?? data?.error?.eKasaErrorCode ?? null;
+  const errorDetail = stringifyErrorDetail(data);
+  const blocked = isClearlyBlockedPortosFailure({ status, errorCode, errorDetail });
   // Niektoré inštancie Portos/NineDigit vracajú 201 Created namiesto 200 — inak by sme mali resultMode "error" a platbu zablokovali.
-  const httpOk = status === 200 || status === 201;
+  const httpOk = REGISTER_SUCCESS_STATUSES.has(status);
 
   return {
     httpStatus: status,
@@ -158,17 +187,19 @@ function normalizeRegisterResult(status, data, requestPayload) {
         ? 'offline_accepted'
         : status === 400
           ? 'validation_error'
-          : status === 403
-            ? 'rejected'
-            : 'error',
+          : blocked
+            ? 'blocked'
+            : status === 403
+              ? 'rejected'
+              : 'error',
     isSuccessful: data?.isSuccessful ?? null,
     receiptId: data?.response?.data?.id || null,
     receiptNumber: requestData.receiptNumber ?? null,
     okp: requestData.okp || null,
     portosRequestId: data?.request?.id || null,
     processDate: data?.response?.processDate || requestData.createDate || data?.request?.date || null,
-    errorCode: data?.code ?? data?.error?.code ?? data?.error?.eKasaErrorCode ?? null,
-    errorDetail: stringifyErrorDetail(data),
+    errorCode,
+    errorDetail,
     requestJson: JSON.stringify(requestPayload || {}),
     responseJson: JSON.stringify(data || {}),
     raw: data,
@@ -266,7 +297,7 @@ export async function findReceiptByExternalId(externalId) {
   });
 
   if (response.status === 404) return null;
-  if (response.status !== 200 && response.status !== 201) return null;
+  if (!LOOKUP_SUCCESS_STATUSES.has(response.status)) return null;
 
   const parsed = normalizeReceiptResult(response.data);
   if (!parsed.receiptId && !parsed.okp) return null;
@@ -304,7 +335,7 @@ export async function printCopyByExternalId(externalId) {
 
   return {
     httpStatus: response.status,
-    printed: response.data?.printed ?? response.status === 200,
+    printed: response.data?.printed ?? PRINT_COPY_SUCCESS_STATUSES.has(response.status),
     raw: response.data,
   };
 }

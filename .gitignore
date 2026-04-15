@@ -4,3 +4,7 @@ node_modules/
 *.bak
 server/certs/*.pem
 server/.env.ttlock
+
+# Local agent previews / deploy bundles
+.superpowers/
+*.tgz

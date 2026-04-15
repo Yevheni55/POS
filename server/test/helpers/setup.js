@@ -21,6 +21,7 @@ const TABLES = [
   'purchase_order_items', 'purchase_orders',
   'stock_movements', 'recipes',
   'ingredients', 'suppliers',
+  'company_profiles',
   'fiscal_documents',
   'idempotency_keys', 'events',
   'order_events', 'payments',

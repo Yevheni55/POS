@@ -28,11 +28,13 @@ export async function deductStockForSentItems(tx, sentItems, staffId, orderId) {
 
     if (mi.trackMode === 'simple') {
       const prev = parseFloat(mi.stockQty);
-      const next = Math.round((prev - item.qty) * 1000) / 1000;
 
-      await tx.update(menuItems)
-        .set({ stockQty: String(next) })
-        .where(eq(menuItems.id, mi.id));
+      // Atomic decrement — prevents concurrent sends from reading stale prev
+      const [updated] = await tx.update(menuItems)
+        .set({ stockQty: sql`${menuItems.stockQty} - ${String(item.qty)}` })
+        .where(eq(menuItems.id, mi.id))
+        .returning({ stockQty: menuItems.stockQty });
+      const next = Math.round(parseFloat(updated.stockQty) * 1000) / 1000;
 
       const [mv] = await tx.insert(stockMovements).values({
         type: 'sale', menuItemId: mi.id,
@@ -64,11 +66,13 @@ export async function deductStockForSentItems(tx, sentItems, staffId, orderId) {
 
         const deductAmount = parseFloat(line.qtyPerUnit) * item.qty;
         const prev = parseFloat(ing.currentQty);
-        const next = Math.round((prev - deductAmount) * 1000) / 1000;
 
-        await tx.update(ingredients)
-          .set({ currentQty: String(next) })
-          .where(eq(ingredients.id, ing.id));
+        // Atomic decrement — prevents concurrent sends from reading stale prev
+        const [updatedIng] = await tx.update(ingredients)
+          .set({ currentQty: sql`${ingredients.currentQty} - ${String(deductAmount)}` })
+          .where(eq(ingredients.id, ing.id))
+          .returning({ currentQty: ingredients.currentQty });
+        const next = Math.round(parseFloat(updatedIng.currentQty) * 1000) / 1000;
 
         const [mv] = await tx.insert(stockMovements).values({
           type: 'sale', ingredientId: ing.id,
@@ -101,9 +105,13 @@ export async function applyWriteOff(tx, writeOffId, staffId) {
 
     const prev = parseFloat(ing.currentQty);
     const deduct = parseFloat(item.quantity);
-    const next = Math.round((prev - deduct) * 1000) / 1000;
 
-    await tx.update(ingredients).set({ currentQty: String(next) }).where(eq(ingredients.id, ing.id));
+    // Atomic decrement for write-off
+    const [updatedIng] = await tx.update(ingredients)
+      .set({ currentQty: sql`${ingredients.currentQty} - ${String(deduct)}` })
+      .where(eq(ingredients.id, ing.id))
+      .returning({ currentQty: ingredients.currentQty });
+    const next = Math.round(parseFloat(updatedIng.currentQty) * 1000) / 1000;
 
     const [mv] = await tx.insert(stockMovements).values({
       type: 'waste', ingredientId: ing.id,

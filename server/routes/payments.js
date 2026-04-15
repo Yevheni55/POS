@@ -29,11 +29,12 @@ import {
 } from '../lib/portos.js';
 import { validate } from '../middleware/validate.js';
 import { createPaymentSchema } from '../schemas/payments.js';
+import { asyncRoute } from '../lib/async-route.js';
 
 const router = Router();
 const mgr = requireRole('manazer', 'admin');
 
-const STORNO_ELIGIBLE_MODES = new Set([
+export const STORNO_ELIGIBLE_MODES = new Set([
   'online_success',
   'offline_accepted',
   'reconciled_online_success',
@@ -274,8 +275,37 @@ async function finalizeLocalPayment({ orderContext, method, amount, fiscalOutcom
   });
 }
 
+function needsReceiptEnrichment(outcome) {
+  return !outcome.receiptId || !outcome.okp || outcome.receiptNumber === null;
+}
+
+function mergeReceiptOutcome(baseOutcome, receipt) {
+  if (!receipt) return baseOutcome;
+
+  return {
+    ...baseOutcome,
+    isSuccessful: receipt.isSuccessful ?? baseOutcome.isSuccessful,
+    receiptId: receipt.receiptId || baseOutcome.receiptId,
+    receiptNumber: receipt.receiptNumber ?? baseOutcome.receiptNumber,
+    okp: receipt.okp || baseOutcome.okp,
+    portosRequestId: receipt.portosRequestId || baseOutcome.portosRequestId,
+    processDate: receipt.processDate || baseOutcome.processDate,
+    responseJson: receipt.responseJson || baseOutcome.responseJson,
+  };
+}
+
+async function enrichSuccessfulFiscalOutcome({ requestPayload, outcome }) {
+  if (!needsReceiptEnrichment(outcome)) return outcome;
+  const receipt = await findReceiptByExternalIdWithRetry(requestPayload.request.externalId);
+  return mergeReceiptOutcome(outcome, receipt);
+}
+
 async function resolveFiscalAttempt({ requestPayload, initialOutcome }) {
   const externalId = requestPayload.request.externalId;
+
+  if (initialOutcome.resultMode === 'blocked') {
+    return initialOutcome;
+  }
 
   // Musí súhlasiť s normalizeRegisterResult (200 aj 201 = úspech). Predtým 201 spadlo do lookupu → náhodný 503/ambiguous.
   if (
@@ -283,7 +313,11 @@ async function resolveFiscalAttempt({ requestPayload, initialOutcome }) {
     initialOutcome.httpStatus === 201 ||
     initialOutcome.httpStatus === 202
   ) {
-    return initialOutcome;
+    try {
+      return await enrichSuccessfulFiscalOutcome({ requestPayload, outcome: initialOutcome });
+    } catch {
+      return initialOutcome;
+    }
   }
 
   if (initialOutcome.httpStatus === 400 || initialOutcome.httpStatus === 403) {
@@ -309,18 +343,13 @@ async function resolveFiscalAttempt({ requestPayload, initialOutcome }) {
       }
     }
 
+    const reconciledOutcome = mergeReceiptOutcome(initialOutcome, existingReceipt);
+
     return {
-      ...initialOutcome,
+      ...reconciledOutcome,
       resultMode: existingReceipt.isSuccessful === null
         ? 'reconciled_offline_accepted'
         : 'reconciled_online_success',
-      isSuccessful: existingReceipt.isSuccessful,
-      receiptId: existingReceipt.receiptId,
-      receiptNumber: existingReceipt.receiptNumber,
-      okp: existingReceipt.okp,
-      portosRequestId: existingReceipt.portosRequestId || initialOutcome.portosRequestId,
-      processDate: existingReceipt.processDate,
-      responseJson: existingReceipt.responseJson,
       copyPrinted,
     };
   } catch (lookupError) {
@@ -368,7 +397,7 @@ async function registerCashReceiptWithRetry(requestPayload, { maxAttempts = 3 } 
   throw lastError;
 }
 
-router.post('/', validate(createPaymentSchema), async (req, res) => {
+router.post('/', validate(createPaymentSchema), asyncRoute(async (req, res) => {
   const { orderId, method, amount } = req.body;
 
   const orderContext = await loadOrderPaymentContext(orderId);
@@ -460,14 +489,18 @@ router.post('/', validate(createPaymentSchema), async (req, res) => {
     });
   }
 
-  if (fiscalOutcome.resultMode === 'validation_error' || fiscalOutcome.resultMode === 'rejected') {
+  if (
+    fiscalOutcome.resultMode === 'validation_error' ||
+    fiscalOutcome.resultMode === 'rejected' ||
+    fiscalOutcome.resultMode === 'blocked'
+  ) {
     await upsertFiscalDocument(db, buildFiscalDocumentValues({
       orderId,
       requestPayload,
       outcome: fiscalOutcome,
     }));
 
-    return res.status(fiscalOutcome.httpStatus || 400).json({
+    return res.status(fiscalOutcome.resultMode === 'blocked' ? 503 : (fiscalOutcome.httpStatus || 400)).json({
       error: fiscalOutcome.errorDetail || 'Fiskalizacia bola odmietnuta',
       fiscal: {
         status: fiscalOutcome.resultMode,
@@ -541,9 +574,9 @@ router.post('/', validate(createPaymentSchema), async (req, res) => {
     console.error('Payment finalize error:', error);
     return res.status(500).json({ error: 'Platba zlyhala' });
   }
-});
+}));
 
-router.get('/:id/fiscal', async (req, res) => {
+router.get('/:id/fiscal', asyncRoute(async (req, res) => {
   const paymentId = Number.parseInt(req.params.id, 10);
   const [payment] = await db.select().from(payments).where(eq(payments.id, paymentId));
   if (!payment) return res.status(404).json({ error: 'Platba nenajdena' });
@@ -573,9 +606,9 @@ router.get('/:id/fiscal', async (req, res) => {
     stornoDone: Boolean(stornoRow),
     stornoExternalId,
   });
-});
+}));
 
-router.post('/:id/receipt-copy', async (req, res) => {
+router.post('/:id/receipt-copy', asyncRoute(async (req, res) => {
   const paymentId = Number.parseInt(req.params.id, 10);
   const [payment] = await db.select().from(payments).where(eq(payments.id, paymentId));
   if (!payment) return res.status(404).json({ error: 'Platba nenajdena' });
@@ -604,9 +637,9 @@ router.post('/:id/receipt-copy', async (req, res) => {
     console.error('Receipt copy error:', error);
     res.status(503).json({ error: 'Kopiu dokladu sa nepodarilo vytlacit' });
   }
-});
+}));
 
-router.post('/:id/fiscal-storno', mgr, async (req, res) => {
+router.post('/:id/fiscal-storno', mgr, asyncRoute(async (req, res) => {
   const paymentId = Number.parseInt(req.params.id, 10);
   if (!Number.isFinite(paymentId)) {
     return res.status(400).json({ error: 'Neplatne ID platby' });
@@ -731,6 +764,6 @@ router.post('/:id/fiscal-storno', mgr, async (req, res) => {
     ok: true,
     fiscal: toFiscalResponse(stornoDoc),
   });
-});
+}));
 
 export default router;

@@ -121,6 +121,46 @@ describe('Portos payment integration', () => {
     assert.equal(fiscalDoc.paymentId, res.body.payment.id);
   });
 
+  it('enriches successful Portos payment when register response is missing receipt id', async () => {
+    const { cisnik, table1, itemBurger } = fixtures;
+    const order = await createOpenOrder(table1.id, cisnik.id, [
+      { menuItemId: itemBurger.id, qty: 1 },
+    ]);
+
+    let callIndex = 0;
+    global.fetch = async (url) => {
+      callIndex += 1;
+      const target = String(url);
+      if (target.includes('cash_register')) {
+        return mockJsonResponse(200, buildRegisterSuccess({
+          externalId: `order-${order.id}-payment`,
+          receiptNumber: 43,
+          receiptId: null,
+          withResponse: false,
+        }));
+      }
+
+      return mockJsonResponse(200, buildRegisterSuccess({
+        externalId: `order-${order.id}-payment`,
+        receiptNumber: 43,
+        receiptId: 'O-ENRICHED',
+      }));
+    };
+
+    const res = await request
+      .post('/api/payments')
+      .set('Authorization', `Bearer ${tokens.cisnik()}`)
+      .send({ orderId: order.id, method: 'hotovost', amount: 8.50 });
+
+    assert.equal(res.status, 201);
+    assert.equal(res.body.fiscal.status, 'online_success');
+    assert.equal(res.body.fiscal.receiptId, 'O-ENRICHED');
+    assert.equal(callIndex, 2);
+
+    const [fiscalDoc] = await testDb.select().from(schema.fiscalDocuments).where(eq(schema.fiscalDocuments.orderId, order.id));
+    assert.equal(fiscalDoc.receiptId, 'O-ENRICHED');
+  });
+
   it('stores offline accepted Portos result and still closes the order', async () => {
     const { cisnik, table1, itemBurger } = fixtures;
     const order = await createOpenOrder(table1.id, cisnik.id, [
@@ -178,6 +218,37 @@ describe('Portos payment integration', () => {
 
     const [fiscalDoc] = await testDb.select().from(schema.fiscalDocuments).where(eq(schema.fiscalDocuments.orderId, order.id));
     assert.equal(fiscalDoc.resultMode, 'validation_error');
+  });
+
+  it('marks storage connection failures as blocked and keeps the order open', async () => {
+    const { cisnik, table1, itemBurger } = fixtures;
+    const order = await createOpenOrder(table1.id, cisnik.id, [
+      { menuItemId: itemBurger.id, qty: 1 },
+    ]);
+
+    global.fetch = async () => mockJsonResponse(500, {
+      code: -100,
+      title: 'Vseobecna chyba',
+      detail: 'Aplikacia nedokaze nadviazat spojenie s datovym uloziskom. Uistite sa, ze ulozisko je pripojene na porte COM3.',
+    });
+
+    const res = await request
+      .post('/api/payments')
+      .set('Authorization', `Bearer ${tokens.cisnik()}`)
+      .send({ orderId: order.id, method: 'hotovost', amount: 8.50 });
+
+    assert.equal(res.status, 503);
+    assert.equal(res.body.fiscal.status, 'blocked');
+
+    const [dbOrder] = await testDb.select().from(schema.orders).where(eq(schema.orders.id, order.id));
+    assert.equal(dbOrder.status, 'open');
+
+    const dbPayments = await testDb.select().from(schema.payments).where(eq(schema.payments.orderId, order.id));
+    assert.equal(dbPayments.length, 0);
+
+    const [fiscalDoc] = await testDb.select().from(schema.fiscalDocuments).where(eq(schema.fiscalDocuments.orderId, order.id));
+    assert.equal(fiscalDoc.resultMode, 'blocked');
+    assert.equal(fiscalDoc.errorCode, -100);
   });
 
   it('reconciles an ambiguous transport failure by externalId lookup', async () => {

@@ -60,10 +60,10 @@
           <div class="floor-zones" id="floorZones"></div>
         </div>
         <div class="floor-toolbar-right">
-          <div class="floor-stats">
-            <div class="floor-stat"><span class="stat-dot free"></span>Volny</div>
-            <div class="floor-stat"><span class="stat-dot occupied"></span>Obsadeny</div>
-            <div class="floor-stat"><span class="stat-dot reserved"></span>Rezervovany</div>
+          <div class="floor-legend" id="floorLegend">
+            <span class="legend-item"><span class="legend-swatch free"></span>Volny</span>
+            <span class="legend-item"><span class="legend-swatch occupied"></span>Obsad.</span>
+            <span class="legend-item"><span class="legend-swatch reserved"></span>Rez.</span>
           </div>
           <button class="edit-toggle" id="editToggle" onclick="toggleEdit()">
             <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M12.1 1.3a1.5 1.5 0 012.1 2.1L5.8 11.8l-3.3.8.8-3.3z"/></svg>
@@ -78,7 +78,7 @@
     <div class="products-panel" id="productsPanel">
       <div class="search-wrap">
         <span class="search-icon">&#128269;</span>
-        <label for="searchInput" class="sr-only">Hladat produkt</label><input class="search-input" id="searchInput" type="text" placeholder="Hladat produkt..." autocomplete="off">
+        <label for="searchInput" class="sr-only">Hladat produkt</label><input class="search-input" id="searchInput" type="text" placeholder="Hladat produkt alebo kategoriu..." autocomplete="off">
         <span class="search-hint">/</span>
       </div>
       <div class="categories" id="categories"></div>
@@ -108,7 +108,8 @@
             <button class="btn btn-card" onclick="initiatePayment('karta')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>Karta</button>
           </div>
           <div class="extra-row">
-            <button class="btn btn-split" onclick="splitBill()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M3 4l18 17"/></svg>Rozdelit ucet</button>
+            <button class="btn btn-move" onclick="enterMoveMode()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg>Presun</button>
+            <button class="btn btn-split" onclick="splitBill()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M3 4l18 17"/></svg>Rozdelit</button>
             <button class="btn btn-discount" onclick="showDiscountModal()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>Zlava</button>
           </div>
           <button type="button" class="btn btn-cancel btn-block" onclick="clearOrder()">Zrusit objednavku</button>
@@ -180,6 +181,9 @@
               <div class="mob-pay-row">
                 <button class="mob-btn-pay cash" onclick="initiatePayment('hotovost')">Hotovost</button>
                 <button class="mob-btn-pay card" onclick="initiatePayment('karta')">Karta</button>
+              </div>
+              <div class="mob-pay-secondary">
+                <button class="mob-btn-secondary" onclick="splitBill();closeMobPayDrawer()">Rozdelit ucet</button>
               </div>
               <button class="mob-btn-cancel" onclick="clearOrder();closeMobPayDrawer()">Zrusit objednavku</button>
             </div>
@@ -259,41 +263,15 @@
   </div>
 </div>
 
-<div class="u-overlay" id="moveModal">
-  <div class="u-modal" role="dialog" aria-modal="true" aria-labelledby="moveModalTitle">
-    <span class="u-modal-icon">&#8599;&#65039;</span>
-    <div class="u-modal-title" id="moveModalTitle">Presunúť položky</div>
-    <div class="u-modal-text">Vyberte polozky na presun</div>
-    <div class="u-modal-body">
-      <div id="moveItemsList" class="u-modal-scroll"></div>
+<!-- Inline Table Picker for cross-table moves -->
+<div class="table-picker-overlay" id="tablePicker" onclick="if(event.target===this)closeTablePicker()">
+  <div class="table-picker">
+    <div class="table-picker-header">
+      <span>Vyberte cielovy stol</span>
+      <button onclick="closeTablePicker()" aria-label="Zavriet">&#10005;</button>
     </div>
-    <div class="u-modal-btns">
-      <button class="u-btn u-btn-ghost" onclick="closeMoveModal()">Zrusit</button>
-      <button type="button" class="u-btn u-btn-lavender pos-hidden" id="moveToAccountBtn" onclick="moveToAccount()">Na iny ucet</button>
-      <button type="button" class="u-btn u-btn-ice pos-hidden" id="moveToTableBtn" onclick="moveSelectTable()">Na iny stol</button>
-    </div>
+    <div class="table-picker-grid" id="tablePickerGrid"></div>
   </div>
-</div>
-
-<!-- Account picker for same-table moves -->
-<div class="u-overlay" id="moveAccountModal">
-  <div class="u-modal" role="dialog" aria-modal="true" aria-labelledby="moveAccountModalTitle">
-    <span class="u-modal-icon">&#128221;</span>
-    <div class="u-modal-title" id="moveAccountModalTitle">Vyberte ucet</div>
-    <div class="u-modal-body">
-      <div id="moveAccountList" class="u-modal-scroll u-modal-scroll--tall"></div>
-      <button type="button" class="u-btn u-btn-ghost u-btn-new-account" onclick="moveToNewAccount()">+ Novy ucet</button>
-    </div>
-    <div class="u-modal-btns">
-      <button class="u-btn u-btn-ghost" onclick="closeMoveAccountModal()">Zrusit</button>
-    </div>
-  </div>
-</div>
-
-<!-- Move: pick table banner (shown over table view) -->
-<div class="move-banner" id="moveBanner">
-  <span>&#8599;&#65039; Vyberte cielovy stol pre <strong id="moveBannerCount">0</strong> poloziek</span>
-  <button onclick="cancelMoveMode()">Zrusit</button>
 </div>
 
 <!-- Account Picker Sheet -->

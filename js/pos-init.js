@@ -383,6 +383,5 @@ setupLongPress();
 if(getUserRole()==='cisnik'){var eb=document.getElementById('editToggle');if(eb)eb.classList.add('pos-hidden');}
 document.getElementById('paymentModal').addEventListener('click',function(e){if(e.target===this)closeModal()});
 document.getElementById('noteModal').addEventListener('click',function(e){if(e.target===this)closeNoteModal()});
-document.getElementById('moveModal').addEventListener('click',function(e){if(e.target===this)closeMoveModal()});
-document.getElementById('moveAccountModal').addEventListener('click',function(e){if(e.target===this)closeMoveAccountModal()});
+/* moveModal + moveAccountModal removed — replaced by inline move mode + table picker */
 document.getElementById('managerPinModal').addEventListener('click',function(e){if(e.target===this)closeManagerPinModal()});

@@ -17,11 +17,36 @@ function _toastSendKitchenError(err){
   if(typeof showToast==='function')showToast(msg,'error');
 }
 
-function switchView(v){
+var _tableLeaveFlushPromise = null;
+
+function hasPendingOrderFlushState() {
+  return !!(_orderDirty || (_pendingStorno && _pendingStorno.length) || getOrder().length);
+}
+
+function flushOrderBeforeTableLeave() {
+  if (!hasPendingOrderFlushState()) return Promise.resolve(false);
+  if (_renderTimer) { clearTimeout(_renderTimer); _renderTimer = null; }
+  if (_tableLeaveFlushPromise) return _tableLeaveFlushPromise;
+
+  _tableLeaveFlushPromise = Promise.resolve()
+    .then(function() { return sendToKitchen(); })
+    .then(function() { return true; })
+    .catch(function(err) {
+      _toastSendKitchenError(err);
+      return false;
+    })
+    .finally(function() {
+      _tableLeaveFlushPromise = null;
+    });
+
+  return _tableLeaveFlushPromise;
+}
+
+async function switchView(v){
   // Auto-send to kitchen when leaving table (also flush storno + dirty state)
-  if(v==='tables' && (_orderDirty || _pendingStorno.length || getOrder().length)) {
-    if(_renderTimer){clearTimeout(_renderTimer);_renderTimer=null}
-    sendToKitchen().catch(_toastSendKitchenError);
+  if (v === 'tables' && currentView !== 'tables' && hasPendingOrderFlushState()) {
+    var flushed = await flushOrderBeforeTableLeave();
+    if (!flushed) return;
   }
   currentView=v;
   document.getElementById('btnTableView').classList.toggle('active',v==='tables');
@@ -55,7 +80,9 @@ function setZone(id){activeZone=id;renderFloorZones();renderFloor()}
 function renderFloor(){
   const canvas=document.getElementById('floorCanvas');
   const filtered=TABLES.filter(t=>t.zone===activeZone);
-  const sl={free:'Volny',occupied:'Obsad.',reserved:'Rez.'};
+  const sl={free:'Volny',occupied:'Obsad.',reserved:'Rez.',dirty:'Cistit'};
+  const titles={free:'Otvorit objednavku',occupied:'Zobrazit ucet',reserved:'Otvorit rezervaciu',dirty:'Oznacit ako volny'};
+  const personIcon='<svg aria-hidden="true" viewBox="0 0 16 16" width="10" height="10"><path d="M8 7a3 3 0 100-6 3 3 0 000 6zm-5 9a5 5 0 0110 0H3z" fill="currentColor"/></svg>';
 
   canvas.innerHTML=filtered.map(t=>{
     const ord=tableOrders[t.id]||[];
@@ -67,26 +94,39 @@ function renderFloor(){
     if(editMode){
       posStyle=`left:${t.x}px;top:${t.y}px`;
     } else {
-      // Compute reference space from actual table coordinates + chip padding
       if(!renderFloor._refW){
         var maxX=0,maxY=0;
         TABLES.forEach(function(tb){if(tb.x>maxX)maxX=tb.x;if(tb.y>maxY)maxY=tb.y});
-        renderFloor._refW=Math.max(maxX+160,600);
-        renderFloor._refH=Math.max(maxY+120,400);
+        renderFloor._refW=Math.max(maxX+170,600);
+        renderFloor._refH=Math.max(maxY+130,400);
       }
       const pctX=((t.x/renderFloor._refW)*100).toFixed(1);
       const pctY=((t.y/renderFloor._refH)*100).toFixed(1);
       posStyle=`left:${pctX}%;top:${pctY}%`;
     }
 
+    // Accessibility label
+    const ariaParts=[escHtml(t.name),sl[t.status]||t.status,t.seats+' miest'];
+    if(t.status==='occupied'&&total>0)ariaParts.push(fmt(total));
+    if(t.status==='reserved'&&t.time)ariaParts.push(t.time);
+    const ariaLabel=ariaParts.join(', ');
+
+    // Build chip interior — hierarchy: name > badge > guests > amount
+    let chipBody=`<div class="chip-name">${escHtml(t.name)}</div>`;
+    chipBody+=`<span class="chip-badge ${t.status}">${sl[t.status]||t.status}</span>`;
+    chipBody+=`<div class="chip-guests">${personIcon} ${t.seats}</div>`;
+    if(t.status==='occupied'&&total>0){
+      chipBody+=`<div class="chip-amount">${fmt(total)}</div>`;
+    }
+    if(t.status==='reserved'&&t.time){
+      chipBody+=`<div class="chip-time">${t.time}</div>`;
+    }
+
     return `<div class="table-chip s-${t.status} ${shapeClass} ${isSel?'selected':''}"
       data-id="${t.id}" style="${posStyle}" tabindex="0" role="button"
+      aria-label="${ariaLabel}" title="${titles[t.status]||''}"
       ${editMode?`onmousedown="startDrag(event,${t.id})"`:`onclick="chipClick(${t.id})"`}>
-      <span class="chip-seats">${t.seats}</span>
-      <div class="chip-name">${escHtml(t.name)}</div>
-      <div class="chip-status ${t.status}">${sl[t.status]}</div>
-      ${t.status==='occupied'&&total>0?`<div class="chip-amount">${fmt(total)}</div>`:''}
-      ${t.status==='reserved'&&t.time?`<div class="chip-time">${t.time}</div>`:''}
+      ${chipBody}
     </div>`;
   }).join('');
 }
@@ -114,8 +154,9 @@ async function chipClick(id){
 
 async function openTable(id){
   // Auto-send previous table's order before switching
-  if(selectedTableId && selectedTableId !== id && getOrder().length) {
-    await sendToKitchen().catch(_toastSendKitchenError);
+  if(selectedTableId && selectedTableId !== id) {
+    var flushed = await flushOrderBeforeTableLeave();
+    if (!flushed) return;
   }
   _pendingStorno = [];
   selectedTableId=id;
@@ -303,19 +344,48 @@ function renderOrder(){
   countEl.textContent=newCount;
   countEl.classList.toggle('zero',newCount===0);
   if(newCount!==oldCount&&newCount>0){countEl.classList.add('bump');setTimeout(()=>countEl.classList.remove('bump'),250)}
-  // Render account tabs
+  // Render account tabs (rich: label + meta with item count & total)
   var tabsEl=document.getElementById('orderTabs');
   var orderPanel=document.getElementById('orderItems');
   if(tabsEl){
     if(tableOrdersList.length>1){
       tabsEl.setAttribute('role','tablist');
       tabsEl.setAttribute('aria-label','Ucty pri stole');
-      tabsEl.innerHTML=tableOrdersList.map(o=>`<button type="button" class="order-tab${o.id===currentOrderId?' active':''}" role="tab" id="order-tab-${o.id}" aria-selected="${o.id===currentOrderId}" aria-controls="orderItems" onclick="switchAccount(${o.id})">${escHtml(o.label||'Ucet')}</button>`).join('')+`<button type="button" class="order-tab order-tab-new" onclick="newAccount()" aria-label="Novy ucet">+</button>`+`<button type="button" class="order-tab order-tab-merge" onclick="mergeAccounts()" title="Spojit ucty">&#x21C4; Spojit</button>`;
+      var tabsHtml=tableOrdersList.map(function(o){
+        var isActive=o.id===currentOrderId;
+        var cnt=o.items?o.items.reduce(function(s,i){return s+i.qty},0):0;
+        var tot=o.items?o.items.reduce(function(s,i){return s+parseFloat(i.price)*i.qty},0):0;
+        if(moveMode&&!isActive){
+          // In move mode: non-active tabs are drop targets
+          return '<button type="button" class="order-tab" role="tab" onclick="moveToTab('+o.id+')" title="Presunut sem"><span class="tab-label">'+escHtml(o.label||'Ucet')+' &#8599;</span><span class="tab-meta">'+cnt+' pol. &middot; '+fmt(tot)+'</span></button>';
+        }
+        return '<button type="button" class="order-tab'+(isActive?' active':'')+'" role="tab" id="order-tab-'+o.id+'" aria-selected="'+isActive+'" aria-controls="orderItems" onclick="switchAccount('+o.id+')"><span class="tab-label">'+escHtml(o.label||'Ucet')+'</span><span class="tab-meta">'+cnt+' pol. &middot; '+fmt(tot)+'</span></button>';
+      }).join('');
+      if(moveMode){
+        tabsHtml+='<button type="button" class="order-tab move-new-target" onclick="moveToNewAccountInline()">+ Novy ucet</button>';
+        tabsHtml+='<button type="button" class="order-tab move-table-target" onclick="showTablePicker()">Na iny stol</button>';
+        tabsHtml+='<button type="button" class="order-tab order-tab-cancel" onclick="exitMoveMode()">Zrusit</button>';
+      } else {
+        tabsHtml+='<button type="button" class="order-tab order-tab-new" onclick="newAccount()" aria-label="Novy ucet">+</button>';
+        tabsHtml+='<button type="button" class="order-tab order-tab-merge" onclick="mergeAccounts()" title="Spojit ucty">&#x21C4;</button>';
+      }
+      tabsEl.innerHTML=tabsHtml;
       tabsEl.classList.remove('pos-hidden');
     } else if(tableOrdersList.length===1){
       tabsEl.setAttribute('role','tablist');
       tabsEl.setAttribute('aria-label','Ucet');
-      tabsEl.innerHTML=`<button type="button" class="order-tab active" role="tab" id="order-tab-single" aria-selected="true" aria-controls="orderItems">${escHtml(tableOrdersList[0].label||'Ucet 1')}</button><button type="button" class="order-tab order-tab-new" onclick="newAccount()" aria-label="Novy ucet">+</button>`;
+      var o1=tableOrdersList[0];
+      var cnt1=o1.items?o1.items.reduce(function(s,i){return s+i.qty},0):0;
+      var tot1=o1.items?o1.items.reduce(function(s,i){return s+parseFloat(i.price)*i.qty},0):0;
+      var singleHtml='<button type="button" class="order-tab active" role="tab" id="order-tab-single" aria-selected="true" aria-controls="orderItems"><span class="tab-label">'+escHtml(o1.label||'Ucet 1')+'</span><span class="tab-meta">'+cnt1+' pol. &middot; '+fmt(tot1)+'</span></button>';
+      if(moveMode){
+        singleHtml+='<button type="button" class="order-tab move-new-target" onclick="moveToNewAccountInline()">+ Novy ucet</button>';
+        singleHtml+='<button type="button" class="order-tab move-table-target" onclick="showTablePicker()">Na iny stol</button>';
+        singleHtml+='<button type="button" class="order-tab order-tab-cancel" onclick="exitMoveMode()">Zrusit</button>';
+      } else {
+        singleHtml+='<button type="button" class="order-tab order-tab-new" onclick="newAccount()" aria-label="Novy ucet">+</button>';
+      }
+      tabsEl.innerHTML=singleHtml;
       tabsEl.classList.remove('pos-hidden');
     } else {
       tabsEl.removeAttribute('role');
@@ -331,12 +401,21 @@ function renderOrder(){
   else{var sorted=order.slice().sort(function(a,b){return (b.id||0)-(a.id||0)});c.innerHTML=sorted.map(o=>{
     const esc=o.name.replace(/'/g,"\\'");
     const _isSent=o.sent;
+    const _moveSelected=moveMode&&moveSelectedItems.indexOf(o.id)>=0;
+    if(moveMode){
+      return `<div class="order-item-wrap${_moveSelected?' move-selected':''}" data-item-id="${o.id}" onclick="toggleMoveSelection(${o.id})">
+  <div class="order-item-inner${_isSent?' sent':''}"><div class="move-sel">${_moveSelected?'&#10003;':''}</div><span class="order-item-emoji">${escHtml(o.emoji)}</span>
+  <div class="order-item-info"><div class="order-item-name">${escHtml(o.name)}</div>${o.note?`<div class="order-item-note">${escHtml(o.note)}</div>`:''}</div>
+  <span class="order-item-total">${o.qty}x &middot; ${fmt(o.price*o.qty)}</span></div>
+</div>`;
+    }
     return `<div class="order-item-wrap" data-item-id="${o.id}" ontouchstart="swipeStart(event,this)" ontouchmove="swipeMove(event,this)" ontouchend="swipeEnd(event,this)" onmousedown="swipeStart(event,this)" onmousemove="swipeMove(event,this)" onmouseup="swipeEnd(event,this)">
   <div class="order-item-inner${_isSent?' sent':''}"><span class="order-item-emoji">${escHtml(o.emoji)}</span>
   <div class="order-item-info order-item-info--note" role="button" tabindex="0" onclick="openNoteModal('${esc}', ${o.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openNoteModal('${esc}', ${o.id});}"><div class="order-item-name">${escHtml(o.name)}</div>${o.note?`<div class="order-item-note">${escHtml(o.note)}</div>`:'<div class="order-item-note order-item-note-placeholder">+ poznamka</div>'}</div>
-  <div class="order-item-qty"><button class="qty-btn" onclick="changeQty('${esc}', -1)" onpointerdown="startQtyHold('${esc}', -1)">&minus;</button><span class="qty-val">${o.qty}</span><button class="qty-btn" onclick="changeQty('${esc}', 1)" onpointerdown="startQtyHold('${esc}', 1)">+</button></div>
+  <button class="order-item-move" onclick="enterMoveMode(${o.id})" aria-label="Presunut">&#8599;</button>
+  <div class="order-item-qty"><button class="qty-btn" onclick="changeQty('${esc}', -1, ${o.id})" onpointerdown="startQtyHold('${esc}', -1, ${o.id})">&minus;</button><span class="qty-val">${o.qty}</span><button class="qty-btn" onclick="changeQty('${esc}', 1, ${o.id})" onpointerdown="startQtyHold('${esc}', 1, ${o.id})">+</button></div>
   <div class="order-item-total">${fmt(o.price*o.qty)}</div></div>
-  <div class="order-item-swipe-left"><button class="swipe-btn swipe-btn-move" onclick="showMoveModal(${o.id})" aria-label="Presunut polozku">&#8599;</button><button class="swipe-btn swipe-btn-note" onclick="openNoteModal('${esc}', ${o.id})" aria-label="Poznamka">&#9998;</button><button class="swipe-btn swipe-btn-del" onclick="removeItem('${esc}')" aria-label="Odstranit polozku">&#10005;</button></div>
+  <div class="order-item-swipe-left"><button class="swipe-btn swipe-btn-move" onclick="enterMoveMode(${o.id})" aria-label="Presunut polozku">&#8599;</button><button class="swipe-btn swipe-btn-note" onclick="openNoteModal('${esc}', ${o.id})" aria-label="Poznamka">&#9998;</button><button class="swipe-btn swipe-btn-del" onclick="removeItem('${esc}')" aria-label="Odstranit polozku">&#10005;</button></div>
 </div>`}).join('')}
   // Update send button state
   const btnSend=document.getElementById('btnSend');

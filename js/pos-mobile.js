@@ -8,7 +8,17 @@ var mobSearchQuery = '';
 
 function isMobile() { return window.innerWidth <= 768; }
 
-function switchMobTab(tabId) {
+async function switchMobTab(tabId) {
+  if (
+    tabId === 'mobTabTables' &&
+    mobActiveTab !== 'mobTabTables' &&
+    typeof hasPendingOrderFlushState === 'function' &&
+    typeof flushOrderBeforeTableLeave === 'function' &&
+    hasPendingOrderFlushState()
+  ) {
+    var flushed = await flushOrderBeforeTableLeave();
+    if (!flushed) return;
+  }
   mobActiveTab = tabId;
   document.querySelectorAll('.mob-tab-content').forEach(t => {
     const active = t.id === tabId;
@@ -58,6 +68,10 @@ function renderMobTables() {
 
 async function mobSelectTable(id) {
   if (moveMode) { await handleMoveToTable(id); return; }
+  if (selectedTableId && selectedTableId !== id && typeof flushOrderBeforeTableLeave === 'function') {
+    var flushed = await flushOrderBeforeTableLeave();
+    if (!flushed) return;
+  }
   selectedTableId = id;
   const t = TABLES.find(x => x.id === id);
   if (t) {
@@ -163,6 +177,73 @@ function mobAddItem(name, emoji, price) {
   renderMobMenu(); // update badges
 }
 
+function _getMobTabMeta(orderSummary) {
+  var items = orderSummary.items || [];
+  var count = items.reduce(function(sum, item) { return sum + item.qty; }, 0);
+  var total = items.reduce(function(sum, item) { return sum + (parseFloat(item.price) * item.qty); }, 0);
+  return count + ' pol. · ' + fmt(total);
+}
+
+function _renderMobOrderTabs(mobTabsEl) {
+  if (!mobTabsEl) return;
+
+  if (tableOrdersList.length > 1) {
+    var tabsHtml = tableOrdersList.map(function(orderSummary) {
+      var isActive = orderSummary.id === currentOrderId;
+      var label = escHtml(orderSummary.label || 'Ucet');
+      var meta = _getMobTabMeta(orderSummary);
+
+      if (moveMode && !isActive) {
+        return '<button type="button" class="order-tab" role="tab" onclick="moveToTab(' + orderSummary.id + ')" title="Presunut sem">' +
+          '<span class="tab-label">' + label + ' &#8599;</span>' +
+          '<span class="tab-meta">' + meta + '</span>' +
+        '</button>';
+      }
+
+      return '<button type="button" class="order-tab' + (isActive ? ' active' : '') + '" role="tab" aria-selected="' + isActive + '" onclick="switchAccount(' + orderSummary.id + ')">' +
+        '<span class="tab-label">' + label + '</span>' +
+        '<span class="tab-meta">' + meta + '</span>' +
+      '</button>';
+    }).join('');
+
+    if (moveMode) {
+      tabsHtml += '<button type="button" class="order-tab move-new-target" onclick="moveToNewAccountInline()">+ Novy ucet</button>';
+      tabsHtml += '<button type="button" class="order-tab move-table-target" onclick="showTablePicker()">Na iny stol</button>';
+      tabsHtml += '<button type="button" class="order-tab order-tab-cancel" onclick="exitMoveMode()">Zrusit</button>';
+    } else {
+      tabsHtml += '<button type="button" class="order-tab order-tab-new" onclick="newAccount()" aria-label="Novy ucet">+</button>';
+      tabsHtml += '<button type="button" class="order-tab order-tab-merge" onclick="mergeAccounts()">&#x21C4; Spojit</button>';
+    }
+
+    mobTabsEl.innerHTML = tabsHtml;
+    mobTabsEl.classList.remove('pos-hidden');
+    return;
+  }
+
+  if (tableOrdersList.length === 1) {
+    var single = tableOrdersList[0];
+    var singleHtml = '<button type="button" class="order-tab active" role="tab" aria-selected="true">' +
+      '<span class="tab-label">' + escHtml(single.label || 'Ucet 1') + '</span>' +
+      '<span class="tab-meta">' + _getMobTabMeta(single) + '</span>' +
+    '</button>';
+
+    if (moveMode) {
+      singleHtml += '<button type="button" class="order-tab move-new-target" onclick="moveToNewAccountInline()">+ Novy ucet</button>';
+      singleHtml += '<button type="button" class="order-tab move-table-target" onclick="showTablePicker()">Na iny stol</button>';
+      singleHtml += '<button type="button" class="order-tab order-tab-cancel" onclick="exitMoveMode()">Zrusit</button>';
+    } else {
+      singleHtml += '<button type="button" class="order-tab order-tab-new" onclick="newAccount()" aria-label="Novy ucet">+</button>';
+    }
+
+    mobTabsEl.innerHTML = singleHtml;
+    mobTabsEl.classList.remove('pos-hidden');
+    return;
+  }
+
+  mobTabsEl.innerHTML = '';
+  mobTabsEl.classList.add('pos-hidden');
+}
+
 function renderMobOrder() {
   const order = getOrder();
   const container = document.getElementById('mobOrderItems');
@@ -171,20 +252,20 @@ function renderMobOrder() {
 
   // Render mobile account tabs
   var mobTabsEl=document.getElementById('mobOrderTabs');
-  if(mobTabsEl){
-    if(tableOrdersList.length>1){
-      mobTabsEl.innerHTML=tableOrdersList.map(o=>`<button class="order-tab${o.id===currentOrderId?' active':''}" role="tab" aria-selected="${o.id===currentOrderId}" onclick="switchAccount(${o.id})">${escHtml(o.label||'Ucet')}</button>`).join('')+`<button class="order-tab order-tab-new" onclick="newAccount()" aria-label="Novy ucet">+</button>`+`<button type="button" class="order-tab order-tab-merge" onclick="mergeAccounts()">&#x21C4; Spojit</button>`;
-      mobTabsEl.classList.remove('pos-hidden');
-    } else if(tableOrdersList.length===1){
-      mobTabsEl.innerHTML=`<button class="order-tab active" role="tab" aria-selected="true">${escHtml(tableOrdersList[0].label||'Ucet 1')}</button><button class="order-tab order-tab-new" onclick="newAccount()" aria-label="Novy ucet">+</button>`;
-      mobTabsEl.classList.remove('pos-hidden');
-    } else {
-      mobTabsEl.innerHTML='';mobTabsEl.classList.add('pos-hidden');
-    }
-  }
+  _renderMobOrderTabs(mobTabsEl);
 
   if (!order.length) {
     container.innerHTML = `<div class="mob-order-empty"><div class="mob-order-empty-icon">&#128203;</div><div class="mob-order-empty-text">Prazdna objednavka</div></div>`;
+  } else if (moveMode) {
+    container.innerHTML = '<div class="mob-move-hint">Presunout vybrane polozky a potom vyberte cielovy ucet alebo stol.</div>' + order.map(o => {
+      var selected = moveSelectedItems.indexOf(o.id) >= 0;
+      return `<button type="button" class="mob-order-item mob-order-item-pick${o.sent ? ' sent' : ''}${selected ? ' move-selected' : ''}" onclick="toggleMoveSelection(${o.id})" aria-pressed="${selected ? 'true' : 'false'}">
+        <span class="mob-move-check" aria-hidden="true">${selected ? '&#10003;' : ''}</span>
+        <span class="mob-oi-emoji">${escHtml(o.emoji)}</span>
+        <div class="mob-oi-info"><div class="mob-oi-name">${escHtml(o.name)}</div>${o.note ? `<div class="mob-oi-note">${escHtml(o.note)}</div>` : `<div class="mob-oi-add-note">bez poznamky</div>`}</div>
+        <div class="mob-oi-price">${o.qty}x &middot; ${fmt(o.price * o.qty)}</div>
+      </button>`;
+    }).join('');
   } else {
     container.innerHTML = order.map(o => {
       const esc = o.name.replace(/'/g, "\\'");
@@ -193,12 +274,12 @@ function renderMobOrder() {
         <span class="mob-oi-emoji">${escHtml(o.emoji)}</span>
         <div class="mob-oi-info" onclick="openNoteModal('${esc}', ${o.id});"><div class="mob-oi-name">${escHtml(o.name)}</div>${o.note ? `<div class="mob-oi-note">${escHtml(o.note)}</div>` : `<div class="mob-oi-add-note">+ poznamka</div>`}</div>
         <div class="mob-oi-qty">
-          <button onclick="mobChangeQty('${esc}',-1)">&minus;</button>
+          <button onclick="mobChangeQty('${esc}',-1,${o.id})">&minus;</button>
           <span>${o.qty}</span>
-          <button onclick="mobChangeQty('${esc}',1)">+</button>
+          <button onclick="mobChangeQty('${esc}',1,${o.id})">+</button>
         </div>
         <div class="mob-oi-price">${fmt(o.price * o.qty)}</div>
-        <button type="button" class="mob-oi-move" onclick="showMoveModal(${o.id})" aria-label="Presunut polozku">&#8599;</button>
+        <button type="button" class="mob-oi-move" onclick="enterMoveMode(${o.id})" aria-label="Presunut polozku">&#8599;</button>
         <button class="mob-oi-del" onclick="removeItem('${esc}');renderMobOrder();updateMobBadge()" aria-label="Odstranit polozku">&times;</button>
       </div>`;
     }).join('');
@@ -206,11 +287,13 @@ function renderMobOrder() {
 
   const total = getOrderTotal();
   if (totalEl) totalEl.textContent = fmt(total);
+  var mobSend = document.getElementById('mobBtnSend');
+  if (mobSend) mobSend.disabled = !order.length || moveMode;
   updateMobBadge();
 }
 
-function mobChangeQty(name, d) {
-  changeQty(name, d);
+function mobChangeQty(name, d, itemId) {
+  changeQty(name, d, itemId);
   renderMobOrder();
   renderMobMenu();
 }

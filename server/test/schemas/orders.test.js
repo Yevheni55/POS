@@ -63,12 +63,14 @@ describe('createOrderSchema', () => {
     assertFails(createOrderSchema, { ...validOrder, tableId: 'abc' });
   });
 
-  it('fails when items array is empty', () => {
-    assertFails(createOrderSchema, { tableId: 1, items: [] });
+  it('allows empty items array (new blank account)', () => {
+    const result = assertPasses(createOrderSchema, { tableId: 1, items: [] });
+    assert.deepEqual(result.items, []);
   });
 
-  it('fails when items is missing', () => {
-    assertFails(createOrderSchema, { tableId: 1 });
+  it('defaults items to empty array when missing', () => {
+    const result = assertPasses(createOrderSchema, { tableId: 1 });
+    assert.deepEqual(result.items, []);
   });
 
   it('fails when menuItemId is zero', () => {

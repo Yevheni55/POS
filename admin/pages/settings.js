@@ -9,6 +9,9 @@ const DEFAULTS = {
   sIco: '12345678',
   sDic: 'SK2012345678',
   sIcDph: '',
+  sBranchName: 'Hlavna prevadzka',
+  sBranchAddress: 'Hlavna 15, 811 01 Bratislava',
+  sCashRegisterCode: '88812345678900001',
   sVat: 20,
   sCurrency: 'EUR',
   sRounding: 'centy',
@@ -46,6 +49,9 @@ let editingPrinterId = null;
 let portosStatus = null;
 let portosStatusError = '';
 let portosStatusLoading = false;
+let companyProfile = null;
+let companyCompare = null;
+let companyCompareError = '';
 
 function qs(sel) { return _container.querySelector(sel); }
 function byId(id) { return _container.querySelector('#' + id); }
@@ -58,16 +64,19 @@ function getTemplate() {
     <div class="section">
       <div class="section-title">
         <svg aria-hidden="true" viewBox="0 0 20 20"><path d="M4 4h12v12H4z" fill="none" stroke="currentColor" stroke-width="1.5" rx="2"/><path d="M7 8h6M7 11h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
-        Zakladne udaje
+        Identifikačné údaje
+      </div>
+      <div class="text-muted" style="font-size:12px;margin:0 0 14px;line-height:1.5">
+        Tieto údaje sa ukladajú do nášho backendu a porovnávajú sa s Portos. POS ich len číta a porovnáva, ale nemení identifikačné údaje priamo v Portos/eKasa.
       </div>
       <div class="form-grid">
         <div class="form-group">
-          <label for="sName">Nazov podniku<span class="required-mark" aria-hidden="true"> *</span></label>
+          <label for="sName">Nazov firmy<span class="required-mark" aria-hidden="true"> *</span></label>
           <input class="form-input" id="sName" type="text" aria-required="true" data-validate="required">
         </div>
         <div class="form-group">
-          <label for="sAddress">Adresa</label>
-          <input class="form-input" id="sAddress" type="text">
+          <label for="sAddress">Sidlo firmy<span class="required-mark" aria-hidden="true"> *</span></label>
+          <input class="form-input" id="sAddress" type="text" aria-required="true" data-validate="required">
         </div>
         <div class="form-group">
           <label for="sPhone">Telefon</label>
@@ -88,6 +97,18 @@ function getTemplate() {
         <div class="form-group">
           <label for="sIcDph">IC DPH</label>
           <input class="form-input" id="sIcDph" type="text" title="Identifikacne cislo pre DPH (napr. SK2023456789)" placeholder="napr. SK2023456789">
+        </div>
+        <div class="form-group">
+          <label for="sBranchName">Nazov prevadzky<span class="required-mark" aria-hidden="true"> *</span></label>
+          <input class="form-input" id="sBranchName" type="text" aria-required="true" data-validate="required" placeholder="napr. Surf Coffee Eurovea">
+        </div>
+        <div class="form-group">
+          <label for="sBranchAddress">Adresa prevadzky<span class="required-mark" aria-hidden="true"> *</span></label>
+          <input class="form-input" id="sBranchAddress" type="text" aria-required="true" data-validate="required">
+        </div>
+        <div class="form-group">
+          <label for="sCashRegisterCode">Kod pokladnice<span class="required-mark" aria-hidden="true"> *</span></label>
+          <input class="form-input" id="sCashRegisterCode" type="text" aria-required="true" data-validate="required" placeholder="88812345678900001">
         </div>
       </div>
     </div>
@@ -241,6 +262,7 @@ function getTemplate() {
         Portos eKasa diagnostika
       </div>
       <div id="portosDiagnostics"></div>
+      <div id="companyProfileCompare" class="mt-3"></div>
       <div class="flex-row gap-2 mt-3">
         <button class="btn-save btn-sm" id="btnRefreshPortos">Obnovit stav</button>
       </div>
@@ -340,14 +362,44 @@ function loadSettings() {
   applyToForm();
 }
 
+function syncCompanyProfileToLocalSettings(profile) {
+  if (!profile) return;
+  settings.sName = profile.businessName || settings.sName;
+  settings.sAddress = profile.registeredAddress || settings.sAddress;
+  settings.sPhone = profile.contactPhone || settings.sPhone;
+  settings.sEmail = profile.contactEmail || settings.sEmail;
+  settings.sIco = profile.ico || settings.sIco;
+  settings.sDic = profile.dic || settings.sDic;
+  settings.sIcDph = profile.icDph || settings.sIcDph;
+  settings.sBranchName = profile.branchName || settings.sBranchName;
+  settings.sBranchAddress = profile.branchAddress || settings.sBranchAddress;
+  settings.sCashRegisterCode = profile.cashRegisterCode || settings.sCashRegisterCode;
+}
+
 function applyToForm() {
-  byId('sName').value = settings.sName;
-  byId('sAddress').value = settings.sAddress;
-  byId('sPhone').value = settings.sPhone;
-  byId('sEmail').value = settings.sEmail;
-  byId('sIco').value = settings.sIco;
-  byId('sDic').value = settings.sDic;
-  byId('sIcDph').value = settings.sIcDph || '';
+  var profile = companyProfile || {
+    businessName: settings.sName,
+    registeredAddress: settings.sAddress,
+    contactPhone: settings.sPhone,
+    contactEmail: settings.sEmail,
+    ico: settings.sIco,
+    dic: settings.sDic,
+    icDph: settings.sIcDph || '',
+    branchName: settings.sBranchName || '',
+    branchAddress: settings.sBranchAddress || '',
+    cashRegisterCode: settings.sCashRegisterCode || '',
+  };
+
+  byId('sName').value = profile.businessName || '';
+  byId('sAddress').value = profile.registeredAddress || '';
+  byId('sPhone').value = profile.contactPhone || '';
+  byId('sEmail').value = profile.contactEmail || '';
+  byId('sIco').value = profile.ico || '';
+  byId('sDic').value = profile.dic || '';
+  byId('sIcDph').value = profile.icDph || '';
+  byId('sBranchName').value = profile.branchName || '';
+  byId('sBranchAddress').value = profile.branchAddress || '';
+  byId('sCashRegisterCode').value = profile.cashRegisterCode || '';
   byId('sVat').value = settings.sVat;
   byId('sCurrency').value = settings.sCurrency;
   byId('sRounding').value = settings.sRounding;
@@ -375,6 +427,21 @@ function applyToForm() {
   renderHours();
 }
 
+function gatherCompanyProfile() {
+  return {
+    businessName: byId('sName').value.trim(),
+    registeredAddress: byId('sAddress').value.trim(),
+    contactPhone: byId('sPhone').value.trim(),
+    contactEmail: byId('sEmail').value.trim(),
+    ico: byId('sIco').value.trim(),
+    dic: byId('sDic').value.trim(),
+    icDph: byId('sIcDph').value.trim(),
+    branchName: byId('sBranchName').value.trim(),
+    branchAddress: byId('sBranchAddress').value.trim(),
+    cashRegisterCode: byId('sCashRegisterCode').value.trim(),
+  };
+}
+
 function gatherSettings() {
   settings.sName = byId('sName').value;
   settings.sAddress = byId('sAddress').value;
@@ -383,6 +450,9 @@ function gatherSettings() {
   settings.sIco = byId('sIco').value;
   settings.sDic = byId('sDic').value;
   settings.sIcDph = byId('sIcDph').value;
+  settings.sBranchName = byId('sBranchName').value;
+  settings.sBranchAddress = byId('sBranchAddress').value;
+  settings.sCashRegisterCode = byId('sCashRegisterCode').value;
   settings.sVat = parseInt(byId('sVat').value) || 0;
   settings.sCurrency = byId('sCurrency').value;
   settings.sRounding = byId('sRounding').value;
@@ -395,14 +465,22 @@ function gatherSettings() {
   settings.sSecondaryColor = byId('sSecondaryColor').value;
 }
 
-function saveSettingsAction() {
+async function saveSettingsAction() {
   if (!validateForm(_container)) return;
   var btn = byId('saveBtn');
   if (btn) btnLoading(btn);
-  gatherSettings();
-  localStorage.setItem('pos_settings', JSON.stringify(settings));
-  showToast('Nastavenia ulozene', true);
-  if (btn) btnReset(btn);
+  try {
+    companyProfile = await api.updateCompanyProfile(gatherCompanyProfile());
+    syncCompanyProfileToLocalSettings(companyProfile);
+    gatherSettings();
+    localStorage.setItem('pos_settings', JSON.stringify(settings));
+    await loadCompanyProfileCompare();
+    showToast('Nastavenia ulozene', true);
+  } catch (e) {
+    showToast(e.message || 'Chyba pri ukladani nastaveni', 'error');
+  } finally {
+    if (btn) btnReset(btn);
+  }
 }
 
 function resetDefaults() {
@@ -410,6 +488,7 @@ function resetDefaults() {
     settings = JSON.parse(JSON.stringify(DEFAULTS));
     localStorage.removeItem('pos_settings');
     applyToForm();
+    renderCompanyProfileCompare();
     showToast('Nastavenia obnovene na povodne', true);
   }, { type: 'warning', icon: '\u{1F504}', confirmText: 'Obnovit' });
 }
@@ -698,6 +777,62 @@ function renderPortosCard(title, value, details) {
   return html;
 }
 
+function renderCompanyProfileCompare() {
+  var el = byId('companyProfileCompare');
+  if (!el) return;
+
+  if (companyCompareError && !companyCompare) {
+    el.innerHTML = '<div class="error-hint">' + escapeHtml(companyCompareError) + '</div>';
+    return;
+  }
+
+  if (!companyCompare) {
+    el.innerHTML = '<div class="empty-hint">Porovnanie identifikačných údajov zatiaľ nie je dostupné.</div>';
+    return;
+  }
+
+  var summary = companyCompare.summary || {};
+  var local = companyCompare.local || {};
+  var portos = companyCompare.portos || {};
+  var matches = summary.matches || {};
+  var fields = [
+    ['businessName', 'Nazov firmy'],
+    ['ico', 'ICO'],
+    ['dic', 'DIC'],
+    ['icDph', 'IC DPH'],
+    ['registeredAddress', 'Sidlo firmy'],
+    ['branchName', 'Nazov prevadzky'],
+    ['branchAddress', 'Adresa prevadzky'],
+    ['cashRegisterCode', 'Kod pokladnice']
+  ];
+
+  var html = '<div style="border:1px solid rgba(148,163,184,.22);border-radius:16px;padding:14px;background:rgba(255,255,255,.68);">';
+  html += '<div class="flex-row" style="justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">';
+  html += '<div style="font-size:13px;font-weight:700;color:#334155">Porovnanie s Portos</div>';
+  html += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
+  html += '<span style="display:inline-flex;align-items:center;padding:6px 10px;border-radius:999px;font-size:12px;font-weight:700;' + toneStyle(summary.mismatchCount ? 'warning' : 'success') + '">';
+  html += summary.mismatchCount ? ('Nezhoda: ' + summary.mismatchCount) : 'Udaje sa zhoduju';
+  html += '</span>';
+  if (summary.lastComparedAt) {
+    html += '<span class="text-muted" style="font-size:12px">Posledne porovnanie: ' + escapeHtml(formatPortosDate(summary.lastComparedAt)) + '</span>';
+  }
+  html += '</div></div>';
+  html += '<div class="text-muted" style="font-size:12px;line-height:1.5;margin-top:10px">POS tieto identifikačné údaje do Portos nezapisuje. Ak vidíš nezhodu, treba ich upraviť oficiálnym postupom mimo tohto POS.</div>';
+  html += '<div style="margin-top:12px;overflow:auto"><table class="data-table"><thead><tr><th class="data-th">Pole</th><th class="data-th">Nase udaje</th><th class="data-th">Portos</th><th class="data-th">Stav</th></tr></thead><tbody>';
+  fields.forEach(function (field) {
+    var key = field[0];
+    var ok = matches[key];
+    html += '<tr class="data-row">';
+    html += '<td class="data-td">' + escapeHtml(field[1]) + '</td>';
+    html += '<td class="data-td">' + escapeHtml(local[key] || '-') + '</td>';
+    html += '<td class="data-td">' + escapeHtml(portos[key] || '-') + '</td>';
+    html += '<td class="data-td"><span style="display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;font-size:12px;font-weight:700;' + toneStyle(ok ? 'success' : 'warning') + '">' + (ok ? 'Zhoda' : 'Nezhoda') + '</span></td>';
+    html += '</tr>';
+  });
+  html += '</tbody></table></div>';
+  el.innerHTML = html;
+}
+
 function renderPortosDiagnostics() {
   var el = byId('portosDiagnostics');
   if (!el) return;
@@ -739,6 +874,28 @@ function renderPortosDiagnostics() {
   el.innerHTML = html;
 }
 
+async function loadCompanyProfile() {
+  try {
+    companyProfile = await api.getCompanyProfile();
+    syncCompanyProfileToLocalSettings(companyProfile);
+    applyToForm();
+  } catch (e) {
+    showToast(e.message || 'Chyba nacitania firemnych udajov', 'error');
+  }
+}
+
+async function loadCompanyProfileCompare() {
+  companyCompareError = '';
+  try {
+    companyCompare = await api.getCompanyProfilePortosCompare();
+  } catch (e) {
+    companyCompare = null;
+    companyCompareError = e && e.message ? e.message : 'Chyba porovnania s Portos';
+  } finally {
+    renderCompanyProfileCompare();
+  }
+}
+
 async function loadPortosStatus() {
   var btn = byId('btnRefreshPortos');
   portosStatusLoading = true;
@@ -761,6 +918,7 @@ async function loadPortosStatus() {
       btn.textContent = btn.dataset.originalText || 'Obnovit stav';
     }
     renderPortosDiagnostics();
+    loadCompanyProfileCompare();
   }
 }
 
@@ -1058,6 +1216,7 @@ export function init(container) {
   });
 
   loadSettings();
+  loadCompanyProfile();
   loadPrinters();
   applyFiscalStornoPanelRole();
   loadPortosStatus();
@@ -1074,4 +1233,10 @@ export function destroy() {
   adminPrinters = [];
   adminDiscounts = [];
   editingPrinterId = null;
+  portosStatus = null;
+  portosStatusError = '';
+  portosStatusLoading = false;
+  companyProfile = null;
+  companyCompare = null;
+  companyCompareError = '';
 }

@@ -177,6 +177,64 @@ async function printKitchenAndBarTickets(items, orderId) {
   return { printed: items.length, foodCount: foodItems.length, drinkCount: drinkItems.length };
 }
 
+async function printStornoKitchenAndBarTickets(items, orderId) {
+  if (!items || !items.length) return { printed: 0 };
+
+  var context = getPrintContext();
+  var foodItems = items.filter(function (i) { return getItemDest(i.name) === 'kuchyna'; });
+  var drinkItems = items.filter(function (i) { return getItemDest(i.name) !== 'kuchyna'; });
+  var prints = [];
+
+  if (foodItems.length) {
+    prints.push(api.post('/print/kitchen', {
+      dest: 'STORNO KUCHYNA',
+      tableName: context.tableName,
+      staffName: context.staffName,
+      items: foodItems.map(function (i) { return { qty: -Math.abs(i.qty), name: i.name, note: i.note || '' }; }),
+      orderNum: orderId
+    }));
+  }
+
+  if (drinkItems.length) {
+    prints.push(api.post('/print/kitchen', {
+      dest: 'STORNO BAR',
+      tableName: context.tableName,
+      staffName: context.staffName,
+      items: drinkItems.map(function (i) { return { qty: -Math.abs(i.qty), name: i.name, note: i.note || '' }; }),
+      orderNum: orderId
+    }));
+  }
+
+  if (!prints.length) return { printed: 0 };
+  await Promise.all(prints);
+  return { printed: items.length, foodCount: foodItems.length, drinkCount: drinkItems.length };
+}
+
+async function flushPendingStornoTickets() {
+  if (!_pendingStorno.length || !currentOrderId) return { printed: 0, skipped: true };
+
+  var payloadItems = _pendingStorno.map(function (item) {
+    return {
+      menuItemId: item.menuItemId,
+      qty: item.qty,
+      note: item.note || '',
+    };
+  });
+
+  var result = await api.post('/orders/' + currentOrderId + '/send-storno-and-print', {
+    items: payloadItems,
+  });
+
+  if (!result || !result.items || !result.items.length) {
+    _pendingStorno = [];
+    return { printed: 0, skipped: true };
+  }
+
+  await printStornoKitchenAndBarTickets(result.items, currentOrderId);
+  _pendingStorno = [];
+  return { printed: result.items.length };
+}
+
 async function autoSendPendingItemsBeforePayment() {
   var pendingItems = getPendingSendItems(getOrder());
   if (!pendingItems.length) return { printed: 0, skipped: true };
@@ -230,19 +288,9 @@ async function confirmPayment() {
       return;
     }
 
-    // Print storno bon(s) for qty reductions on sent items.
-    if (_pendingStorno.length && currentOrderId) {
-      var table = TABLES.find(function (t) { return t.id === selectedTableId; });
-      var tableName = table ? table.name : String(selectedTableId);
-      var user = api.getUser();
-      var staffName = user ? user.name : '';
-      var foodStorno = _pendingStorno.filter(function (i) { return getItemDest(i.name) === 'kuchyna'; });
-      var drinkStorno = _pendingStorno.filter(function (i) { return getItemDest(i.name) !== 'kuchyna'; });
-      var stornoPrints = [];
-      if (foodStorno.length) stornoPrints.push(api.post('/print/kitchen', { dest: 'STORNO KUCHYNA', tableName: tableName, staffName: staffName, items: foodStorno.map(function (i) { return { qty: -i.qty, name: i.name, note: i.note }; }), orderNum: currentOrderId }));
-      if (drinkStorno.length) stornoPrints.push(api.post('/print/kitchen', { dest: 'STORNO BAR', tableName: tableName, staffName: staffName, items: drinkStorno.map(function (i) { return { qty: -i.qty, name: i.name, note: i.note }; }), orderNum: currentOrderId }));
-      Promise.all(stornoPrints).catch(function (e) { console.error('Storno print error:', e); });
-      _pendingStorno = [];
+    var stornoResult = await flushPendingStornoTickets();
+    if (stornoResult && stornoResult.printed) {
+      showToast('Storno bolo odoslane na kuchynu/bar', 'success');
     }
 
     var autoSendResult = await autoSendPendingItemsBeforePayment();
@@ -334,18 +382,9 @@ async function sendToKitchen() {
   await syncOrderToServer();
 
   try {
-    if (_pendingStorno.length && currentOrderId) {
-      var table = TABLES.find(function(t) { return t.id === selectedTableId; });
-      var tableName = table ? table.name : String(selectedTableId);
-      var user = api.getUser();
-      var staffName = user ? user.name : '';
-      var foodStorno = _pendingStorno.filter(function(i) { return getItemDest(i.name) === 'kuchyna'; });
-      var drinkStorno = _pendingStorno.filter(function(i) { return getItemDest(i.name) !== 'kuchyna'; });
-      var stornoPrints = [];
-      if (foodStorno.length) stornoPrints.push(api.post('/print/kitchen', { dest: 'STORNO KUCHYNA', tableName: tableName, staffName: staffName, items: foodStorno.map(function(i){ return { qty: -i.qty, name: i.name, note: i.note }; }), orderNum: currentOrderId }));
-      if (drinkStorno.length) stornoPrints.push(api.post('/print/kitchen', { dest: 'STORNO BAR', tableName: tableName, staffName: staffName, items: drinkStorno.map(function(i){ return { qty: -i.qty, name: i.name, note: i.note }; }), orderNum: currentOrderId }));
-      Promise.all(stornoPrints).catch(function(e) { console.error('Storno print error:', e); });
-      _pendingStorno = [];
+    var stornoResult = await flushPendingStornoTickets();
+    if (stornoResult && stornoResult.printed) {
+      showToast('Storno bolo odoslane na kuchynu/bar', 'success');
     }
 
     var order = getOrder();

@@ -146,9 +146,9 @@ function addToOrder(name, emoji, price) {
     var html = '<div class="order-item-wrap" data-item-id="' + changedItem.id + '" ontouchstart="swipeStart(event,this)" ontouchmove="swipeMove(event,this)" ontouchend="swipeEnd(event,this)">' +
       '<div class="order-item-inner"><span class="order-item-emoji">' + emoji + '</span>' +
       '<div class="order-item-info"><div class="order-item-name">' + name + '</div></div>' +
-      '<div class="order-item-qty"><button class="qty-btn" onclick="changeQty(\'' + esc + '\', -1)" onpointerdown="startQtyHold(\'' + esc + '\', -1)">&minus;</button><span class="qty-val">1</span><button class="qty-btn" onclick="changeQty(\'' + esc + '\', 1)" onpointerdown="startQtyHold(\'' + esc + '\', 1)">&plus;</button></div>' +
+      '<div class="order-item-qty"><button class="qty-btn" onclick="changeQty(\'' + esc + '\', -1, ' + changedItem.id + ')" onpointerdown="startQtyHold(\'' + esc + '\', -1, ' + changedItem.id + ')">&minus;</button><span class="qty-val">1</span><button class="qty-btn" onclick="changeQty(\'' + esc + '\', 1, ' + changedItem.id + ')" onpointerdown="startQtyHold(\'' + esc + '\', 1, ' + changedItem.id + ')">&plus;</button></div>' +
       '<div class="order-item-total">' + fmt(price) + '</div></div>' +
-      '<div class="order-item-swipe-left"><button class="swipe-btn swipe-btn-move" onclick="showMoveModal(' + changedItem.id + ')" aria-label="Presunut polozku">&#8599;</button><button class="swipe-btn swipe-btn-note" onclick="openNoteModal(\'' + esc + '\',' + changedItem.id + ')" aria-label="Poznamka">&#9998;</button><button class="swipe-btn swipe-btn-del" onclick="removeItem(\'' + esc + '\')" aria-label="Odstranit polozku">&#10005;</button></div></div>';
+      '<div class="order-item-swipe-left"><button class="swipe-btn swipe-btn-move" onclick="enterMoveMode(' + changedItem.id + ')" aria-label="Presunut polozku">&#8599;</button><button class="swipe-btn swipe-btn-note" onclick="openNoteModal(\'' + esc + '\',' + changedItem.id + ')" aria-label="Poznamka">&#9998;</button><button class="swipe-btn swipe-btn-del" onclick="removeItem(\'' + esc + '\')" aria-label="Odstranit polozku">&#10005;</button></div></div>';
     c.insertAdjacentHTML('afterbegin', html);
   }
 
@@ -162,6 +162,9 @@ function addToOrder(name, emoji, price) {
 
   // Update only this item's product card badge
   updateQtyBadges(menuItemId);
+  // Flash the product card to confirm addition
+  var addedCard=document.querySelector('.product-card[data-name="'+name.replace(/"/g,'\\"')+'"]');
+  if(addedCard){addedCard.classList.remove('just-added');void addedCard.offsetWidth;addedCard.classList.add('just-added');setTimeout(function(){addedCard.classList.remove('just-added')},400)}
   var btnSend = document.getElementById('btnSend');
   if (btnSend) btnSend.disabled = false;
 
@@ -236,10 +239,55 @@ async function syncOrderToServer() {
   }
 }
 
-function changeQty(name,d){
+function _findOrderItemForQtyChange(order, name, itemId) {
+  if (itemId != null) {
+    var byId = order.find(function(o) { return o.id === itemId; });
+    if (byId) return byId;
+  }
+  return order.find(function(o) { return o.name === name; });
+}
+
+function _increaseSentItemAsUnsentDelta(order, item, delta) {
+  var unsentTwin = order.find(function(candidate) {
+    return !candidate.sent &&
+      candidate.menuItemId === item.menuItemId &&
+      (candidate.note || '') === (item.note || '');
+  });
+
+  if (unsentTwin) {
+    unsentTwin.qty += delta;
+    unsentTwin._localQtyChanged = true;
+    return unsentTwin;
+  }
+
+  var newItem = {
+    name: item.name,
+    emoji: item.emoji,
+    price: item.price,
+    qty: delta,
+    note: item.note || '',
+    menuItemId: item.menuItemId,
+    id: _getNextLocalOrderItemId(),
+    sent: false,
+  };
+  order.push(newItem);
+  return newItem;
+}
+
+function changeQty(name,d,itemId){
   const order = getOrder();
-  const item = order.find(o => o.name === name);
+  const item = _findOrderItemForQtyChange(order, name, itemId);
   if (!item) return;
+
+  if (d > 0 && item.sent) {
+    _increaseSentItemAsUnsentDelta(order, item, d);
+    setOrder(order);
+    _orderDirty = true;
+    updateTotals();
+    updateQtyBadges(item.menuItemId);
+    _scheduleRender();
+    return;
+  }
 
   // Track storno for sent items being reduced
   var sentQty = item._sentQty || 0;
@@ -440,17 +488,24 @@ async function doClearOrder(){
   }
 }
 
+function _activateLoadedOrder(orderId) {
+  var order = tableOrdersList.find(function(o) { return o.id === orderId; });
+  if (!order) return false;
+  currentOrderId = orderId;
+  currentOrderVersion = order.version || null;
+  tableOrders[selectedTableId] = order.items.map(function(i) {
+    return {
+      id: i.id, name: i.name, emoji: i.emoji, price: i.price,
+      qty: i.qty, note: i.note, menuItemId: i.menuItemId,
+      orderId: order.id, desc: i.desc || '', sent: !!i.sent,
+      _sentQty: i.sent ? i.qty : 0
+    };
+  });
+  return true;
+}
+
 async function switchAccount(orderId){
-  const order=tableOrdersList.find(o=>o.id===orderId);
-  if(!order)return;
-  currentOrderId=orderId;
-  currentOrderVersion=order.version||null;
-  tableOrders[selectedTableId]=order.items.map(i=>({
-    id:i.id,name:i.name,emoji:i.emoji,price:i.price,
-    qty:i.qty,note:i.note,menuItemId:i.menuItemId,
-    orderId:order.id,desc:i.desc||'',sent:!!i.sent,
-    _sentQty:i.sent?i.qty:0
-  }));
+  if(!_activateLoadedOrder(orderId)) return;
   renderOrder();if(isMobile())renderMobOrder();
 }
 async function newAccount(){
@@ -531,12 +586,19 @@ async function saveNote(){
   }
 }
 
-function splitBill(){
-  if(!getOrder().length||!currentOrderId){showToast('Prazdna objednavka');return}
-  const total=getOrderTotal();
-  document.getElementById('splitCount').value=2;
-  document.getElementById('splitPreview').textContent='Kazdy plati: '+fmt(total/2);
-  document.getElementById('splitModal').classList.add('show');
+async function splitBill(){
+  if(!getOrder().length){showToast('Prazdna objednavka');return}
+  try{
+    if(!currentOrderId||_orderDirty) await syncOrderToServer();
+    if(!currentOrderId){showToast('Objednavku sa nepodarilo pripravit');return}
+    const total=getOrderTotal();
+    document.getElementById('splitCount').value=2;
+    document.getElementById('splitPreview').textContent='Kazdy plati: '+fmt(total/2);
+    document.getElementById('splitModal').classList.add('show');
+  }catch(e){
+    console.error('splitBill error:', e);
+    showToast('Chyba: ' + e.message);
+  }
 }
 
 document.getElementById('splitCount')?.addEventListener('input',function(){
@@ -563,115 +625,106 @@ function closeSplitModal(){
   document.getElementById('splitModal').classList.remove('show');
 }
 
-// === Move items between tables ===
+// === Inline Move Mode (Tap-to-Move) ===
 var moveSelectedItems = [];
 var moveMode = false;
 var moveSourceTableId = null;
 var moveSourceOrderId = null;
 
-function showMoveModal(itemId) {
-  var order = getOrder();
-  moveSelectedItems = itemId ? [itemId] : [];
-  moveSourceTableId = selectedTableId;
+function enterMoveMode(preselectedItemId) {
+  moveMode = true;
+  moveSelectedItems = preselectedItemId ? [preselectedItemId] : [];
   moveSourceOrderId = currentOrderId;
-
-  var itemsHtml = order.map(function(o) {
-    var sel = moveSelectedItems.indexOf(o.id) >= 0 ? ' selected' : '';
-    return '<div class="move-item-row' + sel + '" onclick="toggleMoveItem(' + o.id + ',this)">' +
-      '<div class="move-check">&#10003;</div>' +
-      '<span style="font-size:16px">' + o.emoji + '</span>' +
-      '<span style="flex:1;font-size:13px;font-weight:600">' + o.qty + 'x ' + o.name + '</span>' +
-      '<span style="font-size:12px;color:var(--color-accent)">' + fmt(o.price * o.qty) + '</span>' +
-    '</div>';
-  }).join('');
-  document.getElementById('moveItemsList').innerHTML = itemsHtml;
-  updateMoveBtns();
-  document.getElementById('moveModal').classList.add('show');
+  moveSourceTableId = selectedTableId;
+  document.querySelector('.order-panel').classList.add('move-mode');
+  renderOrder(); if(isMobile()) renderMobOrder();
 }
 
-function toggleMoveItem(itemId, el) {
+function exitMoveMode() {
+  moveMode = false;
+  moveSelectedItems = [];
+  moveSourceOrderId = null;
+  moveSourceTableId = null;
+  document.querySelector('.order-panel').classList.remove('move-mode');
+  closeTablePicker();
+  renderOrder(); if(isMobile()) renderMobOrder();
+}
+
+function toggleMoveSelection(itemId) {
   var idx = moveSelectedItems.indexOf(itemId);
-  if (idx >= 0) { moveSelectedItems.splice(idx, 1); el.classList.remove('selected'); }
-  else { moveSelectedItems.push(itemId); el.classList.add('selected'); }
-  updateMoveBtns();
+  if (idx >= 0) moveSelectedItems.splice(idx, 1);
+  else moveSelectedItems.push(itemId);
+  renderOrder(); if(isMobile()) renderMobOrder();
 }
 
-function updateMoveBtns() {
-  var hasItems = moveSelectedItems.length > 0;
-  var hasMultipleAccounts = tableOrdersList.length > 1;
-  document.getElementById('moveToAccountBtn').classList.toggle('pos-hidden', !(hasItems && hasMultipleAccounts));
-  document.getElementById('moveToTableBtn').classList.toggle('pos-hidden', !hasItems);
-}
-
-// Option A: move to another account on SAME table
-function moveToAccount() {
-  document.getElementById('moveModal').classList.remove('show');
-  var list = tableOrdersList.filter(function(o) { return o.id !== currentOrderId; });
-  document.getElementById('moveAccountList').innerHTML = list.map(function(o) {
-    return '<div class="move-table-row" onclick="confirmMoveToAccount(' + o.id + ')">' +
-      '<span style="font-weight:600">' + (o.label || 'Ucet') + '</span>' +
-      '<span style="color:var(--color-text-sec);font-size:12px">' + (o.items ? o.items.length + ' pol.' : '') + '</span>' +
-    '</div>';
-  }).join('');
-  document.getElementById('moveAccountModal').classList.add('show');
-}
-
-async function confirmMoveToAccount(targetOrderId) {
+// Move selected items to a target account tab (inline, no modal)
+async function moveToTab(targetOrderId) {
+  if (!moveSelectedItems.length) { showToast('Vyberte polozky'); return; }
   try {
+    var count = moveSelectedItems.length;
     await api.post('/orders/' + moveSourceOrderId + '/move-items', {
       itemIds: moveSelectedItems, targetTableId: selectedTableId, targetOrderId: targetOrderId
     });
-    document.getElementById('moveAccountModal').classList.remove('show');
-    await loadTableOrder(selectedTableId, true);
-    currentOrderId = targetOrderId;
-    var _movedOrder = tableOrdersList.find(function(o){ return o.id === targetOrderId; });
-    currentOrderVersion = _movedOrder ? (_movedOrder.version || null) : null;
-    renderOrder();
-    if (isMobile()) renderMobOrder();
-    showToast(moveSelectedItems.length + ' pol. presunutych', true);
+    // Clear move state without rendering (avoid flicker before data refresh)
+    moveMode = false;
     moveSelectedItems = [];
+    moveSourceOrderId = null;
+    moveSourceTableId = null;
+    document.querySelector('.order-panel').classList.remove('move-mode');
+    await loadTableOrder(selectedTableId, true);
+    _activateLoadedOrder(targetOrderId);
+    renderOrder(); if(isMobile()) renderMobOrder();
+    showToast(count + ' pol. presunutych', true);
   } catch(e) { showToast('Chyba: ' + e.message); }
 }
 
-async function moveToNewAccount() {
+// Move to a brand new account (inline target)
+async function moveToNewAccountInline() {
+  if (!moveSelectedItems.length) { showToast('Vyberte polozky'); return; }
   try {
     var label = 'Ucet ' + (tableOrdersList.length + 1);
     var newOrder = await api.post('/orders', { tableId: selectedTableId, items: [], label: label });
-    await confirmMoveToAccount(newOrder.id);
+    await moveToTab(newOrder.id);
   } catch(e) { showToast('Chyba: ' + e.message); }
 }
 
-function closeMoveAccountModal() {
-  document.getElementById('moveAccountModal').classList.remove('show');
+// Table picker for cross-table moves
+function showTablePicker() {
+  if (!moveSelectedItems.length) { showToast('Vyberte polozky'); return; }
+  var sl = { free: 'Volny', occupied: 'Obsad.', reserved: 'Rez.', dirty: 'Spinavy' };
+  var grid = TABLES.filter(function(t) { return t.id !== selectedTableId; }).map(function(t) {
+    var st = t.status || 'free';
+    return '<button class="tp-chip s-' + st + '" onclick="handleMoveToTable(' + t.id + ')">' +
+      '<span class="tp-name">' + escHtml(t.name) + '</span>' +
+      '<span class="tp-status">' + (sl[st] || st) + '</span>' +
+    '</button>';
+  }).join('');
+  document.getElementById('tablePickerGrid').innerHTML = grid;
+  document.getElementById('tablePicker').classList.add('show');
 }
 
-// Option B: move to ANOTHER TABLE — 2-step with table view
-function moveSelectTable() {
-  document.getElementById('moveModal').classList.remove('show');
-  moveMode = true;
-  document.getElementById('moveBannerCount').textContent = moveSelectedItems.length;
-  document.getElementById('moveBanner').classList.add('show');
-  if (!isMobile()) { switchView('tables'); }
-  else { switchMobTab('mobTabTables'); }
-}
-
-function cancelMoveMode() {
-  moveMode = false;
-  moveSelectedItems = [];
-  moveSourceTableId = null;
-  moveSourceOrderId = null;
-  document.getElementById('moveBanner').classList.remove('show');
+function closeTablePicker() {
+  var el = document.getElementById('tablePicker');
+  if (el) el.classList.remove('show');
 }
 
 async function handleMoveToTable(targetTableId) {
   if (targetTableId === moveSourceTableId) { showToast('Vyberte INY stol'); return; }
+  if (!moveSelectedItems.length) { showToast('Vyberte polozky'); return; }
   try {
+    var count = moveSelectedItems.length;
     await api.post('/orders/' + moveSourceOrderId + '/move-items', {
       itemIds: moveSelectedItems, targetTableId: targetTableId
     });
     var targetTable = TABLES.find(function(t) { return t.id === targetTableId; });
-    showToast(moveSelectedItems.length + ' pol. → ' + (targetTable ? targetTable.name : 'stol'), true);
-    cancelMoveMode();
+    showToast(count + ' pol. \u2192 ' + (targetTable ? targetTable.name : 'stol'), true);
+    // Clear move state without extra render (data will be refreshed below)
+    moveMode = false;
+    moveSelectedItems = [];
+    moveSourceOrderId = null;
+    moveSourceTableId = null;
+    document.querySelector('.order-panel').classList.remove('move-mode');
+    closeTablePicker();
     await loadTableOrder(selectedTableId, true);
     // Refresh target table cache for correct status display
     if (targetTableId !== selectedTableId) {
@@ -686,11 +739,6 @@ async function handleMoveToTable(targetTableId) {
     renderFloor();
     if (isMobile()) renderMobTables();
   } catch(e) { showToast('Chyba: ' + e.message); }
-}
-
-function closeMoveModal() {
-  document.getElementById('moveModal').classList.remove('show');
-  moveSelectedItems = [];
 }
 
 // === MERGE ACCOUNTS ===
@@ -723,9 +771,7 @@ async function doMergeAccounts() {
       try { await api.del('/orders/' + toMerge[i].id); } catch(e) {}
     }
     await loadTableOrder(selectedTableId, true);
-    currentOrderId = targetOrderId;
-    var _mergedOrder = tableOrdersList.find(function(o){ return o.id === targetOrderId; });
-    currentOrderVersion = _mergedOrder ? (_mergedOrder.version || null) : null;
+    _activateLoadedOrder(targetOrderId);
     renderOrder();
     if (isMobile()) renderMobOrder();
     showToast('Ucty spojene', true);

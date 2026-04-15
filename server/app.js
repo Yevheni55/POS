@@ -24,6 +24,8 @@ import inventoryRoutes from './routes/inventory.js';
 import invoiceScanRoutes from './routes/invoice-scan.js';
 import ttlockRoutes from './routes/ttlock.js';
 import portosRoutes from './routes/portos.js';
+import companyProfileRoutes from './routes/company-profile.js';
+import fiscalDocumentsRoutes from './routes/fiscal-documents.js';
 import { idempotency } from './middleware/idempotency.js';
 import { ALLOWED_ORIGINS, corsOriginCallback } from './lib/cors-origin.js';
 
@@ -86,6 +88,8 @@ app.use('/api/inventory', auth, inventoryRoutes);
 app.use('/api/invoice-scan', auth, invoiceScanRoutes);
 app.use('/api/ttlock', auth, ttlockRoutes);
 app.use('/api/integrations/portos', auth, portosRoutes);
+app.use('/api/company-profile', auth, companyProfileRoutes);
+app.use('/api/fiscal-documents', auth, fiscalDocumentsRoutes);
 
 // SPA fallback
 app.get('*', (req, res) => {

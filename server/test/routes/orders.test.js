@@ -174,6 +174,50 @@ describe('POST /api/orders — create order', () => {
   });
 });
 
+describe('POST /api/orders/:id/send-and-print â€” merge repeated sent rows', () => {
+  let fixtures;
+
+  before(async () => {
+    await truncateAll();
+    fixtures = await seed();
+  });
+
+  it('merges a newly sent duplicate item back into the existing sent row', async () => {
+    const orderRes = await createOrder({
+      tableId: fixtures.table1.id,
+      items: [{ menuItemId: fixtures.itemPivo.id, qty: 1 }],
+    });
+    const orderId = orderRes.body.id;
+
+    let res = await request
+      .post(`/api/orders/${orderId}/send-and-print`)
+      .set('Authorization', `Bearer ${tokens.cisnik()}`);
+
+    assert.equal(res.status, 200);
+    assert.equal(res.body.printed, 1);
+
+    res = await request
+      .post(`/api/orders/${orderId}/items`)
+      .set('Authorization', `Bearer ${tokens.cisnik()}`)
+      .send({ items: [{ menuItemId: fixtures.itemPivo.id, qty: 1 }] });
+
+    assert.equal(res.status, 201);
+
+    res = await request
+      .post(`/api/orders/${orderId}/send-and-print`)
+      .set('Authorization', `Bearer ${tokens.cisnik()}`);
+
+    assert.equal(res.status, 200);
+    assert.equal(res.body.printed, 1);
+
+    const items = await fetchOrderItems(orderId);
+    const sentBeerRows = items.filter((item) => item.menuItemId === fixtures.itemPivo.id && item.sent === true);
+
+    assert.equal(sentBeerRows.length, 1, 'duplicate sent rows should be merged into one');
+    assert.equal(sentBeerRows[0].qty, 2, 'merged sent row should keep the summed quantity');
+  });
+});
+
 // ---------------------------------------------------------------------------
 // POST /api/orders/:id/items — add items
 // ---------------------------------------------------------------------------

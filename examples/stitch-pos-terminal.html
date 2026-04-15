@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>NOCTURNAL POS - Terminal</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;700;800&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "surface-variant": "#262626",
+                      "surface-bright": "#2c2c2c",
+                      "secondary-fixed": "#4af8e3",
+                      "surface-container-high": "#20201f",
+                      "on-primary-fixed-variant": "#40007a",
+                      "on-tertiary-container": "#523700",
+                      "on-primary": "#440080",
+                      "surface-tint": "#c799ff",
+                      "primary": "#c799ff",
+                      "tertiary-fixed": "#feb300",
+                      "tertiary-dim": "#eda600",
+                      "on-secondary-fixed-variant": "#00655b",
+                      "inverse-on-surface": "#565555",
+                      "surface-container": "#1a1a1a",
+                      "on-primary-container": "#340064",
+                      "on-error-container": "#ffb2b9",
+                      "on-tertiary": "#5e4000",
+                      "surface": "#0e0e0e",
+                      "on-surface": "#ffffff",
+                      "on-tertiary-fixed-variant": "#5e4000",
+                      "error-container": "#a70138",
+                      "on-secondary": "#005b51",
+                      "surface-dim": "#0e0e0e",
+                      "on-secondary-container": "#dcfff8",
+                      "secondary-fixed-dim": "#33e9d5",
+                      "on-secondary-fixed": "#00463f",
+                      "on-tertiary-fixed": "#382400",
+                      "inverse-surface": "#fcf9f8",
+                      "surface-container-lowest": "#000000",
+                      "primary-container": "#bc87fe",
+                      "inverse-primary": "#7744b5",
+                      "secondary": "#4af8e3",
+                      "secondary-container": "#006a60",
+                      "surface-container-low": "#131313",
+                      "on-error": "#490013",
+                      "tertiary-fixed-dim": "#eda600",
+                      "outline": "#767575",
+                      "secondary-dim": "#33e9d5",
+                      "error-dim": "#d73357",
+                      "surface-container-highest": "#262626",
+                      "tertiary": "#ffc563",
+                      "on-background": "#ffffff",
+                      "outline-variant": "#484847",
+                      "primary-fixed-dim": "#af7aef",
+                      "error": "#ff6e84",
+                      "on-primary-fixed": "#000000",
+                      "tertiary-container": "#feb300",
+                      "background": "#0e0e0e",
+                      "primary-fixed": "#bc87fe",
+                      "primary-dim": "#ba85fb",
+                      "on-surface-variant": "#adaaaa"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "fontFamily": {
+                      "headline": ["Manrope"],
+                      "body": ["Inter"],
+                      "label": ["Inter"]
+              }
+            },
+          },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-panel {
+            background: rgba(38, 38, 38, 0.6);
+            backdrop-filter: blur(20px);
+        }
+        .order-scroll::-webkit-scrollbar {
+            width: 4px;
+        }
+        .order-scroll::-webkit-scrollbar-thumb {
+            background: #262626;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body class="bg-surface text-on-surface font-body overflow-hidden">
+<!-- TopNavBar -->
+<header class="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-6 h-16 bg-[#131313] border-none">
+<div class="flex items-center gap-8">
+<h1 class="font-['Manrope'] font-black text-xl italic text-[#c799ff] tracking-tight">NOCTURNAL POS</h1>
+<div class="hidden md:flex gap-6 items-center">
+<div class="flex items-center gap-2 text-[#c799ff] border-b-2 border-[#c799ff] pb-1 cursor-pointer">
+<span class="material-symbols-outlined text-sm">point_of_sale</span>
+<span class="font-headline text-sm font-bold uppercase tracking-wider">Terminal</span>
+</div>
+<div class="flex items-center gap-2 text-[#adaaaa] hover:text-white cursor-pointer transition-colors">
+<span class="material-symbols-outlined text-sm">grid_view</span>
+<span class="font-headline text-sm font-bold uppercase tracking-wider">Table Map</span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-3 px-4 py-1.5 bg-surface-container-high rounded-full border border-outline-variant/10">
+<span class="material-symbols-outlined text-secondary-fixed text-sm" style="font-variation-settings: 'FILL' 1;">circle</span>
+<span class="text-xs font-bold tracking-widest text-on-surface-variant">SERVER: ELARA</span>
+</div>
+<div class="flex gap-2">
+<button class="p-2 text-[#adaaaa] hover:bg-[#262626] transition-colors rounded-lg">
+<span class="material-symbols-outlined">wifi</span>
+</button>
+<button class="p-2 text-[#adaaaa] hover:bg-[#262626] transition-colors rounded-lg">
+<span class="material-symbols-outlined">battery_full</span>
+</button>
+</div>
+<img alt="Server Profile Avatar" class="w-8 h-8 rounded-full border border-primary/20" data-alt="Close-up portrait of a professional server in a stylish dark uniform with soft ambient lounge lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCPpOpdO0cNoh_WoocG5wy7JYSnCl9NigLzoBgtR_s4nfMLaqerTTpQBSP0sjYZhenM_jAeySw4jhrfJmyqY4OuVjwJk9Q5UX08YJ2LYYbeAsNg-IVX84g4wbAHMmFAcDIWGDVO8VfoNiUg8D8G_QF9GE7REYQq6srLey7TVpf0fG0ZYncZjYdcvlNNj_OAhvDsnpzhg5DUHiNDPSh1HxoFzpwI4f19XufBVhUHwk_x6f0PTQaiIZJIwM78AaPXbo7WamkdOt0eefA"/>
+</div>
+</header>
+<!-- SideNavBar: Simplified -->
+<aside class="fixed left-0 top-16 h-[calc(100vh-64px)] w-64 bg-[#131313] flex flex-col py-4 shadow-[40px_0_60px_-10px_rgba(0,0,0,0.4)] z-40">
+<div class="px-6 mb-8 flex items-center gap-4">
+<div class="w-10 h-10 rounded-xl bg-surface-container-highest flex items-center justify-center">
+<span class="material-symbols-outlined text-primary">local_bar</span>
+</div>
+<div>
+<p class="text-sm font-bold text-on-surface">Main Bar</p>
+<p class="text-[10px] uppercase tracking-widest text-on-surface-variant">Shift: Night</p>
+</div>
+</div>
+<nav class="flex-1 flex flex-col gap-1">
+<div class="flex items-center gap-4 bg-[#262626] text-[#c799ff] rounded-lg px-4 py-3 mx-2 cursor-pointer transition-all active:translate-x-1">
+<span class="material-symbols-outlined">point_of_sale</span>
+<span class="font-medium text-sm">Terminal</span>
+</div>
+<div class="flex items-center gap-4 text-[#adaaaa] hover:bg-[#20201f] hover:text-white rounded-lg px-4 py-3 mx-2 cursor-pointer transition-all active:translate-x-1">
+<span class="material-symbols-outlined">grid_view</span>
+<span class="font-medium text-sm">Table Map</span>
+</div>
+</nav>
+<div class="mt-auto px-2 space-y-1">
+<div class="flex items-center gap-4 text-[#adaaaa] hover:bg-[#20201f] hover:text-white rounded-lg px-4 py-3 cursor-pointer transition-all">
+<span class="material-symbols-outlined">help</span>
+<span class="font-medium text-sm">Support</span>
+</div>
+<div class="flex items-center gap-4 text-[#adaaaa] hover:bg-[#20201f] hover:text-white rounded-lg px-4 py-3 cursor-pointer transition-all">
+<span class="material-symbols-outlined">lock</span>
+<span class="font-medium text-sm">Lock</span>
+</div>
+<button class="w-full mt-4 bg-error-container/20 text-error hover:bg-error-container/30 transition-colors py-3 rounded-lg font-bold text-xs uppercase tracking-widest">
+            Clock Out
+        </button>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="ml-64 mt-16 h-[calc(100vh-64px)] grid grid-cols-12 gap-0 overflow-hidden">
+<!-- Left: Product Categories (Secondary Navigation) -->
+<div class="col-span-1 bg-surface-container-low flex flex-col items-center py-6 gap-6 border-r border-outline-variant/5">
+<div class="flex flex-col items-center gap-1 group cursor-pointer">
+<div class="w-12 h-12 rounded-xl bg-primary flex items-center justify-center text-on-primary shadow-lg shadow-primary/20 transition-transform active:scale-90">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">coffee</span>
+</div>
+<span class="text-[10px] font-bold text-primary uppercase tracking-tighter">Coffee</span>
+</div>
+<div class="flex flex-col items-center gap-1 group cursor-pointer opacity-40 hover:opacity-100 transition-opacity">
+<div class="w-12 h-12 rounded-xl bg-surface-container-highest flex items-center justify-center text-on-surface-variant group-hover:bg-surface-bright transition-colors active:scale-90">
+<span class="material-symbols-outlined">coffee</span>
+</div>
+<span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-tighter">Tea</span>
+</div>
+<div class="flex flex-col items-center gap-1 group cursor-pointer opacity-40 hover:opacity-100 transition-opacity">
+<div class="w-12 h-12 rounded-xl bg-surface-container-highest flex items-center justify-center text-on-surface-variant group-hover:bg-surface-bright transition-colors active:scale-90">
+<span class="material-symbols-outlined">liquor</span>
+</div>
+<span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-tighter">Cocktails</span>
+</div>
+<div class="flex flex-col items-center gap-1 group cursor-pointer opacity-40 hover:opacity-100 transition-opacity">
+<div class="w-12 h-12 rounded-xl bg-surface-container-highest flex items-center justify-center text-on-surface-variant group-hover:bg-surface-bright transition-colors active:scale-90">
+<span class="material-symbols-outlined">sports_bar</span>
+</div>
+<span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-tighter">Beer</span>
+</div>
+<div class="flex flex-col items-center gap-1 group cursor-pointer opacity-40 hover:opacity-100 transition-opacity">
+<div class="w-12 h-12 rounded-xl bg-surface-container-highest flex items-center justify-center text-on-surface-variant group-hover:bg-surface-bright transition-colors active:scale-90">
+<span class="material-symbols-outlined">wine_bar</span>
+</div>
+<span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-tighter">Wine</span>
+</div>
+<div class="flex flex-col items-center gap-1 group cursor-pointer opacity-40 hover:opacity-100 transition-opacity">
+<div class="w-12 h-12 rounded-xl bg-surface-container-highest flex items-center justify-center text-on-surface-variant group-hover:bg-surface-bright transition-colors active:scale-90">
+<span class="material-symbols-outlined">restaurant</span>
+</div>
+<span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-tighter">Food</span>
+</div>
+</div>
+<!-- Center: Main Product Grid -->
+<div class="col-span-7 bg-surface p-6 overflow-y-auto">
+<div class="flex justify-between items-center mb-8">
+<div>
+<h2 class="font-headline text-2xl font-bold tracking-tight">Espresso &amp; Coffee</h2>
+<p class="text-on-surface-variant text-sm">Premium roasted beans &amp; seasonal blends</p>
+</div>
+<div class="flex bg-surface-container-highest rounded-lg p-1">
+<button class="px-4 py-1.5 text-xs font-bold uppercase tracking-widest bg-surface-bright rounded-md text-on-surface shadow-sm">All</button>
+<button class="px-4 py-1.5 text-xs font-bold uppercase tracking-widest text-on-surface-variant hover:text-on-surface">Hot</button>
+<button class="px-4 py-1.5 text-xs font-bold uppercase tracking-widest text-on-surface-variant hover:text-on-surface">Cold</button>
+</div>
+</div>
+<div class="grid grid-cols-3 gap-6">
+<!-- Product Card 1 -->
+<div class="bg-surface-container-high rounded-xl p-4 flex flex-col gap-4 border border-outline-variant/10 hover:border-primary/30 transition-all cursor-pointer group active:scale-95">
+<div class="relative w-full h-32 rounded-lg overflow-hidden">
+<img alt="Espresso" class="w-full h-full object-cover transition-transform group-hover:scale-105" data-alt="Rich dark espresso with thick crema in a white ceramic cup on a dark textured background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBwFkLno7zUr2wOr_yPV0lfZqxbjELqOeWINuzdGXTCJjN-5iGV7TXK5RO3brHvkcC8UhzIAnWJ9wwvzgxxRkOP0hI0BrBdqwL9FJJ3H1mP2iiwSs8S18d11inikT0mWf1LgL8OvpmYmi6oMivKinAlPs9rlwYrP_kz6jqtJyvuChMYHVWUJVNnug-A7WvEXqOM1T731wqnUMNG91R8fLZBpJvCUszR_tXA58Oxf3B2OJG44uYSxxeewRBGP6PZMvZHrHwe7lvMF14"/>
+<div class="absolute top-2 right-2 px-2 py-1 bg-surface/80 backdrop-blur-md rounded-md">
+<span class="text-primary font-headline font-bold text-sm">$4.50</span>
+</div>
+</div>
+<div>
+<h3 class="font-bold text-on-surface group-hover:text-primary transition-colors">Double Espresso</h3>
+<p class="text-xs text-on-surface-variant mt-1 leading-relaxed">Full-bodied House Blend with notes of dark chocolate.</p>
+</div>
+</div>
+<!-- Product Card 2 -->
+<div class="bg-surface-container-high rounded-xl p-4 flex flex-col gap-4 border border-outline-variant/10 hover:border-primary/30 transition-all cursor-pointer group active:scale-95">
+<div class="relative w-full h-32 rounded-lg overflow-hidden">
+<img alt="Flat White" class="w-full h-full object-cover transition-transform group-hover:scale-105" data-alt="Creamy flat white coffee with intricate tulip latte art in a grey artisanal ceramic cup" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCmAU6tOBq9LisBtQdcTX2L0N3MU3NgMGfJQo9PupxTYWYwnpaywr5UFJqGzXLiusKca0q7sMBNok4rVOi83awLp9sFbPfRSf53ab82EGyxG9lwZxcyqlcin1xpBZcRw8fb2DLeyxIw-pox0gEaslTOXvf-_viUFstKeZUxUF_GtjWQpTi4d7mg2P0nI1vG7iDr3th5-JDIMc-XF1qiRe0LnF60PusVoR-CAG04i0p4WYelkgpyzZTUDXuqbP4gmlFDJL6a8sMgtW0"/>
+<div class="absolute top-2 right-2 px-2 py-1 bg-surface/80 backdrop-blur-md rounded-md">
+<span class="text-primary font-headline font-bold text-sm">$5.75</span>
+</div>
+</div>
+<div>
+<h3 class="font-bold text-on-surface group-hover:text-primary transition-colors">Oat Flat White</h3>
+<p class="text-xs text-on-surface-variant mt-1 leading-relaxed">Micro-foam milk with a double ristretto shot.</p>
+</div>
+</div>
+<!-- Product Card 3 -->
+<div class="bg-surface-container-high rounded-xl p-4 flex flex-col gap-4 border border-outline-variant/10 hover:border-primary/30 transition-all cursor-pointer group active:scale-95">
+<div class="relative w-full h-32 rounded-lg overflow-hidden">
+<img alt="Cold Brew" class="w-full h-full object-cover transition-transform group-hover:scale-105" data-alt="Iced cold brew coffee in a tall glass with large ice cubes and a splash of milk swirling" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAIkPduI79wRRp1dZSTj1whhIMQQtDRNB-HcBnoGA235auAzO49JuaBlsVW8PI0TOPXKVoKndM-YpZu5twKrsqXxNFhbC7j_5iqKTDoZcKaMzdqTzdRbwy2nGG3F-B3ErfyEww5uW5RJROdni9A4Gowbvgqmvel08wK1sKDkHvmyM1RnyecA49jRA-NGpkA0Y9rXgOK2UcZzP9KoadPerEtxkEDtCe0WzXclNcoiyWWSWnxuFQMBUx2wKbS3FSPN_sKFcyP4FTMv9M"/>
+<div class="absolute top-2 right-2 px-2 py-1 bg-surface/80 backdrop-blur-md rounded-md">
+<span class="text-primary font-headline font-bold text-sm">$6.50</span>
+</div>
+</div>
+<div>
+<h3 class="font-bold text-on-surface group-hover:text-primary transition-colors">12hr Cold Brew</h3>
+<p class="text-xs text-on-surface-variant mt-1 leading-relaxed">Slow steeped Ethiopian beans, bright and floral.</p>
+</div>
+</div>
+<!-- Product Card 4 -->
+<div class="bg-surface-container-high rounded-xl p-4 flex flex-col gap-4 border border-outline-variant/10 hover:border-primary/30 transition-all cursor-pointer group active:scale-95">
+<div class="relative w-full h-32 rounded-lg overflow-hidden">
+<img alt="Macchiato" class="w-full h-full object-cover transition-transform group-hover:scale-105" data-alt="Traditional espresso macchiato with a small dollop of foam in a glass demitasse" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA57UazQWO4iGWtnsUQL5sdudyBwFRwFS4fI7cPfuGtiCMjTi4okMrMlpZMybC_-w9kzmK0mgNHSZ7hax9NdmjwuOdI1rkZlxfj5cD89oJwpqyoV-uSSi-uyK_R4uFA6TLjoLXhGcpvkxbnvwpkvJ5krJ3P5pU0ntrY_Vu_pzKBijFqxWeA81HjL6MlGgIb_5asV6WkfZhospyfiFBOnO0DFuFdxt8J8_PFZCNDM0fjIW4xZlidCoUgG0BihlQhIg6zSET2a2WYVlw"/>
+<div class="absolute top-2 right-2 px-2 py-1 bg-surface/80 backdrop-blur-md rounded-md">
+<span class="text-primary font-headline font-bold text-sm">$4.75</span>
+</div>
+</div>
+<div>
+<h3 class="font-bold text-on-surface group-hover:text-primary transition-colors">Traditional Macchiato</h3>
+<p class="text-xs text-on-surface-variant mt-1 leading-relaxed">Marked with a dollop of velvety steamed milk.</p>
+</div>
+</div>
+<!-- Product Card 5 -->
+<div class="bg-surface-container-high rounded-xl p-4 flex flex-col gap-4 border border-outline-variant/10 hover:border-primary/30 transition-all cursor-pointer group active:scale-95">
+<div class="relative w-full h-32 rounded-lg overflow-hidden">
+<img alt="Pour Over" class="w-full h-full object-cover transition-transform group-hover:scale-105" data-alt="Hand poured filter coffee using a V60 dripper with clear coffee flowing into a carafe" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC9jjRY_tN9JISf3KuiGABojzgLzV59VbjhrV88KCGz-XYeuNK5GPjK_zVNJiDkKrNaNy2xa34FEp8T33CDf2Bh5zdNohwduW2S4VgWjUeBFm2ZNFeViyi0mcq_F8sKNPKZVRm6QOF3VoWyTnb3St6jTctrqz78ti83IyFGgTuRtvj25loFHPU5Rj-uRY-KI874H2Ks7Nzl8Kvm-FFyspjt6hNZpEB8Xu-ch2iVhoV-yc9zQ_0l_dAQZbnGR9ukqV5z-ypneCxRekw"/>
+<div class="absolute top-2 right-2 px-2 py-1 bg-surface/80 backdrop-blur-md rounded-md">
+<span class="text-primary font-headline font-bold text-sm">$7.00</span>
+</div>
+</div>
+<div>
+<h3 class="font-bold text-on-surface group-hover:text-primary transition-colors">V60 Pour Over</h3>
+<p class="text-xs text-on-surface-variant mt-1 leading-relaxed">Single origin micro-lot. Ask server for origin.</p>
+</div>
+</div>
+<!-- Product Card 6 -->
+<div class="bg-surface-container-high rounded-xl p-4 flex flex-col gap-4 border border-outline-variant/10 hover:border-primary/30 transition-all cursor-pointer group active:scale-95">
+<div class="relative w-full h-32 rounded-lg overflow-hidden">
+<img alt="Iced Latte" class="w-full h-full object-cover transition-transform group-hover:scale-105" data-alt="Layered iced latte with espresso over milk and ice in a tall ribbed glass" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA6vbAK1adJhvLkavon-fvX5hR4wWoSzLUx6OoedXXi_eaSIB13Ai6E4-ZNtuuWggMj-5vaI05Lg_f08ReDTCGj0M2OhrTgWQwI4qZhRxXYWkuK8n5cnDcYU2tTRPmzWW6bnNniL5cRzT3FtVVDsr3UIir9YAYNSoCyyf9zpGD8QVKLmg7ywN9gbR_I5K08EOGUX6-6hBVqemMSQWgV-YA8tm1tvEms3Z2-1BCIROxBjSPMs_mzB1JG-LlRm9wIG8P5w95XueFeIX8"/>
+<div class="absolute top-2 right-2 px-2 py-1 bg-surface/80 backdrop-blur-md rounded-md">
+<span class="text-primary font-headline font-bold text-sm">$6.25</span>
+</div>
+</div>
+<div>
+<h3 class="font-bold text-on-surface group-hover:text-primary transition-colors">Iced Vanilla Latte</h3>
+<p class="text-xs text-on-surface-variant mt-1 leading-relaxed">Handmade vanilla bean syrup and double shot.</p>
+</div>
+</div>
+</div>
+</div>
+<!-- Right: Current Order Panel (Active Cart/Check) -->
+<div class="col-span-4 bg-surface-container-low flex flex-col border-l border-outline-variant/5">
+<!-- Header Status -->
+<div class="p-6 border-b border-outline-variant/5">
+<div class="flex justify-between items-start mb-4">
+<div>
+<span class="inline-block px-2 py-1 bg-tertiary/10 text-tertiary rounded-full text-[10px] font-black tracking-widest uppercase mb-1">Pending Payment</span>
+<h2 class="font-headline text-3xl font-extrabold tracking-tighter">TABLE 24</h2>
+</div>
+<button class="w-10 h-10 rounded-full bg-surface-container-highest flex items-center justify-center text-on-surface-variant hover:text-error transition-colors">
+<span class="material-symbols-outlined">delete_sweep</span>
+</button>
+</div>
+<div class="flex gap-2">
+<div class="flex-1 bg-surface-container-highest rounded-lg p-3 text-center">
+<p class="text-[10px] text-on-surface-variant uppercase tracking-widest mb-0.5">Guests</p>
+<p class="font-bold">04</p>
+</div>
+<div class="flex-1 bg-surface-container-highest rounded-lg p-3 text-center">
+<p class="text-[10px] text-on-surface-variant uppercase tracking-widest mb-0.5">Time</p>
+<p class="font-bold">42m</p>
+</div>
+</div>
+</div>
+<!-- Itemized List -->
+<div class="flex-1 overflow-y-auto order-scroll p-6 space-y-4">
+<div class="flex items-center justify-between">
+<div class="flex gap-4">
+<div class="w-8 h-8 rounded-md bg-surface-container-highest flex items-center justify-center font-bold text-primary">2</div>
+<div>
+<p class="font-bold text-sm">Double Espresso</p>
+<p class="text-[10px] text-on-surface-variant uppercase">House Blend</p>
+</div>
+</div>
+<p class="font-headline font-bold">$9.00</p>
+</div>
+<div class="flex items-center justify-between">
+<div class="flex gap-4">
+<div class="w-8 h-8 rounded-md bg-surface-container-highest flex items-center justify-center font-bold text-primary">1</div>
+<div>
+<p class="font-bold text-sm">Oat Flat White</p>
+<p class="text-[10px] text-on-surface-variant uppercase">Extra Hot</p>
+</div>
+</div>
+<p class="font-headline font-bold">$5.75</p>
+</div>
+<div class="flex items-center justify-between">
+<div class="flex gap-4">
+<div class="w-8 h-8 rounded-md bg-surface-container-highest flex items-center justify-center font-bold text-primary">1</div>
+<div>
+<p class="font-bold text-sm">V60 Pour Over</p>
+<p class="text-[10px] text-on-surface-variant uppercase">Ethiopia Sidamo</p>
+</div>
+</div>
+<p class="font-headline font-bold">$7.00</p>
+</div>
+<!-- Divider for unpaid/paid separation feel -->
+<div class="flex items-center gap-4 opacity-50 py-2">
+<div class="h-px flex-1 bg-outline-variant/30"></div>
+<span class="text-[10px] font-bold uppercase tracking-widest text-secondary-fixed">Previously Paid</span>
+<div class="h-px flex-1 bg-outline-variant/30"></div>
+</div>
+<div class="flex items-center justify-between opacity-60">
+<div class="flex gap-4">
+<div class="w-8 h-8 rounded-md bg-secondary-fixed/10 flex items-center justify-center font-bold text-secondary-fixed">1</div>
+<div>
+<p class="font-bold text-sm">Avocado Toast</p>
+<p class="text-[10px] text-on-secondary-container uppercase">Kitchen Complete</p>
+</div>
+</div>
+<p class="font-headline font-bold text-secondary-fixed">$14.00</p>
+</div>
+</div>
+<!-- Footer Calculations & CTAs -->
+<div class="p-6 bg-surface-container-high rounded-t-3xl shadow-[0_-20px_40px_-10px_rgba(0,0,0,0.5)]">
+<div class="space-y-2 mb-6">
+<div class="flex justify-between text-xs text-on-surface-variant">
+<span>Subtotal</span>
+<span>$35.75</span>
+</div>
+<div class="flex justify-between text-xs text-on-surface-variant">
+<span>Tax (8.5%)</span>
+<span>$3.04</span>
+</div>
+<div class="flex justify-between items-center pt-2">
+<span class="font-bold text-sm uppercase tracking-widest">Total Due</span>
+<span class="font-headline text-3xl font-extrabold text-primary">$38.79</span>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-3 mb-3">
+<button class="bg-surface-container-highest hover:bg-surface-bright py-3 rounded-lg flex flex-col items-center justify-center transition-colors">
+<span class="material-symbols-outlined text-on-surface-variant mb-1">call_split</span>
+<span class="text-[10px] font-bold uppercase tracking-widest">Split</span>
+</button>
+<button class="bg-surface-container-highest hover:bg-surface-bright py-3 rounded-lg flex flex-col items-center justify-center transition-colors">
+<span class="material-symbols-outlined text-on-surface-variant mb-1">sell</span>
+<span class="text-[10px] font-bold uppercase tracking-widest">Discount</span>
+</button>
+</div>
+<div class="grid grid-cols-2 gap-3 mb-4">
+<button class="bg-secondary-fixed/10 border border-secondary-fixed/20 hover:bg-secondary-fixed/20 py-4 rounded-lg flex flex-col items-center justify-center transition-all">
+<span class="material-symbols-outlined text-secondary-fixed mb-1">payments</span>
+<span class="text-[10px] font-bold uppercase tracking-widest text-secondary-fixed">Cash</span>
+</button>
+<button class="bg-primary/10 border border-primary/20 hover:bg-primary/20 py-4 rounded-lg flex flex-col items-center justify-center transition-all">
+<span class="material-symbols-outlined text-primary mb-1">credit_card</span>
+<span class="text-[10px] font-bold uppercase tracking-widest text-primary">Card</span>
+</button>
+</div>
+<button class="w-full bg-gradient-to-br from-primary to-primary-container py-5 rounded-xl font-headline font-extrabold text-on-primary-container text-lg uppercase tracking-widest shadow-lg shadow-primary/20 active:scale-[0.98] transition-transform">
+                Send Order
+            </button>
+</div>
+</div>
+</main>
+</body></html>
