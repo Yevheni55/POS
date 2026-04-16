@@ -11,6 +11,7 @@ import { getActiveCashRegisterCode } from './lib/active-cash-register.js';
 import { corsOriginCallback } from './lib/cors-origin.js';
 import { getPortosConfig, isPortosEnabled } from './lib/portos.js';
 import { runPortosProfileSync, startPortosProfileSync } from './lib/portos-sync-job.js';
+import { isVatRegisteredBusiness } from './lib/vat-registration.js';
 import { startIdempotencyCleanup } from './middleware/idempotency.js';
 import { startPrintQueue } from './routes/print.js';
 
@@ -94,12 +95,16 @@ httpServer.listen(PORT, () => {
   if (isPortosEnabled()) {
     startPortosProfileSync();
     runPortosProfileSync({ timeoutMs: 12000 })
-      .then(() => getActiveCashRegisterCode())
-      .then((activeCode) => {
+      .then(async () => {
+        const activeCode = await getActiveCashRegisterCode();
         const envCode = pc.cashRegisterCode;
         const matches = envCode && envCode === activeCode;
         console.log(
           `[Portos] Active cash register = ${activeCode || '(none)'}${envCode ? ` | .env = ${envCode}${matches ? ' (match)' : ' (MISMATCH)'}` : ''}`,
+        );
+        const vatRegistered = await isVatRegisteredBusiness();
+        console.log(
+          `[Portos] VAT mode = ${vatRegistered ? 'registered (IC DPH present, menu VAT rates used)' : 'NON-REGISTERED (no IC DPH, all receipt items forced to vatRate=0)'}`,
         );
       })
       .catch(() => { /* sync error already logged */ });

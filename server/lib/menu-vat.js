@@ -1,4 +1,8 @@
-export const SUPPORTED_VAT_RATES = Object.freeze([5, 19, 23]);
+/**
+ * 0 je povolená sadzba pre neplatiteľa DPH (firma bez IČ DPH) — Portos vtedy prijíma
+ * iba položky s `vatRate: 0`, inak vráti validation_error.
+ */
+export const SUPPORTED_VAT_RATES = Object.freeze([0, 5, 19, 23]);
 
 export const VAT_RATES = Object.freeze({
   FOOD_SERVICE: 5,

@@ -102,8 +102,12 @@ export function allocateDiscountAcrossVatGroups(items, discountAmount) {
     }));
 }
 
-export function buildFiscalReceiptItems(items, discountAmount = 0) {
-  const receiptItems = items.map((item) => ({
+export function buildFiscalReceiptItems(items, discountAmount = 0, { forceZeroVat = false } = {}) {
+  const normalizedItems = forceZeroVat
+    ? items.map((item) => ({ ...item, vatRate: 0 }))
+    : items;
+
+  const receiptItems = normalizedItems.map((item) => ({
     type: 'Positive',
     name: sanitizeForFiscalPrinter(item.name),
     price: roundMoney(item.price * item.qty),
@@ -117,7 +121,7 @@ export function buildFiscalReceiptItems(items, discountAmount = 0) {
     description: null,
   }));
 
-  return receiptItems.concat(allocateDiscountAcrossVatGroups(items, discountAmount));
+  return receiptItems.concat(allocateDiscountAcrossVatGroups(normalizedItems, discountAmount));
 }
 
 export function buildCashRegisterRequestContext({
@@ -127,6 +131,7 @@ export function buildCashRegisterRequestContext({
   method,
   expectedTotal,
   cashRegisterCode,
+  forceZeroVat = false,
 }) {
   const config = getPortosConfig();
   const effectiveCashRegisterCode = String(cashRegisterCode || config.cashRegisterCode || '').trim();
@@ -134,7 +139,7 @@ export function buildCashRegisterRequestContext({
   return {
     request: {
       data: {
-        items: buildFiscalReceiptItems(items, discountAmount),
+        items: buildFiscalReceiptItems(items, discountAmount, { forceZeroVat }),
         payments: [{
           name: sanitizeForFiscalPrinter(PAYMENT_METHOD_LABELS[method] || method),
           amount: roundMoney(expectedTotal),

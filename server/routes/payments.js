@@ -31,6 +31,7 @@ import {
   printCopyByExternalId,
   registerCashReceipt,
 } from '../lib/portos.js';
+import { isVatRegisteredBusiness } from '../lib/vat-registration.js';
 import { validate } from '../middleware/validate.js';
 import { createPaymentSchema } from '../schemas/payments.js';
 import { asyncRoute } from '../lib/async-route.js';
@@ -465,20 +466,23 @@ router.post('/', validate(createPaymentSchema), asyncRoute(async (req, res) => {
     }
   }
 
-  const unsupportedVatItems = orderContext.items.filter((item) => !isSupportedVatRate(item.vatRate));
-  if (unsupportedVatItems.length) {
-    const itemList = unsupportedVatItems
-      .map((item) => `${item.name} (${Number(item.vatRate).toFixed(2)}%)`)
-      .join(', ');
-    const errorDetail = `Portos podporuje iba sadzby DPH ${formatSupportedVatRates()}. Skontroluj polozky: ${itemList}`;
+  const vatRegistered = await isVatRegisteredBusiness();
+  if (vatRegistered) {
+    const unsupportedVatItems = orderContext.items.filter((item) => !isSupportedVatRate(item.vatRate));
+    if (unsupportedVatItems.length) {
+      const itemList = unsupportedVatItems
+        .map((item) => `${item.name} (${Number(item.vatRate).toFixed(2)}%)`)
+        .join(', ');
+      const errorDetail = `Portos podporuje iba sadzby DPH ${formatSupportedVatRates()}. Skontroluj polozky: ${itemList}`;
 
-    return res.status(400).json({
-      error: errorDetail,
-      fiscal: {
-        status: 'validation_error',
-        errorDetail,
-      },
-    });
+      return res.status(400).json({
+        error: errorDetail,
+        fiscal: {
+          status: 'validation_error',
+          errorDetail,
+        },
+      });
+    }
   }
 
   const activeCashRegisterCode = await getActiveCashRegisterCode();
@@ -489,6 +493,7 @@ router.post('/', validate(createPaymentSchema), asyncRoute(async (req, res) => {
     method,
     expectedTotal: orderContext.expectedTotal,
     cashRegisterCode: activeCashRegisterCode,
+    forceZeroVat: !vatRegistered,
   });
 
   let fiscalOutcome;
