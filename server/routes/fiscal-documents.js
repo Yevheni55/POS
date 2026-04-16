@@ -5,6 +5,7 @@ import { db } from '../db/index.js';
 import { fiscalDocuments, orders, payments, tables } from '../db/schema.js';
 import { logEvent } from '../lib/audit.js';
 import { buildPaymentStornoExternalId, buildStornoCashRegisterRequestContext } from '../lib/fiscal-payment.js';
+import { getActiveCashRegisterCode } from '../lib/active-cash-register.js';
 import {
   findReceiptByExternalIdWithRetry,
   isPortosEnabled,
@@ -291,6 +292,7 @@ async function runFiscalStorno({ document, staffId }) {
       originalRequestPayload: parseJsonField(document.requestJson),
       referenceReceiptId,
       orderId: document.orderId,
+      cashRegisterCode: document.cashRegisterCode || (await getActiveCashRegisterCode()),
     });
   } catch (error) {
     console.error('Fiscal storno build error:', error);

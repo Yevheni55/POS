@@ -107,7 +107,15 @@ router.get('/', async (req, res) => {
       }
     }
   }
-  res.json(serializeProfile(await loadProfileRow()));
+  try {
+    res.json(serializeProfile(await loadProfileRow()));
+  } catch (error) {
+    console.error('Company profile load error:', error);
+    res.status(503).json({
+      error: 'Nepodarilo sa načítať profil firmy',
+      detail: error instanceof Error ? error.message : String(error),
+    });
+  }
 });
 
 router.put('/', mgr, validate(updateCompanyProfileSchema), async (req, res) => {

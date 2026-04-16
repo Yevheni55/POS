@@ -120,8 +120,16 @@ export function buildFiscalReceiptItems(items, discountAmount = 0) {
   return receiptItems.concat(allocateDiscountAcrossVatGroups(items, discountAmount));
 }
 
-export function buildCashRegisterRequestContext({ orderId, items, discountAmount, method, expectedTotal }) {
+export function buildCashRegisterRequestContext({
+  orderId,
+  items,
+  discountAmount,
+  method,
+  expectedTotal,
+  cashRegisterCode,
+}) {
   const config = getPortosConfig();
+  const effectiveCashRegisterCode = String(cashRegisterCode || config.cashRegisterCode || '').trim();
 
   return {
     request: {
@@ -135,7 +143,7 @@ export function buildCashRegisterRequestContext({ orderId, items, discountAmount
         receiptType: 'CashRegister',
         headerText: null,
         footerText: null,
-        cashRegisterCode: config.cashRegisterCode,
+        cashRegisterCode: effectiveCashRegisterCode,
       },
       externalId: buildPaymentExternalId(orderId),
     },
@@ -153,7 +161,12 @@ export function buildCashRegisterRequestContext({ orderId, items, discountAmount
  * @param {string} params.referenceReceiptId — response.data.id z eKasy alebo OKP pri offline
  * @param {number} params.orderId
  */
-export function buildStornoCashRegisterRequestContext({ originalRequestPayload, referenceReceiptId, orderId }) {
+export function buildStornoCashRegisterRequestContext({
+  originalRequestPayload,
+  referenceReceiptId,
+  orderId,
+  cashRegisterCode,
+}) {
   const config = getPortosConfig();
   const payload = typeof originalRequestPayload === 'string'
     ? JSON.parse(originalRequestPayload)
@@ -208,7 +221,9 @@ export function buildStornoCashRegisterRequestContext({ originalRequestPayload, 
         receiptType: data.receiptType || 'CashRegister',
         headerText: data.headerText ?? null,
         footerText: data.footerText ?? null,
-        cashRegisterCode: data.cashRegisterCode || config.cashRegisterCode,
+        cashRegisterCode: String(
+          data.cashRegisterCode || cashRegisterCode || config.cashRegisterCode || '',
+        ).trim(),
       },
       externalId: buildPaymentStornoExternalId(orderId),
     },

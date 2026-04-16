@@ -20,7 +20,9 @@ import {
 } from '../lib/fiscal-payment.js';
 import { emitEvent } from '../lib/emit.js';
 import { formatSupportedVatRates, isSupportedVatRate } from '../lib/menu-vat.js';
+import { getActiveCashRegisterCode } from '../lib/active-cash-register.js';
 import {
+  explainPortosCertificateError,
   explainPortosPrintCopyFailure,
   findReceiptByExternalIdWithRetry,
   isPortosEnabled,
@@ -479,12 +481,14 @@ router.post('/', validate(createPaymentSchema), asyncRoute(async (req, res) => {
     });
   }
 
+  const activeCashRegisterCode = await getActiveCashRegisterCode();
   const requestPayload = buildCashRegisterRequestContext({
     orderId,
     items: orderContext.items,
     discountAmount: orderContext.discountAmount,
     method,
     expectedTotal: orderContext.expectedTotal,
+    cashRegisterCode: activeCashRegisterCode,
   });
 
   let fiscalOutcome;
@@ -512,13 +516,19 @@ router.post('/', validate(createPaymentSchema), asyncRoute(async (req, res) => {
       outcome: fiscalOutcome,
     }));
 
+    const certificateHint = explainPortosCertificateError({
+      detail: fiscalOutcome.errorDetail,
+      errorDetail: fiscalOutcome.errorDetail,
+    });
     return res.status(fiscalOutcome.resultMode === 'blocked' ? 503 : (fiscalOutcome.httpStatus || 400)).json({
-      error: fiscalOutcome.errorDetail || 'Fiskalizacia bola odmietnuta',
+      error: certificateHint || fiscalOutcome.errorDetail || 'Fiskalizacia bola odmietnuta',
       fiscal: {
         status: fiscalOutcome.resultMode,
         externalId: requestPayload.request.externalId,
         errorCode: fiscalOutcome.errorCode,
         errorDetail: fiscalOutcome.errorDetail,
+        certificateIssue: Boolean(certificateHint),
+        cashRegisterCodeUsed: requestPayload.request.data.cashRegisterCode,
       },
     });
   }
@@ -717,6 +727,7 @@ router.post('/:id/fiscal-storno', mgr, asyncRoute(async (req, res) => {
       originalRequestPayload: rawPayload,
       referenceReceiptId,
       orderId: payment.orderId,
+      cashRegisterCode: saleDoc.cashRegisterCode || (await getActiveCashRegisterCode()),
     });
   } catch (err) {
     console.error('Fiscal storno build error:', err);

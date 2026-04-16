@@ -322,22 +322,25 @@ function resolveCashRegisterCodeForReceipt(override) {
 }
 
 /**
- * Portos: „certifikát s takým aliasom nebol nájdený“ — zvyčajne nesedí CashRegisterCode v .env s kódom kasy / certifikátom v Portos.
+ * Portos: „certifikát s takým aliasom nebol nájdený“ — zvyčajne nesedí CashRegisterCode s kódom kasy / certifikátom v Portos po zmene firmy.
  */
-export function explainPortosPrintCopyFailure(raw) {
-  const blob = [raw?.detail, raw?.title, raw?.message, raw?.error?.message]
+export function explainPortosCertificateError(raw) {
+  const blob = [raw?.detail, raw?.title, raw?.message, raw?.errorDetail, raw?.error?.message]
     .filter(Boolean)
     .join(' ')
     .toLowerCase();
   if (!blob) return null;
   if (blob.includes('certifik') && blob.includes('alias')) {
     return (
-      'Portos nenašiel certifikát pre zvolený kód pokladne. Skontrolujte PORTOS_CASH_REGISTER_CODE v server/.env (alebo Docker) — ' +
-      'musí presne zodpovedať kódu kasy v Portos po zmene firmy. Pri tlači kópie sa používa kód uložený pri platbe; ak je doklad zo starej kasy, v Portos musí byť dostupný príslušný certifikát.'
+      'Portos nenašiel certifikát pre zvolený kód pokladne. Po zmene firmy musí PORTOS_CASH_REGISTER_CODE ' +
+      '(alebo údaj uložený v profile firmy) presne zodpovedať kódu kasy v Portos a v Portos musí byť nahraný platný podpisový certifikát pre túto firmu.'
     );
   }
   return null;
 }
+
+/** Backwards-compat alias. */
+export const explainPortosPrintCopyFailure = explainPortosCertificateError;
 
 export function isPrintCopyResponseSuccess(result) {
   if (!result || typeof result !== 'object') return false;
