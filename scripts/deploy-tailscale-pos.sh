@@ -25,6 +25,7 @@ tar -czf "$TGZ" \
   --exclude=node_modules \
   --exclude=server/node_modules \
   --exclude=server/.env \
+  --exclude='*.tgz' \
   .
 
 echo "=== Upload to $HOST:C:/POS/_pos-update.tgz ==="
