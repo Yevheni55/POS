@@ -55,15 +55,23 @@ async function ensureVenueFromPortosOnce() {
     venuePortosSynced = true;
     return;
   }
-  venuePortosSynced = true;
+  const SYNC_MS = 18000;
   try {
-    const profile = await api.syncCompanyProfileFromPortos();
+    const profile = await Promise.race([
+      api.syncCompanyProfileFromPortos(),
+      new Promise(function(_, reject) {
+        setTimeout(function() {
+          reject(new Error('Portos sync timeout'));
+        }, SYNC_MS);
+      }),
+    ]);
     if (profile && typeof api.mergeCompanyProfileIntoPosSettingsCache === 'function') {
       api.mergeCompanyProfileIntoPosSettingsCache(profile);
     }
   } catch (e) {
-    venuePortosSynced = false;
     console.warn('Portos company profile sync:', e);
+  } finally {
+    venuePortosSynced = true;
   }
 }
 

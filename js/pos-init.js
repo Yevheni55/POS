@@ -57,64 +57,71 @@ function applyPosSettings() {
 async function initPOS() {
   var mainEl = document.getElementById('main');
   if (mainEl) showLoading(mainEl, 'Nacitavam data...');
-  var md, td;
   try {
-    var results = await Promise.all([
-      api.getMenu ? api.getMenu() : api.get('/menu'),
-      api.get('/tables')
-    ]);
-    md = results[0];
-    td = results[1];
-    // Cache for offline use
-    localStorage.setItem('pos_menu_cache', JSON.stringify(md));
-    localStorage.setItem('pos_tables_cache', JSON.stringify(td));
-  } catch (e) {
-    // Offline fallback
-    var cachedMenu = localStorage.getItem('pos_menu_cache');
-    var cachedTables = localStorage.getItem('pos_tables_cache');
-    if (cachedMenu && cachedTables) {
-      md = JSON.parse(cachedMenu);
-      td = JSON.parse(cachedTables);
-      showToast('Offline — pouzivam cache data');
-    } else {
-      if (mainEl) hideLoading(mainEl);
-      showToast('Offline a ziadne cache data', 'error');
-      return;
-    }
-  }
-  await loadMenu(md);
-  await loadTables(td);
-  try {
-    if (api.getCompanyProfile && api.getToken()) {
-      var serverProfile = await api.getCompanyProfile();
-      if (serverProfile && typeof api.mergeCompanyProfileIntoPosSettingsCache === 'function') {
-        api.mergeCompanyProfileIntoPosSettingsCache(serverProfile);
+    var md, td;
+    try {
+      var results = await Promise.all([
+        api.getMenu ? api.getMenu() : api.get('/menu'),
+        api.get('/tables')
+      ]);
+      md = results[0];
+      td = results[1];
+      // Cache for offline use
+      localStorage.setItem('pos_menu_cache', JSON.stringify(md));
+      localStorage.setItem('pos_tables_cache', JSON.stringify(td));
+    } catch (e) {
+      // Offline fallback
+      var cachedMenu = localStorage.getItem('pos_menu_cache');
+      var cachedTables = localStorage.getItem('pos_tables_cache');
+      if (cachedMenu && cachedTables) {
+        md = JSON.parse(cachedMenu);
+        td = JSON.parse(cachedTables);
+        showToast('Offline — pouzivam cache data');
+      } else {
+        showToast('Offline a ziadne cache data', 'error');
+        return;
       }
     }
-  } catch (profileErr) {
-    console.warn('Company profile from server:', profileErr);
-  }
-  await loadAllOrders(); // Preload all open orders for instant table switching
-  updateTableStatuses(); // Derive table statuses from orders cache
-  var fcs = Object.keys(MENU)[0];
-  if (fcs) activeCategory = fcs;
-  if (ZONES.length) activeZone = ZONES[0].id;
-  renderCategories();
-  renderFloorZones();
-  renderFloor();
-  if (TABLES.length) {
-    var fiz = TABLES.find(function(t){ return t.zone === activeZone; }) || TABLES[0];
-    await selectTableAndLoadOrder(fiz.id);
-  }
-  renderProducts();
-  applyPosSettings();
-  if (mainEl) hideLoading(mainEl);
+    await loadMenu(md);
+    await loadTables(td);
+    try {
+      if (api.getCompanyProfile && api.getToken()) {
+        var PROFILE_MS = 8000;
+        var serverProfile = await Promise.race([
+          api.getCompanyProfile(),
+          new Promise(function(_, reject) {
+            setTimeout(function() {
+              reject(new Error('company-profile timeout'));
+            }, PROFILE_MS);
+          }),
+        ]);
+        if (serverProfile && typeof api.mergeCompanyProfileIntoPosSettingsCache === 'function') {
+          api.mergeCompanyProfileIntoPosSettingsCache(serverProfile);
+        }
+      }
+    } catch (profileErr) {
+      console.warn('Company profile from server:', profileErr);
+    }
+    await loadAllOrders(); // Preload all open orders for instant table switching
+    updateTableStatuses(); // Derive table statuses from orders cache
+    var fcs = Object.keys(MENU)[0];
+    if (fcs) activeCategory = fcs;
+    if (ZONES.length) activeZone = ZONES[0].id;
+    renderCategories();
+    renderFloorZones();
+    renderFloor();
+    if (TABLES.length) {
+      var fiz = TABLES.find(function(t){ return t.zone === activeZone; }) || TABLES[0];
+      await selectTableAndLoadOrder(fiz.id);
+    }
+    renderProducts();
+    applyPosSettings();
 
-  // Connect WebSocket for real-time sync
-  connectWS();
+    // Connect WebSocket for real-time sync
+    connectWS();
 
-  // Fallback polling every 30 seconds (WebSocket handles real-time)
-  setInterval(async function() {
+    // Fallback polling every 30 seconds (WebSocket handles real-time)
+    setInterval(async function() {
     try {
       var oldJSON = _lastOrdersCacheJSON;
       await loadAllOrders();
@@ -149,7 +156,10 @@ async function initPOS() {
         }
       }
     } catch(e) { /* offline, skip */ }
-  }, 30000);
+    }, 30000);
+  } finally {
+    if (mainEl) hideLoading(mainEl);
+  }
 }
 
 // WebSocket connection for real-time sync
