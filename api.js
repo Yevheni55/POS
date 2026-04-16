@@ -171,8 +171,9 @@ const api = {
     return this.get('/integrations/portos/status');
   },
 
-  getCompanyProfile() {
-    return this.get('/company-profile');
+  getCompanyProfile(options) {
+    var refresh = options && options.refresh;
+    return this.get('/company-profile' + (refresh ? '?refresh=1' : ''));
   },
 
   updateCompanyProfile(body) {

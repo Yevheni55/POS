@@ -9,6 +9,7 @@ import { Server as SocketServer } from 'socket.io';
 import { app } from './app.js';
 import { corsOriginCallback } from './lib/cors-origin.js';
 import { getPortosConfig, isPortosEnabled } from './lib/portos.js';
+import { startPortosProfileSync } from './lib/portos-sync-job.js';
 import { startIdempotencyCleanup } from './middleware/idempotency.js';
 import { startPrintQueue } from './routes/print.js';
 
@@ -89,6 +90,9 @@ httpServer.listen(PORT, () => {
   );
   startIdempotencyCleanup();
   startPrintQueue();
+  if (isPortosEnabled()) {
+    startPortosProfileSync();
+  }
 });
 
 if (httpsServer) {

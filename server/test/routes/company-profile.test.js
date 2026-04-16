@@ -241,4 +241,69 @@ describe('company profile routes', () => {
     assert.equal(getRes.body.businessName, 'Nova Prevadzka s.r.o.');
     assert.equal(getRes.body.ico, '99999999');
   });
+
+  it('GET /api/company-profile?refresh=1 syncs Portos identity for cisnik', async () => {
+    await request
+      .put('/api/company-profile')
+      .set('Authorization', `Bearer ${tokens.admin()}`)
+      .send({
+        businessName: 'Stara Test s.r.o.',
+        ico: '11111111',
+        dic: '2021111111',
+        icDph: 'SK2021111111',
+        registeredAddress: 'Stara 1',
+        branchName: 'Pobocka Stara',
+        branchAddress: 'Stara 2',
+        cashRegisterCode: '11111111111111111',
+        contactPhone: '+421911111111',
+        contactEmail: 'stary@test.sk',
+      });
+
+    global.fetch = async (url) => {
+      const target = String(url);
+      if (target.includes('/api/v1/identities')) {
+        return mockJsonResponse(200, [{
+          dic: '2027777777',
+          ico: '77777777',
+          icdph: 'SK2027777777',
+          corporateBodyFullName: 'Refresh Firma s.r.o.',
+          organizationUnit: {
+            organizationUnitName: 'Refresh Branch',
+            cashRegisterCode: '77788812345678900',
+            physicalAddress: {
+              country: 'Slovenska republika',
+              municipality: 'Presov',
+              streetName: 'Prezsky',
+              buildingNumber: '7',
+              deliveryAddress: { postalCode: '08001' },
+            },
+          },
+          physicalAddress: {
+            country: 'Slovenska republika',
+            municipality: 'Presov',
+            streetName: 'Hlavna',
+            buildingNumber: '1',
+            deliveryAddress: { postalCode: '08001' },
+          },
+        }]);
+      }
+      if (target.includes('/api/v1/product/info')) return mockJsonResponse(200, { name: 'Portos' });
+      if (target.includes('/api/v1/connectivity/status')) return mockJsonResponse(200, { state: 'Up' });
+      if (target.includes('/api/v1/storage/info')) return mockJsonResponse(200, { state: 'Ready', port: 'COM3' });
+      if (target.includes('/api/v1/printers/status')) return mockJsonResponse(200, { state: 'Ready' });
+      if (target.includes('/api/v1/certificates/valid/latest')) return mockJsonResponse(200, { validTo: '2026-11-15T00:00:00Z' });
+      if (target.includes('/api/v1/settings')) return mockJsonResponse(200, { cultureName: 'sk-SK' });
+      throw new Error(`Unexpected URL: ${target}`);
+    };
+
+    const res = await request
+      .get('/api/company-profile?refresh=1')
+      .set('Authorization', `Bearer ${tokens.cisnik()}`);
+
+    assert.equal(res.status, 200);
+    assert.equal(res.body.businessName, 'Refresh Firma s.r.o.');
+    assert.equal(res.body.ico, '77777777');
+    assert.equal(res.body.cashRegisterCode, '77788812345678900');
+    assert.equal(res.body.contactPhone, '+421911111111', 'kontakty z DB sa zachovali');
+  });
 });

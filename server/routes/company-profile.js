@@ -8,7 +8,8 @@ import {
   mapPortosIdentityFromStatus,
   mergePortosIdentityIntoProfileRow,
 } from '../lib/company-profile-from-portos.js';
-import { getStatus } from '../lib/portos.js';
+import { getStatus, isPortosEnabled } from '../lib/portos.js';
+import { runPortosProfileSync } from '../lib/portos-sync-job.js';
 import { requireRole } from '../middleware/requireRole.js';
 import { validate } from '../middleware/validate.js';
 import { updateCompanyProfileSchema } from '../schemas/company-profile.js';
@@ -96,6 +97,16 @@ function buildComparison(local, portos) {
 }
 
 router.get('/', async (req, res) => {
+  const refresh = String(req.query.refresh || '').toLowerCase();
+  if (refresh === '1' || refresh === 'true') {
+    if (isPortosEnabled()) {
+      try {
+        await runPortosProfileSync({ timeoutMs: 8000 });
+      } catch {
+        /* ak Portos zlyhá, vrátime posledné známe dáta z DB */
+      }
+    }
+  }
   res.json(serializeProfile(await loadProfileRow()));
 });
 

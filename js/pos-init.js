@@ -86,9 +86,9 @@ async function initPOS() {
     await loadTables(td);
     try {
       if (api.getCompanyProfile && api.getToken()) {
-        var PROFILE_MS = 8000;
+        var PROFILE_MS = 12000;
         var serverProfile = await Promise.race([
-          api.getCompanyProfile(),
+          api.getCompanyProfile({ refresh: true }),
           new Promise(function(_, reject) {
             setTimeout(function() {
               reject(new Error('company-profile timeout'));
