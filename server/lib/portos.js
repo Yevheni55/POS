@@ -287,8 +287,40 @@ export async function registerCashReceipt(input) {
   return normalizeRegisterResult(response.status, response.data, input);
 }
 
-export async function findReceiptByExternalId(externalId) {
-  const { cashRegisterCode } = getPortosConfig();
+/** Kód pokladne z uloženého dokladu alebo .env — po zmene firmy v Portos musí sedieť s dokladom. */
+function resolveCashRegisterCodeForReceipt(override) {
+  const trimmed = String(override ?? '')
+    .trim()
+    .replace(/^\uFEFF/, '');
+  if (trimmed) return trimmed;
+  return getPortosConfig().cashRegisterCode;
+}
+
+/**
+ * Portos: „certifikát s takým aliasom nebol nájdený“ — zvyčajne nesedí CashRegisterCode v .env s kódom kasy / certifikátom v Portos.
+ */
+export function explainPortosPrintCopyFailure(raw) {
+  const blob = [raw?.detail, raw?.title, raw?.message, raw?.error?.message]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  if (!blob) return null;
+  if (blob.includes('certifik') && blob.includes('alias')) {
+    return (
+      'Portos nenašiel certifikát pre zvolený kód pokladne. Skontrolujte PORTOS_CASH_REGISTER_CODE v server/.env (alebo Docker) — ' +
+      'musí presne zodpovedať kódu kasy v Portos po zmene firmy. Pri tlači kópie sa používa kód uložený pri platbe; ak je doklad zo starej kasy, v Portos musí byť dostupný príslušný certifikát.'
+    );
+  }
+  return null;
+}
+
+export function isPrintCopyResponseSuccess(result) {
+  if (!result || typeof result !== 'object') return false;
+  return PRINT_COPY_SUCCESS_STATUSES.has(result.httpStatus) && Boolean(result.printed);
+}
+
+export async function findReceiptByExternalId(externalId, { cashRegisterCode: codeOverride } = {}) {
+  const cashRegisterCode = resolveCashRegisterCodeForReceipt(codeOverride);
   const response = await portosRequest('GET', '/api/v1/requests/receipts/receipt', {
     query: {
       CashRegisterCode: cashRegisterCode,
@@ -311,11 +343,14 @@ function sleep(ms) {
 /**
  * Portos niekedy ešte nevráti doklad hneď po POST; krátke opakovania znížia falošné "ambiguous".
  */
-export async function findReceiptByExternalIdWithRetry(externalId, { tries = 5, delayMs = 450 } = {}) {
+export async function findReceiptByExternalIdWithRetry(
+  externalId,
+  { tries = 5, delayMs = 450, cashRegisterCode: codeOverride } = {},
+) {
   for (let i = 0; i < tries; i++) {
     if (i > 0) await sleep(delayMs);
     try {
-      const receipt = await findReceiptByExternalId(externalId);
+      const receipt = await findReceiptByExternalId(externalId, { cashRegisterCode: codeOverride });
       if (receipt) return receipt;
     } catch {
       /* ďalší pokus */
@@ -324,8 +359,8 @@ export async function findReceiptByExternalIdWithRetry(externalId, { tries = 5, 
   return null;
 }
 
-export async function printCopyByExternalId(externalId) {
-  const { cashRegisterCode } = getPortosConfig();
+export async function printCopyByExternalId(externalId, { cashRegisterCode: codeOverride } = {}) {
+  const cashRegisterCode = resolveCashRegisterCodeForReceipt(codeOverride);
   const response = await portosRequest('POST', '/api/v1/requests/receipts/print_copy', {
     query: {
       CashRegisterCode: cashRegisterCode,
@@ -337,5 +372,6 @@ export async function printCopyByExternalId(externalId) {
     httpStatus: response.status,
     printed: response.data?.printed ?? PRINT_COPY_SUCCESS_STATUSES.has(response.status),
     raw: response.data,
+    ok: response.ok,
   };
 }

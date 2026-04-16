@@ -155,9 +155,15 @@ function mergeReceiptOutcome(baseOutcome, receipt) {
   };
 }
 
+function cashRegisterFromFiscalPayload(requestPayload) {
+  return requestPayload?.request?.data?.cashRegisterCode;
+}
+
 async function enrichSuccessfulFiscalOutcome({ requestPayload, outcome }) {
   if (!needsReceiptEnrichment(outcome)) return outcome;
-  const receipt = await findReceiptByExternalIdWithRetry(requestPayload.request.externalId);
+  const receipt = await findReceiptByExternalIdWithRetry(requestPayload.request.externalId, {
+    cashRegisterCode: cashRegisterFromFiscalPayload(requestPayload),
+  });
   return mergeReceiptOutcome(outcome, receipt);
 }
 
@@ -183,7 +189,9 @@ async function resolveFiscalAttempt({ requestPayload, initialOutcome }) {
   }
 
   try {
-    const existingReceipt = await findReceiptByExternalIdWithRetry(requestPayload.request.externalId);
+    const existingReceipt = await findReceiptByExternalIdWithRetry(requestPayload.request.externalId, {
+      cashRegisterCode: cashRegisterFromFiscalPayload(requestPayload),
+    });
     if (!existingReceipt) {
       return {
         ...initialOutcome,
@@ -194,7 +202,9 @@ async function resolveFiscalAttempt({ requestPayload, initialOutcome }) {
     let copyPrinted = false;
     if (initialOutcome.errorCode === -502) {
       try {
-        const copyResult = await printCopyByExternalId(requestPayload.request.externalId);
+        const copyResult = await printCopyByExternalId(requestPayload.request.externalId, {
+          cashRegisterCode: cashRegisterFromFiscalPayload(requestPayload),
+        });
         copyPrinted = Boolean(copyResult.printed);
       } catch {
         copyPrinted = false;

@@ -38,6 +38,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\run-portos-readiness-docker.p
 ## 3. `server\.env` на касі
 
 - **`PORTOS_CASH_REGISTER_CODE`** — має **точно збігатися** з кодом каси в Portos (реєстрація eKāsa), не з тестового прикладу, якщо вже бойова каса.
+- Після **зміни фірми / каси в Portos**: оновіть цей код у `.env` (інакше Portos може відповісти на кшталт *«certifikát s takým aliasom nebol nájdený»* — сертифікат для старого коду каси вже не видно). Копія чека на друк викликається з **кодом, збереженим у фіскальному рядку** при оплаті; для **нових** чеків усе одно має збігатися актуальний `PORTOS_CASH_REGISTER_CODE` з Portos.
 - **`PORTOS_PRINTER_NAME=pos`** — паперовий чек через CHDU (не ім’я принтера Windows).
 - **`PORTOS_ENABLED=true`** — увімкнути фіскальні платежі (після зеленого статусу).
 - **`PORTOS_BASE_URL`** у контейнері задає `docker-compose.yml` як `http://host.docker.internal:3010` — рядок у `.env` з `localhost` для контейнера не використовується.

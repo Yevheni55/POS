@@ -381,6 +381,46 @@ describe('Portos payment integration', () => {
     assert.equal(copyRes.body.printed, true);
   });
 
+  it('receipt-copy passes CashRegisterCode from saved fiscal row to Portos', async () => {
+    const { cisnik, table1, itemPivo } = fixtures;
+    const order = await createOpenOrder(table1.id, cisnik.id, [
+      { menuItemId: itemPivo.id, qty: 1 },
+    ]);
+
+    global.fetch = async () => mockJsonResponse(200, buildRegisterSuccess({
+      externalId: `order-${order.id}-payment`,
+      receiptNumber: 41,
+      receiptId: 'O-ROW-CODE',
+    }));
+
+    const paymentRes = await request
+      .post('/api/payments')
+      .set('Authorization', `Bearer ${tokens.cisnik()}`)
+      .send({ orderId: order.id, method: 'hotovost', amount: 2.50 });
+
+    const rowCode = '99988877766655554';
+    await testDb.update(schema.fiscalDocuments)
+      .set({ cashRegisterCode: rowCode })
+      .where(eq(schema.fiscalDocuments.externalId, `order-${order.id}-payment`));
+
+    let printUrl = '';
+    global.fetch = async (url) => {
+      printUrl = String(url);
+      return mockJsonResponse(200, { printed: true });
+    };
+
+    const copyRes = await request
+      .post(`/api/payments/${paymentRes.body.payment.id}/receipt-copy`)
+      .set('Authorization', `Bearer ${tokens.cisnik()}`)
+      .send({});
+
+    assert.equal(copyRes.status, 200);
+    assert.ok(
+      printUrl.includes(`CashRegisterCode=${rowCode}`) || printUrl.includes(encodeURIComponent(rowCode)),
+      `print_copy URL should use DB cash_register_code, got: ${printUrl}`,
+    );
+  });
+
   it('rejects payment before Portos call when order contains unsupported VAT rate', async () => {
     const { cisnik, table1, itemPivo } = fixtures;
     const order = await createOpenOrder(table1.id, cisnik.id, [

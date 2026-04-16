@@ -21,8 +21,10 @@ import {
 import { emitEvent } from '../lib/emit.js';
 import { formatSupportedVatRates, isSupportedVatRate } from '../lib/menu-vat.js';
 import {
+  explainPortosPrintCopyFailure,
   findReceiptByExternalIdWithRetry,
   isPortosEnabled,
+  isPrintCopyResponseSuccess,
   PortosTransportError,
   printCopyByExternalId,
   registerCashReceipt,
@@ -294,9 +296,15 @@ function mergeReceiptOutcome(baseOutcome, receipt) {
   };
 }
 
+function cashRegisterFromFiscalPayload(requestPayload) {
+  return requestPayload?.request?.data?.cashRegisterCode;
+}
+
 async function enrichSuccessfulFiscalOutcome({ requestPayload, outcome }) {
   if (!needsReceiptEnrichment(outcome)) return outcome;
-  const receipt = await findReceiptByExternalIdWithRetry(requestPayload.request.externalId);
+  const receipt = await findReceiptByExternalIdWithRetry(requestPayload.request.externalId, {
+    cashRegisterCode: cashRegisterFromFiscalPayload(requestPayload),
+  });
   return mergeReceiptOutcome(outcome, receipt);
 }
 
@@ -325,7 +333,9 @@ async function resolveFiscalAttempt({ requestPayload, initialOutcome }) {
   }
 
   try {
-    const existingReceipt = await findReceiptByExternalIdWithRetry(externalId);
+    const existingReceipt = await findReceiptByExternalIdWithRetry(externalId, {
+      cashRegisterCode: cashRegisterFromFiscalPayload(requestPayload),
+    });
     if (!existingReceipt) {
       return {
         ...initialOutcome,
@@ -336,7 +346,9 @@ async function resolveFiscalAttempt({ requestPayload, initialOutcome }) {
     let copyPrinted = false;
     if (initialOutcome.errorCode === -502) {
       try {
-        const copyResult = await printCopyByExternalId(externalId);
+        const copyResult = await printCopyByExternalId(externalId, {
+          cashRegisterCode: cashRegisterFromFiscalPayload(requestPayload),
+        });
         copyPrinted = Boolean(copyResult.printed);
       } catch {
         copyPrinted = false;
@@ -627,7 +639,23 @@ router.post('/:id/receipt-copy', asyncRoute(async (req, res) => {
   }
 
   try {
-    const result = await printCopyByExternalId(fallback.externalId);
+    const storedCode = String(fallback.cashRegisterCode || '').trim();
+    const result = await printCopyByExternalId(fallback.externalId, {
+      cashRegisterCode: storedCode || undefined,
+    });
+    if (!isPrintCopyResponseSuccess(result)) {
+      const hint = explainPortosPrintCopyFailure(result.raw);
+      const status = result.httpStatus && result.httpStatus >= 400 && result.httpStatus < 600
+        ? result.httpStatus
+        : 502;
+      return res.status(status).json({
+        ok: false,
+        printed: false,
+        externalId: fallback.externalId,
+        error: hint || result.raw?.detail || result.raw?.title || 'Kopiu dokladu sa nepodarilo vytlacit',
+        cashRegisterCodeUsed: storedCode || null,
+      });
+    }
     res.status(result.httpStatus || 200).json({
       ok: true,
       printed: result.printed,
