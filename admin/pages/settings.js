@@ -67,16 +67,16 @@ function getTemplate() {
         Identifikačné údaje
       </div>
       <div class="text-muted" style="font-size:12px;margin:0 0 14px;line-height:1.5">
-        Tieto údaje sa ukladajú do nášho backendu a porovnávajú sa s Portos. POS ich len číta a porovnáva, ale nemení identifikačné údaje priamo v Portos/eKasa.
+        Identifikačné údaje (názov firmy, IČO, DIČ, IČ DPH, pobočka, kód pokladne, sídlo) sa automaticky synchronizujú z Portos/eKasa a sú <strong>iba na čítanie</strong>. Zmeniť ich možno len priamo v Portos cez oficiálny postup. Telefón a e-mail sa ukladajú lokálne pre hlavičku účtenky.
       </div>
       <div class="form-grid">
         <div class="form-group">
-          <label for="sName">Nazov firmy<span class="required-mark" aria-hidden="true"> *</span></label>
-          <input class="form-input" id="sName" type="text" aria-required="true" data-validate="required">
+          <label for="sName">Nazov firmy (z Portos)</label>
+          <input class="form-input" id="sName" type="text" readonly tabindex="-1" aria-readonly="true">
         </div>
         <div class="form-group">
-          <label for="sAddress">Sidlo firmy<span class="required-mark" aria-hidden="true"> *</span></label>
-          <input class="form-input" id="sAddress" type="text" aria-required="true" data-validate="required">
+          <label for="sAddress">Sidlo firmy (z Portos)</label>
+          <input class="form-input" id="sAddress" type="text" readonly tabindex="-1" aria-readonly="true">
         </div>
         <div class="form-group">
           <label for="sPhone">Telefon</label>
@@ -87,28 +87,28 @@ function getTemplate() {
           <input class="form-input" id="sEmail" type="text" data-validate="email">
         </div>
         <div class="form-group">
-          <label for="sIco">ICO</label>
-          <input class="form-input" id="sIco" type="text" title="Identifikacne cislo organizacie (8-ciferny kod)" placeholder="napr. 12345678">
+          <label for="sIco">ICO (z Portos)</label>
+          <input class="form-input" id="sIco" type="text" readonly tabindex="-1" aria-readonly="true" placeholder="napr. 12345678">
         </div>
         <div class="form-group">
-          <label for="sDic">DIC</label>
-          <input class="form-input" id="sDic" type="text" title="Danova identifikacne cislo" placeholder="napr. 2023456789">
+          <label for="sDic">DIC (z Portos)</label>
+          <input class="form-input" id="sDic" type="text" readonly tabindex="-1" aria-readonly="true" placeholder="napr. 2023456789">
         </div>
         <div class="form-group">
-          <label for="sIcDph">IC DPH</label>
-          <input class="form-input" id="sIcDph" type="text" title="Identifikacne cislo pre DPH (napr. SK2023456789)" placeholder="napr. SK2023456789">
+          <label for="sIcDph">IC DPH (z Portos)</label>
+          <input class="form-input" id="sIcDph" type="text" readonly tabindex="-1" aria-readonly="true" placeholder="napr. SK2023456789">
         </div>
         <div class="form-group">
-          <label for="sBranchName">Nazov prevadzky<span class="required-mark" aria-hidden="true"> *</span></label>
-          <input class="form-input" id="sBranchName" type="text" aria-required="true" data-validate="required" placeholder="napr. Surf Coffee Eurovea">
+          <label for="sBranchName">Nazov prevadzky (z Portos)</label>
+          <input class="form-input" id="sBranchName" type="text" readonly tabindex="-1" aria-readonly="true" placeholder="Portos nevratil nazov pobocky">
         </div>
         <div class="form-group">
-          <label for="sBranchAddress">Adresa prevadzky<span class="required-mark" aria-hidden="true"> *</span></label>
-          <input class="form-input" id="sBranchAddress" type="text" aria-required="true" data-validate="required">
+          <label for="sBranchAddress">Adresa prevadzky (z Portos)</label>
+          <input class="form-input" id="sBranchAddress" type="text" readonly tabindex="-1" aria-readonly="true">
         </div>
         <div class="form-group">
-          <label for="sCashRegisterCode">Kod pokladnice<span class="required-mark" aria-hidden="true"> *</span></label>
-          <input class="form-input" id="sCashRegisterCode" type="text" aria-required="true" data-validate="required" placeholder="88812345678900001">
+          <label for="sCashRegisterCode">Kod pokladnice (z Portos)</label>
+          <input class="form-input" id="sCashRegisterCode" type="text" readonly tabindex="-1" aria-readonly="true" placeholder="88812345678900001">
         </div>
       </div>
     </div>

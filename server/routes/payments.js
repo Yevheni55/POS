@@ -510,6 +510,12 @@ router.post('/', validate(createPaymentSchema), asyncRoute(async (req, res) => {
     fiscalOutcome.resultMode === 'rejected' ||
     fiscalOutcome.resultMode === 'blocked'
   ) {
+    console.warn(
+      `[Portos] Payment ${fiscalOutcome.resultMode} for order=${orderId} ` +
+      `cashRegister=${requestPayload.request.data.cashRegisterCode} ` +
+      `errorCode=${fiscalOutcome.errorCode ?? '-'} ` +
+      `detail="${fiscalOutcome.errorDetail || ''}"`,
+    );
     await upsertFiscalDocument(db, buildFiscalDocumentValues({
       orderId,
       requestPayload,
