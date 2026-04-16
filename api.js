@@ -241,6 +241,23 @@ const api = {
     return this.post('/fiscal-documents/' + id + '/storno', {});
   },
 
+  getPaymentsHistory(params) {
+    var q = new URLSearchParams();
+    if (params && params.method) q.set('method', params.method);
+    if (params && params.q) q.set('q', params.q);
+    if (params && params.limit) q.set('limit', String(params.limit));
+    var qs = q.toString();
+    return this.get('/payments/history' + (qs ? '?' + qs : ''));
+  },
+
+  stornoPayment(paymentId) {
+    return this.post('/payments/' + paymentId + '/fiscal-storno', {});
+  },
+
+  printReceiptCopy(paymentId) {
+    return this.post('/payments/' + paymentId + '/receipt-copy', {});
+  },
+
   invalidateMenu() {
     this._menuCache = null;
     this._menuCacheTime = 0;
