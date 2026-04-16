@@ -263,7 +263,8 @@ export async function getStatus() {
   const identityResult = await safePortosRequest('GET', '/api/v1/identities');
   const identities = normalizeIdentitiesList(identityResult.data);
   const identity = pickIdentityForCashRegister(identities, config.cashRegisterCode);
-  const resolvedCashRegisterCode = config.cashRegisterCode || identity?.organizationUnit?.cashRegisterCode || null;
+  // Po zmene firmy v Portos je identity source of truth; PORTOS_CASH_REGISTER_CODE zo .env berieme len ako fallback.
+  const resolvedCashRegisterCode = identity?.organizationUnit?.cashRegisterCode || config.cashRegisterCode || null;
 
   const [product, connectivity, storage, printer, certificate, settings] = await Promise.all([
     safePortosRequest('GET', '/api/v1/product/info'),
