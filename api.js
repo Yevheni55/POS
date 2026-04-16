@@ -183,6 +183,46 @@ const api = {
     return this.get('/company-profile/portos-compare');
   },
 
+  /** Manažér/admin: uloží identitu z Portos do DB a vráti profil. */
+  async syncCompanyProfileFromPortos() {
+    const body = await this.post('/company-profile/sync-from-portos', {});
+    if (body && body.profile) return body.profile;
+    return body;
+  },
+
+  /** Zosúladí pos_settings (názov prevádzky, IČO, …) s profilom zo servera — POS hlavička a tlač. */
+  mergeCompanyProfileIntoPosSettingsCache(profile) {
+    if (!profile || typeof profile !== 'object') return;
+    try {
+      var raw = localStorage.getItem('pos_settings');
+      var settings = raw ? JSON.parse(raw) : {};
+      if (!settings || typeof settings !== 'object') settings = {};
+      if (profile.businessName) settings.sName = profile.businessName;
+      if (profile.registeredAddress !== undefined) {
+        settings.sAddress = profile.registeredAddress || settings.sAddress;
+      }
+      if (profile.contactPhone !== undefined) {
+        settings.sPhone = profile.contactPhone || settings.sPhone;
+      }
+      if (profile.contactEmail !== undefined) {
+        settings.sEmail = profile.contactEmail || settings.sEmail;
+      }
+      if (profile.ico !== undefined) settings.sIco = profile.ico || settings.sIco;
+      if (profile.dic !== undefined) settings.sDic = profile.dic || settings.sDic;
+      if (profile.icDph !== undefined) settings.sIcDph = profile.icDph || settings.sIcDph;
+      if (profile.branchName !== undefined) settings.sBranchName = profile.branchName || settings.sBranchName;
+      if (profile.branchAddress !== undefined) {
+        settings.sBranchAddress = profile.branchAddress || settings.sBranchAddress;
+      }
+      if (profile.cashRegisterCode !== undefined) {
+        settings.sCashRegisterCode = profile.cashRegisterCode || settings.sCashRegisterCode;
+      }
+      localStorage.setItem('pos_settings', JSON.stringify(settings));
+    } catch (e) {
+      console.warn('mergeCompanyProfileIntoPosSettingsCache', e);
+    }
+  },
+
   searchFiscalDocuments(params = {}) {
     const query = new URLSearchParams();
     Object.entries(params).forEach(([key, value]) => {

@@ -817,7 +817,7 @@ function renderCompanyProfileCompare() {
     html += '<span class="text-muted" style="font-size:12px">Posledne porovnanie: ' + escapeHtml(formatPortosDate(summary.lastComparedAt)) + '</span>';
   }
   html += '</div></div>';
-  html += '<div class="text-muted" style="font-size:12px;line-height:1.5;margin-top:10px">POS tieto identifikačné údaje do Portos nezapisuje. Ak vidíš nezhodu, treba ich upraviť oficiálnym postupom mimo tohto POS.</div>';
+  html += '<div class="text-muted" style="font-size:12px;line-height:1.5;margin-top:10px">Pri prihlásení manažéra alebo admina sa údaje z aktuálneho Portos automaticky uložia do databázy a do lokálnych nastavení (názov prevádzky na POS). POS tieto údaje do Portos nezapisuje — zmena firmy vždy v Portos/eKasa. Ak vidíš nezhodu po zmene v Portos, obnov stránku adminu.</div>';
   html += '<div style="margin-top:12px;overflow:auto"><table class="data-table"><thead><tr><th class="data-th">Pole</th><th class="data-th">Nase udaje</th><th class="data-th">Portos</th><th class="data-th">Stav</th></tr></thead><tbody>';
   fields.forEach(function (field) {
     var key = field[0];
@@ -1198,7 +1198,7 @@ function onContainerChange(e) {
 
 /* ─── EXPORTS ─── */
 
-export function init(container) {
+export async function init(container) {
   _container = container;
   container.innerHTML = getTemplate();
 
@@ -1216,10 +1216,10 @@ export function init(container) {
   });
 
   loadSettings();
-  loadCompanyProfile();
+  await loadCompanyProfile();
   loadPrinters();
   applyFiscalStornoPanelRole();
-  loadPortosStatus();
+  await loadPortosStatus();
   loadDiscounts();
 }
 

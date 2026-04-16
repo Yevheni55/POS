@@ -3,6 +3,11 @@ import { desc, eq } from 'drizzle-orm';
 
 import { db } from '../db/index.js';
 import { companyProfiles } from '../db/schema.js';
+import {
+  hasUsablePortosIdentity,
+  mapPortosIdentityFromStatus,
+  mergePortosIdentityIntoProfileRow,
+} from '../lib/company-profile-from-portos.js';
 import { getStatus } from '../lib/portos.js';
 import { requireRole } from '../middleware/requireRole.js';
 import { validate } from '../middleware/validate.js';
@@ -40,27 +45,6 @@ function normalizeComparableText(value) {
     .toLowerCase();
 }
 
-function buildAddress(address) {
-  if (!address || typeof address !== 'object') return '';
-
-  const street = [address.streetName, address.buildingNumber, address.propertyRegistrationNumber]
-    .filter(Boolean)
-    .join(' ')
-    .trim();
-  const locality = [
-    address.deliveryAddress?.postalCode || address.postalCode || '',
-    address.municipality || '',
-  ]
-    .filter(Boolean)
-    .join(' ')
-    .trim();
-
-  return [street, locality, address.country]
-    .filter(Boolean)
-    .join(', ')
-    .trim();
-}
-
 function serializeProfile(row) {
   if (!row) return { ...EMPTY_PROFILE };
 
@@ -81,22 +65,6 @@ function serializeProfile(row) {
 async function loadProfileRow() {
   const [row] = await db.select().from(companyProfiles).orderBy(desc(companyProfiles.id)).limit(1);
   return row || null;
-}
-
-function mapPortosIdentity(status) {
-  const identity = status?.identity || {};
-  const organizationUnit = identity.organizationUnit || {};
-
-  return {
-    businessName: normalizeText(identity.corporateBodyFullName),
-    ico: normalizeText(identity.ico),
-    dic: normalizeText(identity.dic),
-    icDph: normalizeText(identity.icdph),
-    registeredAddress: buildAddress(identity.physicalAddress),
-    branchName: normalizeText(organizationUnit.organizationUnitName),
-    branchAddress: buildAddress(organizationUnit.physicalAddress),
-    cashRegisterCode: normalizeText(status?.cashRegisterCode || organizationUnit.cashRegisterCode),
-  };
 }
 
 function buildComparison(local, portos) {
@@ -149,6 +117,51 @@ router.put('/', mgr, validate(updateCompanyProfileSchema), async (req, res) => {
   res.json(serializeProfile(updated));
 });
 
+/** Prepíše identifikačné polia z aktuálneho Portos (po zmene firmy / eKasa). Kontakty z DB ponechá. */
+router.post('/sync-from-portos', mgr, async (req, res) => {
+  try {
+    const status = await getStatus();
+    if (!hasUsablePortosIdentity(status)) {
+      return res.status(503).json({
+        error: 'Portos nevrátil použiteľnú identitu prevádzky',
+        detail: status.errors?.identity || 'Skontrolujte PORTOS_BASE_URL a registráciu v Portos.',
+      });
+    }
+
+    const portosFields = mapPortosIdentityFromStatus(status);
+    const existing = await loadProfileRow();
+    const merged = mergePortosIdentityIntoProfileRow(portosFields, existing);
+
+    if (!existing) {
+      const [created] = await db.insert(companyProfiles)
+        .values({ ...merged, updatedAt: new Date() })
+        .returning();
+      return res.json({
+        profile: serializeProfile(created),
+        source: 'portos',
+        updated: true,
+      });
+    }
+
+    const [updated] = await db.update(companyProfiles)
+      .set({ ...merged, updatedAt: new Date() })
+      .where(eq(companyProfiles.id, existing.id))
+      .returning();
+
+    return res.json({
+      profile: serializeProfile(updated),
+      source: 'portos',
+      updated: true,
+    });
+  } catch (error) {
+    console.error('Company profile sync-from-portos error:', error);
+    return res.status(503).json({
+      error: 'Synchronizácia z Portos zlyhala',
+      detail: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
 router.get('/portos-compare', mgr, async (req, res) => {
   try {
     const [row, status] = await Promise.all([
@@ -157,7 +170,7 @@ router.get('/portos-compare', mgr, async (req, res) => {
     ]);
 
     const local = serializeProfile(row);
-    const portos = mapPortosIdentity(status);
+    const portos = mapPortosIdentityFromStatus(status);
 
     res.json({
       local,

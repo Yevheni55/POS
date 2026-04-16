@@ -144,7 +144,7 @@
 <script>
 var ROLE_LABELS={admin:'Admin',manazer:'Manažér',cisnik:'Čašník'};
 
-// Auth check
+// Auth check (Portos → DB sync spúšťa router.js pred prvým načítaním stránky)
 (function(){
   if(!api.requireAuth()) return;
   var u=api.getUser();

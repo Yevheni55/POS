@@ -84,6 +84,16 @@ async function initPOS() {
   }
   await loadMenu(md);
   await loadTables(td);
+  try {
+    if (api.getCompanyProfile && api.getToken()) {
+      var serverProfile = await api.getCompanyProfile();
+      if (serverProfile && typeof api.mergeCompanyProfileIntoPosSettingsCache === 'function') {
+        api.mergeCompanyProfileIntoPosSettingsCache(serverProfile);
+      }
+    }
+  } catch (profileErr) {
+    console.warn('Company profile from server:', profileErr);
+  }
   await loadAllOrders(); // Preload all open orders for instant table switching
   updateTableStatuses(); // Derive table statuses from orders cache
   var fcs = Object.keys(MENU)[0];

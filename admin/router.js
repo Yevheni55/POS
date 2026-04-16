@@ -45,6 +45,28 @@ let pendingPage = null;
 /** Monotonic id so only the latest in-flight navigation may paint (avoids race when imports finish out of order). */
 let navigationSeq = 0;
 
+let venuePortosSynced = false;
+
+/** Jednorazovo: aktuálna identita z Portos → DB + pos_settings (po zmene firmy / eKasa). */
+async function ensureVenueFromPortosOnce() {
+  if (venuePortosSynced) return;
+  const u = typeof api !== 'undefined' && api.getUser ? api.getUser() : null;
+  if (!u || (u.role !== 'manazer' && u.role !== 'admin')) {
+    venuePortosSynced = true;
+    return;
+  }
+  venuePortosSynced = true;
+  try {
+    const profile = await api.syncCompanyProfileFromPortos();
+    if (profile && typeof api.mergeCompanyProfileIntoPosSettingsCache === 'function') {
+      api.mergeCompanyProfileIntoPosSettingsCache(profile);
+    }
+  } catch (e) {
+    venuePortosSynced = false;
+    console.warn('Portos company profile sync:', e);
+  }
+}
+
 async function navigate(page) {
   if (!routes[page]) page = 'dashboard';
   // Skip redundant clicks only when this page is already shown and nothing else is loading.
@@ -75,6 +97,7 @@ async function navigate(page) {
 
   // Load new page module
   try {
+    await ensureVenueFromPortosOnce();
     const mod = await routes[page]();
     if (seq !== navigationSeq) return;
     pendingPage = null;
@@ -83,7 +106,8 @@ async function navigate(page) {
     container.innerHTML = '';
     container.className = 'content';
     container.removeAttribute('style');
-    mod.init(container);
+    const initResult = mod.init(container);
+    if (initResult && typeof initResult.then === 'function') await initResult;
   } catch (err) {
     if (seq !== navigationSeq) return;
     pendingPage = null;

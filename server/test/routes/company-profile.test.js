@@ -158,4 +158,87 @@ describe('company profile routes', () => {
     assert.equal(res.body.summary.mismatchCount, 0);
     assert.equal(res.body.summary.matches.cashRegisterCode, true);
   });
+
+  it('rejects sync-from-portos for cisnik', async () => {
+    const res = await request
+      .post('/api/company-profile/sync-from-portos')
+      .set('Authorization', `Bearer ${tokens.cisnik()}`)
+      .send({});
+
+    assert.equal(res.status, 403);
+  });
+
+  it('manager sync-from-portos overwrites company profile from Portos identity', async () => {
+    await request
+      .put('/api/company-profile')
+      .set('Authorization', `Bearer ${tokens.admin()}`)
+      .send({
+        businessName: 'Stara Test s.r.o.',
+        ico: '11111111',
+        dic: '2021111111',
+        icDph: 'SK2021111111',
+        registeredAddress: 'Stara 1',
+        branchName: 'Pobocka Stara',
+        branchAddress: 'Stara 2',
+        cashRegisterCode: '11111111111111111',
+        contactPhone: '+421911111111',
+        contactEmail: 'stary@test.sk',
+      });
+
+    global.fetch = async (url) => {
+      const target = String(url);
+      if (target.includes('/api/v1/identities')) {
+        return mockJsonResponse(200, [{
+          dic: '2029999999',
+          ico: '99999999',
+          icdph: 'SK2029999999',
+          corporateBodyFullName: 'Nova Prevadzka s.r.o.',
+          organizationUnit: {
+            organizationUnitName: 'Nova pobocka',
+            cashRegisterCode: '88812345678900001',
+            physicalAddress: {
+              country: 'Slovenska republika',
+              municipality: 'Kosice',
+              streetName: 'Hlavna',
+              buildingNumber: '99',
+              deliveryAddress: { postalCode: '04001' },
+            },
+          },
+          physicalAddress: {
+            country: 'Slovenska republika',
+            municipality: 'Zilina',
+            streetName: 'Nova',
+            buildingNumber: '1',
+            deliveryAddress: { postalCode: '01001' },
+          },
+        }]);
+      }
+      if (target.includes('/api/v1/product/info')) return mockJsonResponse(200, { name: 'Portos' });
+      if (target.includes('/api/v1/connectivity/status')) return mockJsonResponse(200, { state: 'Up' });
+      if (target.includes('/api/v1/storage/info')) return mockJsonResponse(200, { state: 'Ready', port: 'COM3' });
+      if (target.includes('/api/v1/printers/status')) return mockJsonResponse(200, { state: 'Ready' });
+      if (target.includes('/api/v1/certificates/valid/latest')) return mockJsonResponse(200, { validTo: '2026-11-15T00:00:00Z' });
+      if (target.includes('/api/v1/settings')) return mockJsonResponse(200, { cultureName: 'sk-SK' });
+      throw new Error(`Unexpected URL: ${target}`);
+    };
+
+    const syncRes = await request
+      .post('/api/company-profile/sync-from-portos')
+      .set('Authorization', `Bearer ${tokens.manazer()}`)
+      .send({});
+
+    assert.equal(syncRes.status, 200);
+    assert.equal(syncRes.body.profile.businessName, 'Nova Prevadzka s.r.o.');
+    assert.equal(syncRes.body.profile.ico, '99999999');
+    assert.equal(syncRes.body.profile.contactPhone, '+421911111111');
+    assert.equal(syncRes.body.profile.contactEmail, 'stary@test.sk');
+
+    const getRes = await request
+      .get('/api/company-profile')
+      .set('Authorization', `Bearer ${tokens.cisnik()}`);
+
+    assert.equal(getRes.status, 200);
+    assert.equal(getRes.body.businessName, 'Nova Prevadzka s.r.o.');
+    assert.equal(getRes.body.ico, '99999999');
+  });
 });
