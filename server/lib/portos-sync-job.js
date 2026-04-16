@@ -33,8 +33,11 @@ export async function runPortosProfileSync({ timeoutMs } = {}) {
     try {
       const status = await Promise.race([getStatus(), abort]);
       if (!hasUsablePortosIdentity(status)) {
-        const reason = status?.errors?.identity || 'Portos returned no usable identity';
+        const reason = status?.errors?.identity || (status?.identityCount === 0
+          ? 'Portos nevrátil žiadnu identitu (identityCount=0)'
+          : 'Portos returned no usable identity');
         lastError = String(reason);
+        console.warn(`[Portos] Profile sync skipped: ${lastError}`);
         return { ok: false, error: lastError };
       }
 
@@ -64,13 +67,15 @@ export async function runPortosProfileSync({ timeoutMs } = {}) {
 
       lastSyncAt = new Date();
       lastError = null;
-      if (changed) {
-        console.log(`[Portos] Company profile synced from Portos at ${lastSyncAt.toISOString()}`);
-      }
-      return { ok: true, changed };
+      console.log(
+        `[Portos] Company profile sync OK at ${lastSyncAt.toISOString()} ` +
+        `(changed=${changed}, businessName="${portosFields.businessName}", cashRegister="${portosFields.cashRegisterCode}")`,
+      );
+      return { ok: true, changed, portosFields };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       lastError = message;
+      console.warn(`[Portos] Profile sync error: ${message}`);
       return { ok: false, error: message };
     } finally {
       clearTimeout(cancel);

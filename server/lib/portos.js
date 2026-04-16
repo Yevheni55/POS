@@ -236,10 +236,33 @@ async function safePortosRequest(method, path, options) {
   }
 }
 
+function normalizeIdentitiesList(data) {
+  if (Array.isArray(data)) return data;
+  if (data && Array.isArray(data.items)) return data.items;
+  if (data && typeof data === 'object' && data.ico) return [data];
+  return [];
+}
+
+/** Po zmene firmy/eKasa môže Portos vrátiť viac identít. Vyberieme tú, ktorej kód pokladne sa zhoduje s configom. */
+function pickIdentityForCashRegister(list, configuredCashRegisterCode) {
+  if (!list.length) return null;
+  const normalized = String(configuredCashRegisterCode || '').trim();
+  if (normalized) {
+    const match = list.find((item) => {
+      const a = String(item?.organizationUnit?.cashRegisterCode || '').trim();
+      const b = String(item?.cashRegisterCode || '').trim();
+      return a === normalized || b === normalized;
+    });
+    if (match) return match;
+  }
+  return list[0];
+}
+
 export async function getStatus() {
   const config = getPortosConfig();
   const identityResult = await safePortosRequest('GET', '/api/v1/identities');
-  const identity = Array.isArray(identityResult.data) ? identityResult.data[0] : null;
+  const identities = normalizeIdentitiesList(identityResult.data);
+  const identity = pickIdentityForCashRegister(identities, config.cashRegisterCode);
   const resolvedCashRegisterCode = config.cashRegisterCode || identity?.organizationUnit?.cashRegisterCode || null;
 
   const [product, connectivity, storage, printer, certificate, settings] = await Promise.all([
@@ -266,6 +289,8 @@ export async function getStatus() {
     printer: printer.data,
     certificate: certificate.data,
     identity,
+    identityCount: identities.length,
+    identities,
     settings: settings.data,
     errors: {
       identity: identityResult.ok ? null : identityResult.error,

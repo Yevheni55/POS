@@ -265,6 +265,7 @@ function getTemplate() {
       <div id="companyProfileCompare" class="mt-3"></div>
       <div class="flex-row gap-2 mt-3">
         <button class="btn-save btn-sm" id="btnRefreshPortos">Obnovit stav</button>
+        <button class="btn-save btn-sm" id="btnSyncProfileFromPortos" style="background:var(--color-accent, #8B7CF6)">Obnovit udaje z Portos</button>
       </div>
       <div id="fiscalStornoPanel" class="mt-3" style="padding-top:12px;border-top:1px solid var(--color-border, #2a2638)">
         <div class="form-group" style="max-width:420px">
@@ -874,13 +875,43 @@ function renderPortosDiagnostics() {
   el.innerHTML = html;
 }
 
-async function loadCompanyProfile() {
+async function loadCompanyProfile(options) {
   try {
-    companyProfile = await api.getCompanyProfile();
+    companyProfile = await api.getCompanyProfile({ refresh: options && options.refresh });
     syncCompanyProfileToLocalSettings(companyProfile);
     applyToForm();
   } catch (e) {
     showToast(e.message || 'Chyba nacitania firemnych udajov', 'error');
+  }
+}
+
+async function syncProfileFromPortosAction() {
+  var btn = byId('btnSyncProfileFromPortos');
+  if (btn) {
+    btn.disabled = true;
+    btn.dataset.originalText = btn.textContent;
+    btn.textContent = 'Synchronizujem...';
+  }
+  try {
+    var profile = await api.syncCompanyProfileFromPortos();
+    if (profile) {
+      companyProfile = profile;
+      syncCompanyProfileToLocalSettings(companyProfile);
+      if (typeof api.mergeCompanyProfileIntoPosSettingsCache === 'function') {
+        api.mergeCompanyProfileIntoPosSettingsCache(profile);
+      }
+      applyToForm();
+    }
+    await loadCompanyProfileCompare();
+    showToast('Udaje z Portos aktualizovane', true);
+  } catch (e) {
+    var msg = e && (e.data && e.data.detail || e.message) || 'Chyba synchronizacie z Portos';
+    showToast(msg, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = btn.dataset.originalText || 'Obnovit udaje z Portos';
+    }
   }
 }
 
@@ -1142,6 +1173,11 @@ function onContainerClick(e) {
     return;
   }
 
+  if (target.id === 'btnSyncProfileFromPortos' || target.closest('#btnSyncProfileFromPortos')) {
+    syncProfileFromPortosAction();
+    return;
+  }
+
   if (target.id === 'btnFiscalStorno' || target.closest('#btnFiscalStorno')) {
     submitFiscalStorno();
     return;
@@ -1216,7 +1252,7 @@ export async function init(container) {
   });
 
   loadSettings();
-  await loadCompanyProfile();
+  await loadCompanyProfile({ refresh: true });
   loadPrinters();
   applyFiscalStornoPanelRole();
   await loadPortosStatus();
