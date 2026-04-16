@@ -1,7 +1,8 @@
 let _container = null;
 let items = [];
-let filter = { method: '', q: '' };
+let filter = { method: '', q: '', scope: 'current' };
 let loading = false;
+let lastMeta = { hiddenByScope: 0, activeCashRegisterCode: '' };
 
 function byId(id) {
   return _container.querySelector('#' + id);
@@ -127,16 +128,37 @@ async function loadHistory() {
     var res = await api.getPaymentsHistory({
       method: filter.method || undefined,
       q: filter.q || undefined,
+      scope: filter.scope,
       limit: 200,
     });
     items = (res && res.items) || [];
+    lastMeta = {
+      hiddenByScope: res && Number(res.hiddenByScope) || 0,
+      activeCashRegisterCode: (res && res.activeCashRegisterCode) || '',
+    };
   } catch (e) {
     items = [];
+    lastMeta = { hiddenByScope: 0, activeCashRegisterCode: '' };
     showToast(e.message || 'Chyba načítania histórie', 'error');
   } finally {
     loading = false;
     renderTable();
+    renderScopeHint();
   }
+}
+
+function renderScopeHint() {
+  var el = byId('paymentsScopeHint');
+  if (!el) return;
+  if (filter.scope === 'all') {
+    el.innerHTML = 'Zobrazené sú <strong>všetky</strong> platby (vrátane platieb zo starej eKasy / inej firmy).';
+    return;
+  }
+  if (lastMeta.hiddenByScope > 0) {
+    el.innerHTML = 'Zobrazené sú iba platby <strong>aktuálnej eKasy</strong> (' + escapeHtml(lastMeta.activeCashRegisterCode || '-') + '). Skrytých: <strong>' + lastMeta.hiddenByScope + '</strong> zo starej eKasy. Prepni na „Všetky" pre zobrazenie celej histórie.';
+    return;
+  }
+  el.innerHTML = 'Zobrazené sú iba platby aktuálnej eKasy (' + escapeHtml(lastMeta.activeCashRegisterCode || '-') + ').';
 }
 
 async function printCopy(id) {
@@ -188,6 +210,11 @@ function onChange(event) {
   if (event.target.id === 'paymentsMethod') {
     filter.method = event.target.value;
     loadHistory();
+    return;
+  }
+  if (event.target.id === 'paymentsScope') {
+    filter.scope = event.target.value;
+    loadHistory();
   }
 }
 
@@ -208,6 +235,13 @@ function getTemplate() {
       </div>
       <div class="form-grid" style="margin-bottom:12px">
         <div class="form-group">
+          <label for="paymentsScope">Rozsah</label>
+          <select class="form-select" id="paymentsScope">
+            <option value="current" selected>Iba aktuálna eKasa</option>
+            <option value="all">Všetky (vrátane starej firmy)</option>
+          </select>
+        </div>
+        <div class="form-group">
           <label for="paymentsMethod">Spôsob platby</label>
           <select class="form-select" id="paymentsMethod">
             <option value="">Všetky</option>
@@ -223,6 +257,7 @@ function getTemplate() {
           <button class="btn-save btn-sm" id="btnPaymentsRefresh">Obnoviť</button>
         </div>
       </div>
+      <div id="paymentsScopeHint" class="text-muted" style="font-size:12px;margin:0 0 10px"></div>
       <div id="paymentsTable"></div>
     </div>
   `;

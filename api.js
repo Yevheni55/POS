@@ -246,6 +246,7 @@ const api = {
     if (params && params.method) q.set('method', params.method);
     if (params && params.q) q.set('q', params.q);
     if (params && params.limit) q.set('limit', String(params.limit));
+    if (params && params.scope) q.set('scope', params.scope);
     var qs = q.toString();
     return this.get('/payments/history' + (qs ? '?' + qs : ''));
   },

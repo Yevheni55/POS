@@ -615,6 +615,8 @@ router.get('/history', asyncRoute(async (req, res) => {
 
   const method = String(req.query.method || '').trim();
   const q = String(req.query.q || '').trim();
+  const scope = String(req.query.scope || 'current').trim().toLowerCase();
+  const activeCashRegisterCode = await getActiveCashRegisterCode();
 
   const conditions = [];
   if (method === 'hotovost' || method === 'karta') {
@@ -666,7 +668,7 @@ router.get('/history', asyncRoute(async (req, res) => {
     docsByPaymentId.set(doc.paymentId, list);
   }
 
-  const items = filteredByQuery.map((row) => {
+  const mappedItems = filteredByQuery.map((row) => {
     const related = docsByPaymentId.get(row.id) || [];
     const saleExt = buildPaymentExternalId(row.orderId);
     const stornoExt = buildPaymentStornoExternalId(row.orderId);
@@ -710,7 +712,24 @@ router.get('/history', asyncRoute(async (req, res) => {
     };
   });
 
-  res.json({ items, totalOrders: orderIds.length });
+  // Po zmene firmy/eKasa v Portos (iný cashRegisterCode) skryjeme staré platby z inej kasy,
+  // ak klient nevyžiada `scope=all`. Platby bez fiškálneho dokladu zostávajú vždy viditeľné.
+  const items = scope === 'all' || !activeCashRegisterCode
+    ? mappedItems
+    : mappedItems.filter((item) => {
+      if (!item.fiscal) return true;
+      return String(item.fiscal.cashRegisterCode || '').trim() === activeCashRegisterCode;
+    });
+
+  const hiddenByScope = mappedItems.length - items.length;
+
+  res.json({
+    items,
+    totalOrders: orderIds.length,
+    scope: scope === 'all' ? 'all' : 'current',
+    activeCashRegisterCode,
+    hiddenByScope,
+  });
 }));
 
 router.get('/:id/fiscal', asyncRoute(async (req, res) => {
