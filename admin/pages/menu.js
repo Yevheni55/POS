@@ -332,6 +332,140 @@ function addCategory() {
   openCategoryModal('add', null);
 }
 
+// ==== Product emoji picker ====
+// Pozn.: kľúčové slová sú po slovensky aj anglicky, aby hľadanie fungovalo prirodzene.
+const PRODUCT_EMOJI_PALETTE = [
+  { e: '\u2615', k: 'kava espresso coffee hot' },
+  { e: '\uD83C\uDF75', k: 'caj tea' },
+  { e: '\uD83E\uDDC9', k: 'mate yerba' },
+  { e: '\uD83E\uDD64', k: 'kokktail smoothie' },
+  { e: '\uD83C\uDF79', k: 'koktail koktejl cocktail tropical' },
+  { e: '\uD83C\uDF78', k: 'koktail martini cocktail' },
+  { e: '\uD83E\uDD43', k: 'whisky tumbler rum bourbon alkohol' },
+  { e: '\uD83C\uDF7E', k: 'sekt champagne prosecco sampan' },
+  { e: '\uD83C\uDF77', k: 'vino cervene vino wine' },
+  { e: '\uD83E\uDD42', k: 'vino biele sparkling wine' },
+  { e: '\uD83C\uDF7A', k: 'pivo beer' },
+  { e: '\uD83C\uDF7B', k: 'pivo cheers tost' },
+  { e: '\uD83E\uDD6B', k: 'radler pivo mix' },
+  { e: '\uD83E\uDD5B', k: 'mlieko milk' },
+  { e: '\uD83E\uDDC3', k: 'dzus juice pomaranc orange' },
+  { e: '\uD83E\uDD64', k: 'limonada lemon soda kokteil' },
+  { e: '\uD83C\uDF76', k: 'sake liquor' },
+  { e: '\uD83C\uDF54', k: 'burger hamburger' },
+  { e: '\uD83C\uDF55', k: 'pizza' },
+  { e: '\uD83C\uDF2D', k: 'hotdog parky' },
+  { e: '\uD83C\uDF2E', k: 'taco' },
+  { e: '\uD83C\uDF2F', k: 'burrito quesadilla tortilla' },
+  { e: '\uD83E\uDD6A', k: 'sendvic sandwich bageta' },
+  { e: '\uD83E\uDDC7', k: 'waffle' },
+  { e: '\uD83C\uDF57', k: 'kurca chicken' },
+  { e: '\uD83C\uDF56', k: 'maso meat' },
+  { e: '\uD83C\uDF5F', k: 'hranolky fries potato' },
+  { e: '\uD83E\uDD57', k: 'salat salad zdrave' },
+  { e: '\uD83E\uDDC0', k: 'syr cheese' },
+  { e: '\uD83E\uDD69', k: 'steak' },
+  { e: '\uD83E\uDD58', k: 'polievka soup' },
+  { e: '\uD83C\uDF72', k: 'polievka pot hot' },
+  { e: '\uD83C\uDF73', k: 'vajce egg fried' },
+  { e: '\uD83E\uDD5A', k: 'vajce egg chocolate' },
+  { e: '\uD83C\uDF5B', k: 'ryza rice bowl' },
+  { e: '\uD83C\uDF5C', k: 'polievka ramen noodles' },
+  { e: '\uD83C\uDF5D', k: 'spaghetti cestoviny pasta' },
+  { e: '\uD83C\uDF5A', k: 'ryza rice' },
+  { e: '\uD83C\uDF59', k: 'sushi rice' },
+  { e: '\uD83C\uDF71', k: 'bento' },
+  { e: '\uD83C\uDF61', k: 'onigiri rice ball' },
+  { e: '\uD83C\uDF70', k: 'dort tortu cake strawberry' },
+  { e: '\uD83C\uDF82', k: 'torta narodeniny birthday' },
+  { e: '\uD83C\uDF6E', k: 'flan pudding creme brulee' },
+  { e: '\uD83C\uDF6D', k: 'cukor candy lollipop' },
+  { e: '\uD83C\uDF6A', k: 'cookie susienka' },
+  { e: '\uD83C\uDF69', k: 'donut' },
+  { e: '\uD83C\uDF6B', k: 'cokolada chocolate' },
+  { e: '\uD83C\uDF66', k: 'zmrzlina ice cream vanilla' },
+  { e: '\uD83C\uDF68', k: 'zmrzlina ice cream cup' },
+  { e: '\uD83C\uDF67', k: 'shaved ice' },
+  { e: '\uD83E\uDD67', k: 'pie kolac' },
+  { e: '\uD83C\uDF4E', k: 'jablko apple ovocie fruit' },
+  { e: '\uD83C\uDF4A', k: 'pomaranc orange citrus' },
+  { e: '\uD83C\uDF4B', k: 'citron lemon citrus' },
+  { e: '\uD83C\uDF49', k: 'melon watermelon' },
+  { e: '\uD83C\uDF47', k: 'hrozno grapes' },
+  { e: '\uD83C\uDF53', k: 'jahoda strawberry' },
+  { e: '\uD83C\uDF52', k: 'cheresne cherry' },
+  { e: '\uD83C\uDF4C', k: 'banan banana' },
+  { e: '\uD83E\uDD6D', k: 'mango' },
+  { e: '\uD83C\uDF4D', k: 'ananas pineapple' },
+  { e: '\uD83E\uDD5D', k: 'kivi kiwi' },
+  { e: '\uD83E\uDD65', k: 'kokos coconut' },
+  { e: '\uD83E\uDD50', k: 'chlieb croissant' },
+  { e: '\uD83C\uDF5E', k: 'chlieb bread baguette' },
+  { e: '\uD83E\uDD56', k: 'bageta baguette' },
+  { e: '\uD83E\uDD68', k: 'precle pretzel' },
+  { e: '\uD83E\uDDC8', k: 'maslo butter' },
+  { e: '\uD83E\uDDC2', k: 'sol salt pepper korenie' },
+  { e: '\uD83C\uDF36', k: 'paprika chili korenie spicy' },
+  { e: '\uD83E\uDDC4', k: 'cesnak garlic' },
+  { e: '\uD83E\uDDC5', k: 'cibula onion' },
+  { e: '\uD83C\uDF45', k: 'paradajky tomato bruschetta' },
+  { e: '\uD83C\uDF46', k: 'baklazan eggplant' },
+  { e: '\uD83E\uDD6C', k: 'salat lettuce' },
+  { e: '\uD83E\uDD50', k: 'ovocie fruit croissant' },
+  { e: '\uD83C\uDF7C', k: 'pitie baby milk' },
+  { e: '\uD83E\uDDCB', k: 'bubble tea' },
+  { e: '\uD83C\uDF7D', k: 'tanier plate' },
+  { e: '\uD83E\uDDC1', k: 'cupcake muffin' },
+  { e: '\uD83C\uDF2B', k: 'dym para' },
+  { e: '\uD83D\uDCE6', k: 'balik box supply tovar' },
+  { e: '\uD83E\uDDFB', k: 'papier toilet paper tovar' },
+  { e: '\uD83E\uDDFC', k: 'mydlo soap tovar' },
+  { e: '\uD83E\uDDFA', k: 'taska bag bag tovar' },
+];
+
+function renderProductEmojiGrid(filter) {
+  const grid = byId('fEmojiGrid');
+  if (!grid) return;
+  const query = String(filter || '').trim().toLowerCase();
+  const list = query
+    ? PRODUCT_EMOJI_PALETTE.filter(item => item.k.indexOf(query) !== -1)
+    : PRODUCT_EMOJI_PALETTE;
+  grid.innerHTML = list.map(item => (
+    '<button type="button" class="prod-emoji-pick" data-emoji="' + item.e + '" title="' + item.k + '" ' +
+    'style="font-size:22px;line-height:1;padding:6px;border:1px solid transparent;background:transparent;border-radius:var(--radius-xs);cursor:pointer">' +
+    item.e + '</button>'
+  )).join('');
+}
+
+function wireProductEmojiPicker() {
+  const btn = byId('fEmojiPickBtn');
+  const wrap = byId('fEmojiGridWrap');
+  const grid = byId('fEmojiGrid');
+  const search = byId('fEmojiSearch');
+  const close = byId('fEmojiClose');
+  const input = byId('fEmoji');
+  if (!btn || !wrap || !grid || !input) return;
+
+  btn.addEventListener('click', function () {
+    if (wrap.style.display === 'none' || !wrap.style.display) {
+      renderProductEmojiGrid(search ? search.value : '');
+      wrap.style.display = 'block';
+      if (search) setTimeout(function () { search.focus(); }, 30);
+    } else {
+      wrap.style.display = 'none';
+    }
+  });
+  if (close) close.addEventListener('click', function () { wrap.style.display = 'none'; });
+  if (search) search.addEventListener('input', function () { renderProductEmojiGrid(search.value); });
+  grid.addEventListener('click', function (e) {
+    const b = e.target.closest('.prod-emoji-pick');
+    if (!b) return;
+    input.value = b.dataset.emoji;
+    wrap.style.display = 'none';
+    input.focus();
+  });
+}
+
 // === Products ===
 function renderProducts() {
   const cat = getActiveCat();
@@ -463,6 +597,8 @@ function openAddProduct() {
   updateFormToggle();
   populateCategorySelect();
   syncVatRateSuggestion(true);
+  const wrap = byId('fEmojiGridWrap');
+  if (wrap) wrap.style.display = 'none';
   byId('productModal').classList.add('show');
   setTimeout(() => byId('fName').focus(), 100);
 }
@@ -622,12 +758,22 @@ export function init(container) {
           <div class="u-modal-row">
             <div class="u-modal-field field-emoji">
               <label for="fEmoji">Emoji</label>
-              <input id="fEmoji" type="text" placeholder="napr. &#9749;" maxlength="4" class="input-emoji">
+              <div style="display:flex;gap:6px;align-items:center">
+                <input id="fEmoji" type="text" placeholder="napr. &#9749;" maxlength="4" class="input-emoji" style="flex:1;text-align:center;font-size:20px">
+                <button type="button" id="fEmojiPickBtn" class="u-btn u-btn-ghost" style="padding:6px 10px;font-size:18px" title="Vybrat emoji">\u{1F642}</button>
+              </div>
             </div>
             <div class="u-modal-field field-flex-3">
               <label for="fName">Nazov<span class="required-mark" aria-hidden="true"> *</span></label>
               <input id="fName" type="text" placeholder="Nazov produktu" aria-required="true" data-validate="required">
             </div>
+          </div>
+          <div id="fEmojiGridWrap" style="display:none;margin:-8px 0 6px;padding:8px;background:var(--color-bg-surface);border:1px solid var(--color-border);border-radius:var(--radius-sm)">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <input id="fEmojiSearch" type="text" placeholder="Hladaj (kava, pivo, jedlo...)" class="form-input form-input-sm" style="flex:1">
+              <button type="button" class="act-btn" id="fEmojiClose" title="Zavriet" style="margin-left:6px">\u2715</button>
+            </div>
+            <div id="fEmojiGrid" style="display:grid;grid-template-columns:repeat(10,1fr);gap:4px;max-height:200px;overflow-y:auto"></div>
           </div>
           <div class="u-modal-field">
             <label for="fDesc">Popis</label>
@@ -672,6 +818,7 @@ export function init(container) {
   byId('addProdBtn').addEventListener('click', openAddProduct);
   byId('modalCancelBtn').addEventListener('click', closeProductModal);
   byId('modalSaveBtn').addEventListener('click', saveProduct);
+  wireProductEmojiPicker();
   byId('fAvailToggleWrap').addEventListener('click', toggleFormAvail);
   byId('productModal').addEventListener('click', function (e) { if (e.target === this) closeProductModal(); });
   byId('fCategory').addEventListener('change', function () { syncVatRateSuggestion(false); });
