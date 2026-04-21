@@ -1,7 +1,11 @@
 import { Router } from 'express';
 import { db } from '../db/index.js';
-import { orders, orderItems, menuItems, tables, shifts, discounts, orderEvents } from '../db/schema.js';
-import { eq, desc, and, inArray, sql } from 'drizzle-orm';
+import {
+  orders, orderItems, menuItems, tables, shifts, discounts, orderEvents,
+  payments, fiscalDocuments,
+  writeOffs, writeOffItems, ingredients, recipes,
+} from '../db/schema.js';
+import { eq, desc, and, inArray, sql, or } from 'drizzle-orm';
 import { logEvent } from '../lib/audit.js';
 import { emitEvent } from '../lib/emit.js';
 import { enrichOrders } from '../lib/order-queries.js';
@@ -9,7 +13,6 @@ import { validate } from '../middleware/validate.js';
 import { createOrderSchema, addItemsSchema, updateItemSchema, batchSchema, splitSchema, moveItemsSchema, discountSchema, stornoSendSchema } from '../schemas/orders.js';
 import { deductStockForSentItems, applyWriteOff } from '../lib/stock.js';
 import { asyncRoute } from '../lib/async-route.js';
-import { writeOffs, writeOffItems, ingredients, recipes } from '../db/schema.js';
 
 const router = Router();
 
@@ -673,11 +676,9 @@ router.delete('/:id/discount', asyncRoute(async (req, res) => {
   }
 }));
 
-// DELETE /api/orders/:id — cancel order (manazer/admin only)
+// DELETE /api/orders/:id — cancel order (celá objednávka zo stola)
+// Čašník: iba ak ešte neexistuje platba (inak len manazer/admin — uhradené treba riešiť cez storno platby).
 router.delete('/:id', asyncRoute(async (req, res) => {
-  if (req.user.role === 'cisnik') {
-    return res.status(403).json({ error: 'Pristup odmietnuty' });
-  }
   const orderId = +req.params.id;
   const { version } = req.body || {};
 
@@ -686,8 +687,26 @@ router.delete('/:id', asyncRoute(async (req, res) => {
       const [order] = await tx.select().from(orders).where(eq(orders.id, orderId));
       if (!order) return null;
 
+      const [existingPay] = await tx.select({ id: payments.id }).from(payments).where(eq(payments.orderId, orderId)).limit(1);
+      if (req.user.role === 'cisnik' && existingPay) {
+        const err = new Error('PAYMENT_BLOCKS_CISNIK');
+        err.status = 403;
+        throw err;
+      }
+
       const bumped = await bumpVersion(tx, orderId, version);
       if (version !== undefined && !bumped) throw new VersionConflictError();
+
+      const payRows = await tx.select({ id: payments.id }).from(payments).where(eq(payments.orderId, orderId));
+      const paymentIds = payRows.map((r) => r.id);
+      if (paymentIds.length) {
+        await tx.delete(fiscalDocuments).where(
+          or(eq(fiscalDocuments.orderId, orderId), inArray(fiscalDocuments.paymentId, paymentIds)),
+        );
+        await tx.delete(payments).where(eq(payments.orderId, orderId));
+      } else {
+        await tx.delete(fiscalDocuments).where(eq(fiscalDocuments.orderId, orderId));
+      }
 
       // Log audit BEFORE delete (cascade would remove audit records)
       await logEvent(tx, { orderId, type: 'order_cancelled', payload: { tableId: order.tableId }, staffId: req.user.id });
@@ -704,10 +723,16 @@ router.delete('/:id', asyncRoute(async (req, res) => {
       return order.tableId;
     });
 
+    if (tableId == null) return res.status(404).json({ error: 'Objednavka nenajdena' });
     emitEvent(req, 'order:cancelled', { tableId, orderId });
     res.json({ ok: true });
   } catch (e) {
     if (e instanceof VersionConflictError) return res.status(409).json({ error: VERSION_CONFLICT_MSG });
+    if (e && e.status === 403) {
+      return res.status(403).json({
+        error: 'Objednavku s platbou moze zrusit len manazer alebo admin (najprv storno platby v administracii, ak treba).',
+      });
+    }
     throw e;
   }
 }));

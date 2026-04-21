@@ -7,6 +7,7 @@
     "start": "node server.js",
     "db:push": "drizzle-kit push",
     "db:seed": "node db/seed.js",
+    "recipes:sync-bar": "node ../scripts/sync-bar-recipes.mjs",
     "portos:readiness": "node scripts/portos-readiness.mjs",
     "portos:baud-scan": "node scripts/portos-baud-scan.mjs",
     "portos:printer-test": "node scripts/portos-printer-test.mjs",

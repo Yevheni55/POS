@@ -467,7 +467,14 @@ async function doClearOrder(){
       var prints = [];
       if (foodStorno.length) prints.push(api.post('/print/kitchen', { dest:'STORNO KUCHYNA', tableName:tableName, staffName:staffName, items:foodStorno, orderNum:currentOrderId }));
       if (drinkStorno.length) prints.push(api.post('/print/kitchen', { dest:'STORNO BAR', tableName:tableName, staffName:staffName, items:drinkStorno, orderNum:currentOrderId }));
-      await Promise.all(prints);
+      try {
+        await Promise.all(prints);
+      } catch (printErr) {
+        console.error('Storno print failed (order still cancelled):', printErr);
+        if (typeof showToast === 'function') {
+          showToast('Storno sa nepodarilo vytlacit — objednavka sa aj tak zrusi.', true);
+        }
+      }
     }
 
     if (currentOrderId) {

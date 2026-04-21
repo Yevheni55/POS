@@ -895,3 +895,89 @@ describe('Discount endpoints', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// DELETE /api/orders/:id — cancel entire order
+// ---------------------------------------------------------------------------
+
+describe('DELETE /api/orders/:id — cancel order', () => {
+  let fixtures;
+
+  before(async () => {
+    await truncateAll();
+    fixtures = await seed();
+  });
+
+  it('allows cisnik to delete an unpaid open order', async () => {
+    const orderRes = await createOrder({
+      tableId: fixtures.table1.id,
+      items: [{ menuItemId: fixtures.itemBurger.id, qty: 1 }],
+    });
+    const orderId = orderRes.body.id;
+
+    const res = await request
+      .delete(`/api/orders/${orderId}`)
+      .set('Authorization', `Bearer ${tokens.cisnik()}`)
+      .send({});
+
+    assert.equal(res.status, 200);
+    assert.equal(await fetchOrder(orderId), undefined);
+  });
+
+  it('returns 403 when cisnik tries to delete an order that already has a payment', async () => {
+    const orderRes = await createOrder({
+      tableId: fixtures.table1.id,
+      items: [{ menuItemId: fixtures.itemBurger.id, qty: 1 }],
+    });
+    const orderId = orderRes.body.id;
+
+    await testDb.insert(schema.payments).values({
+      orderId,
+      method: 'cash',
+      amount: '10.00',
+    });
+
+    const res = await request
+      .delete(`/api/orders/${orderId}`)
+      .set('Authorization', `Bearer ${tokens.cisnik()}`)
+      .send({});
+
+    assert.equal(res.status, 403);
+    assert.ok(await fetchOrder(orderId), 'order row must remain');
+  });
+
+  it('allows manazer to delete order with payment and fiscal rows (FK cleanup)', async () => {
+    const orderRes = await createOrder({
+      tableId: fixtures.table1.id,
+      items: [{ menuItemId: fixtures.itemBurger.id, qty: 1 }],
+    });
+    const orderId = orderRes.body.id;
+
+    const [pay] = await testDb.insert(schema.payments).values({
+      orderId,
+      method: 'cash',
+      amount: '8.50',
+    }).returning();
+
+    await testDb.insert(schema.fiscalDocuments).values({
+      sourceType: 'payment',
+      sourceId: pay.id,
+      orderId,
+      paymentId: pay.id,
+      externalId: `test-fiscal-${orderId}-${pay.id}`,
+      cashRegisterCode: 'TEST',
+      requestType: 'register',
+      httpStatus: 200,
+      resultMode: 'success',
+      isSuccessful: true,
+    });
+
+    const res = await request
+      .delete(`/api/orders/${orderId}`)
+      .set('Authorization', `Bearer ${tokens.manazer()}`)
+      .send({});
+
+    assert.equal(res.status, 200);
+    assert.equal(await fetchOrder(orderId), undefined);
+  });
+});
