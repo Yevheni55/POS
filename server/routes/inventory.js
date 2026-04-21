@@ -150,6 +150,7 @@ router.get('/recipes/:menuItemId', async (req, res) => {
 
 router.put('/recipes/:menuItemId', mgr, validate(setRecipeSchema), async (req, res) => {
   const menuItemId = +req.params.menuItemId;
+  console.log(`[recipes] PUT menuItem=${menuItemId} lines=${req.body.lines.length} by staff=${req.user.id}`);
   await db.transaction(async (tx) => {
     await tx.delete(recipes).where(eq(recipes.menuItemId, menuItemId));
     for (const line of req.body.lines) {

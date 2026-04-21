@@ -336,12 +336,20 @@ function bindEditorEvents(item) {
     });
   }
 
-  // Recipe: remove line
+  // Recipe: remove line (autosave)
   $$('[data-remove-idx]').forEach(function(btn) {
-    btn.addEventListener('click', function() {
+    btn.addEventListener('click', async function() {
       var idx = Number(btn.dataset.removeIdx);
+      var snapshot = currentRecipe.slice();
       currentRecipe = currentRecipe.filter(function(_, i) { return i !== idx; });
       renderEditor();
+      try {
+        await saveRecipeLines(item.id, { silent: true, skipReload: true });
+        showToast('Surovina odstranena', true);
+      } catch (_) {
+        currentRecipe = snapshot;
+        renderEditor();
+      }
     });
   });
 
@@ -414,7 +422,7 @@ async function saveSimpleConfig(itemId) {
   }
 }
 
-function addRecipeLine() {
+async function addRecipeLine() {
   var selectEl = $('#fNewIngredient');
   var qtyEl = $('#fNewQty');
   if (!selectEl || !qtyEl) return;
@@ -434,7 +442,6 @@ function addRecipeLine() {
   var ing = ingredientsList.find(function(i) { return i.id === ingredientId; });
   if (!ing) return;
 
-  // Add to local recipe (immutable — new array)
   currentRecipe = currentRecipe.concat([{
     ingredientId: ingredientId,
     qtyPerUnit: qty,
@@ -442,33 +449,46 @@ function addRecipeLine() {
     ingredientUnit: ing.unit
   }]);
 
-  renderEditor();
+  // autosave — odosleme na server hned, aby sa user nemusel spoliehat na kliknutie "Ulozit recept"
+  try {
+    await saveRecipeLines(selectedItemId, { silent: true, skipReload: true });
+    renderEditor();
+    showToast('Surovina pridana a recept ulozeny', true);
+  } catch (_) {
+    // pri chybe vratime zmenu
+    currentRecipe = currentRecipe.filter(function (l) { return l.ingredientId !== ingredientId; });
+    renderEditor();
+  }
 }
 
-async function saveRecipeLines(itemId) {
+async function saveRecipeLines(itemId, opts) {
+  opts = opts || {};
   var btn = $('#saveRecipeBtn');
-  if (btn) btnLoading(btn);
+  if (btn && !opts.silent) btnLoading(btn);
   try {
     if (!currentRecipe.length) {
-      // Empty recipe — delete all lines
       await api.del('/inventory/recipes/' + itemId);
     } else {
       var lines = currentRecipe.map(function(line) {
         return { ingredientId: line.ingredientId, qtyPerUnit: line.qtyPerUnit };
       });
+      console.log('[recipes] PUT', itemId, lines);
       await api.put('/inventory/recipes/' + itemId, { lines: lines });
-      // server automaticky prepne item na trackMode='recipe' — synchronizujeme lokálny cache
       var local = menuItems.find(function (m) { return m.id === itemId; });
       if (local) local.trackMode = 'recipe';
     }
     await loadRecipeSummary();
     renderItemList();
-    await loadRecipeForItem(itemId);
-    showToast('Recept ulozeny', true);
+    if (!opts.skipReload) {
+      await loadRecipeForItem(itemId);
+    }
+    if (!opts.silent) showToast('Recept ulozeny', true);
   } catch (err) {
+    console.error('[recipes] save error:', err);
     showToast(err.message || 'Chyba ukladania receptu', 'error');
+    throw err;
   } finally {
-    if (btn) btnReset(btn);
+    if (btn && !opts.silent) btnReset(btn);
   }
 }
 
