@@ -192,22 +192,144 @@ function endCatDrag() {
   renderCategories();
 }
 
-function addCategory() {
-  showPrompt('Nazov novej kategorie', 'napr. Dezerty', function (name) {
-    if (!name || !name.trim()) return;
-    showPrompt('Emoji ikona', 'napr. \uD83C\uDF7D', async function (icon) {
-      icon = icon || '\uD83C\uDF7D';
-      const slug = 'cat_' + Date.now();
-      try {
-        const created = await api.post('/menu/categories', { slug, label: name.trim(), icon, sortKey: MENU_DATA.length, dest: 'dine-in' });
-        activeCatId = created.id || slug;
-        await loadMenu();
+const CATEGORY_EMOJI_SUGGESTIONS = [
+  '\u2615', '\uD83C\uDF75', '\uD83C\uDF79', '\uD83C\uDF7A', '\uD83C\uDF77', '\uD83E\uDD42', '\uD83C\uDF7E',
+  '\uD83E\uDD43', '\uD83E\uDD5B', '\uD83E\uDDC3', '\uD83C\uDF7C', '\uD83C\uDF76', '\uD83E\uDD64', '\uD83E\uDD5A',
+  '\uD83C\uDF54', '\uD83C\uDF55', '\uD83C\uDF2E', '\uD83C\uDF2F', '\uD83E\uDD6A', '\uD83C\uDF2D', '\uD83C\uDF57',
+  '\uD83C\uDF5F', '\uD83E\uDD57', '\uD83E\uDDC0', '\uD83E\uDD69', '\uD83C\uDF73', '\uD83E\uDD58', '\uD83C\uDF72',
+  '\uD83C\uDF5B', '\uD83C\uDF59', '\uD83C\uDF71', '\uD83C\uDF5C', '\uD83C\uDF5D', '\uD83C\uDF5A', '\uD83C\uDF61',
+  '\uD83C\uDF70', '\uD83C\uDF6E', '\uD83C\uDF6D', '\uD83C\uDF6A', '\uD83C\uDF6B', '\uD83C\uDF66', '\uD83C\uDF68', '\uD83C\uDF67',
+  '\uD83C\uDF4E', '\uD83C\uDF4A', '\uD83C\uDF4B', '\uD83C\uDF49', '\uD83C\uDF47', '\uD83C\uDF53', '\uD83C\uDF52',
+  '\uD83E\uDD6B', '\uD83C\uDF7D', '\uD83E\uDDC1', '\uD83E\uDDC2', '\uD83E\uDD64', '\uD83C\uDF78',
+];
+
+function openCategoryModal(mode, initial) {
+  const existing = document.getElementById('catModal');
+  if (existing) existing.remove();
+
+  const current = initial || {};
+  const initialIcon = current.icon || '\uD83C\uDF7D';
+  const initialLabel = current.label || '';
+  const initialDest = current.dest || 'bar';
+
+  const ov = document.createElement('div');
+  ov.className = 'u-overlay';
+  ov.id = 'catModal';
+
+  const emojiGrid = CATEGORY_EMOJI_SUGGESTIONS.map(function (e) {
+    const active = e === initialIcon ? ' active' : '';
+    return '<button type="button" class="emoji-pick' + active + '" data-emoji="' + e + '">' + e + '</button>';
+  }).join('');
+
+  ov.innerHTML = ''
+    + '<div class="u-modal" style="text-align:left;max-width:520px">'
+    + '<div class="u-modal-title" style="text-align:center">' + (mode === 'edit' ? 'Upravit kategoriu' : 'Nova kategoria') + '</div>'
+    + '<div class="u-modal-body" style="gap:14px">'
+    + '<div class="u-modal-field">'
+    + '<label for="fCatName">Nazov<span class="required-mark" aria-hidden="true"> *</span></label>'
+    + '<input id="fCatName" type="text" placeholder="napr. Dezerty" data-validate="required" value="' + String(initialLabel || '').replace(/"/g, '&quot;') + '">'
+    + '</div>'
+    + '<div class="u-modal-field">'
+    + '<label>Emoji ikona</label>'
+    + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">'
+    + '<span id="fCatIconPreview" style="font-size:32px;line-height:1;width:48px;height:48px;display:inline-flex;align-items:center;justify-content:center;background:var(--color-bg-surface);border:1px solid var(--color-border);border-radius:var(--radius-sm)">' + initialIcon + '</span>'
+    + '<input id="fCatIcon" type="text" maxlength="4" value="' + initialIcon + '" style="width:120px;text-align:center;font-size:20px" placeholder="\uD83C\uDF7D">'
+    + '<div class="text-muted" style="font-size:12px;line-height:1.3">Klikni na ikonu nizsie alebo zadaj vlastne emoji.</div>'
+    + '</div>'
+    + '<div id="fCatEmojiGrid" style="display:grid;grid-template-columns:repeat(8,1fr);gap:6px;max-height:220px;overflow-y:auto;padding:8px;background:var(--color-bg-surface);border:1px solid var(--color-border);border-radius:var(--radius-sm)">' + emojiGrid + '</div>'
+    + '</div>'
+    + '<div class="u-modal-field">'
+    + '<label for="fCatDest">Kam sa tlacia polozky</label>'
+    + '<select id="fCatDest">'
+    + '<option value="bar"' + (initialDest === 'bar' ? ' selected' : '') + '>Bar</option>'
+    + '<option value="kuchyna"' + (initialDest === 'kuchyna' ? ' selected' : '') + '>Kuchyna</option>'
+    + '<option value="all"' + (initialDest === 'all' ? ' selected' : '') + '>Vsetko (bar aj kuchyna)</option>'
+    + '</select>'
+    + '</div>'
+    + '</div>'
+    + '<div class="u-modal-btns">'
+    + '<button class="u-btn u-btn-ghost" id="catCancel">Zrusit</button>'
+    + '<button class="u-btn u-btn-ice" id="catSave">' + (mode === 'edit' ? 'Ulozit' : 'Pridat') + '</button>'
+    + '</div>'
+    + '<style>.emoji-pick{font-size:22px;line-height:1;padding:6px;border:1px solid transparent;background:transparent;border-radius:var(--radius-xs);cursor:pointer;transition:all .1s ease}.emoji-pick:hover{background:rgba(139,124,246,.1);border-color:var(--color-accent)}.emoji-pick.active{background:rgba(139,124,246,.2);border-color:var(--color-accent);transform:scale(1.1)}</style>'
+    + '</div>';
+
+  document.body.appendChild(ov);
+  requestAnimationFrame(function () { ov.classList.add('show'); });
+
+  const closeModal = function () {
+    ov.classList.remove('show');
+    setTimeout(function () { ov.remove(); }, 300);
+  };
+
+  const iconInput = ov.querySelector('#fCatIcon');
+  const iconPreview = ov.querySelector('#fCatIconPreview');
+  const grid = ov.querySelector('#fCatEmojiGrid');
+
+  function setIcon(emoji) {
+    iconInput.value = emoji;
+    iconPreview.textContent = emoji || '\uD83C\uDF7D';
+    grid.querySelectorAll('.emoji-pick').forEach(function (b) {
+      b.classList.toggle('active', b.dataset.emoji === emoji);
+    });
+  }
+
+  grid.addEventListener('click', function (e) {
+    const btn = e.target.closest('.emoji-pick');
+    if (!btn) return;
+    setIcon(btn.dataset.emoji);
+  });
+
+  iconInput.addEventListener('input', function () {
+    const value = iconInput.value.trim();
+    iconPreview.textContent = value || '\uD83C\uDF7D';
+    grid.querySelectorAll('.emoji-pick').forEach(function (b) {
+      b.classList.toggle('active', b.dataset.emoji === value);
+    });
+  });
+
+  ov.querySelector('#catCancel').onclick = closeModal;
+  ov.addEventListener('click', function (e) { if (e.target === ov) closeModal(); });
+
+  const saveBtn = ov.querySelector('#catSave');
+  saveBtn.addEventListener('click', async function () {
+    if (!validateForm(ov)) return;
+    const label = ov.querySelector('#fCatName').value.trim();
+    const icon = (iconInput.value || '').trim() || '\uD83C\uDF7D';
+    const dest = ov.querySelector('#fCatDest').value || 'bar';
+    if (!label) {
+      showToast('Zadaj nazov kategorie', 'error');
+      return;
+    }
+    btnLoading(saveBtn);
+    try {
+      if (mode === 'edit' && current.id) {
+        await api.put('/menu/categories/' + current.id, { label: label, icon: icon, dest: dest });
+        showToast('Kategoria upravena', true);
+      } else {
+        const slug = 'cat_' + Date.now();
+        const created = await api.post('/menu/categories', {
+          slug: slug, label: label, icon: icon, sortKey: String(MENU_DATA.length), dest: dest,
+        });
+        activeCatId = (created && created.id) || slug;
         showToast('Kategoria pridana', true);
-      } catch (err) {
-        showToast(err.message || 'Chyba pridania kategorie', 'error');
       }
-    }, { icon: '\uD83C\uDF7D', defaultValue: '\uD83C\uDF7D', confirmText: 'Pridat' });
-  }, { icon: '\uD83D\uDCC2', confirmText: 'Dalej' });
+      closeModal();
+      await loadMenu();
+    } catch (err) {
+      btnReset(saveBtn);
+      showToast(err.message || 'Chyba ulozenia', 'error');
+    }
+  });
+
+  setTimeout(function () {
+    const el = ov.querySelector('#fCatName');
+    if (el) el.focus();
+  }, 80);
+}
+
+function addCategory() {
+  openCategoryModal('add', null);
 }
 
 // === Products ===
