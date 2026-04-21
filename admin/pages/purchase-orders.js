@@ -621,7 +621,8 @@ async function pdfToImages(file) {
 
   for (var i = 1; i <= maxPages; i++) {
     var page = await pdf.getPage(i);
-    var viewport = page.getViewport({ scale: 2.0 }); // high res for OCR
+    // Vyššie rozlíšenie = presnejšie OCR čísel v stĺpci "množstvo"; 3.0 znižuje riziko, že GPT zamení číslo v stĺpci s číslom v názve.
+    var viewport = page.getViewport({ scale: 3.0 });
     var canvas = document.createElement('canvas');
     canvas.width = viewport.width;
     canvas.height = viewport.height;
@@ -866,6 +867,24 @@ function buildScanItemCard(item, idx) {
     : '<span style="font-size:var(--text-xs);font-weight:var(--weight-bold);padding:2px 8px;background:rgba(92,196,158,.1);color:var(--color-success);border-radius:var(--radius-xs);white-space:nowrap">Surovina</span>';
   h += catBadge;
   if (isUnmatched) h += '<span style="font-size:var(--text-xs);color:var(--color-danger);font-weight:var(--weight-bold);padding:2px 8px;background:rgba(224,112,112,.1);border-radius:var(--radius-xs);white-space:nowrap">Nepriradena</span>';
+
+  // Detekcia podozrivého množstva: ak total/unitCost dáva iné číslo než quantity, alebo ak je quantity oveľa menšie
+  // než posledné číslo v názve, upozorni manažéra — najčastejšie OCR zamení stĺpec „množstvo" s číslom v popise.
+  var qty = Number(item.quantity) || 0;
+  var total = Number(item.totalCost) || 0;
+  var unitCost = Number(item.unitCost) || 0;
+  var expectedFromTotal = unitCost > 0 ? total / unitCost : null;
+  var totalMismatch = expectedFromTotal !== null && Math.abs(expectedFromTotal - qty) >= 1 && Math.abs(expectedFromTotal - qty) / Math.max(qty, 1) > 0.1;
+  var nameNumbers = String(item.invoiceName || '').match(/\d+/g) || [];
+  var biggestInName = nameNumbers.reduce(function (m, s) { var n = parseInt(s, 10); return n > m ? n : m; }, 0);
+  var nameMuchBigger = biggestInName > qty && biggestInName >= 4 && qty > 0 && biggestInName / qty >= 3;
+  if (totalMismatch || nameMuchBigger) {
+    var hint = totalMismatch && expectedFromTotal
+      ? 'Total/unit napoveda ' + Math.round(expectedFromTotal) + ' ks'
+      : 'V nazve je vacsie cislo (' + biggestInName + ')';
+    h += '<span title="Skontrolujte mnozstvo - OCR casto zamena stlpec mnozstvo s cislom v nazve" style="font-size:var(--text-xs);font-weight:var(--weight-bold);padding:2px 8px;background:rgba(255,179,71,.12);color:#FFB347;border-radius:var(--radius-xs);white-space:nowrap">? ' + escapeHtml(hint) + '</span>';
+  }
+
   h += '<button class="scan-remove" data-idx="' + idx + '" title="Odstranit" style="width:28px;height:28px;border-radius:var(--radius-xs);border:none;background:transparent;color:var(--color-text-dim);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">\u2715</button>';
   h += '</div>';
 

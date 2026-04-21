@@ -33,20 +33,22 @@ router.post('/', async (req, res) => {
 
     const response = await openai.chat.completions.create({
       model: 'gpt-4o',
-      max_tokens: 2500,
+      max_tokens: 4000,
+      temperature: 0,
       messages: [{
         role: 'user',
         content: [
           {
             type: 'text',
-            text: `Analyze this invoice/receipt/delivery note image. Extract all LINE ITEMS that are actual products/ingredients (food, drinks, supplies).
+            text: `Analyze this invoice/receipt/delivery note image. Extract EVERY LINE ITEM that is an actual product/ingredient (food, drinks, supplies).
 
 IGNORE these lines completely:
 - Tax/VAT/DPH lines
-- Shipping/delivery fees
-- Discounts/credits
-- Subtotals/totals
+- Shipping/delivery fees (doprava, preprava)
+- Discounts/credits (zľava, kredit)
+- Subtotals/totals (spolu, celkom, medzisúčet)
 - Payment method lines
+- Vratné obaly / deposit / záloha on reusable containers (these are not separate products)
 - Any non-product line
 
 Return ONLY valid JSON (no markdown, no backticks, no explanation):
@@ -73,11 +75,18 @@ CRITICAL — Categorize each item:
 - "category": "ingredient" — food, drinks, spices, sauces, raw materials that go INTO dishes/drinks
 - "category": "supply" — cleaning products, hygiene, paper towels, napkins, bags, packaging, chemicals, toilet paper, soap, detergent, gloves, foil, trash bags — anything NOT edible
 
+CRITICAL — Quantity rules (this is the most common OCR error, read carefully):
+- "quantity" is the number in the MNOŽSTVO / POČET / KS / QTY / Quantity column for that row — ONLY that column.
+- DO NOT use numbers that appear inside the product name (like "50L", "24x", "500g", "13°") as quantity.
+- DO NOT merge, sum, or deduplicate identical product names — each printed row is ONE item; if the same product appears twice, output it twice.
+- If a row has sub-lines / pack breakdown (e.g. "13 × sud 50 L"), quantity is 13, unit is "sud", conversionFactor is 50, targetUnit is "l".
+- Trust the column order of the invoice, not the product description.
+- If OCR is uncertain, prefer the larger plausible integer from the quantity column over a smaller number from the name.
+
 Rules:
 - "invoiceName": keep exactly as on invoice (e.g. "BBQ Dressing 24x500g")
 - "suggestedName": clean short name for a restaurant inventory (e.g. "BBQ Dressing")
 - "unit": the unit AS ON THE INVOICE (ks, bal, sud, krt, fl, etc). Keep original.
-- "quantity": the count as on the invoice
 - "unitCost": price per invoice unit
 - "totalCost": total for this line
 
@@ -86,14 +95,15 @@ CRITICAL — Unit conversion for restaurant stock:
 - "targetUnit": the base unit for stock tracking (must be one of: ks, kg, g, l, ml)
 - Examples:
   * "BBQ Dressing 24ks" where each bottle is 500g → quantity:24, unit:"ks", conversionFactor:500, targetUnit:"g"
-  * "Pivo sud 50l" → quantity:1, unit:"sud", conversionFactor:50, targetUnit:"l"
-  * "Muka 25kg" → quantity:25, unit:"kg", conversionFactor:1, targetUnit:"kg" (no conversion needed)
-  * "Coca-Cola 24x0.33l" → quantity:24, unit:"ks", conversionFactor:0.33, targetUnit:"l"
-  * "Syrup Monin 0.7l" → quantity:1, unit:"fl", conversionFactor:0.7, targetUnit:"l"
-- If the item name contains weight/volume info (e.g. "500g", "0.33l", "50L"), extract it as conversionFactor
+  * "Pivo sud 50l" with "13" in množstvo column → quantity:13, unit:"sud", conversionFactor:50, targetUnit:"l"
+  * "Muka 25kg" with "4" in množstvo column → quantity:4, unit:"vrece", conversionFactor:25, targetUnit:"kg"
+  * "Coca-Cola 24x0.33l" with "2" in množstvo column → quantity:2, unit:"krt", conversionFactor:24*0.33 = 7.92, targetUnit:"l"
+  * "Syrup Monin 0.7l" with "3" in množstvo column → quantity:3, unit:"fl", conversionFactor:0.7, targetUnit:"l"
+- If the item name contains weight/volume info (e.g. "500g", "0.33l", "50L"), that goes into conversionFactor — NEVER into quantity.
 - If no conversion is needed (invoice unit = stock unit), set conversionFactor:1 and targetUnit same as unit
 - If unit cost is missing, calculate from totalCost / quantity
 - If total cost is missing, calculate from unitCost * quantity
+- After composing the items list, mentally verify: sum of (quantity * unitCost) should be close to the invoice total (without VAT / shipping). If not, re-read the quantity column.
 ${matchingInstruction}`
           },
           {
