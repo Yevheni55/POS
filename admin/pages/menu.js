@@ -125,20 +125,77 @@ async function loadMenu() {
 function renderCategories() {
   const list = byId('catList');
   list.innerHTML = MENU_DATA.map((cat, i) => `
-    <button class="cat-item ${cat.id === activeCatId ? 'active' : ''}" data-cat-idx="${i}" type="button">
+    <div class="cat-item ${cat.id === activeCatId ? 'active' : ''}" data-cat-idx="${i}" style="display:flex;align-items:center;gap:6px;cursor:pointer" data-cat-select="${cat.id}">
       <span class="cat-drag-handle">\u22EE\u22EE</span>
       <span class="cat-icon">${cat.icon}</span>
-      <div class="cat-info">
+      <div class="cat-info" style="flex:1;min-width:0">
         <div class="cat-name">${cat.label}</div>
         <div class="cat-count">${cat.items.length} poloziek</div>
       </div>
-    </button>
+      <div class="cat-actions" style="display:flex;gap:2px;opacity:.7">
+        <button type="button" class="act-btn cat-edit-btn" data-cat-edit="${cat.id}" title="Upravit" style="width:28px;height:28px">
+          <svg viewBox="0 0 24 24" width="12" height="12" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+        </button>
+        <button type="button" class="act-btn del cat-del-btn" data-cat-del="${cat.id}" title="Zmazat" style="width:28px;height:28px">
+          <svg viewBox="0 0 24 24" width="12" height="12" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        </button>
+      </div>
+    </div>
   `).join('');
 
-  list.querySelectorAll('.cat-item').forEach((el, i) => {
-    el.addEventListener('click', () => selectCategory(MENU_DATA[i].id));
-    el.addEventListener('mousedown', (e) => startCatDrag(e, i));
+  list.querySelectorAll('[data-cat-select]').forEach((el, i) => {
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('.cat-actions')) return;
+      if (e.target.closest('.cat-drag-handle')) return;
+      selectCategory(MENU_DATA[i].id);
+    });
+    el.addEventListener('mousedown', (e) => {
+      if (e.target.closest('.cat-actions')) return;
+      startCatDrag(e, i);
+    });
   });
+
+  list.querySelectorAll('[data-cat-edit]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = Number(btn.dataset.catEdit);
+      const cat = MENU_DATA.find((c) => c.id === id);
+      if (cat) openCategoryModal('edit', cat);
+    });
+  });
+
+  list.querySelectorAll('[data-cat-del]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = Number(btn.dataset.catDel);
+      const cat = MENU_DATA.find((c) => c.id === id);
+      if (cat) deleteCategory(cat);
+    });
+  });
+}
+
+function deleteCategory(cat) {
+  const hasItems = cat.items && cat.items.length > 0;
+  const title = 'Zmazat kategoriu';
+  const text = hasItems
+    ? 'Kategoria "' + cat.label + '" obsahuje ' + cat.items.length + ' produktov. Najprv ich zmaz alebo presun do inej kategorie.'
+    : 'Naozaj zmazat kategoriu "' + cat.label + '"? Tato akcia sa neda vratit.';
+  if (hasItems) {
+    showToast(text, 'error');
+    selectCategory(cat.id);
+    return;
+  }
+  showConfirm(title, text, async function () {
+    try {
+      await api.del('/menu/categories/' + cat.id);
+      if (activeCatId === cat.id) activeCatId = null;
+      await loadMenu();
+      showToast('Kategoria zmazana', true);
+    } catch (err) {
+      const msg = (err && err.data && (err.data.hint || err.data.error)) || err.message || 'Chyba mazania';
+      showToast(msg, 'error');
+    }
+  }, { type: 'danger', confirmText: 'Zmazat' });
 }
 
 function selectCategory(id) {

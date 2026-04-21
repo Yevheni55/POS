@@ -79,7 +79,16 @@ router.put('/categories/:id', requireRole('manazer', 'admin'), validate(updateCa
 
 // DELETE /api/menu/categories/:id (manazer/admin only)
 router.delete('/categories/:id', requireRole('manazer', 'admin'), async (req, res) => {
-  await db.delete(menuCategories).where(eq(menuCategories.id, +req.params.id));
+  const id = +req.params.id;
+  const existing = await db.select({ id: menuItems.id }).from(menuItems).where(eq(menuItems.categoryId, id));
+  if (existing.length) {
+    return res.status(409).json({
+      error: 'Kategoria obsahuje produkty',
+      itemCount: existing.length,
+      hint: 'Najprv produkty zmaz alebo presun do inej kategorie.',
+    });
+  }
+  await db.delete(menuCategories).where(eq(menuCategories.id, id));
   res.json({ ok: true });
 });
 
