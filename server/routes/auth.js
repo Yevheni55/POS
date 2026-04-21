@@ -69,4 +69,13 @@ router.get('/me', (req, res) => {
   res.json({ user: req.user });
 });
 
+// GET /api/auth/staff-list — verejný zoznam aktívnych zamestnancov pre login obrazovku (bez PIN hashu).
+router.get('/staff-list', async (req, res) => {
+  const rows = await db
+    .select({ id: staff.id, name: staff.name, role: staff.role })
+    .from(staff)
+    .where(eq(staff.active, true));
+  res.json(rows);
+});
+
 export default router;
