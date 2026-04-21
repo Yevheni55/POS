@@ -35,6 +35,7 @@ router.post('/', async (req, res) => {
       model: 'gpt-4o',
       max_tokens: 4000,
       temperature: 0,
+      response_format: { type: 'json_object' },
       messages: [{
         role: 'user',
         content: [
@@ -116,22 +117,34 @@ ${matchingInstruction}`
 
     const text = response.choices[0]?.message?.content || '';
     const jsonStr = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    const parsed = JSON.parse(jsonStr);
+    let parsed;
+    try {
+      parsed = JSON.parse(jsonStr);
+    } catch (parseErr) {
+      console.warn('[invoice-scan] AI returned non-JSON:', text.slice(0, 500));
+      return res.status(500).json({ error: 'AI returned invalid JSON', raw: text });
+    }
 
     // Ensure items have both name fields
-    if (parsed.items) {
-      parsed.items = parsed.items.map(item => ({
+    if (Array.isArray(parsed.items)) {
+      parsed.items = parsed.items.map((item) => ({
         ...item,
         invoiceName: item.invoiceName || item.name || '',
         suggestedName: item.suggestedName || item.name || item.invoiceName || '',
       }));
+    } else {
+      parsed.items = [];
     }
+
+    // Diagnostika: log aj na backend, keby AI vynechal riadky — manager vidí v `docker logs`
+    console.log(
+      `[invoice-scan] supplier="${parsed.supplier || ''}" items=${parsed.items.length} ` +
+      `total=${parsed.items.reduce((s, i) => s + Number(i.totalCost || 0), 0).toFixed(2)} ` +
+      `invoice=${parsed.invoiceNumber || '-'}`,
+    );
 
     res.json(parsed);
   } catch (err) {
-    if (err instanceof SyntaxError) {
-      return res.status(500).json({ error: 'AI returned invalid JSON', raw: err.message });
-    }
     res.status(500).json({ error: err.message || 'Invoice scan failed' });
   }
 });

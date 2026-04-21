@@ -617,18 +617,34 @@ async function pdfToImages(file) {
   var arrayBuffer = await file.arrayBuffer();
   var pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   var images = [];
-  var maxPages = Math.min(pdf.numPages, 5); // limit to 5 pages
+  var maxPages = Math.min(pdf.numPages, 10); // limit to 10 pages — pokryje aj viacstránkové faktúry s pokračujúcimi riadkami
 
   for (var i = 1; i <= maxPages; i++) {
     var page = await pdf.getPage(i);
-    // Vyššie rozlíšenie = presnejšie OCR čísel v stĺpci "množstvo"; 3.0 znižuje riziko, že GPT zamení číslo v stĺpci s číslom v názve.
-    var viewport = page.getViewport({ scale: 3.0 });
+    // OpenAI v detail:"high" škáluje na max 2048px v dlhšej hrane. Scale 2.5 pokryje A4 so solídnou ostrosťou bez zbytočnej veľkosti.
+    var viewport = page.getViewport({ scale: 2.5 });
+    // Ak je stránka príliš veľká, zmenšíme, aby sme neposielali 20 MB base64
+    var MAX_SIDE = 2200;
+    var finalWidth = viewport.width;
+    var finalHeight = viewport.height;
+    var scaleDown = 1;
+    if (Math.max(finalWidth, finalHeight) > MAX_SIDE) {
+      scaleDown = MAX_SIDE / Math.max(finalWidth, finalHeight);
+      finalWidth = Math.round(finalWidth * scaleDown);
+      finalHeight = Math.round(finalHeight * scaleDown);
+    }
     var canvas = document.createElement('canvas');
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
+    canvas.width = finalWidth;
+    canvas.height = finalHeight;
     var ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, finalWidth, finalHeight);
+    if (scaleDown !== 1) {
+      ctx.scale(scaleDown, scaleDown);
+    }
     await page.render({ canvasContext: ctx, viewport: viewport }).promise;
-    images.push(canvas.toDataURL('image/png'));
+    // JPEG 0.92 je pre OCR prakticky na nerozoznanie od PNG, ale 4–6× menší.
+    images.push(canvas.toDataURL('image/jpeg', 0.92));
     canvas.remove();
   }
 
@@ -668,10 +684,16 @@ function openScanReviewModal(scanResult) {
 
   html += '</div>';
 
-  // Grand total
-  var grandTotal = items.reduce(function (s, i) { return s + (i.totalCost || 0); }, 0);
+  // Grand total (updates on qty/cost change)
+  var grandTotal = items.reduce(function (s, i) {
+    var q = Number(i.quantity) || 0;
+    var uc = Number(i.unitCost) || 0;
+    var tot = Number(i.totalCost) || 0;
+    return s + (tot > 0 ? tot : q * uc);
+  }, 0);
   html += '<div id="scanGrandTotal" style="text-align:right;font-weight:700;font-size:var(--text-lg);padding-top:10px;border-top:1px solid var(--color-border)">';
-  html += 'Celkom: <span style="color:var(--color-accent);font-family:var(--font-display);font-size:var(--text-2xl)">' + grandTotal.toFixed(2) + ' \u20AC</span>';
+  html += 'Celkom: <span id="scanGrandTotalValue" style="color:var(--color-accent);font-family:var(--font-display);font-size:var(--text-2xl)">' + grandTotal.toFixed(2) + ' \u20AC</span>';
+  html += '<div style="font-size:var(--text-xs);color:var(--color-text-dim);margin-top:4px">Suma sa prepocita po uprave mnozstiev. Skontroluj, ci zodpoveda sume na fakture (bez DPH).</div>';
   html += '</div>';
 
   html += '<div class="u-modal-btns" style="margin-top:20px">';
@@ -723,7 +745,32 @@ function openScanReviewModal(scanResult) {
       var card = e.target.closest('[data-scan-row]');
       if (card) updateConversionResult(card);
     }
+    if (
+      e.target.classList.contains('scan-qty') ||
+      e.target.classList.contains('scan-cost')
+    ) {
+      var card = e.target.closest('[data-scan-row]');
+      if (card) {
+        var qty = parseFloat(card.querySelector('.scan-qty')?.value) || 0;
+        var cost = parseFloat(card.querySelector('.scan-cost')?.value) || 0;
+        var totalEl = card.querySelector('.scan-total-display');
+        if (totalEl) totalEl.textContent = (qty * cost).toFixed(2) + ' \u20AC';
+      }
+      updateGrandTotal();
+    }
   });
+
+  function updateGrandTotal() {
+    var rows = ov.querySelectorAll('[data-scan-row]');
+    var sum = 0;
+    rows.forEach(function (row) {
+      var qty = parseFloat(row.querySelector('.scan-qty')?.value) || 0;
+      var cost = parseFloat(row.querySelector('.scan-cost')?.value) || 0;
+      sum += qty * cost;
+    });
+    var el = ov.querySelector('#scanGrandTotalValue');
+    if (el) el.textContent = sum.toFixed(2) + ' \u20AC';
+  }
 
   function updateConversionLabel(card, ingId) {
     var unitEl = card.querySelector('.scan-conv-unit');
@@ -898,7 +945,7 @@ function buildScanItemCard(item, idx) {
   });
   h += '</select>';
   h += '<input type="number" class="form-input form-input-sm scan-cost" data-idx="' + idx + '" value="' + (item.unitCost || 0) + '" step="0.01" min="0" style="width:80px;text-align:right" placeholder="Cena">';
-  h += '<span style="font-family:var(--font-display);font-weight:700;color:var(--color-accent);min-width:70px;text-align:right">' + Number(item.totalCost || 0).toFixed(2) + ' \u20AC</span>';
+  h += '<span class="scan-total-display" style="font-family:var(--font-display);font-weight:700;color:var(--color-accent);min-width:90px;text-align:right">' + Number(item.totalCost || 0).toFixed(2) + ' \u20AC</span>';
   h += '</div>';
 
   // Row 3: conversion factor (e.g. 1 ks = 500g)
