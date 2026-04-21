@@ -470,18 +470,65 @@ router.post('/purchase-orders/:id/receive', mgr, async (req, res) => {
   res.json({ ...result, totalCost: parseFloat(result.totalCost) });
 });
 
+/**
+ * Vráti faktúru, ktorá bola už prijatá, naspäť na sklad — inak by po zmene stavu
+ * (cancelled / reopen) zostali množstvá pripočítané k ingrediencii duplicitne.
+ */
+async function reversePurchaseOrderStock(tx, poId, staffId, reason) {
+  const items = await tx.select().from(purchaseOrderItems).where(eq(purchaseOrderItems.purchaseOrderId, poId));
+  for (const item of items) {
+    const [ing] = await tx.select().from(ingredients).where(eq(ingredients.id, item.ingredientId));
+    if (!ing) continue;
+    const convFactor = parseFloat(item.conversionFactor) || 1;
+    const stockQty = Math.round(parseFloat(item.quantity) * convFactor * 1000) / 1000;
+    if (stockQty === 0) continue;
+    const prev = parseFloat(ing.currentQty);
+    const next = Math.round((prev - stockQty) * 1000) / 1000;
+    await tx.update(ingredients).set({ currentQty: String(next) }).where(eq(ingredients.id, ing.id));
+    await tx.insert(stockMovements).values({
+      type: 'adjustment', ingredientId: ing.id,
+      quantity: String(-stockQty), previousQty: String(prev), newQty: String(next),
+      referenceType: 'purchase_order_reverse', referenceId: poId,
+      note: (reason || 'Vratenie prijatej faktury #' + poId), staffId,
+    });
+  }
+}
+
 router.post('/purchase-orders/:id/cancel', mgr, async (req, res) => {
-  const [po] = await db.select().from(purchaseOrders).where(eq(purchaseOrders.id, +req.params.id));
-  if (!po) return res.status(404).json({ error: 'Not found' });
-  const [updated] = await db.update(purchaseOrders).set({ status: 'cancelled' }).where(eq(purchaseOrders.id, po.id)).returning();
-  res.json({ ...updated, totalCost: parseFloat(updated.totalCost) });
+  const poId = +req.params.id;
+  const staffId = req.user.id;
+  const result = await db.transaction(async (tx) => {
+    const [po] = await tx.select().from(purchaseOrders).where(eq(purchaseOrders.id, poId));
+    if (!po) return { notFound: true };
+    if (po.status === 'cancelled') return { po };
+    if (po.status === 'received') {
+      await reversePurchaseOrderStock(tx, poId, staffId, 'Zrusenie faktury #' + poId);
+    }
+    const [updated] = await tx.update(purchaseOrders).set({
+      status: 'cancelled', receivedBy: null, receivedAt: null,
+    }).where(eq(purchaseOrders.id, poId)).returning();
+    return { po: updated };
+  });
+  if (result.notFound) return res.status(404).json({ error: 'Not found' });
+  res.json({ ...result.po, totalCost: parseFloat(result.po.totalCost) });
 });
 
 router.post('/purchase-orders/:id/reopen', mgr, async (req, res) => {
-  const [po] = await db.select().from(purchaseOrders).where(eq(purchaseOrders.id, +req.params.id));
-  if (!po) return res.status(404).json({ error: 'Not found' });
-  const [updated] = await db.update(purchaseOrders).set({ status: 'draft', receivedBy: null, receivedAt: null }).where(eq(purchaseOrders.id, po.id)).returning();
-  res.json({ ...updated, totalCost: parseFloat(updated.totalCost) });
+  const poId = +req.params.id;
+  const staffId = req.user.id;
+  const result = await db.transaction(async (tx) => {
+    const [po] = await tx.select().from(purchaseOrders).where(eq(purchaseOrders.id, poId));
+    if (!po) return { notFound: true };
+    if (po.status === 'received') {
+      await reversePurchaseOrderStock(tx, poId, staffId, 'Vratenie do rozpracovania faktury #' + poId);
+    }
+    const [updated] = await tx.update(purchaseOrders).set({
+      status: 'draft', receivedBy: null, receivedAt: null,
+    }).where(eq(purchaseOrders.id, poId)).returning();
+    return { po: updated };
+  });
+  if (result.notFound) return res.status(404).json({ error: 'Not found' });
+  res.json({ ...result.po, totalCost: parseFloat(result.po.totalCost) });
 });
 
 router.delete('/purchase-orders/:id', mgr, async (req, res) => {
