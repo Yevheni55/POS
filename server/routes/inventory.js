@@ -79,15 +79,46 @@ router.post('/ingredients', mgr, validate(createIngredientSchema), async (req, r
 });
 
 router.put('/ingredients/:id', mgr, validate(updateIngredientSchema), async (req, res) => {
-  const data = {};
-  if (req.body.name !== undefined) data.name = req.body.name;
-  if (req.body.unit !== undefined) data.unit = req.body.unit;
-  if (req.body.minQty !== undefined) data.minQty = String(req.body.minQty);
-  if (req.body.costPerUnit !== undefined) data.costPerUnit = String(req.body.costPerUnit);
-  if (req.body.active !== undefined) data.active = req.body.active;
-  const [row] = await db.update(ingredients).set(data).where(eq(ingredients.id, +req.params.id)).returning();
-  if (!row) return res.status(404).json({ error: 'Not found' });
-  res.json(row);
+  const id = +req.params.id;
+  const staffId = req.user.id;
+
+  const result = await db.transaction(async (tx) => {
+    const [current] = await tx.select().from(ingredients).where(eq(ingredients.id, id));
+    if (!current) return null;
+
+    const data = {};
+    if (req.body.name !== undefined) data.name = req.body.name;
+    if (req.body.unit !== undefined) data.unit = req.body.unit;
+    if (req.body.minQty !== undefined) data.minQty = String(req.body.minQty);
+    if (req.body.costPerUnit !== undefined) data.costPerUnit = String(req.body.costPerUnit);
+    if (req.body.active !== undefined) data.active = req.body.active;
+
+    // Manuálna oprava stavu: zaznamenáme rozdiel ako adjustment, aby história sedela.
+    if (req.body.currentQty !== undefined) {
+      const prev = parseFloat(current.currentQty);
+      const next = Math.round(Number(req.body.currentQty) * 1000) / 1000;
+      const diff = Math.round((next - prev) * 1000) / 1000;
+      data.currentQty = String(next);
+      if (diff !== 0) {
+        await tx.insert(stockMovements).values({
+          type: 'adjustment', ingredientId: id,
+          quantity: String(diff), previousQty: String(prev), newQty: String(next),
+          note: 'Rucna oprava stavu', staffId,
+        });
+      }
+    }
+
+    const [row] = await tx.update(ingredients).set(data).where(eq(ingredients.id, id)).returning();
+    return row;
+  });
+
+  if (!result) return res.status(404).json({ error: 'Not found' });
+  res.json({
+    ...result,
+    currentQty: parseFloat(result.currentQty),
+    minQty: parseFloat(result.minQty),
+    costPerUnit: parseFloat(result.costPerUnit),
+  });
 });
 
 router.delete('/ingredients/:id', mgr, async (req, res) => {
@@ -325,14 +356,40 @@ router.post('/purchase-orders', mgr, validate(createPurchaseOrderSchema), async 
 
 router.put('/purchase-orders/:id', mgr, validate(updatePurchaseOrderSchema), async (req, res) => {
   const poId = +req.params.id;
+  const staffId = req.user.id;
+
   const [po] = await db.select().from(purchaseOrders).where(eq(purchaseOrders.id, poId));
   if (!po) return res.status(404).json({ error: 'Not found' });
-  if (po.status !== 'draft') return res.status(400).json({ error: 'Can only edit draft orders' });
+  if (po.status === 'cancelled') {
+    return res.status(400).json({ error: 'Zrusena objednavka sa neda editovat' });
+  }
 
   await db.transaction(async (tx) => {
+    if (po.status === 'received' && req.body.items) {
+      // Ak je faktúra už prijatá, pri úprave vrátime pôvodné množstvá do skladu
+      // a potom znova aplikujeme nové — aby stav skladu sedel a história bola auditovateľná.
+      const oldItems = await tx.select().from(purchaseOrderItems).where(eq(purchaseOrderItems.purchaseOrderId, poId));
+      for (const item of oldItems) {
+        const [ing] = await tx.select().from(ingredients).where(eq(ingredients.id, item.ingredientId));
+        if (!ing) continue;
+        const convFactor = parseFloat(item.conversionFactor) || 1;
+        const stockQty = Math.round(parseFloat(item.quantity) * convFactor * 1000) / 1000;
+        const prev = parseFloat(ing.currentQty);
+        const next = Math.round((prev - stockQty) * 1000) / 1000;
+        await tx.update(ingredients).set({ currentQty: String(next) }).where(eq(ingredients.id, ing.id));
+        await tx.insert(stockMovements).values({
+          type: 'adjustment', ingredientId: ing.id,
+          quantity: String(-stockQty), previousQty: String(prev), newQty: String(next),
+          referenceType: 'purchase_order_edit_reverse', referenceId: poId,
+          note: 'Oprava prijatej faktury #' + poId, staffId,
+        });
+      }
+    }
+
     if (req.body.note !== undefined) {
       await tx.update(purchaseOrders).set({ note: req.body.note }).where(eq(purchaseOrders.id, poId));
     }
+
     if (req.body.items) {
       await tx.delete(purchaseOrderItems).where(eq(purchaseOrderItems.purchaseOrderId, poId));
       let totalCost = 0;
@@ -340,11 +397,38 @@ router.put('/purchase-orders/:id', mgr, validate(updatePurchaseOrderSchema), asy
         const lineCost = item.quantity * item.unitCost;
         totalCost += lineCost;
         await tx.insert(purchaseOrderItems).values({
-          purchaseOrderId: poId, ingredientId: item.ingredientId,
-          quantity: String(item.quantity), unitCost: String(item.unitCost), totalCost: String(lineCost),
+          purchaseOrderId: poId,
+          ingredientId: item.ingredientId,
+          quantity: String(item.quantity),
+          invoiceUnit: item.invoiceUnit || '',
+          conversionFactor: String(item.conversionFactor || 1),
+          unitCost: String(item.unitCost),
+          totalCost: String(lineCost),
         });
       }
       await tx.update(purchaseOrders).set({ totalCost: String(totalCost) }).where(eq(purchaseOrders.id, poId));
+
+      if (po.status === 'received') {
+        // Aplikuj nové množstvá späť do skladu
+        const newItems = await tx.select().from(purchaseOrderItems).where(eq(purchaseOrderItems.purchaseOrderId, poId));
+        for (const item of newItems) {
+          const [ing] = await tx.select().from(ingredients).where(eq(ingredients.id, item.ingredientId));
+          if (!ing) continue;
+          const convFactor = parseFloat(item.conversionFactor) || 1;
+          const stockQty = Math.round(parseFloat(item.quantity) * convFactor * 1000) / 1000;
+          const prev = parseFloat(ing.currentQty);
+          const next = Math.round((prev + stockQty) * 1000) / 1000;
+          await tx.update(ingredients).set({
+            currentQty: String(next), costPerUnit: item.unitCost,
+          }).where(eq(ingredients.id, ing.id));
+          await tx.insert(stockMovements).values({
+            type: 'purchase', ingredientId: ing.id,
+            quantity: String(stockQty), previousQty: String(prev), newQty: String(next),
+            referenceType: 'purchase_order_edit_apply', referenceId: poId,
+            note: 'Oprava prijatej faktury #' + poId, staffId,
+          });
+        }
+      }
     }
   });
   const [updated] = await db.select().from(purchaseOrders).where(eq(purchaseOrders.id, poId));

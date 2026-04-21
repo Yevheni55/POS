@@ -288,6 +288,7 @@ function openDetailModal(id) {
     + (po.status !== 'cancelled' ? '<button class="u-btn u-btn-rose" id="poSetCancelled" style="flex:1">Zrusena</button>' : '')
     + '</div>'
     + '<div class="u-modal-btns" style="margin-top:16px">'
+    + (po.status !== 'cancelled' ? '<button class="u-btn u-btn-ghost" id="poEdit" style="flex:1">Upravit polozky</button>' : '')
     + '<button class="u-btn u-btn-ghost" id="poDetailClose">Zavriet</button>'
     + '</div>'
     + '</div>';
@@ -336,6 +337,170 @@ function openDetailModal(id) {
       showToast('Objednavka #' + po.id + ' vratena do rozpracovania', true);
       await loadOrders();
     } catch (err) { showToast(err.message || 'Chyba', 'error'); btnReset(setDraftBtn); }
+  });
+
+  var editBtn = ov.querySelector('#poEdit');
+  if (editBtn) editBtn.addEventListener('click', function () {
+    closeModal();
+    openEditOrderModal(po);
+  });
+}
+
+// ===== EDIT EXISTING PURCHASE ORDER (works for draft + received) =====
+function openEditOrderModal(po) {
+  var existing = document.getElementById('poEditModal');
+  if (existing) existing.remove();
+
+  var ingOpts = ingredients
+    .filter(function (i) { return (i.type || 'ingredient') === 'ingredient'; })
+    .map(function (ing) {
+      return '<option value="' + ing.id + '">' + escapeHtml(ing.name) + ' (' + ing.unit + ')</option>';
+    }).join('');
+
+  function rowHtml(item, idx) {
+    var selectOpts = '<option value="">-- vyber --</option>' + ingOpts;
+    var h = '<div data-edit-row="' + idx + '" style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">';
+    h += '<select class="form-select form-select-sm edit-ing" data-idx="' + idx + '" style="flex:2;min-width:160px">' + selectOpts + '</select>';
+    h += '<input type="number" class="form-input form-input-sm edit-qty" step="0.01" min="0" value="' + (item ? item.quantity : '') + '" style="width:80px;text-align:right" placeholder="Mnoz.">';
+    h += '<input type="text" class="form-input form-input-sm edit-unit" value="' + escapeHtml(item ? (item.invoiceUnit || item.ingredientUnit || '') : '') + '" style="width:70px" placeholder="ks">';
+    h += '<input type="number" class="form-input form-input-sm edit-conv" step="0.01" min="0.01" value="' + (item ? (item.conversionFactor || 1) : 1) + '" style="width:70px;text-align:right" title="Konverzny faktor (napr. sud 50L → 50)">';
+    h += '<input type="number" class="form-input form-input-sm edit-cost" step="0.01" min="0" value="' + (item ? item.unitCost : '') + '" style="width:90px;text-align:right" placeholder="Cena">';
+    h += '<span class="edit-total" style="min-width:80px;text-align:right;font-family:var(--font-display);color:var(--color-accent)">' + (item ? fmtEur(item.totalCost || 0) : '0.00 €') + '</span>';
+    h += '<button class="act-btn del edit-remove" data-idx="' + idx + '" title="Odstranit" style="width:28px;height:28px"><svg viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round" width="12" height="12"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>';
+    h += '</div>';
+    return h;
+  }
+
+  var rowsHtml = (po.items || []).map(function (it, i) { return rowHtml(it, i); }).join('');
+
+  var warning = po.status === 'received'
+    ? '<div style="background:rgba(255,179,71,.1);color:#FFB347;padding:8px 12px;border-radius:var(--radius-xs);font-size:var(--text-sm);margin-bottom:10px">⚠ Faktura je uz prijata. Po ulozeni sa stare mnozstva odcitaju zo skladu a nove sa pripocitaju — historia skladu zaznamena opravu.</div>'
+    : '';
+
+  var ov = document.createElement('div');
+  ov.className = 'u-overlay';
+  ov.id = 'poEditModal';
+  ov.innerHTML = '<div class="u-modal" style="text-align:left;max-width:880px;max-height:90vh;overflow-y:auto">'
+    + '<div class="u-modal-title" style="text-align:center">Upravit objednavku #' + po.id + '</div>'
+    + '<div class="u-modal-body" style="gap:10px">'
+    + warning
+    + '<div class="u-modal-field">'
+    + '<label for="fEditNote">Poznamka</label>'
+    + '<textarea id="fEditNote" class="form-input" rows="2">' + escapeHtml(po.note || '') + '</textarea>'
+    + '</div>'
+    + '<div class="form-label">Polozky</div>'
+    + '<div id="editItemsWrap">' + rowsHtml + '</div>'
+    + '<button class="u-btn u-btn-ghost btn-sm" id="btnEditAddRow" style="align-self:flex-start">+ Pridat polozku</button>'
+    + '<div style="text-align:right;font-weight:700;font-size:var(--text-lg);padding-top:10px;border-top:1px solid var(--color-border)">'
+    + 'Celkom: <span id="editGrandTotal" style="color:var(--color-accent);font-family:var(--font-display);font-size:var(--text-2xl)">' + fmtEur(po.totalCost || 0) + '</span>'
+    + '</div>'
+    + '</div>'
+    + '<div class="u-modal-btns" style="margin-top:16px">'
+    + '<button class="u-btn u-btn-ghost" id="poEditCancel">Zrusit</button>'
+    + '<button class="u-btn u-btn-ice" id="poEditSave">Ulozit zmeny</button>'
+    + '</div>'
+    + '</div>';
+
+  document.body.appendChild(ov);
+  requestAnimationFrame(function () { ov.classList.add('show'); });
+
+  var editingCounter = (po.items || []).length;
+
+  function selectInitialValues() {
+    (po.items || []).forEach(function (item, i) {
+      var sel = ov.querySelector('.edit-ing[data-idx="' + i + '"]');
+      if (sel) sel.value = String(item.ingredientId);
+    });
+  }
+  selectInitialValues();
+
+  function updateRow(rowEl) {
+    var qty = parseFloat(rowEl.querySelector('.edit-qty')?.value) || 0;
+    var cost = parseFloat(rowEl.querySelector('.edit-cost')?.value) || 0;
+    var totalEl = rowEl.querySelector('.edit-total');
+    if (totalEl) totalEl.textContent = fmtEur(qty * cost);
+  }
+  function updateTotals() {
+    var sum = 0;
+    ov.querySelectorAll('[data-edit-row]').forEach(function (rowEl) {
+      var qty = parseFloat(rowEl.querySelector('.edit-qty')?.value) || 0;
+      var cost = parseFloat(rowEl.querySelector('.edit-cost')?.value) || 0;
+      sum += qty * cost;
+    });
+    var el = ov.querySelector('#editGrandTotal');
+    if (el) el.textContent = fmtEur(sum);
+  }
+
+  function close() {
+    ov.classList.remove('show');
+    setTimeout(function () { ov.remove(); }, 300);
+  }
+
+  ov.addEventListener('input', function (e) {
+    if (
+      e.target.classList.contains('edit-qty') ||
+      e.target.classList.contains('edit-cost')
+    ) {
+      var rowEl = e.target.closest('[data-edit-row]');
+      if (rowEl) updateRow(rowEl);
+      updateTotals();
+    }
+  });
+
+  ov.addEventListener('click', function (e) {
+    var rm = e.target.closest('.edit-remove');
+    if (rm) {
+      var rowEl = rm.closest('[data-edit-row]');
+      if (rowEl) rowEl.remove();
+      updateTotals();
+    }
+  });
+
+  ov.querySelector('#btnEditAddRow').addEventListener('click', function () {
+    var idx = editingCounter++;
+    var wrap = ov.querySelector('#editItemsWrap');
+    wrap.insertAdjacentHTML('beforeend', rowHtml(null, idx));
+  });
+
+  ov.querySelector('#poEditCancel').addEventListener('click', close);
+  ov.addEventListener('click', function (e) { if (e.target === ov) close(); });
+
+  ov.querySelector('#poEditSave').addEventListener('click', async function () {
+    var btn = ov.querySelector('#poEditSave');
+    btnLoading(btn);
+    try {
+      var items = [];
+      ov.querySelectorAll('[data-edit-row]').forEach(function (rowEl) {
+        var ingId = Number(rowEl.querySelector('.edit-ing')?.value);
+        var qty = parseFloat(rowEl.querySelector('.edit-qty')?.value);
+        var cost = parseFloat(rowEl.querySelector('.edit-cost')?.value);
+        var conv = parseFloat(rowEl.querySelector('.edit-conv')?.value);
+        var unit = (rowEl.querySelector('.edit-unit')?.value || '').trim();
+        if (!ingId || !Number.isFinite(qty) || qty <= 0) return;
+        items.push({
+          ingredientId: ingId,
+          quantity: qty,
+          unitCost: Number.isFinite(cost) ? cost : 0,
+          invoiceUnit: unit,
+          conversionFactor: Number.isFinite(conv) && conv > 0 ? conv : 1,
+        });
+      });
+      if (!items.length) {
+        showToast('Pridaj aspon jednu polozku', 'error');
+        btnReset(btn);
+        return;
+      }
+      await api.put('/inventory/purchase-orders/' + po.id, {
+        note: ov.querySelector('#fEditNote').value,
+        items: items,
+      });
+      close();
+      showToast('Objednavka upravena', true);
+      await loadOrders();
+    } catch (err) {
+      showToast(err.message || 'Chyba ukladania', 'error');
+      btnReset(btn);
+    }
   });
 }
 

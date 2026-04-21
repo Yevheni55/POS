@@ -101,13 +101,12 @@ function openModal(id) {
     return '<option value="' + u + '"' + selected + '>' + u + '</option>';
   }).join('');
 
-  var qtyField = '';
-  if (!editingId) {
-    qtyField = '<div class="u-modal-field">'
-      + '<label for="fCurrentQty">Aktualne mnozstvo</label>'
-      + '<input id="fCurrentQty" type="number" step="0.01" min="0" placeholder="0" value="0">'
-      + '</div>';
-  }
+  var qtyValue = item ? item.currentQty : 0;
+  var qtyField = '<div class="u-modal-field">'
+    + '<label for="fCurrentQty">Aktualne mnozstvo</label>'
+    + '<input id="fCurrentQty" type="number" step="0.001" min="0" placeholder="0" value="' + qtyValue + '">'
+    + (editingId ? '<div class="text-muted" style="font-size:12px;margin-top:4px">Zmena sa zaznamena do historie skladu ako adjustment.</div>' : '')
+    + '</div>';
 
   var ov = document.createElement('div');
   ov.className = 'u-overlay';
@@ -166,12 +165,17 @@ function openModal(id) {
     var saveBtn = document.getElementById('ingredientModalSave');
     if (saveBtn) btnLoading(saveBtn);
     try {
+      var currentQty = parseFloat(document.getElementById('fCurrentQty').value);
+      if (!Number.isFinite(currentQty) || currentQty < 0) currentQty = 0;
       if (editingId) {
-        await api.put('/inventory/ingredients/' + editingId, { name: name, unit: unit, minQty: minQty, costPerUnit: costPerUnit });
+        await api.put('/inventory/ingredients/' + editingId, {
+          name: name, unit: unit, currentQty: currentQty, minQty: minQty, costPerUnit: costPerUnit,
+        });
         showToast('Surovina upravena', true);
       } else {
-        var currentQty = parseFloat(document.getElementById('fCurrentQty').value) || 0;
-        await api.post('/inventory/ingredients', { name: name, unit: unit, type: 'ingredient', currentQty: currentQty, minQty: minQty, costPerUnit: costPerUnit });
+        await api.post('/inventory/ingredients', {
+          name: name, unit: unit, type: 'ingredient', currentQty: currentQty, minQty: minQty, costPerUnit: costPerUnit,
+        });
         showToast('Surovina pridana', true);
       }
       closeModal();

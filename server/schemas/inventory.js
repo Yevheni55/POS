@@ -12,6 +12,8 @@ export const createIngredientSchema = z.object({
 export const updateIngredientSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   unit: z.enum(['ks', 'kg', 'g', 'l', 'ml']).optional(),
+  /** Manuálna oprava stavu na sklade — zapíše sa ako stock movement typu `adjustment` s rozdielom. */
+  currentQty: z.coerce.number().min(0).optional(),
   minQty: z.coerce.number().min(0).optional(),
   costPerUnit: z.coerce.number().min(0).optional(),
   active: z.boolean().optional(),
@@ -73,6 +75,8 @@ export const updatePurchaseOrderSchema = z.object({
   items: z.array(z.object({
     ingredientId: z.coerce.number().int().positive(),
     quantity: z.coerce.number().positive(),
+    invoiceUnit: z.string().max(20).default(''),
+    conversionFactor: z.coerce.number().positive().default(1),
     unitCost: z.coerce.number().min(0),
   })).min(1).optional(),
 });
