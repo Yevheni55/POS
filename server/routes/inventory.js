@@ -128,6 +128,15 @@ router.delete('/ingredients/:id', mgr, async (req, res) => {
 
 // ===================== RECIPES =====================
 
+/** Počet riadkov receptu pre každú položku menu — slúži na UI zoznam. */
+router.get('/recipes/summary', async (req, res) => {
+  const rows = await db.select({
+    menuItemId: recipes.menuItemId,
+    count: count(),
+  }).from(recipes).groupBy(recipes.menuItemId);
+  res.json(rows.map((r) => ({ menuItemId: r.menuItemId, count: Number(r.count) })));
+});
+
 router.get('/recipes/:menuItemId', async (req, res) => {
   const rows = await db.select({
     id: recipes.id, ingredientId: recipes.ingredientId, qtyPerUnit: recipes.qtyPerUnit,
@@ -147,6 +156,12 @@ router.put('/recipes/:menuItemId', mgr, validate(setRecipeSchema), async (req, r
       await tx.insert(recipes).values({
         menuItemId, ingredientId: line.ingredientId, qtyPerUnit: String(line.qtyPerUnit),
       });
+    }
+    // Non-empty recept automaticky zapne recipe-rezim, aby sa pri predaji odpísal sklad.
+    if (req.body.lines.length > 0) {
+      await tx.update(menuItems)
+        .set({ trackMode: 'recipe' })
+        .where(eq(menuItems.id, menuItemId));
     }
   });
   const rows = await db.select({

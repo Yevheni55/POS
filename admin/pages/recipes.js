@@ -4,6 +4,7 @@ let ingredientsList = [];
 let selectedItemId = null;
 let currentRecipe = [];
 let activeFilter = 'all';
+let recipeSummary = {}; // menuItemId -> ingredient count
 let _container = null;
 let _escHandler = null;
 
@@ -11,11 +12,25 @@ function $(sel) { return _container.querySelector(sel); }
 function $$(sel) { return _container.querySelectorAll(sel); }
 
 // === Load data ===
+async function loadRecipeSummary() {
+  try {
+    var rows = await api.get('/inventory/recipes/summary');
+    recipeSummary = {};
+    (rows || []).forEach(function (r) { recipeSummary[r.menuItemId] = r.count; });
+  } catch (_) {
+    recipeSummary = {};
+  }
+}
+
 async function loadMenuItems() {
   var listEl = $('#itemList');
   if (listEl) showLoading(listEl, 'Nacitavam polozky...');
   try {
-    menuItems = await api.get('/inventory/menu-items');
+    const [items] = await Promise.all([
+      api.get('/inventory/menu-items'),
+      loadRecipeSummary(),
+    ]);
+    menuItems = items;
     if (listEl) hideLoading(listEl);
     renderItemList();
     // If we had a selection, re-select it; otherwise select first matching
@@ -105,16 +120,20 @@ function renderItemList() {
     html += '<div style="padding:8px 12px 2px;font-size:10px;font-weight:700;color:var(--color-text-dim);text-transform:uppercase;letter-spacing:1px">'
       + escHtml(cat.label) + '</div>';
     cat.items.forEach(function(item) {
+      var count = recipeSummary[item.id] || 0;
       var badgeClass = 'badge-info';
       var badgeLabel = 'none';
       if (item.trackMode === 'recipe') { badgeClass = 'badge-purple'; badgeLabel = 'recept'; }
       else if (item.trackMode === 'simple') { badgeClass = 'badge-success'; badgeLabel = 'simple'; }
+      var ingredientsLabel = count > 0
+        ? '<span class="text-muted" style="margin-left:6px;font-size:11px">' + count + ' surov.</span>'
+        : '';
 
       html += '<button class="cat-item' + (item.id === selectedItemId ? ' active' : '') + '" data-item-id="' + item.id + '" type="button">'
         + '<span class="cat-icon">' + (item.emoji || '\uD83C\uDF7D') + '</span>'
         + '<div class="cat-info">'
         + '<div class="cat-name">' + escHtml(item.name) + '</div>'
-        + '<div class="cat-count"><span class="badge ' + badgeClass + '">' + badgeLabel + '</span></div>'
+        + '<div class="cat-count"><span class="badge ' + badgeClass + '">' + badgeLabel + '</span>' + ingredientsLabel + '</div>'
         + '</div>'
         + '</button>';
     });
@@ -438,7 +457,13 @@ async function saveRecipeLines(itemId) {
         return { ingredientId: line.ingredientId, qtyPerUnit: line.qtyPerUnit };
       });
       await api.put('/inventory/recipes/' + itemId, { lines: lines });
+      // server automaticky prepne item na trackMode='recipe' — synchronizujeme lokálny cache
+      var local = menuItems.find(function (m) { return m.id === itemId; });
+      if (local) local.trackMode = 'recipe';
     }
+    await loadRecipeSummary();
+    renderItemList();
+    await loadRecipeForItem(itemId);
     showToast('Recept ulozeny', true);
   } catch (err) {
     showToast(err.message || 'Chyba ukladania receptu', 'error');
