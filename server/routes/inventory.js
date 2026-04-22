@@ -19,6 +19,7 @@ import {
 } from '../schemas/inventory.js';
 import { getLowStockAlerts, applyWriteOff } from '../lib/stock.js';
 import { emitEvent } from '../lib/emit.js';
+import { asyncRoute } from '../lib/async-route.js';
 
 const router = Router();
 
@@ -27,7 +28,7 @@ const mgr = requireRole('manazer', 'admin');
 
 // ===================== DASHBOARD =====================
 
-router.get('/dashboard', async (req, res) => {
+router.get('/dashboard', asyncRoute(async (req, res) => {
   const [alerts, recentMv, [ingCount], [mvToday]] = await Promise.all([
     getLowStockAlerts(),
     db.select().from(stockMovements).orderBy(desc(stockMovements.createdAt)).limit(20),
@@ -45,11 +46,11 @@ router.get('/dashboard', async (req, res) => {
       todayMovements: mvToday.count,
     },
   });
-});
+}));
 
 // ===================== INGREDIENTS =====================
 
-router.get('/ingredients', async (req, res) => {
+router.get('/ingredients', asyncRoute(async (req, res) => {
   const where = [];
   if (req.query.active !== 'false') where.push(eq(ingredients.active, true));
   if (req.query.type) where.push(eq(ingredients.type, req.query.type));
@@ -58,27 +59,27 @@ router.get('/ingredients', async (req, res) => {
     .where(where.length ? and(...where) : undefined)
     .orderBy(asc(ingredients.name));
   res.json(rows.map(r => ({ ...r, currentQty: parseFloat(r.currentQty), minQty: parseFloat(r.minQty), costPerUnit: parseFloat(r.costPerUnit) })));
-});
+}));
 
-router.get('/ingredients/:id', async (req, res) => {
+router.get('/ingredients/:id', asyncRoute(async (req, res) => {
   const [row] = await db.select().from(ingredients).where(eq(ingredients.id, +req.params.id));
   if (!row) return res.status(404).json({ error: 'Not found' });
   const mvs = await db.select().from(stockMovements)
     .where(eq(stockMovements.ingredientId, row.id))
     .orderBy(desc(stockMovements.createdAt)).limit(50);
   res.json({ ...row, currentQty: parseFloat(row.currentQty), minQty: parseFloat(row.minQty), costPerUnit: parseFloat(row.costPerUnit), movements: mvs });
-});
+}));
 
-router.post('/ingredients', mgr, validate(createIngredientSchema), async (req, res) => {
+router.post('/ingredients', mgr, validate(createIngredientSchema), asyncRoute(async (req, res) => {
   const [row] = await db.insert(ingredients).values({
     name: req.body.name, unit: req.body.unit, type: req.body.type || 'ingredient',
     currentQty: String(req.body.currentQty), minQty: String(req.body.minQty),
     costPerUnit: String(req.body.costPerUnit),
   }).returning();
   res.status(201).json(row);
-});
+}));
 
-router.put('/ingredients/:id', mgr, validate(updateIngredientSchema), async (req, res) => {
+router.put('/ingredients/:id', mgr, validate(updateIngredientSchema), asyncRoute(async (req, res) => {
   const id = +req.params.id;
   const staffId = req.user.id;
 
@@ -119,25 +120,25 @@ router.put('/ingredients/:id', mgr, validate(updateIngredientSchema), async (req
     minQty: parseFloat(result.minQty),
     costPerUnit: parseFloat(result.costPerUnit),
   });
-});
+}));
 
-router.delete('/ingredients/:id', mgr, async (req, res) => {
+router.delete('/ingredients/:id', mgr, asyncRoute(async (req, res) => {
   await db.update(ingredients).set({ active: false }).where(eq(ingredients.id, +req.params.id));
   res.json({ ok: true });
-});
+}));
 
 // ===================== RECIPES =====================
 
 /** Počet riadkov receptu pre každú položku menu — slúži na UI zoznam. */
-router.get('/recipes/summary', async (req, res) => {
+router.get('/recipes/summary', asyncRoute(async (req, res) => {
   const rows = await db.select({
     menuItemId: recipes.menuItemId,
     count: count(),
   }).from(recipes).groupBy(recipes.menuItemId);
   res.json(rows.map((r) => ({ menuItemId: r.menuItemId, count: Number(r.count) })));
-});
+}));
 
-router.get('/recipes/:menuItemId', async (req, res) => {
+router.get('/recipes/:menuItemId', asyncRoute(async (req, res) => {
   const rows = await db.select({
     id: recipes.id, ingredientId: recipes.ingredientId, qtyPerUnit: recipes.qtyPerUnit,
     ingredientName: ingredients.name, ingredientUnit: ingredients.unit,
@@ -146,9 +147,9 @@ router.get('/recipes/:menuItemId', async (req, res) => {
   .innerJoin(ingredients, eq(recipes.ingredientId, ingredients.id))
   .where(eq(recipes.menuItemId, +req.params.menuItemId));
   res.json(rows.map(r => ({ ...r, qtyPerUnit: parseFloat(r.qtyPerUnit) })));
-});
+}));
 
-router.put('/recipes/:menuItemId', mgr, validate(setRecipeSchema), async (req, res) => {
+router.put('/recipes/:menuItemId', mgr, validate(setRecipeSchema), asyncRoute(async (req, res) => {
   const menuItemId = +req.params.menuItemId;
   console.log(`[recipes] PUT menuItem=${menuItemId} lines=${req.body.lines.length} by staff=${req.user.id}`);
   await db.transaction(async (tx) => {
@@ -173,16 +174,16 @@ router.put('/recipes/:menuItemId', mgr, validate(setRecipeSchema), async (req, r
   .innerJoin(ingredients, eq(recipes.ingredientId, ingredients.id))
   .where(eq(recipes.menuItemId, menuItemId));
   res.json(rows.map(r => ({ ...r, qtyPerUnit: parseFloat(r.qtyPerUnit) })));
-});
+}));
 
-router.delete('/recipes/:menuItemId', mgr, async (req, res) => {
+router.delete('/recipes/:menuItemId', mgr, asyncRoute(async (req, res) => {
   await db.delete(recipes).where(eq(recipes.menuItemId, +req.params.menuItemId));
   res.json({ ok: true });
-});
+}));
 
 // ===================== STOCK MOVEMENTS =====================
 
-router.get('/movements', async (req, res) => {
+router.get('/movements', asyncRoute(async (req, res) => {
   const where = [];
   if (req.query.type) where.push(eq(stockMovements.type, req.query.type));
   if (req.query.ingredientId) where.push(eq(stockMovements.ingredientId, +req.query.ingredientId));
@@ -202,9 +203,9 @@ router.get('/movements', async (req, res) => {
       .where(where.length ? and(...where) : undefined),
   ]);
   res.json({ data: rows, total: totalRow.count });
-});
+}));
 
-router.post('/movements/adjust', mgr, validate(stockAdjustSchema), async (req, res) => {
+router.post('/movements/adjust', mgr, validate(stockAdjustSchema), asyncRoute(async (req, res) => {
   const { ingredientId, menuItemId, quantity, type, note } = req.body;
   const staffId = req.user.id;
 
@@ -235,11 +236,11 @@ router.post('/movements/adjust', mgr, validate(stockAdjustSchema), async (req, r
     }
   });
   res.status(201).json(result);
-});
+}));
 
 // ===================== MENU ITEM STOCK CONFIG =====================
 
-router.get('/menu-items', async (req, res) => {
+router.get('/menu-items', asyncRoute(async (req, res) => {
   const { menuCategories } = await import('../db/schema.js');
   const rows = await db.select({
     id: menuItems.id, name: menuItems.name, emoji: menuItems.emoji, price: menuItems.price,
@@ -253,44 +254,44 @@ router.get('/menu-items', async (req, res) => {
   res.json(rows.map(m => ({
     ...m, price: parseFloat(m.price), stockQty: parseFloat(m.stockQty), minStockQty: parseFloat(m.minStockQty),
   })));
-});
+}));
 
-router.put('/menu-items/:id/stock-config', mgr, validate(stockConfigSchema), async (req, res) => {
+router.put('/menu-items/:id/stock-config', mgr, validate(stockConfigSchema), asyncRoute(async (req, res) => {
   const data = { trackMode: req.body.trackMode };
   if (req.body.stockQty !== undefined) data.stockQty = String(req.body.stockQty);
   if (req.body.minStockQty !== undefined) data.minStockQty = String(req.body.minStockQty);
   const [row] = await db.update(menuItems).set(data).where(eq(menuItems.id, +req.params.id)).returning();
   if (!row) return res.status(404).json({ error: 'Not found' });
   res.json({ ...row, price: parseFloat(row.price), stockQty: parseFloat(row.stockQty), minStockQty: parseFloat(row.minStockQty) });
-});
+}));
 
 // ===================== SUPPLIERS =====================
 
-router.get('/suppliers', async (req, res) => {
+router.get('/suppliers', asyncRoute(async (req, res) => {
   const where = req.query.active !== 'false' ? eq(suppliers.active, true) : undefined;
   const rows = await db.select().from(suppliers).where(where).orderBy(asc(suppliers.name));
   res.json(rows);
-});
+}));
 
-router.post('/suppliers', mgr, validate(createSupplierSchema), async (req, res) => {
+router.post('/suppliers', mgr, validate(createSupplierSchema), asyncRoute(async (req, res) => {
   const [row] = await db.insert(suppliers).values(req.body).returning();
   res.status(201).json(row);
-});
+}));
 
-router.put('/suppliers/:id', mgr, validate(updateSupplierSchema), async (req, res) => {
+router.put('/suppliers/:id', mgr, validate(updateSupplierSchema), asyncRoute(async (req, res) => {
   const [row] = await db.update(suppliers).set(req.body).where(eq(suppliers.id, +req.params.id)).returning();
   if (!row) return res.status(404).json({ error: 'Not found' });
   res.json(row);
-});
+}));
 
-router.delete('/suppliers/:id', mgr, async (req, res) => {
+router.delete('/suppliers/:id', mgr, asyncRoute(async (req, res) => {
   await db.update(suppliers).set({ active: false }).where(eq(suppliers.id, +req.params.id));
   res.json({ ok: true });
-});
+}));
 
 // ===================== PURCHASE ORDERS =====================
 
-router.get('/purchase-orders', async (req, res) => {
+router.get('/purchase-orders', asyncRoute(async (req, res) => {
   const where = [];
   if (req.query.status) where.push(eq(purchaseOrders.status, req.query.status));
   if (req.query.supplierId) where.push(eq(purchaseOrders.supplierId, +req.query.supplierId));
@@ -324,9 +325,9 @@ router.get('/purchase-orders', async (req, res) => {
       ...i, quantity: parseFloat(i.quantity), unitCost: parseFloat(i.unitCost), totalCost: parseFloat(i.totalCost),
     })),
   })));
-});
+}));
 
-router.get('/purchase-orders/:id', async (req, res) => {
+router.get('/purchase-orders/:id', asyncRoute(async (req, res) => {
   const [po] = await db.select().from(purchaseOrders).where(eq(purchaseOrders.id, +req.params.id));
   if (!po) return res.status(404).json({ error: 'Not found' });
   const [supplier] = await db.select().from(suppliers).where(eq(suppliers.id, po.supplierId));
@@ -343,9 +344,9 @@ router.get('/purchase-orders/:id', async (req, res) => {
     ...po, totalCost: parseFloat(po.totalCost), supplier,
     items: items.map(i => ({ ...i, quantity: parseFloat(i.quantity), unitCost: parseFloat(i.unitCost), totalCost: parseFloat(i.totalCost) })),
   });
-});
+}));
 
-router.post('/purchase-orders', mgr, validate(createPurchaseOrderSchema), async (req, res) => {
+router.post('/purchase-orders', mgr, validate(createPurchaseOrderSchema), asyncRoute(async (req, res) => {
   const { supplierId, note, items, imageData } = req.body;
   const staffId = req.user.id;
 
@@ -368,9 +369,9 @@ router.post('/purchase-orders', mgr, validate(createPurchaseOrderSchema), async 
     return po;
   });
   res.status(201).json({ ...po, totalCost: parseFloat(po.totalCost) });
-});
+}));
 
-router.put('/purchase-orders/:id', mgr, validate(updatePurchaseOrderSchema), async (req, res) => {
+router.put('/purchase-orders/:id', mgr, validate(updatePurchaseOrderSchema), asyncRoute(async (req, res) => {
   const poId = +req.params.id;
   const staffId = req.user.id;
 
@@ -449,9 +450,9 @@ router.put('/purchase-orders/:id', mgr, validate(updatePurchaseOrderSchema), asy
   });
   const [updated] = await db.select().from(purchaseOrders).where(eq(purchaseOrders.id, poId));
   res.json({ ...updated, totalCost: parseFloat(updated.totalCost) });
-});
+}));
 
-router.post('/purchase-orders/:id/receive', mgr, async (req, res) => {
+router.post('/purchase-orders/:id/receive', mgr, asyncRoute(async (req, res) => {
   const poId = +req.params.id;
   const staffId = req.user.id;
 
@@ -484,7 +485,7 @@ router.post('/purchase-orders/:id/receive', mgr, async (req, res) => {
     return updated;
   });
   res.json({ ...result, totalCost: parseFloat(result.totalCost) });
-});
+}));
 
 /**
  * Vráti faktúru, ktorá bola už prijatá, naspäť na sklad — inak by po zmene stavu
@@ -510,7 +511,7 @@ async function reversePurchaseOrderStock(tx, poId, staffId, reason) {
   }
 }
 
-router.post('/purchase-orders/:id/cancel', mgr, async (req, res) => {
+router.post('/purchase-orders/:id/cancel', mgr, asyncRoute(async (req, res) => {
   const poId = +req.params.id;
   const staffId = req.user.id;
   const result = await db.transaction(async (tx) => {
@@ -527,9 +528,9 @@ router.post('/purchase-orders/:id/cancel', mgr, async (req, res) => {
   });
   if (result.notFound) return res.status(404).json({ error: 'Not found' });
   res.json({ ...result.po, totalCost: parseFloat(result.po.totalCost) });
-});
+}));
 
-router.post('/purchase-orders/:id/reopen', mgr, async (req, res) => {
+router.post('/purchase-orders/:id/reopen', mgr, asyncRoute(async (req, res) => {
   const poId = +req.params.id;
   const staffId = req.user.id;
   const result = await db.transaction(async (tx) => {
@@ -545,9 +546,9 @@ router.post('/purchase-orders/:id/reopen', mgr, async (req, res) => {
   });
   if (result.notFound) return res.status(404).json({ error: 'Not found' });
   res.json({ ...result.po, totalCost: parseFloat(result.po.totalCost) });
-});
+}));
 
-router.delete('/purchase-orders/:id', mgr, async (req, res) => {
+router.delete('/purchase-orders/:id', mgr, asyncRoute(async (req, res) => {
   const [po] = await db.select().from(purchaseOrders).where(eq(purchaseOrders.id, +req.params.id));
   if (!po) return res.status(404).json({ error: 'Not found' });
   await db.transaction(async (tx) => {
@@ -555,23 +556,23 @@ router.delete('/purchase-orders/:id', mgr, async (req, res) => {
     await tx.delete(purchaseOrders).where(eq(purchaseOrders.id, po.id));
   });
   res.json({ ok: true });
-});
+}));
 
-router.get('/purchase-orders/:id/image', async (req, res) => {
+router.get('/purchase-orders/:id/image', asyncRoute(async (req, res) => {
   const [po] = await db.select({ imageData: purchaseOrders.imageData }).from(purchaseOrders).where(eq(purchaseOrders.id, +req.params.id));
   if (!po || !po.imageData) return res.status(404).json({ error: 'No image' });
   res.json({ imageData: po.imageData });
-});
+}));
 
 // ===================== INVENTORY AUDITS =====================
 
-router.get('/audits', async (req, res) => {
+router.get('/audits', asyncRoute(async (req, res) => {
   const where = req.query.status ? eq(inventoryAudits.status, req.query.status) : undefined;
   const rows = await db.select().from(inventoryAudits).where(where).orderBy(desc(inventoryAudits.createdAt));
   res.json(rows);
-});
+}));
 
-router.get('/audits/:id', async (req, res) => {
+router.get('/audits/:id', asyncRoute(async (req, res) => {
   const [audit] = await db.select().from(inventoryAudits).where(eq(inventoryAudits.id, +req.params.id));
   if (!audit) return res.status(404).json({ error: 'Not found' });
   const items = await db.select({
@@ -592,9 +593,9 @@ router.get('/audits/:id', async (req, res) => {
       difference: i.difference != null ? parseFloat(i.difference) : null,
     })),
   });
-});
+}));
 
-router.post('/audits', mgr, validate(createAuditSchema), async (req, res) => {
+router.post('/audits', mgr, validate(createAuditSchema), asyncRoute(async (req, res) => {
   const staffId = req.user.id;
   const { note, ingredientIds } = req.body;
 
@@ -614,9 +615,9 @@ router.post('/audits', mgr, validate(createAuditSchema), async (req, res) => {
     return audit;
   });
   res.status(201).json(audit);
-});
+}));
 
-router.put('/audits/:auditId/items/:itemId', mgr, validate(updateAuditItemSchema), async (req, res) => {
+router.put('/audits/:auditId/items/:itemId', mgr, validate(updateAuditItemSchema), asyncRoute(async (req, res) => {
   const actualQty = req.body.actualQty;
   const [item] = await db.select().from(inventoryAuditItems).where(eq(inventoryAuditItems.id, +req.params.itemId));
   if (!item) return res.status(404).json({ error: 'Not found' });
@@ -625,9 +626,9 @@ router.put('/audits/:auditId/items/:itemId', mgr, validate(updateAuditItemSchema
     actualQty: String(actualQty), difference: String(diff),
   }).where(eq(inventoryAuditItems.id, item.id)).returning();
   res.json({ ...updated, expectedQty: parseFloat(updated.expectedQty), actualQty: parseFloat(updated.actualQty), difference: parseFloat(updated.difference) });
-});
+}));
 
-router.post('/audits/:id/complete', mgr, async (req, res) => {
+router.post('/audits/:id/complete', mgr, asyncRoute(async (req, res) => {
   const auditId = +req.params.id;
   const staffId = req.user.id;
 
@@ -661,21 +662,21 @@ router.post('/audits/:id/complete', mgr, async (req, res) => {
     return updated;
   });
   res.json(result);
-});
+}));
 
-router.post('/audits/:id/cancel', mgr, async (req, res) => {
+router.post('/audits/:id/cancel', mgr, asyncRoute(async (req, res) => {
   const [audit] = await db.select().from(inventoryAudits).where(eq(inventoryAudits.id, +req.params.id));
   if (!audit) return res.status(404).json({ error: 'Not found' });
   if (audit.status !== 'open') return res.status(400).json({ error: 'Audit not open' });
   const [updated] = await db.update(inventoryAudits).set({ status: 'cancelled' }).where(eq(inventoryAudits.id, audit.id)).returning();
   res.json(updated);
-});
+}));
 
 // ===================== WRITE-OFFS =====================
 
 const WRITE_OFF_AUTO_APPROVE_THRESHOLD = 50; // EUR
 
-router.get('/write-offs', async (req, res) => {
+router.get('/write-offs', asyncRoute(async (req, res) => {
   const where = [];
   if (req.query.status) where.push(eq(writeOffs.status, req.query.status));
   if (req.query.reason) where.push(eq(writeOffs.reason, req.query.reason));
@@ -710,9 +711,9 @@ router.get('/write-offs', async (req, res) => {
       ...i, quantity: parseFloat(i.quantity), unitCost: parseFloat(i.unitCost), totalCost: parseFloat(i.totalCost),
     })),
   })));
-});
+}));
 
-router.get('/write-offs/:id', async (req, res) => {
+router.get('/write-offs/:id', asyncRoute(async (req, res) => {
   const [wo] = await db.select().from(writeOffs).where(eq(writeOffs.id, +req.params.id));
   if (!wo) return res.status(404).json({ error: 'Not found' });
   const items = await db.select({
@@ -723,9 +724,9 @@ router.get('/write-offs/:id', async (req, res) => {
     .innerJoin(ingredients, eq(writeOffItems.ingredientId, ingredients.id))
     .where(eq(writeOffItems.writeOffId, wo.id));
   res.json({ ...wo, totalCost: parseFloat(wo.totalCost), items: items.map(i => ({ ...i, quantity: parseFloat(i.quantity), unitCost: parseFloat(i.unitCost), totalCost: parseFloat(i.totalCost) })) });
-});
+}));
 
-router.post('/write-offs', mgr, validate(createWriteOffSchema), async (req, res) => {
+router.post('/write-offs', mgr, validate(createWriteOffSchema), asyncRoute(async (req, res) => {
   const { reason, note, items: reqItems } = req.body;
   const staffId = req.user.id;
   const userRole = req.user.role;
@@ -768,9 +769,9 @@ router.post('/write-offs', mgr, validate(createWriteOffSchema), async (req, res)
   });
 
   res.status(201).json({ ...wo, totalCost: parseFloat(wo.totalCost) });
-});
+}));
 
-router.post('/write-offs/:id/approve', mgr, async (req, res) => {
+router.post('/write-offs/:id/approve', mgr, asyncRoute(async (req, res) => {
   if (req.user.role !== 'manazer' && req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Len manazer alebo admin moze schvalit odpis' });
   }
@@ -787,9 +788,9 @@ router.post('/write-offs/:id/approve', mgr, async (req, res) => {
     return updated;
   });
   res.json({ ...result, totalCost: parseFloat(result.totalCost) });
-});
+}));
 
-router.post('/write-offs/:id/reject', mgr, async (req, res) => {
+router.post('/write-offs/:id/reject', mgr, asyncRoute(async (req, res) => {
   if (req.user.role !== 'manazer' && req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Len manazer alebo admin moze zamietnuť odpis' });
   }
@@ -800,9 +801,9 @@ router.post('/write-offs/:id/reject', mgr, async (req, res) => {
     status: 'rejected', approvedBy: req.user.id, approvedAt: new Date(),
   }).where(eq(writeOffs.id, wo.id)).returning();
   res.json({ ...updated, totalCost: parseFloat(updated.totalCost) });
-});
+}));
 
-router.get('/write-offs-summary', async (req, res) => {
+router.get('/write-offs-summary', asyncRoute(async (req, res) => {
   const from = req.query.from || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
   const to = req.query.to || new Date().toISOString();
 
@@ -818,11 +819,11 @@ router.get('/write-offs-summary', async (req, res) => {
   });
 
   res.json({ total: Math.round(total * 100) / 100, count: rows.length, byReason, from, to });
-});
+}));
 
 // ===================== ASSETS =====================
 
-router.get('/assets', async (req, res) => {
+router.get('/assets', asyncRoute(async (req, res) => {
   const where = req.query.active !== 'false' ? eq(assets.active, true) : undefined;
   const rows = await db.select().from(assets).where(where).orderBy(asc(assets.name));
   res.json(rows.map(a => ({
@@ -830,9 +831,9 @@ router.get('/assets', async (req, res) => {
     monthlyDepreciation: parseFloat(a.monthlyDepreciation), totalDepreciated: parseFloat(a.totalDepreciated),
     currentValue: parseFloat(a.currentValue),
   })));
-});
+}));
 
-router.get('/assets/:id', async (req, res) => {
+router.get('/assets/:id', asyncRoute(async (req, res) => {
   const [a] = await db.select().from(assets).where(eq(assets.id, +req.params.id));
   if (!a) return res.status(404).json({ error: 'Not found' });
   const deps = await db.select().from(assetDepreciations)
@@ -844,9 +845,9 @@ router.get('/assets/:id', async (req, res) => {
     currentValue: parseFloat(a.currentValue),
     depreciations: deps.map(d => ({ ...d, amount: parseFloat(d.amount), previousValue: parseFloat(d.previousValue), newValue: parseFloat(d.newValue) })),
   });
-});
+}));
 
-router.post('/assets', mgr, validate(createAssetSchema), async (req, res) => {
+router.post('/assets', mgr, validate(createAssetSchema), asyncRoute(async (req, res) => {
   const { name, category, purchasePrice, purchaseDate, usefulLifeMonths, residualValue, note } = req.body;
   const monthly = Math.round((purchasePrice - residualValue) / usefulLifeMonths * 100) / 100;
   const [a] = await db.insert(assets).values({
@@ -855,20 +856,20 @@ router.post('/assets', mgr, validate(createAssetSchema), async (req, res) => {
     monthlyDepreciation: String(monthly), currentValue: String(purchasePrice), note,
   }).returning();
   res.status(201).json({ ...a, purchasePrice: parseFloat(a.purchasePrice), monthlyDepreciation: parseFloat(a.monthlyDepreciation), currentValue: parseFloat(a.currentValue) });
-});
+}));
 
-router.put('/assets/:id', mgr, validate(updateAssetSchema), async (req, res) => {
+router.put('/assets/:id', mgr, validate(updateAssetSchema), asyncRoute(async (req, res) => {
   const [a] = await db.update(assets).set(req.body).where(eq(assets.id, +req.params.id)).returning();
   if (!a) return res.status(404).json({ error: 'Not found' });
   res.json({ ...a, purchasePrice: parseFloat(a.purchasePrice), currentValue: parseFloat(a.currentValue) });
-});
+}));
 
-router.delete('/assets/:id', mgr, async (req, res) => {
+router.delete('/assets/:id', mgr, asyncRoute(async (req, res) => {
   await db.update(assets).set({ active: false }).where(eq(assets.id, +req.params.id));
   res.json({ ok: true });
-});
+}));
 
-router.post('/assets/run-depreciation', mgr, async (req, res) => {
+router.post('/assets/run-depreciation', mgr, asyncRoute(async (req, res) => {
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
@@ -905,9 +906,9 @@ router.post('/assets/run-depreciation', mgr, async (req, res) => {
     return { processed, month: monthStart.toISOString().slice(0, 7) };
   });
   res.json(result);
-});
+}));
 
-router.get('/assets-summary', async (req, res) => {
+router.get('/assets-summary', asyncRoute(async (req, res) => {
   const allAssets = await db.select().from(assets).where(eq(assets.active, true));
   let totalValue = 0, totalMonthly = 0, totalPurchase = 0;
   allAssets.forEach(a => {
@@ -921,6 +922,6 @@ router.get('/assets-summary', async (req, res) => {
     totalCurrentValue: Math.round(totalValue * 100) / 100,
     totalMonthlyDepreciation: Math.round(totalMonthly * 100) / 100,
   });
-});
+}));
 
 export default router;
