@@ -33,6 +33,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 
+// PR-2.3: allow req.ip to honour X-Forwarded-For when running behind a
+// reverse proxy (Docker, nginx, etc). Must be set BEFORE any middleware.
+// Default 0 = do not trust any proxy (preserves current single-machine
+// behaviour). Set TRUST_PROXY=1 when deploying behind a single proxy hop.
+app.set('trust proxy', Number(process.env.TRUST_PROXY || 0));
+
 // Middleware
 app.use(helmet({
   contentSecurityPolicy: false,

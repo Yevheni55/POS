@@ -363,3 +363,17 @@ export const assetDepreciations = pgTable('asset_depreciations', {
 }, (t) => [
   index('asset_dep_asset_idx').on(t.assetId),
 ]);
+
+// ===================== AUTH ATTEMPTS =====================
+// PR-2.3: DB-backed per-account PIN lockout. Replaces the in-memory IP-keyed
+// limiter that collapses to a single IP inside Docker. See routes/auth.js.
+export const authAttempts = pgTable('auth_attempts', {
+  id: serial('id').primaryKey(),
+  staffId: integer('staff_id').references(() => staff.id),
+  ip: varchar('ip', { length: 45 }).notNull().default(''),
+  success: boolean('success').notNull().default(false),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (t) => [
+  index('auth_attempts_staff_created_idx').on(t.staffId, t.createdAt),
+  index('auth_attempts_ip_created_idx').on(t.ip, t.createdAt),
+]);
