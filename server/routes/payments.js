@@ -38,6 +38,7 @@ import { asyncRoute } from '../lib/async-route.js';
 
 const router = Router();
 const mgr = requireRole('manazer', 'admin');
+const staff = requireRole('cisnik', 'manazer', 'admin');
 
 export const STORNO_ELIGIBLE_MODES = new Set([
   'online_success',
@@ -412,7 +413,7 @@ async function registerCashReceiptWithRetry(requestPayload, { maxAttempts = 3 } 
   throw lastError;
 }
 
-router.post('/', validate(createPaymentSchema), asyncRoute(async (req, res) => {
+router.post('/', staff, validate(createPaymentSchema), asyncRoute(async (req, res) => {
   const { orderId, method, amount } = req.body;
 
   const orderContext = await loadOrderPaymentContext(orderId);
