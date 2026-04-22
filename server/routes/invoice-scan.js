@@ -121,8 +121,8 @@ ${matchingInstruction}`
     try {
       parsed = JSON.parse(jsonStr);
     } catch (parseErr) {
-      console.warn('[invoice-scan] AI returned non-JSON:', text.slice(0, 500));
-      return res.status(500).json({ error: 'AI returned invalid JSON', raw: text });
+      console.error('[invoice-scan] LLM response parse failed', { staffId: req.user?.id, preview: String(text).slice(0, 500) });
+      return res.status(500).json({ error: 'Parse failed' });
     }
 
     // Ensure items have both name fields
@@ -145,7 +145,8 @@ ${matchingInstruction}`
 
     res.json(parsed);
   } catch (err) {
-    res.status(500).json({ error: err.message || 'Invoice scan failed' });
+    console.error('[invoice-scan] request failed', { staffId: req.user?.id, err: err.stack || String(err) });
+    res.status(500).json({ error: 'Invoice scan failed' });
   }
 });
 
