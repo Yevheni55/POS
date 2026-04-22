@@ -202,23 +202,28 @@
       const tableName = tableId.replace(/^t/, 'Stol ').toUpperCase();
       const isPerItem = perItemMode[tableId] || false;
 
-      html += '<div class="' + cardClass + '" data-table="' + tableId + '" tabindex="0" role="article" aria-label="' + escHtml(tableName) + ' - ' + formatElapsed(elapsed) + '">';
+      // For JS-string-in-attribute (onclick="toggleItem('<tableId>', ...)") we
+      // must escape backslash + single-quote so the JS parser stays intact,
+      // then attribute-escape for the HTML parser layer.
+      var jsTableId = escAttr(String(tableId).replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+      var safeTableId = escAttr(tableId);
+      html += '<div class="' + cardClass + '" data-table="' + safeTableId + '" tabindex="0" role="article" aria-label="' + escAttr(tableName) + ' - ' + escAttr(formatElapsed(elapsed)) + '">';
       if (elapsed >= 15) {
         html += '<div class="urgent-badge">URGENTNE</div>';
       }
       html += '<div class="card-header">';
       html += '<div class="card-table">' + escHtml(tableName) + '</div>';
-      html += '<div class="' + elapsedClass + '">' + formatElapsed(elapsed) + '</div>';
+      html += '<div class="' + elapsedClass + '">' + escHtml(formatElapsed(elapsed)) + '</div>';
       html += '</div>';
-      html += '<div class="card-time">' + formatTime(oldestSentAt) + '</div>';
+      html += '<div class="card-time">' + escHtml(formatTime(oldestSentAt)) + '</div>';
       html += '<div class="card-items">';
 
       items.forEach(function(item, idx) {
         const done = item._uiDone || false;
-        html += '<button class="card-item' + (done ? ' done' : '') + '" onclick="toggleItem(\'' + tableId + '\',' + idx + ')" type="button">';
+        html += '<button class="card-item' + (done ? ' done' : '') + '" onclick="toggleItem(\'' + jsTableId + '\',' + idx + ')" type="button">';
         html += '<span class="item-qty">' + (item.qty || 1) + 'x</span>';
         html += '<span class="item-info">';
-        html += '<div class="item-name">' + (item.emoji ? item.emoji + ' ' : '') + escHtml(item.name) + '</div>';
+        html += '<div class="item-name">' + (item.emoji ? escHtml(item.emoji) + ' ' : '') + escHtml(item.name) + '</div>';
         if (item.note) {
           html += '<div class="item-note">' + escHtml(item.note) + '</div>';
         }
@@ -229,9 +234,9 @@
 
       html += '</div>';
       html += '<div class="card-actions">';
-      html += '<button class="btn-ready" onclick="markAllReady(\'' + tableId + '\')">&#x2713; Hotove</button>';
-      html += '<button class="btn-per-item' + (isPerItem ? ' active' : '') + '" onclick="togglePerItem(\'' + tableId + '\')">Per polozku</button>';
-      html += '<button class="btn-print" onclick="printOrder(\'' + tableId + '\')" aria-label="Tlacit objednavku">&#x1F5A8;</button>';
+      html += '<button class="btn-ready" onclick="markAllReady(\'' + jsTableId + '\')">&#x2713; Hotove</button>';
+      html += '<button class="btn-per-item' + (isPerItem ? ' active' : '') + '" onclick="togglePerItem(\'' + jsTableId + '\')">Per polozku</button>';
+      html += '<button class="btn-print" onclick="printOrder(\'' + jsTableId + '\')" aria-label="Tlacit objednavku">&#x1F5A8;</button>';
       html += '</div>';
       html += '</div>';
     });
@@ -241,10 +246,8 @@
     if (focusedTable) { var el = grid.querySelector('[data-table="' + focusedTable + '"]'); if (el) el.focus(); }
   }
 
-  function escHtml(s) {
-    if (!s) return '';
-    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
+  // escHtml is provided globally by /js/pos-escape.js (loaded in kitchen.html
+  // before this file). Legacy local helper removed as part of PR-1.3 to dedupe.
 
   // Toggle individual item
   window.toggleItem = function(tableId, idx) {
@@ -347,8 +350,8 @@
       '.note{font-size:12px;font-style:italic;margin-left:24px;color:#666}' +
       '.time{text-align:center;font-size:12px;margin-top:8px}' +
       '</style></head><body>' +
-      '<h1>' + dest + '</h1>' +
-      '<h2>' + tableName + '</h2>' +
+      '<h1>' + escHtml(dest) + '</h1>' +
+      '<h2>' + escHtml(tableName) + '</h2>' +
       '<div class="line"></div>';
 
     items.forEach(function(it) {

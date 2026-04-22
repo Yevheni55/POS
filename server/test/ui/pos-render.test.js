@@ -68,6 +68,7 @@ function loadPosRender(overrides = {}) {
     MENU: {},
     CAT_COLORS: {},
     escHtml(value) { return String(value); },
+    escAttr(value) { return String(value); },
     fmt(value) { return String(value); },
     renderOrder() {},
     updateQtyBadges() {},
