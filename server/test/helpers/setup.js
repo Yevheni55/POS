@@ -28,6 +28,7 @@ const TABLES = [
   'order_items', 'orders',
   'printers', 'shifts', 'discounts',
   'menu_items', 'menu_categories',
+  'auth_attempts',
   'tables', 'staff',
 ];
 
