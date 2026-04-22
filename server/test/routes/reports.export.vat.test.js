@@ -66,7 +66,7 @@ describe('reports export VAT breakdown', () => {
 
     const res = await request
       .get(`/api/reports/export?from=${today}&to=${today}&format=json`)
-      .set('Authorization', `Bearer ${tokens.cisnik()}`);
+      .set('Authorization', `Bearer ${tokens.manazer()}`);
 
     assert.equal(res.status, 200);
     assert.equal(res.body.length, 1);

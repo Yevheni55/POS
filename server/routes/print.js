@@ -3,8 +3,10 @@ import net from 'net';
 import { db } from '../db/index.js';
 import { printers, printQueue } from '../db/schema.js';
 import { eq, and, lte } from 'drizzle-orm';
+import { requireRole } from '../middleware/requireRole.js';
 
 const router = Router();
+const mgr = requireRole('manazer', 'admin');
 const PRINTER_IP = process.env.PRINTER_IP || '192.168.0.106';
 const PRINTER_PORT = parseInt(process.env.PRINTER_PORT || '9100');
 
@@ -307,7 +309,7 @@ router.post('/receipt', async (req, res) => {
 });
 
 // POST /api/print/z-report — print Z-report
-router.post('/z-report', async (req, res) => {
+router.post('/z-report', mgr, async (req, res) => {
   try {
     const { date } = req.body;
     if (!date) return res.status(400).json({ error: 'Chyba datum' });

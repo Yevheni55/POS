@@ -3,8 +3,10 @@ import { db } from '../db/index.js';
 import { orders, orderItems, payments, menuItems, menuCategories, staff } from '../db/schema.js';
 import { eq, sql, gte, lte, and, desc } from 'drizzle-orm';
 import { allocateDiscountAcrossVatGroups } from '../lib/fiscal-payment.js';
+import { requireRole } from '../middleware/requireRole.js';
 
 const router = Router();
+const mgr = requireRole('manazer', 'admin');
 
 function roundMoney(value) {
   return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
@@ -12,7 +14,7 @@ function roundMoney(value) {
 
 // GET /api/reports/summary?from=2024-01-01&to=2024-12-31
 // Default: single calendar day (today UTC) so "dashboard today" is not merged with yesterday.
-router.get('/summary', async (req, res) => {
+router.get('/summary', mgr, async (req, res) => {
   const to = req.query.to || new Date().toISOString().split('T')[0];
   const from = req.query.from || to;
 
@@ -70,7 +72,7 @@ router.get('/summary', async (req, res) => {
 });
 
 // GET /api/reports/z-report?date=2026-03-26
-router.get('/z-report', async (req, res) => {
+router.get('/z-report', mgr, async (req, res) => {
   const date = req.query.date || new Date().toISOString().split('T')[0];
   const fromDate = new Date(date + 'T00:00:00');
   const toDate = new Date(date + 'T23:59:59.999');
@@ -209,7 +211,7 @@ router.get('/z-report', async (req, res) => {
 });
 
 // GET /api/reports/export?from=2026-03-01&to=2026-03-26&format=csv
-router.get('/export', async (req, res) => {
+router.get('/export', mgr, async (req, res) => {
   const from = req.query.from || new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
   const to = req.query.to || new Date().toISOString().split('T')[0];
   const format = req.query.format || 'csv';
@@ -330,7 +332,7 @@ router.get('/export', async (req, res) => {
 });
 
 // GET /api/reports/staff?from=&to=
-router.get('/staff', async (req, res) => {
+router.get('/staff', mgr, async (req, res) => {
   const from = req.query.from || new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
   const to = req.query.to || new Date().toISOString().split('T')[0];
 
