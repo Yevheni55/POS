@@ -10,7 +10,7 @@ import { logEvent } from '../lib/audit.js';
 import { emitEvent } from '../lib/emit.js';
 import { enrichOrders } from '../lib/order-queries.js';
 import { validate } from '../middleware/validate.js';
-import { createOrderSchema, addItemsSchema, updateItemSchema, batchSchema, splitSchema, moveItemsSchema, discountSchema, stornoSendSchema } from '../schemas/orders.js';
+import { createOrderSchema, addItemsSchema, updateItemSchema, batchSchema, splitSchema, moveItemsSchema, discountSchema, stornoSendSchema, stornoWriteOffSchema } from '../schemas/orders.js';
 import { deductStockForSentItems, applyWriteOff } from '../lib/stock.js';
 import { asyncRoute } from '../lib/async-route.js';
 
@@ -738,89 +738,82 @@ router.delete('/:id', asyncRoute(async (req, res) => {
 }));
 
 // POST /api/orders/:id/storno-write-off — create write-off from POS storno
-router.post('/:id/storno-write-off', asyncRoute(async (req, res) => {
+router.post('/:id/storno-write-off', validate(stornoWriteOffSchema), asyncRoute(async (req, res) => {
   const orderId = +req.params.id;
   const { menuItemId, qty, reason, note, returnToStock } = req.body;
   const staffId = req.user.id;
-
-  if (!menuItemId || !qty || qty <= 0) return res.status(400).json({ error: 'menuItemId and qty required' });
-  const validReasons = ['order_error', 'complaint', 'breakage', 'staff_meal', 'other'];
-  const woReason = validReasons.includes(reason) ? reason : 'other';
+  const woReason = reason;
 
   // Map storno reasons to write-off reasons
   const reasonMap = { order_error: 'other', complaint: 'damage', breakage: 'damage', staff_meal: 'other', other: 'other' };
 
-  try {
-    const result = await db.transaction(async (tx) => {
-      const [mi] = await tx.select().from(menuItems).where(eq(menuItems.id, menuItemId));
-      if (!mi) return { skipped: true, reason: 'menu item not found' };
+  const result = await db.transaction(async (tx) => {
+    const [mi] = await tx.select().from(menuItems).where(eq(menuItems.id, menuItemId));
+    if (!mi) return { skipped: true, reason: 'menu item not found' };
 
-      // If returnToStock = true, this was an error (food not made), no write-off needed
-      // Just reverse the stock deduction that happened on send
-      if (returnToStock) {
-        if (mi.trackMode === 'simple') {
-          const prev = parseFloat(mi.stockQty);
-          const next = Math.round((prev + qty) * 1000) / 1000;
-          await tx.update(menuItems).set({ stockQty: String(next) }).where(eq(menuItems.id, mi.id));
-        } else if (mi.trackMode === 'recipe') {
-          const recipeLines = await tx.select().from(recipes).where(eq(recipes.menuItemId, mi.id));
-          for (const line of recipeLines) {
-            const [ing] = await tx.select().from(ingredients).where(eq(ingredients.id, line.ingredientId));
-            if (!ing) continue;
-            const addBack = parseFloat(line.qtyPerUnit) * qty;
-            const next = Math.round((parseFloat(ing.currentQty) + addBack) * 1000) / 1000;
-            await tx.update(ingredients).set({ currentQty: String(next) }).where(eq(ingredients.id, ing.id));
-          }
-        }
-        logEvent(tx, { orderId, type: 'storno_return', payload: { menuItemId, qty, reason: woReason, note: note || '' }, staffId }).catch(() => {});
-        return { action: 'returned', menuItemId, qty };
-      }
-
-      // returnToStock = false → food was made, it's a loss → create write-off
-      // Always create write-off record regardless of trackMode
-      const woItems = [];
-      let totalCost = 0;
-
+    // If returnToStock = true, this was an error (food not made), no write-off needed
+    // Just reverse the stock deduction that happened on send
+    if (returnToStock) {
       if (mi.trackMode === 'simple') {
-        woItems.push({ ingredientId: null, menuItemId: mi.id, qty: qty, unitCost: parseFloat(mi.price) });
+        const prev = parseFloat(mi.stockQty);
+        const next = Math.round((prev + qty) * 1000) / 1000;
+        await tx.update(menuItems).set({ stockQty: String(next) }).where(eq(menuItems.id, mi.id));
       } else if (mi.trackMode === 'recipe') {
         const recipeLines = await tx.select().from(recipes).where(eq(recipes.menuItemId, mi.id));
         for (const line of recipeLines) {
           const [ing] = await tx.select().from(ingredients).where(eq(ingredients.id, line.ingredientId));
           if (!ing) continue;
-          woItems.push({ ingredientId: ing.id, qty: parseFloat(line.qtyPerUnit) * qty, unitCost: parseFloat(ing.costPerUnit) });
+          const addBack = parseFloat(line.qtyPerUnit) * qty;
+          const next = Math.round((parseFloat(ing.currentQty) + addBack) * 1000) / 1000;
+          await tx.update(ingredients).set({ currentQty: String(next) }).where(eq(ingredients.id, ing.id));
         }
       }
-      // For trackMode='none' — no ingredient items, just record the loss with menu price
-      totalCost = woItems.length
-        ? woItems.reduce((s, i) => s + Math.round(i.qty * i.unitCost * 100) / 100, 0)
-        : Math.round(parseFloat(mi.price) * qty * 100) / 100;
+      logEvent(tx, { orderId, type: 'storno_return', payload: { menuItemId, qty, reason: woReason, note: note || '' }, staffId }).catch(() => {});
+      return { action: 'returned', menuItemId, qty };
+    }
 
-      const [wo] = await tx.insert(writeOffs).values({
-        status: 'approved', reason: reasonMap[woReason] || 'other',
-        note: 'POS storno: ' + (note || woReason) + ' (Obj. #' + orderId + ', ' + mi.name + ' x' + qty + ')',
-        totalCost: String(totalCost), createdBy: staffId, approvedBy: staffId, approvedAt: new Date(),
-      }).returning();
+    // returnToStock = false → food was made, it's a loss → create write-off
+    // Always create write-off record regardless of trackMode
+    const woItems = [];
+    let totalCost = 0;
 
-      for (const item of woItems) {
-        if (!item.ingredientId) continue;
-        const lineCost = Math.round(item.qty * item.unitCost * 100) / 100;
-        await tx.insert(writeOffItems).values({
-          writeOffId: wo.id, ingredientId: item.ingredientId,
-          quantity: String(item.qty), unitCost: String(item.unitCost), totalCost: String(lineCost),
-        });
+    if (mi.trackMode === 'simple') {
+      woItems.push({ ingredientId: null, menuItemId: mi.id, qty: qty, unitCost: parseFloat(mi.price) });
+    } else if (mi.trackMode === 'recipe') {
+      const recipeLines = await tx.select().from(recipes).where(eq(recipes.menuItemId, mi.id));
+      for (const line of recipeLines) {
+        const [ing] = await tx.select().from(ingredients).where(eq(ingredients.id, line.ingredientId));
+        if (!ing) continue;
+        woItems.push({ ingredientId: ing.id, qty: parseFloat(line.qtyPerUnit) * qty, unitCost: parseFloat(ing.costPerUnit) });
       }
-      // Note: stock was already deducted when the order was sent, so no additional deduction
-      // The write-off is just a record of the loss
+    }
+    // For trackMode='none' — no ingredient items, just record the loss with menu price
+    totalCost = woItems.length
+      ? woItems.reduce((s, i) => s + Math.round(i.qty * i.unitCost * 100) / 100, 0)
+      : Math.round(parseFloat(mi.price) * qty * 100) / 100;
 
-      logEvent(tx, { orderId, type: 'storno_write_off', payload: { menuItemId, qty, reason: woReason, writeOffId: wo.id, totalCost }, staffId }).catch(() => {});
-      return { action: 'write_off', writeOffId: wo.id, totalCost, menuItemId, qty };
-    });
+    const [wo] = await tx.insert(writeOffs).values({
+      status: 'approved', reason: reasonMap[woReason] || 'other',
+      note: 'POS storno: ' + (note || woReason) + ' (Obj. #' + orderId + ', ' + mi.name + ' x' + qty + ')',
+      totalCost: String(totalCost), createdBy: staffId, approvedBy: staffId, approvedAt: new Date(),
+    }).returning();
 
-    res.json(result);
-  } catch (err) {
-    res.status(500).json({ error: 'Storno write-off failed' });
-  }
+    for (const item of woItems) {
+      if (!item.ingredientId) continue;
+      const lineCost = Math.round(item.qty * item.unitCost * 100) / 100;
+      await tx.insert(writeOffItems).values({
+        writeOffId: wo.id, ingredientId: item.ingredientId,
+        quantity: String(item.qty), unitCost: String(item.unitCost), totalCost: String(lineCost),
+      });
+    }
+    // Note: stock was already deducted when the order was sent, so no additional deduction
+    // The write-off is just a record of the loss
+
+    logEvent(tx, { orderId, type: 'storno_write_off', payload: { menuItemId, qty, reason: woReason, writeOffId: wo.id, totalCost }, staffId }).catch(() => {});
+    return { action: 'write_off', writeOffId: wo.id, totalCost, menuItemId, qty };
+  });
+
+  res.json(result);
 }));
 
 // GET /api/orders/:id/events — audit log for an order (manazer/admin only)
