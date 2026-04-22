@@ -5,6 +5,7 @@ import { db } from '../db/index.js';
 import { staff } from '../db/schema.js';
 import { eq, and, sql } from 'drizzle-orm';
 import { validate } from '../middleware/validate.js';
+import { auth } from '../middleware/auth.js';
 import { loginSchema } from '../schemas/auth.js';
 
 const router = Router();
@@ -64,8 +65,8 @@ router.post('/verify-manager', pinRateLimit, validate(loginSchema), async (req, 
   res.json({ ok: true, name: found.name });
 });
 
-// GET /api/auth/me — verify token
-router.get('/me', (req, res) => {
+// GET /api/auth/me — verify token (protected: requires valid JWT)
+router.get('/me', auth, (req, res) => {
   res.json({ user: req.user });
 });
 

@@ -3,7 +3,6 @@ import express from 'express';
 import compression from 'compression';
 import cors from 'cors';
 import helmet from 'helmet';
-import jwt from 'jsonwebtoken';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -27,6 +26,7 @@ import portosRoutes from './routes/portos.js';
 import companyProfileRoutes from './routes/company-profile.js';
 import fiscalDocumentsRoutes from './routes/fiscal-documents.js';
 import { idempotency } from './middleware/idempotency.js';
+import { auth } from './middleware/auth.js';
 import { ALLOWED_ORIGINS, corsOriginCallback } from './lib/cors-origin.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -50,20 +50,6 @@ app.use('/fonts', express.static(path.join(__dirname, '..', 'fonts'), {
 
 // Serve frontend files from parent directory
 app.use(express.static(path.join(__dirname, '..'), { maxAge: 0 }));
-
-// Auth middleware
-export function auth(req, res, next) {
-  const header = req.headers.authorization;
-  if (!header) return res.status(401).json({ error: 'Token chyba' });
-
-  const token = header.replace('Bearer ', '');
-  try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
-    next();
-  } catch {
-    res.status(401).json({ error: 'Neplatny token' });
-  }
-}
 
 // Public routes (no auth needed)
 app.use('/api/auth', authRoutes);
@@ -103,4 +89,4 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Server error' });
 });
 
-export { app, ALLOWED_ORIGINS };
+export { app, ALLOWED_ORIGINS, auth };
