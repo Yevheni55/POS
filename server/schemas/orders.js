@@ -60,3 +60,11 @@ export const stornoSendSchema = z.object({
     note: z.string().max(200).default(''),
   })).min(1),
 });
+
+export const stornoWriteOffSchema = z.object({
+  menuItemId: z.coerce.number().int().positive(),
+  qty: z.coerce.number().int().positive(),
+  reason: z.enum(['order_error', 'complaint', 'breakage', 'staff_meal', 'other']).default('other'),
+  note: z.string().max(500).optional().default(''),
+  returnToStock: z.boolean().optional().default(false),
+});
