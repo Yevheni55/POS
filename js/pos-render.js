@@ -71,7 +71,7 @@ function toggleEdit(){
 // Floor zones
 function renderFloorZones(){
   document.getElementById('floorZones').innerHTML=ZONES.map(z=>
-    `<button class="zone-btn ${z.id===activeZone?'active':''}" onclick="setZone('${z.id}')">${z.label}</button>`
+    `<button class="zone-btn ${z.id===activeZone?'active':''}" onclick="setZone('${escAttr(z.id)}')">${escHtml(z.label)}</button>`
   ).join('');
 }
 function setZone(id){activeZone=id;renderFloorZones();renderFloor()}
@@ -183,7 +183,7 @@ function showAccountPicker(tableId, openProducts) {
   var html = tableOrdersList.map(function(o) {
     var total = o.items ? o.items.reduce(function(s, i) { return s + parseFloat(i.price) * i.qty; }, 0) : 0;
     var count = o.items ? o.items.reduce(function(s, i) { return s + i.qty; }, 0) : 0;
-    var itemPreview = o.items ? o.items.slice(0, 4).map(function(i) { return i.emoji; }).join(' ') : '';
+    var itemPreview = o.items ? o.items.slice(0, 4).map(function(i) { return escHtml(i.emoji); }).join(' ') : '';
     if (o.items && o.items.length > 4) itemPreview += ' +' + (o.items.length - 4);
 
     return '<div class="ap-card" onclick="pickAccount(' + o.id + ',' + _apOpenProducts + ')">' +
@@ -250,7 +250,7 @@ async function pickNewAccount(openProducts) {
 // Categories
 function renderCategories(){
   document.getElementById('categories').innerHTML=Object.entries(MENU).map(([key,cat])=>
-    `<button class="cat-btn ${key===activeCategory?'active':''}" onclick="setCategory('${key}')"><span class="cat-icon">${cat.icon}</span>${cat.label}<span class="cat-key">${cat.key}</span></button>`
+    `<button class="cat-btn ${key===activeCategory?'active':''}" onclick="setCategory('${escAttr(key)}')"><span class="cat-icon">${escHtml(cat.icon)}</span>${escHtml(cat.label)}<span class="cat-key">${escHtml(cat.key)}</span></button>`
   ).join('');
 }
 function setCategory(key){activeCategory=key;searchQuery='';document.getElementById('searchInput').value='';renderCategories();renderProducts()}
@@ -281,7 +281,7 @@ function renderProducts(){
     const cc=CAT_COLORS[cat]||'125,211,252';
     const inOrder=order.find(o=>o.name===item.name);
     const qtyBadge=inOrder?`<span class="product-qty-badge">${inOrder.qty}</span>`:'';
-    return `<div class="product-card" data-name="${escHtml(item.name)}" tabindex="0" role="button" style="--cat-color:${cc}" onclick="addToOrder('${item.name.replace(/'/g,"\\'")}','${item.emoji}',${item.price})" onpointerdown="ripple(event)">
+    return `<div class="product-card" data-name="${escAttr(item.name)}" tabindex="0" role="button" style="--cat-color:${cc}" onclick="addToOrder('${escAttr(item.name.replace(/'/g,"\\'"))}','${escAttr(item.emoji)}',${item.price})" onpointerdown="ripple(event)">
       ${qtyBadge}<span class="product-emoji">${escHtml(item.emoji)}</span><div class="product-name">${escHtml(item.name)}</div><div class="product-desc">${escHtml(item.desc)}</div><div class="product-price">${fmt(item.price)}</div></div>`;
   }).join('');
 }
@@ -399,7 +399,7 @@ function renderOrder(){
   }
   if(!order.length){c.innerHTML=`<div class="order-empty"><div class="order-empty-icon">&#128203;</div><div class="order-empty-title">Prazdna objednavka</div><div class="order-empty-text">Pridajte polozky z menu alebo kliknite na stol</div><div class="order-empty-hint"><span>&#8592;</span> Vyberte z menu</div></div>`}
   else{var sorted=order.slice().sort(function(a,b){return (b.id||0)-(a.id||0)});c.innerHTML=sorted.map(o=>{
-    const esc=o.name.replace(/'/g,"\\'");
+    const esc=escAttr(o.name.replace(/'/g,"\\'"));
     const _isSent=o.sent;
     const _moveSelected=moveMode&&moveSelectedItems.indexOf(o.id)>=0;
     if(moveMode){
@@ -438,7 +438,7 @@ function updateTotals(){
       var pct=subtotal>0?Math.round(discountAmt/subtotal*100):0;
       lbl='Zlava -'+pct+'%';
     }
-    document.getElementById('discountLabel').innerHTML=lbl+' <button class="discount-remove" onclick="removeDiscount()" title="Odstranit zlavu" aria-label="Odstranit zlavu">&times;</button>';
+    document.getElementById('discountLabel').innerHTML=escHtml(lbl)+' <button class="discount-remove" onclick="removeDiscount()" title="Odstranit zlavu" aria-label="Odstranit zlavu">&times;</button>';
     document.getElementById('discountVal').textContent='-'+fmt(discountAmt);
     document.getElementById('total').textContent=fmt(subtotal-discountAmt);
   }else{
@@ -466,7 +466,7 @@ function showDiscountModal(){
     }
     listEl.innerHTML=dList.map(function(d){
       var valLabel=d.type==='percent'?('-'+d.value+'%'):('-'+d.value.toFixed(2)+' EUR');
-      return '<div class="discount-item" data-id="'+d.id+'" onclick="selectDiscount('+d.id+',this)"><span class="discount-item-name">'+d.name+'</span><span class="discount-item-value">'+valLabel+'</span></div>';
+      return '<div class="discount-item" data-id="'+d.id+'" onclick="selectDiscount('+d.id+',this)"><span class="discount-item-name">'+escHtml(d.name)+'</span><span class="discount-item-value">'+escHtml(valLabel)+'</span></div>';
     }).join('');
   }).catch(function(){
     listEl.innerHTML='<div class="discount-list-error">Chyba nacitania</div>';

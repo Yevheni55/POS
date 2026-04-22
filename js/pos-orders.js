@@ -133,7 +133,7 @@ function addToOrder(name, emoji, price) {
   var c = document.getElementById('orderItems');
   var emptyEl = c.querySelector('.order-empty');
   if (emptyEl) emptyEl.remove();
-  var esc = name.replace(/'/g, "\\'");
+  var esc = escAttr(name.replace(/'/g, "\\'"));
   if (existing) {
     var existingEl = c.querySelector('.order-item-wrap[data-item-id="' + existing.id + '"]');
     if (existingEl) {
@@ -144,8 +144,8 @@ function addToOrder(name, emoji, price) {
     }
   } else {
     var html = '<div class="order-item-wrap" data-item-id="' + changedItem.id + '" ontouchstart="swipeStart(event,this)" ontouchmove="swipeMove(event,this)" ontouchend="swipeEnd(event,this)">' +
-      '<div class="order-item-inner"><span class="order-item-emoji">' + emoji + '</span>' +
-      '<div class="order-item-info"><div class="order-item-name">' + name + '</div></div>' +
+      '<div class="order-item-inner"><span class="order-item-emoji">' + escHtml(emoji) + '</span>' +
+      '<div class="order-item-info"><div class="order-item-name">' + escHtml(name) + '</div></div>' +
       '<div class="order-item-qty"><button class="qty-btn" onclick="changeQty(\'' + esc + '\', -1, ' + changedItem.id + ')" onpointerdown="startQtyHold(\'' + esc + '\', -1, ' + changedItem.id + ')">&minus;</button><span class="qty-val">1</span><button class="qty-btn" onclick="changeQty(\'' + esc + '\', 1, ' + changedItem.id + ')" onpointerdown="startQtyHold(\'' + esc + '\', 1, ' + changedItem.id + ')">&plus;</button></div>' +
       '<div class="order-item-total">' + fmt(price) + '</div></div>' +
       '<div class="order-item-swipe-left"><button class="swipe-btn swipe-btn-move" onclick="enterMoveMode(' + changedItem.id + ')" aria-label="Presunut polozku">&#8599;</button><button class="swipe-btn swipe-btn-note" onclick="openNoteModal(\'' + esc + '\',' + changedItem.id + ')" aria-label="Poznamka">&#9998;</button><button class="swipe-btn swipe-btn-del" onclick="removeItem(\'' + esc + '\')" aria-label="Odstranit polozku">&#10005;</button></div></div>';
