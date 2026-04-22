@@ -221,7 +221,8 @@ Každý commit v `main` je funkčný; rollback = checkout staršieho commitu na 
 | `DATABASE_URL` | Postgres pripojenie (compose prepisuje na `postgresql://pos:pos@db:5432/pos`) |
 | `JWT_SECRET` | podpisovací kľúč pre tokeny (dlhší náhodný reťazec!) |
 | `PORT`, `HTTPS_PORT` | HTTP / HTTPS porty backendu |
-| `CORS_ALLOW_LAN` | `true` → API povoľuje origins zo súkromných LAN IP (telefón/tablet) |
+| `CORS_ALLOW_LAN` | `true` → API povoľuje origins zo súkromných LAN IP (telefón/tablet). Default `false` (opt-in). |
+| `LAN_ALLOWED_PORTS` | Čiarkou oddelený whitelist portov pre LAN origins (default `3080,3443`). Aktívne iba ak `CORS_ALLOW_LAN=true`. |
 | `PORTOS_ENABLED` | `true|false` — zapnutie fiškalizácie |
 | `PORTOS_BASE_URL` | URL Portos API, v Dockeri `http://host.docker.internal:3010` |
 | `PORTOS_CASH_REGISTER_CODE` | fallback kód kasy (hlavný zdroj je DB) |
