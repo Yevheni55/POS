@@ -7,4 +7,5 @@ server/.env.ttlock
 
 # Local agent previews / deploy bundles
 .superpowers/
+.worktrees/
 *.tgz
