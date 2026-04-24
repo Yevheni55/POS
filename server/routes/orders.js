@@ -202,15 +202,16 @@ router.delete('/:orderId/items/:itemId', asyncRoute(async (req, res) => {
   const { version } = req.body || {};
 
   try {
-    await db.transaction(async (tx) => {
+    const newVersion = await db.transaction(async (tx) => {
       const bumped = await bumpVersion(tx, orderId, version);
       if (version !== undefined && !bumped) throw new VersionConflictError();
       await tx.delete(orderItems).where(and(eq(orderItems.id, itemId), eq(orderItems.orderId, orderId)));
+      return bumped ? bumped.version : null;
     });
 
     logEvent(db, { orderId, type: 'item_removed', payload: { itemId }, staffId: req.user.id }).catch(e => console.error('Audit log error:', e));
     emitEvent(req, 'order:updated', { orderId });
-    res.json({ ok: true });
+    res.json({ ok: true, deleted: true, orderVersion: newVersion });
   } catch (e) {
     if (e instanceof VersionConflictError) return res.status(409).json({ error: VERSION_CONFLICT_MSG });
     throw e;

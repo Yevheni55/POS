@@ -320,13 +320,27 @@ function changeQty(name,d,itemId){
 
   const newQty = item.qty + d;
   if (newQty <= 0) {
-    // Track server items for deletion during sync
-    if (_isServerOrderItem(item) && currentOrderId) {
-      _pendingRemovals.push(item.id);
-    }
     const idx = order.indexOf(item);
     if (idx !== -1) order.splice(idx, 1);
     setOrder(order);
+    // Flush server-side deletion immediately so the 30s poll / socket refresh
+    // does not rehydrate the item back from the server. Fall back to the
+    // pending-removal queue if this call fails (e.g. version conflict).
+    if (_isServerOrderItem(item) && currentOrderId) {
+      var _removeOrderId = currentOrderId;
+      var _removeItemId = item.id;
+      var _removeVersion = currentOrderVersion;
+      api.del('/orders/' + _removeOrderId + '/items/' + _removeItemId, { version: _removeVersion })
+        .then(function(r) {
+          if (r && r.orderVersion != null && currentOrderId === _removeOrderId) {
+            currentOrderVersion = r.orderVersion;
+          }
+        })
+        .catch(function(e) {
+          console.warn('changeQty immediate delete failed, queued for sync:', e && e.message);
+          _pendingRemovals.push(_removeItemId);
+        });
+    }
   } else {
     item.qty = newQty;
     item._localQtyChanged = true;
