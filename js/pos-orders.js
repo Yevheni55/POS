@@ -13,6 +13,35 @@ var _addToastName = '';
 var _addToastMixed = false;
 var _savingNote = false;
 
+// Auto-delete a server order once its local state becomes empty (no items left)
+async function _autoDeleteEmptyOrderIfApplicable(orderIdSnapshot) {
+  if (!currentOrderId) return;
+  if (orderIdSnapshot != null && currentOrderId !== orderIdSnapshot) return;
+  if (getOrder().length > 0) return;
+  var oid = currentOrderId;
+  var ver = currentOrderVersion;
+  try {
+    await api.del('/orders/' + oid, { version: ver });
+  } catch (e) {
+    console.warn('Auto-delete empty order failed:', e && e.message);
+    return;
+  }
+  if (currentOrderId !== oid) return; // user switched away mid-flight
+  currentOrderId = null;
+  currentOrderVersion = null;
+  _pendingRemovals = [];
+  _pendingStorno = [];
+  _orderDirty = false;
+  if (selectedTableId) {
+    try { await loadTableOrder(selectedTableId, true); } catch (e) {}
+  }
+  renderOrder();
+  if (typeof isMobile === 'function' && isMobile() && typeof renderMobOrder === 'function') renderMobOrder();
+  if (typeof updateTableStatuses === 'function') updateTableStatuses();
+  if (typeof currentView !== 'undefined' && currentView === 'tables' && typeof renderFloor === 'function') renderFloor();
+  if (typeof isMobile === 'function' && isMobile() && typeof renderMobTables === 'function') renderMobTables();
+}
+
 // Debounced render — batches multiple rapid adds into one full render
 var _renderTimer = null;
 function _scheduleRender() {
@@ -335,11 +364,16 @@ function changeQty(name,d,itemId){
           if (r && r.orderVersion != null && currentOrderId === _removeOrderId) {
             currentOrderVersion = r.orderVersion;
           }
+          // If this removal emptied the order, drop the whole account.
+          return _autoDeleteEmptyOrderIfApplicable(_removeOrderId);
         })
         .catch(function(e) {
           console.warn('changeQty immediate delete failed, queued for sync:', e && e.message);
           _pendingRemovals.push(_removeItemId);
         });
+    } else if (currentOrderId && !getOrder().length) {
+      // Local-only removal that emptied an existing server order — delete it too.
+      _autoDeleteEmptyOrderIfApplicable();
     }
   } else {
     item.qty = newQty;
@@ -435,6 +469,10 @@ async function doRemoveItem(name){
       console.error('removeItem storno error:', e);
       showToast('Chyba storno: ' + e.message);
     }
+  }
+  // If that removal emptied the account, delete the whole order so the table frees up
+  if (!getOrder().length) {
+    await _autoDeleteEmptyOrderIfApplicable();
   }
 }
 async function clearOrder(){
