@@ -13,6 +13,7 @@ import { validate } from '../middleware/validate.js';
 import { createOrderSchema, addItemsSchema, updateItemSchema, batchSchema, splitSchema, moveItemsSchema, discountSchema, stornoSendSchema } from '../schemas/orders.js';
 import { deductStockForSentItems, applyWriteOff } from '../lib/stock.js';
 import { asyncRoute } from '../lib/async-route.js';
+import { requireRole } from '../middleware/requireRole.js';
 
 const router = Router();
 
@@ -739,7 +740,7 @@ router.delete('/:id', asyncRoute(async (req, res) => {
 }));
 
 // POST /api/orders/:id/storno-write-off — create write-off from POS storno
-router.post('/:id/storno-write-off', asyncRoute(async (req, res) => {
+router.post('/:id/storno-write-off', requireRole('manazer', 'admin'), asyncRoute(async (req, res) => {
   const orderId = +req.params.id;
   const { menuItemId, qty, reason, note, returnToStock } = req.body;
   const staffId = req.user.id;
