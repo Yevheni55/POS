@@ -35,17 +35,12 @@ const app = express();
 app.set('trust proxy', 'loopback');
 
 // Middleware
+// NOTE: CSP temporarily disabled again — the minimal policy broke stylesheet
+// loading in production. Needs to be re-enabled after a careful audit of
+// every inline handler, CSS background URL, service-worker fetch, and the
+// socket.io handshake. Trust proxy stays (separate concern).
 app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", 'data:', 'blob:'],
-      connectSrc: ["'self'", 'ws:', 'wss:'],  // socket.io
-      fontSrc: ["'self'", 'data:'],
-    },
-  },
+  contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
 }));
 app.use(compression());
