@@ -2,7 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(__dirname, '../../..');
 
 function createElementStub() {
   return {
@@ -82,7 +86,7 @@ function loadPosRender(overrides = {}) {
   sandbox.window = sandbox;
   sandbox.globalThis = sandbox;
 
-  const scriptPath = path.resolve('C:/Users/yevhe/Desktop/POS/js/pos-render.js');
+  const scriptPath = path.join(REPO_ROOT, 'js/pos-render.js');
   const script = readFileSync(scriptPath, 'utf8');
   vm.runInNewContext(script, sandbox, { filename: scriptPath });
 
