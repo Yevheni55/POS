@@ -48,6 +48,10 @@ async function switchView(v){
     var flushed = await flushOrderBeforeTableLeave();
     if (!flushed) return;
   }
+  // Catch up on admin-side layout changes if the socket was offline while away
+  if (v === 'tables') {
+    try { await loadTables(); } catch (e) { /* offline, render cached */ }
+  }
   currentView=v;
   document.getElementById('btnTableView').classList.toggle('active',v==='tables');
   document.getElementById('btnProductView').classList.toggle('active',v==='products');
@@ -57,13 +61,14 @@ async function switchView(v){
   if(v==='tables')renderFloor();if(v==='products')renderProducts();
 }
 
-// Edit mode
+// Edit mode — POS-local floor rearrangement. Positions persist via PUT /tables/:id
+// and are emitted as `table:updated` to all clients, so what gets saved here shows
+// up identically in the admin floor plan and on every other device without reload.
 function toggleEdit(){
   editMode=!editMode;
   document.getElementById('editToggle').classList.toggle('active',editMode);
   document.getElementById('editLabel').textContent=editMode?'Hotovo':'Upravit';
   document.getElementById('floorCanvas').classList.toggle('edit-mode',editMode);
-  document.getElementById('floorCanvas').classList.toggle('edit-abs',editMode);
   if(!editMode)savePositions();
   renderFloor();
 }
@@ -76,42 +81,39 @@ function renderFloorZones(){
 }
 function setZone(id){activeZone=id;renderFloorZones();renderFloor()}
 
-// Floor canvas with draggable chips
+// Floor canvas — absolute-pixel positioning, identical coordinate system to admin.
+// Admin drag-and-drop on /admin#tables writes the same (x,y) integers we read here.
+// Canvas becomes scrollable if tables extend beyond its visible area.
 function renderFloor(){
   const canvas=document.getElementById('floorCanvas');
+  if(!canvas)return;
   const filtered=TABLES.filter(t=>t.zone===activeZone);
   const sl={free:'Volny',occupied:'Obsad.',reserved:'Rez.',dirty:'Cistit'};
   const titles={free:'Otvorit objednavku',occupied:'Zobrazit ucet',reserved:'Otvorit rezervaciu',dirty:'Oznacit ako volny'};
   const personIcon='<svg aria-hidden="true" viewBox="0 0 16 16" width="10" height="10"><path d="M8 7a3 3 0 100-6 3 3 0 000 6zm-5 9a5 5 0 0110 0H3z" fill="currentColor"/></svg>';
+
+  // Grow the canvas so the rightmost / bottom-most chip isn't clipped. Chip reaches
+  // roughly 150x110 beyond its top-left anchor, plus breathing room.
+  var maxX=0,maxY=0;
+  for(var i=0;i<filtered.length;i++){
+    if(filtered[i].x>maxX)maxX=filtered[i].x;
+    if(filtered[i].y>maxY)maxY=filtered[i].y;
+  }
+  canvas.style.minWidth=Math.max(maxX+220,600)+'px';
+  canvas.style.minHeight=Math.max(maxY+180,400)+'px';
 
   canvas.innerHTML=filtered.map(t=>{
     const ord=tableOrders[t.id]||[];
     const total=ord.reduce((s,o)=>s+o.price*o.qty,0);
     const isSel=t.id===selectedTableId;
     const shapeClass=t.shape==='round'?'round':t.shape==='large'?'large':'';
-    // Edit mode: absolute px. Normal mode: percentage-based positioning
-    let posStyle;
-    if(editMode){
-      posStyle=`left:${t.x}px;top:${t.y}px`;
-    } else {
-      if(!renderFloor._refW){
-        var maxX=0,maxY=0;
-        TABLES.forEach(function(tb){if(tb.x>maxX)maxX=tb.x;if(tb.y>maxY)maxY=tb.y});
-        renderFloor._refW=Math.max(maxX+170,600);
-        renderFloor._refH=Math.max(maxY+130,400);
-      }
-      const pctX=((t.x/renderFloor._refW)*100).toFixed(1);
-      const pctY=((t.y/renderFloor._refH)*100).toFixed(1);
-      posStyle=`left:${pctX}%;top:${pctY}%`;
-    }
+    const posStyle=`left:${t.x}px;top:${t.y}px`;
 
-    // Accessibility label
     const ariaParts=[escHtml(t.name),sl[t.status]||t.status,t.seats+' miest'];
     if(t.status==='occupied'&&total>0)ariaParts.push(fmt(total));
     if(t.status==='reserved'&&t.time)ariaParts.push(t.time);
     const ariaLabel=ariaParts.join(', ');
 
-    // Build chip interior — hierarchy: name > badge > guests > amount
     let chipBody=`<div class="chip-name">${escHtml(t.name)}</div>`;
     chipBody+=`<span class="chip-badge ${t.status}">${sl[t.status]||t.status}</span>`;
     chipBody+=`<div class="chip-guests">${personIcon} ${t.seats}</div>`;

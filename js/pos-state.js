@@ -44,8 +44,6 @@ async function loadMenu(data) {
 
 async function loadTables(data) {
   TABLES = data || await api.get('/tables');
-  // Reset floor reference space cache
-  if (typeof renderFloor !== 'undefined') renderFloor._refW = 0;
   // Derive zones from table data
   const zoneSet = new Map();
   const zoneLabels = {interior:'Interier', bar:'Bar', terasa:'Terasa'};

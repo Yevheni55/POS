@@ -89,11 +89,10 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
 
 /* Floor canvas */
 .floor-canvas{
-  flex:1;position:relative;overflow:hidden;
+  flex:1;position:relative;overflow:auto;
   background:
     radial-gradient(circle at 1px 1px, rgba(255,255,255,.03) 1px, transparent 0) 0 0 / 40px 40px;
 }
-.floor-canvas.edit-abs{overflow:auto}
 .floor-canvas.edit-mode{cursor:default;background:radial-gradient(circle at 1px 1px, rgba(139,124,246,.06) 1px, transparent 0) 0 0 / 40px 40px}
 
 /* TABLE CHIP — compact draggable */
