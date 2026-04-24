@@ -301,6 +301,7 @@ router.post('/:id/send', asyncRoute(async (req, res) => {
   const orderId = +req.params.id;
 
   const { unsentItems, stockResult } = await db.transaction(async (tx) => {
+    await bumpVersion(tx, orderId);
     const unsentItems = await tx.select({
       id: orderItems.id, name: menuItems.name, emoji: menuItems.emoji,
       qty: orderItems.qty, note: orderItems.note, menuItemId: orderItems.menuItemId
