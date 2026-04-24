@@ -653,6 +653,10 @@ router.delete('/:id/discount', asyncRoute(async (req, res) => {
   const orderId = +req.params.id;
   const { version } = req.body || {};
 
+  if (req.user.role === 'cisnik') {
+    return res.status(403).json({ error: 'Pristup odmietnuty' });
+  }
+
   try {
     const { updated, previousDiscountId } = await db.transaction(async (tx) => {
       // Query before update to capture previous discountId
