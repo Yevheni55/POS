@@ -20,6 +20,14 @@ async function _autoDeleteEmptyOrderIfApplicable(orderIdSnapshot) {
   if (getOrder().length > 0) return;
   var oid = currentOrderId;
   var ver = currentOrderVersion;
+  // Flush kitchen/bar STORNO tickets BEFORE the order is destroyed on the server.
+  // flushPendingStornoTickets posts to /orders/:id/send-storno-and-print and then
+  // prints the physical tickets; it requires currentOrderId to still be set.
+  // Only changeQty queues _pendingStorno (doRemoveItem/doClearOrder already print inline).
+  if (_pendingStorno.length && typeof flushPendingStornoTickets === 'function') {
+    try { await flushPendingStornoTickets(); }
+    catch (e) { console.warn('Storno ticket flush before auto-delete failed:', e && e.message); }
+  }
   try {
     await api.del('/orders/' + oid, { version: ver });
   } catch (e) {
@@ -27,6 +35,20 @@ async function _autoDeleteEmptyOrderIfApplicable(orderIdSnapshot) {
     return;
   }
   if (currentOrderId !== oid) return; // user switched away mid-flight
+  // If a product was tapped during the DELETE round-trip, preserve the new local row
+  // as a seed for the next syncOrderToServer instead of wiping it with loadTableOrder.
+  // The old server order is gone, so null its id/version but keep _orderDirty so the
+  // next flush creates a fresh order.
+  if (getOrder().length > 0) {
+    currentOrderId = null;
+    currentOrderVersion = null;
+    _pendingRemovals = [];
+    // Any lingering _pendingStorno entries belonged to the just-destroyed order; drop
+    // them so they don't accidentally print under the next (fresh) order id.
+    _pendingStorno = [];
+    _orderDirty = true;
+    return;
+  }
   currentOrderId = null;
   currentOrderVersion = null;
   _pendingRemovals = [];
@@ -436,7 +458,14 @@ async function doRemoveItem(name){
   // Only call API for sent items (storno needs server + print)
   if (sentQty > 0 && currentOrderId) {
     try {
-      await api.del('/orders/' + currentOrderId + '/items/' + itemId, { version: currentOrderVersion });
+      var _delOrderId = currentOrderId;
+      var _delRes = await api.del('/orders/' + _delOrderId + '/items/' + itemId, { version: currentOrderVersion });
+      // Keep currentOrderVersion in sync with the server's bumped version, otherwise
+      // the follow-up _autoDeleteEmptyOrderIfApplicable() would hit 409 and leave the
+      // order (and table) stuck in the "occupied" state.
+      if (_delRes && _delRes.orderVersion != null && currentOrderId === _delOrderId) {
+        currentOrderVersion = _delRes.orderVersion;
+      }
       var table = TABLES.find(function(t) { return t.id === selectedTableId; });
       var tableName = table ? table.name : String(selectedTableId);
       var user = api.getUser();
