@@ -176,10 +176,15 @@ async function updateTableProp(prop, val) {
 // ===== DRAG (mouse) =====
 function startDrag(e, id) {
   if (e.button !== 0) return;
+  // The mousedown listener is delegated on #floorCanvas, so e.currentTarget is
+  // the canvas — NOT the chip. Resolve the chip from e.target so dragOffX/Y are
+  // measured from the chip's top-left corner (otherwise the first onDrag
+  // teleports the chip to x=0,y=0 and the cursor stays behind).
+  const el = e.target.closest('.table-chip');
+  if (!el) return;
   e.preventDefault();
   dragId = id;
   didDrag = false;
-  const el = e.currentTarget;
   const rect = el.getBoundingClientRect();
   dragOffX = e.clientX - rect.left;
   dragOffY = e.clientY - rect.top;
