@@ -32,10 +32,20 @@ import { ALLOWED_ORIGINS, corsOriginCallback } from './lib/cors-origin.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
+app.set('trust proxy', 'loopback');
 
 // Middleware
 app.use(helmet({
-  contentSecurityPolicy: false,
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:', 'blob:'],
+      connectSrc: ["'self'", 'ws:', 'wss:'],  // socket.io
+      fontSrc: ["'self'", 'data:'],
+    },
+  },
   crossOriginEmbedderPolicy: false,
 }));
 app.use(compression());
