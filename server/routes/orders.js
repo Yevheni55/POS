@@ -596,51 +596,55 @@ router.post('/:id/discount', validate(discountSchema), asyncRoute(async (req, re
   const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
   if (!order) return res.status(404).json({ error: 'Objednavka nenajdena' });
 
-  // Calculate order subtotal
-  const items = await db.select({
-    qty: orderItems.qty,
-    price: menuItems.price,
-  })
-  .from(orderItems)
-  .innerJoin(menuItems, eq(orderItems.menuItemId, menuItems.id))
-  .where(eq(orderItems.orderId, orderId));
-
-  const subtotal = items.reduce((s, i) => s + parseFloat(i.price) * i.qty, 0);
-
-  let discountAmount = 0;
-  let appliedDiscountId = null;
-
-  if (discountId) {
-    // Look up predefined discount
-    const [disc] = await db.select().from(discounts).where(eq(discounts.id, discountId));
-    if (!disc) return res.status(404).json({ error: 'Zlava nenajdena' });
-
-    appliedDiscountId = disc.id;
-    const discValue = parseFloat(disc.value);
-    if (disc.type === 'percent') {
-      discountAmount = Math.round(subtotal * discValue / 100 * 100) / 100;
-    } else {
-      discountAmount = Math.min(discValue, subtotal);
-    }
-  } else if (customPercent !== undefined) {
-    const pct = Math.max(0, Math.min(100, parseFloat(customPercent) || 0));
-    discountAmount = Math.round(subtotal * pct / 100 * 100) / 100;
-  } else {
+  if (!discountId && customPercent === undefined) {
     return res.status(400).json({ error: 'discountId alebo customPercent je povinny' });
   }
 
   try {
-    const updated = await db.transaction(async (tx) => {
+    const result = await db.transaction(async (tx) => {
       const bumped = await bumpVersion(tx, orderId, version);
       if (version !== undefined && !bumped) throw new VersionConflictError();
+
+      // Calculate order subtotal inside tx so concurrent item adds cannot leave it stale
+      const items = await tx.select({
+        qty: orderItems.qty,
+        price: menuItems.price,
+      })
+      .from(orderItems)
+      .innerJoin(menuItems, eq(orderItems.menuItemId, menuItems.id))
+      .where(eq(orderItems.orderId, orderId));
+
+      const subtotal = items.reduce((s, i) => s + parseFloat(i.price) * i.qty, 0);
+
+      let discountAmount = 0;
+      let appliedDiscountId = null;
+
+      if (discountId) {
+        const [disc] = await tx.select().from(discounts).where(eq(discounts.id, discountId));
+        if (!disc) return { error: 'Zlava nenajdena', status: 404 };
+
+        appliedDiscountId = disc.id;
+        const discValue = parseFloat(disc.value);
+        if (disc.type === 'percent') {
+          discountAmount = Math.round(subtotal * discValue / 100 * 100) / 100;
+        } else {
+          discountAmount = Math.min(discValue, subtotal);
+        }
+      } else {
+        const pct = Math.max(0, Math.min(100, parseFloat(customPercent) || 0));
+        discountAmount = Math.round(subtotal * pct / 100 * 100) / 100;
+      }
 
       const [updated] = await tx.update(orders).set({
         discountId: appliedDiscountId,
         discountAmount: String(discountAmount),
       }).where(eq(orders.id, orderId)).returning();
-      return updated;
+      return { updated, appliedDiscountId, discountAmount };
     });
 
+    if (result.error) return res.status(result.status).json({ error: result.error });
+
+    const { updated, appliedDiscountId, discountAmount } = result;
     logEvent(db, { orderId, type: 'discount_applied', payload: { discountId: appliedDiscountId, discountAmount, customPercent }, staffId: req.user.id }).catch(e => console.error('Audit log error:', e));
     res.json({ ...updated, discountAmount: parseFloat(updated.discountAmount) });
   } catch (e) {
