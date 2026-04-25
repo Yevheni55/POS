@@ -136,6 +136,36 @@ function refreshTableStatus(tableId) {
   table.status = _tableHasAnyItems(tableId) ? 'occupied' : 'free';
 }
 
+// Map a server-side order item into the client's tableOrders shape.
+function _mapServerOrderItem(i, orderId) {
+  return {
+    id: i.id, name: i.name, emoji: i.emoji, price: i.price,
+    qty: i.qty, note: i.note, menuItemId: i.menuItemId,
+    orderId: orderId, desc: i.desc || '', sent: !!i.sent,
+    _sentQty: i.sent ? i.qty : 0,
+  };
+}
+
+// Merge fresh server items with the cashier's in-progress local additions.
+// Without this, the 30s poll / socket order:updated would silently wipe rows the
+// cashier is still typing in (item disappears mid-add) — see pos-init.js refresh
+// and the loadTableOrder rebuild below.
+//
+// Local-only rows are anything still using a client-side id (> 1e9 boundary set
+// by _getNextLocalOrderItemId) AND not yet synced (sent === false). Sent rows
+// always come from the server, so we never preserve those from the prev state.
+function _mergePreservingLocalAdditions(serverItems, prevLocalItems, orderId) {
+  var mapped = serverItems.map(function (i) { return _mapServerOrderItem(i, orderId); });
+  if (!Array.isArray(prevLocalItems) || !prevLocalItems.length) return mapped;
+  prevLocalItems.forEach(function (p) {
+    if (!p || p.sent) return;
+    if (typeof p.id !== 'number' || p.id <= 1000000000) return;
+    if (mapped.some(function (m) { return m.id === p.id; })) return;
+    mapped.push(p);
+  });
+  return mapped;
+}
+
 async function loadTableOrder(tableId, forceRefresh) {
   try {
     if (!forceRefresh && allOrdersCache[tableId]) {
@@ -151,18 +181,23 @@ async function loadTableOrder(tableId, forceRefresh) {
       var current = tableOrdersList.find(function(o) { return o.id === currentOrderId; }) || tableOrdersList[0];
       currentOrderId = current.id;
       currentOrderVersion = current.version || null;
-      tableOrders[tableId] = current.items.map(function(i) {
-        return {
-          id: i.id, name: i.name, emoji: i.emoji, price: i.price,
-          qty: i.qty, note: i.note, menuItemId: i.menuItemId,
-          orderId: current.id, desc: i.desc || '', sent: !!i.sent,
-          _sentQty: i.sent ? i.qty : 0
-        };
-      });
+      tableOrders[tableId] = _mergePreservingLocalAdditions(
+        current.items, tableOrders[tableId], current.id
+      );
     } else {
-      currentOrderId = null;
-      currentOrderVersion = null;
-      tableOrders[tableId] = [];
+      // Server has no orders for this table — but the cashier may have just
+      // started a brand-new local-only order. Keep those rows; if there are
+      // none, fall through to the empty-state.
+      var keptLocal = (tableOrders[tableId] || []).filter(function (p) {
+        return p && !p.sent && typeof p.id === 'number' && p.id > 1000000000;
+      });
+      if (keptLocal.length) {
+        tableOrders[tableId] = keptLocal;
+      } else {
+        currentOrderId = null;
+        currentOrderVersion = null;
+        tableOrders[tableId] = [];
+      }
       tableOrdersList = [];
     }
     refreshTableStatus(tableId);
