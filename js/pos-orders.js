@@ -369,9 +369,20 @@ async function syncOrderToServer() {
     var unsentItems = order.filter(function(o) { return !o.sent && typeof o.id === 'number' && o.id > 1000000000; });
     var existingChanged = order.filter(function(o) { return o.sent || (typeof o.id === 'number' && o.id <= 1000000000); });
 
+    // Capture exactly which local IDs we are about to POST. After the round-trip
+    // we filter those out of tableOrders so the loadTableOrder merge below does
+    // not re-add them as duplicates alongside their freshly-created server rows.
+    // Items added BETWEEN the POST and the filter (race window of a few ms) keep
+    // their IDs and so survive the filter — no data loss.
+    var syncedLocalIds = new Set(unsentItems.map(function (o) { return o.id; }));
+
     if (!currentOrderId) {
       // No order on server yet — create with all items (already merged)
       var items = order.map(function(o) { return { menuItemId: o.menuItemId, qty: o.qty, note: o.note || '' }; });
+      // For a brand-new order EVERY local-only row is being sent.
+      order.forEach(function (o) {
+        if (typeof o.id === 'number' && o.id > 1000000000 && !o.sent) syncedLocalIds.add(o.id);
+      });
       var newOrder = await api.post('/orders', { tableId: selectedTableId, items: items });
       currentOrderId = newOrder.id;
       currentOrderVersion = newOrder.version || 1;
@@ -390,6 +401,16 @@ async function syncOrderToServer() {
           o._localQtyChanged = false;
         }
       }
+    }
+
+    // Drop the local-only rows we just successfully synced so loadTableOrder's
+    // merge sees only items added DURING the round-trip (which still need to
+    // survive the refresh). Without this, the merge re-adds the just-POSTed
+    // rows alongside the server's freshly-created copies → visible duplicates.
+    if (syncedLocalIds.size && tableOrders[selectedTableId]) {
+      tableOrders[selectedTableId] = tableOrders[selectedTableId].filter(function (o) {
+        return !syncedLocalIds.has(o.id);
+      });
     }
 
     // Reload from server to get real IDs
