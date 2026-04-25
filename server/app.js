@@ -49,6 +49,30 @@ app.use(compression());
 app.use(cors({ origin: corsOriginCallback }));
 app.use(express.json({ limit: '20mb' }));
 
+// Service worker — inject the current build version so every fresh deploy
+// (= server restart) ships a bytewise-different sw.js → browser detects an
+// update → install runs → activate prunes the old cache. No more
+// Ctrl+Shift+R after each deploy.
+const SW_VERSION = process.env.BUILD_VERSION || String(Date.now());
+let _swSourceCache = null;
+async function readSwSource() {
+  if (_swSourceCache) return _swSourceCache;
+  const fs = await import('node:fs/promises');
+  _swSourceCache = await fs.readFile(path.join(__dirname, '..', 'sw.js'), 'utf8');
+  return _swSourceCache;
+}
+app.get('/sw.js', async (req, res) => {
+  try {
+    const src = await readSwSource();
+    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Service-Worker-Allowed', '/');
+    res.send(src.replace(/__SW_VERSION__/g, SW_VERSION));
+  } catch (e) {
+    res.status(500).send('// SW unavailable');
+  }
+});
+
 // Serve fonts with long cache (1 year)
 app.use('/fonts', express.static(path.join(__dirname, '..', 'fonts'), {
   maxAge: '365d',
