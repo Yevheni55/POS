@@ -486,6 +486,34 @@ function buildLockCodeTicket({ code, validUntil, staffName, time }) {
   return t;
 }
 
+// POST /api/print/wc-code — print a small "#" slip after the customer's
+// fiscal receipt (Portos prints its own receipt on the same printer; this is
+// a follow-up slip the customer takes to the WC).
+function buildWcCodeTicket() {
+  let t = '';
+  t += CMD.INIT;
+  t += CMD.ALIGN_CENTER;
+  t += CMD.DOUBLE_SIZE;
+  t += CMD.BOLD_ON;
+  t += '#\n';
+  t += CMD.BOLD_OFF;
+  t += CMD.NORMAL_SIZE;
+  t += CMD.FEED;
+  t += CMD.CUT;
+  return t;
+}
+router.post('/wc-code', async (req, res) => {
+  try {
+    const printer = await getPrinterForDest('uctenka');
+    const ticket = buildWcCodeTicket();
+    const result = await sendOrQueue('wc-code', ticket, printer.ip, printer.port);
+    res.json({ ok: true, queued: !!result.queued });
+  } catch (e) {
+    console.error('WC code print error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // POST /api/print/lockcode — print lock code receipt
 router.post('/lockcode', async (req, res) => {
   try {

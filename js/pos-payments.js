@@ -340,6 +340,13 @@ async function confirmPayment() {
       return;
     }
 
+    // Tlač WC kódu (#) ako samostatný malý lístok hneď po fiškálnej účtenke.
+    // Fire-and-forget — ak tlačiareň nereaguje, platba je už hotová a nesmieme
+    // ju blokovať tlačovou chybou.
+    api.post('/print/wc-code', {}).catch(function (e) {
+      console.warn('WC code print failed:', e && e.message);
+    });
+
     await finalizeSuccessfulPayment(outcome.message, outcome.tone);
   } catch (e) {
     console.error('confirmPayment error:', e);
