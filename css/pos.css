@@ -1313,19 +1313,35 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
 .qty-val{font-family:var(--font-display);font-weight:var(--weight-bold);font-size:var(--text-lg);min-width:24px;text-align:center;font-variant-numeric:tabular-nums;padding:0 2px}
 .order-item-actions{display:none}
 
-/* === TABLET ORDER LIST OVERRIDES — placed at end so they win over base rules === */
+/* === TABLET ORDER LIST OVERRIDES — placed at end so they win over base rules ===
+   Layout: name on its own full-width row, then emoji + qty + total below.
+   Even very long names ("Combo Vegetarian Halloumi") get the full panel width
+   to themselves so the cashier doesn't see "Co\nmb\no..." stacked 2 letters
+   per line. */
 @media (min-width:769px) and (max-width:1366px) and (pointer:coarse){
+  .order-panel{width:480px}
+  .order-item-wrap{overflow:visible;padding:8px 6px}
+  .order-item-inner{
+    display:grid;
+    grid-template-columns:auto 1fr auto;
+    grid-template-areas:
+      "info  info  info"
+      "emoji qty   total";
+    column-gap:10px;row-gap:6px;
+    align-items:center;
+    min-height:54px;padding:10px 12px;
+  }
+  .order-item-info{grid-area:info;min-width:0;max-width:none}
   .order-item-name{
     font-size:22px;font-weight:var(--weight-bold);
     white-space:normal;overflow:visible;text-overflow:clip;
     max-width:none;line-height:1.2;word-break:break-word;
     color:var(--text-primary);
+    -webkit-line-clamp:initial;
+    display:block;
   }
-  .order-item-info{flex:1;min-width:0;max-width:none}
-  .order-item-wrap{overflow:visible}
-  .order-item-inner{min-height:54px;align-items:flex-start;flex-wrap:wrap}
-  .order-item-emoji{font-size:30px;flex-shrink:0}
-  .order-item-total{font-size:24px;font-weight:var(--weight-extrabold);flex-shrink:0;white-space:nowrap}
-  .order-item-qty{flex-shrink:0}
-  .order-item-qty .qty-btn{width:44px;height:44px;font-size:22px}
+  .order-item-emoji{grid-area:emoji;font-size:32px;line-height:1;flex-shrink:0}
+  .order-item-qty{grid-area:qty;justify-self:start;flex-shrink:0}
+  .order-item-qty .qty-btn{width:48px;height:48px;font-size:24px}
+  .order-item-total{grid-area:total;justify-self:end;font-size:26px;font-weight:var(--weight-extrabold);white-space:nowrap}
 }
