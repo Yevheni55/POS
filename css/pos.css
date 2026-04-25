@@ -690,7 +690,15 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
   /* Order list — bigger so the cashier reads it from arm's length */
   .order-item-wrap{padding:10px 12px}
   .order-item-emoji{font-size:30px}
-  .order-item-name{font-size:22px;font-weight:var(--weight-bold)}
+  /* Allow long names to wrap on tablet — the base rule clips at 140 px with
+     ellipsis, which hides the rest of names like "Combo Vegetarian Halloumi"
+     once the font is bumped. */
+  .order-item-name{
+    font-size:22px;font-weight:var(--weight-bold);
+    white-space:normal;overflow:visible;text-overflow:clip;
+    max-width:none;line-height:1.2;word-break:break-word;
+  }
+  .order-item-inner{min-height:54px;align-items:flex-start}
   .order-item-total{font-size:24px;font-weight:var(--weight-extrabold)}
   .order-item-qty{gap:8px}
   .order-item-qty .qty-btn{width:44px;height:44px;font-size:22px}
