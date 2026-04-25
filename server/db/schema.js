@@ -9,6 +9,15 @@ export const staff = pgTable('staff', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
+// Shisha — interný counter mimo fiškálneho obehu. Každý klik tlačidla v admin
+// vloží jeden riadok. Slúži iba pre naše účtovníctvo.
+export const shishaSales = pgTable('shisha_sales', {
+  id: serial('id').primaryKey(),
+  staffId: integer('staff_id').references(() => staff.id),
+  soldAt: timestamp('sold_at', { withTimezone: true }).defaultNow().notNull(),
+  price: numeric('price', { precision: 8, scale: 2 }).notNull().default('17.00'),
+});
+
 export const tables = pgTable('tables', {
   id: serial('id').primaryKey(),
   name: varchar('name', { length: 50 }).notNull(),

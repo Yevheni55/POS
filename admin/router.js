@@ -17,6 +17,7 @@ const routes = {
   'inventory-audit': () => import('./pages/inventory-audit.js'),
   assets: () => import('./pages/assets.js'),
   'write-offs': () => import('./pages/write-offs.js'),
+  shisha: () => import('./pages/shisha.js'),
 };
 
 const pageTitles = {
@@ -38,6 +39,7 @@ const pageTitles = {
   'inventory-audit': 'Inventúra',
   assets: 'Majetok',
   'write-offs': 'Odpisy zásob',
+  shisha: 'Shisha',
 };
 
 let currentPage = null;
