@@ -219,6 +219,52 @@ function addToOrder(name, emoji, price) {
   var menuItemId = MENU_ID_MAP.get(name);
   if (!menuItemId) return;
 
+  // Combos open a sauce-picker modal first. After the waiter confirms,
+  // we add the combo itself plus a 0-price "Omáčka (combo)" annotation
+  // line so the cook sees the selection on the kitchen ticket.
+  if (/^combo\s/i.test(name) && typeof showSauceSelector === 'function') {
+    showSauceSelector(name, function (sauces) {
+      if (sauces == null) return; // user cancelled
+      var combo = _addToOrderCore(name, emoji, price);
+      if (!combo) return;
+      var sauceNote = sauces.length ? sauces.join(' + ') : 'bez omáčky';
+      _addSauceAnnotationForCombo(combo, sauceNote);
+    });
+    return;
+  }
+
+  _addToOrderCore(name, emoji, price);
+}
+
+// For combos: push a 0-price "Omáčka (combo)" line whose note carries the sauces
+// the waiter picked, and tie it to the combo via _companionOf so qty changes /
+// storno on the combo cascade onto this line too.
+function _addSauceAnnotationForCombo(primaryCombo, sauceNote) {
+  if (!primaryCombo) return;
+  if (typeof MENU_ID_MAP === 'undefined' || typeof MENU_ITEM_BY_ID === 'undefined') return;
+  var annotationMenuId = MENU_ID_MAP.get('Omáčka (combo)');
+  if (!annotationMenuId) return;
+  var annotationMenu = MENU_ITEM_BY_ID.get(annotationMenuId);
+  if (!annotationMenu) return;
+  var order = getOrder();
+  order.push({
+    name: annotationMenu.name,
+    emoji: annotationMenu.emoji,
+    price: 0,
+    qty: primaryCombo.qty,
+    note: sauceNote,
+    menuItemId: annotationMenuId,
+    id: _getNextLocalOrderItemId(),
+    _companionOf: primaryCombo.id,
+  });
+  setOrder(order);
+  _scheduleRender();
+}
+
+function _addToOrderCore(name, emoji, price) {
+  var menuItemId = MENU_ID_MAP.get(name);
+  if (!menuItemId) return;
+
   var order = _normalizeLocalOrder(getOrder());
   var existing = order.find(function(item) {
     return !item.sent && item.menuItemId === menuItemId && !item.note && !item._companionOf;
@@ -290,6 +336,7 @@ function addToOrder(name, emoji, price) {
   _scheduleRender();
 
   _queueAddToast(emoji, name, 1);
+  return changedItem;
 }
 
 // Sync local order state to server — called before send, payment, or table switch

@@ -176,6 +176,84 @@ function showStornoReason(itemName, qty, callback) {
   });
 }
 
+// Sauce selector for combos. Callback receives an array of selected sauce names
+// (possibly empty — means "bez omáčky") or null if the user cancelled.
+function showSauceSelector(comboName, callback) {
+  var existing = document.getElementById('sauceSelectorModal');
+  if (existing) existing.remove();
+  captureModalTrigger();
+
+  var sauces = [
+    'Big Mac domáca',
+    'Chilli-mayo',
+    'Tatárka domáca',
+    'Kečup',
+    'BBQ',
+  ];
+
+  var ov = document.createElement('div');
+  ov.className = 'u-overlay';
+  ov.id = 'sauceSelectorModal';
+
+  var sauceBoxes = sauces.map(function (s, i) {
+    var id = 'sauce-' + i;
+    return '<label for="' + id + '" style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(255,255,255,.04);border:1px solid var(--color-border);border-radius:var(--radius-sm);cursor:pointer;font-size:var(--text-base)">'
+      + '<input type="checkbox" id="' + id + '" data-sauce="' + s + '" style="width:18px;height:18px;cursor:pointer">'
+      + '<span>' + s + '</span></label>';
+  }).join('');
+
+  ov.innerHTML = '<div class="u-modal" role="dialog" aria-modal="true" aria-labelledby="sauceModalTitle" style="max-width:380px">'
+    + '<div class="u-modal-icon">\uD83E\uDD62</div>'
+    + '<div class="u-modal-title" id="sauceModalTitle">Vyber omáčok</div>'
+    + '<div class="u-modal-text">' + comboName + '</div>'
+    + '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px">' + sauceBoxes + '</div>'
+    + '<div class="u-modal-btns" style="gap:8px">'
+    + '<button class="u-btn u-btn-ghost" id="sauceNone">Bez omáčky</button>'
+    + '<button class="u-btn u-btn-ice" id="sauceConfirm">Potvrdiť</button>'
+    + '</div>'
+    + '</div>';
+
+  document.body.appendChild(ov);
+  requestAnimationFrame(function () { ov.classList.add('show'); });
+
+  function finishClose() {
+    document.removeEventListener('keydown', keyHandler, true);
+    ov.classList.remove('show');
+    setTimeout(function () { ov.remove(); restoreModalTrigger(); }, 300);
+  }
+
+  function keyHandler(ev) {
+    if (ev.key === 'Escape') {
+      ev.preventDefault();
+      finishClose();
+      if (callback) callback(null);
+    }
+  }
+  document.addEventListener('keydown', keyHandler, true);
+
+  // Backdrop click = cancel
+  ov.addEventListener('click', function (e) {
+    if (e.target === ov) {
+      finishClose();
+      if (callback) callback(null);
+    }
+  });
+
+  document.getElementById('sauceNone').addEventListener('click', function () {
+    finishClose();
+    if (callback) callback([]); // empty array = "bez omáčky"
+  });
+
+  document.getElementById('sauceConfirm').addEventListener('click', function () {
+    var picked = [];
+    ov.querySelectorAll('input[type="checkbox"]:checked').forEach(function (cb) {
+      picked.push(cb.dataset.sauce);
+    });
+    finishClose();
+    if (callback) callback(picked);
+  });
+}
+
 // Drag logic
 let dragId=null, dragOffX=0, dragOffY=0;
 function startDrag(e,id){
