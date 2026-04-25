@@ -451,11 +451,15 @@ function buildLockCodeTicket({ code, validUntil, staffName, time }) {
   // Wake-up instruction — most customers don't realize the keypad has to be
   // tapped first to light up before they can enter the code.
   t += CMD.BOLD_ON;
-  t += '!! Najprv RAZNE TUKNITE\n';
-  t += '   na displej zamku  !!\n';
+  t += CMD.DOUBLE_SIZE;
+  t += 'NAJPRV RAZNE\n';
+  t += 'TUKNITE\n';
+  t += 'NA DISPLEJ\n';
+  t += 'ZAMKU !\n';
+  t += CMD.NORMAL_SIZE;
   t += CMD.BOLD_OFF;
-  t += '(displej sa rozsvieti, az\n';
-  t += ' potom zadajte kod)\n';
+  t += '(displej sa rozsvieti,\n';
+  t += ' az potom zadajte kod)\n';
   t += '\n';
 
   // Big code display — # appended as the WC keypad confirm key, so the customer
@@ -483,6 +487,19 @@ function buildLockCodeTicket({ code, validUntil, staffName, time }) {
   t += CMD.BOLD_ON;
   t += '================================\n';
   t += CMD.BOLD_OFF;
+
+  // Closing-the-door reminder — many customers leave the door ajar after WC,
+  // the auto-lock then doesn't engage and the next customer walks in on them.
+  t += '\n';
+  t += CMD.BOLD_ON;
+  t += CMD.DOUBLE_SIZE;
+  t += 'PROSIME\n';
+  t += 'ZABUCHNUT\n';
+  t += 'DVERE\n';
+  t += CMD.NORMAL_SIZE;
+  t += CMD.BOLD_OFF;
+  t += '(aby sa zamok\n';
+  t += ' automaticky zamkol)\n';
 
   t += CMD.FEED;
   t += CMD.CUT;
