@@ -120,14 +120,32 @@ function finalizeSuccessfulPayment(message, tone) {
   if (isMobile()) closeMobPayDrawer();
   currentOrderId = null;
   currentOrderVersion = null;
+  // Drop any client-side mutation flags from the just-paid order so they can
+  // not leak into a fresh order on the same table (otherwise a stale
+  // _pendingStorno / _pendingRemovals would fire on the next sendToKitchen
+  // and POST against a closed orderId, surfacing as "Objednavka nenajdena").
+  if (typeof _pendingStorno !== 'undefined') _pendingStorno = [];
+  if (typeof _pendingRemovals !== 'undefined') _pendingRemovals = [];
+  _orderDirty = false;
 
   return loadTableOrder(selectedTableId, true).then(function () {
-    renderOrder();
-    if (isMobile()) renderMobOrder();
-    updateTableStatuses();
-    if (currentView === 'tables') renderFloor();
-    if (isMobile()) renderMobTables();
-    showToast(message, tone);
+    // Bounce the cashier back to the floor: order panel hides, the just-paid
+    // table now shows as free, and a fresh tap starts a clean new order
+    // instead of typing into a closed-order limbo.
+    var navPromise;
+    if (isMobile() && typeof switchMobTab === 'function') {
+      navPromise = switchMobTab('mobTabTables');
+    } else if (typeof switchView === 'function') {
+      navPromise = switchView('tables');
+    }
+    return Promise.resolve(navPromise).then(function () {
+      renderOrder();
+      if (isMobile() && typeof renderMobOrder === 'function') renderMobOrder();
+      updateTableStatuses();
+      if (currentView === 'tables' && typeof renderFloor === 'function') renderFloor();
+      if (isMobile() && typeof renderMobTables === 'function') renderMobTables();
+      showToast(message, tone);
+    });
   });
 }
 
