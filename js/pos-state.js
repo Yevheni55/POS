@@ -74,9 +74,14 @@ async function loadAllOrders() {
     });
     allOrdersCache = newCache;
     _lastOrdersCacheJSON = JSON.stringify(newCache);
-    // Populate tableOrders for all tables so renderFloor shows totals on chips
+    // Populate tableOrders for all tables so renderFloor shows totals on chips.
+    // CRITICAL: preserve local-only unsent rows (id > 1e9, sent=false) — without
+    // this, the 30s poll / socket refresh overwrites a draft order the cashier
+    // is still typing in, and "Pay" then says "Nie je co platit" because
+    // tableOrders[id] is suddenly [].
     TABLES.forEach(function(t) {
       var tOrders = newCache[t.id] || [];
+      var prev = tableOrders[t.id] || [];
       if (tOrders.length) {
         // Sum all items across all open orders for this table
         var allItems = [];
@@ -87,9 +92,21 @@ async function loadAllOrders() {
             });
           }
         });
+        // Append any local-only rows the cashier added that aren't on the server yet.
+        prev.forEach(function(p) {
+          if (!p || p.sent) return;
+          if (typeof p.id !== 'number' || p.id <= 1000000000) return;
+          if (allItems.some(function(m) { return m.id === p.id; })) return;
+          allItems.push(p);
+        });
         tableOrders[t.id] = allItems;
       } else {
-        tableOrders[t.id] = [];
+        // No server orders for this table — keep any local-only draft rows
+        // instead of wiping them. Only fully-clear if there are none.
+        var keptLocal = prev.filter(function(p) {
+          return p && !p.sent && typeof p.id === 'number' && p.id > 1000000000;
+        });
+        tableOrders[t.id] = keptLocal;
       }
     });
     _persistTableOrdersNow();
