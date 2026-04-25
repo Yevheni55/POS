@@ -444,11 +444,11 @@ function buildLockCodeTicket({ code, validUntil, staffName, time }) {
   t += CMD.BOLD_OFF;
   t += '\n';
 
-  // Big code display
+  // Big code display — # appended as the WC keypad confirm key, so the customer
+  // types the digits + # to unlock. Spaced for readability.
   t += CMD.BOLD_ON;
   t += CMD.DOUBLE_SIZE;
-  // Add spacing between digits for readability
-  const spaced = code.split('').join('  ');
+  const spaced = (code + '#').split('').join('  ');
   t += spaced + '\n';
   t += CMD.NORMAL_SIZE;
   t += CMD.BOLD_OFF;
@@ -469,16 +469,6 @@ function buildLockCodeTicket({ code, validUntil, staffName, time }) {
   t += CMD.BOLD_ON;
   t += '================================\n';
   t += CMD.BOLD_OFF;
-
-  // Mriežka — symbol potvrdenia kódu na klávesnici WC zámku.
-  // Customer: zadá <kód> a stlačí #.
-  t += '\n';
-  t += CMD.ALIGN_CENTER;
-  t += CMD.DOUBLE_SIZE;
-  t += CMD.BOLD_ON;
-  t += '#\n';
-  t += CMD.BOLD_OFF;
-  t += CMD.NORMAL_SIZE;
 
   t += CMD.FEED;
   t += CMD.CUT;
