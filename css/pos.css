@@ -659,6 +659,50 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
   .table-chip.large{width:105px;height:78px}
   .chip-name{font-size:12px}.chip-badge{font-size:7px;padding:1px 4px}.chip-amount{font-size:10px}.chip-guests{font-size:8px}
 }
+
+/* ===== TABLET (touch, 10–13") — bump everything for arm's-length use =====
+   Placed AFTER the 1100/800 shrink blocks so the cascade favours bigger
+   sizes on touch devices, while non-touch laptops in the same width range
+   keep the dense desktop layout. */
+@media (min-width:769px) and (max-width:1366px) and (pointer:coarse){
+  .header-title{font-size:26px}
+  .header-clock{font-size:22px}
+  .header-subtitle,.header-date{font-size:13px}
+  .view-btn,.zone-btn,.cat-btn{font-size:16px;padding:10px 16px}
+  .floor-title{font-size:30px}
+  .floor-stat,.legend-item{font-size:15px}
+  .floor-legend{display:flex}
+  .table-chip{width:130px;height:130px;padding:12px;gap:5px}
+  .table-chip.large{width:170px;height:130px}
+  .chip-name{font-size:22px}
+  .chip-badge{font-size:11px;padding:3px 8px}
+  .chip-amount{font-size:17px}
+  .chip-guests{font-size:13px}
+  .chip-time{font-size:13px}
+  .search-input{font-size:18px;min-height:50px;padding:12px 12px 12px 44px}
+  .search-icon{font-size:22px}
+  .product-card{min-height:110px;padding:12px}
+  .product-emoji{font-size:28px}
+  .product-name{font-size:18px}
+  .product-desc{font-size:13px}
+  .product-price{font-size:24px}
+  .qty-btn,.qty-popup-btn{width:48px;height:48px;font-size:24px}
+  .order-tab{font-size:15px;padding:10px 14px}
+  .order-item-name{font-size:18px}
+  .order-item-total{font-size:20px}
+  .order-item-emoji{font-size:24px}
+  .pos-subtotal-row{font-size:16px}
+  .order-panel{width:360px}
+  .form-input,.form-select,.u-modal-field input,.u-modal-field textarea,.u-modal-field select{height:52px;font-size:17px}
+  .u-btn{font-size:17px;min-height:52px;padding:12px 20px}
+  .u-modal{padding:36px;min-width:380px;max-width:520px}
+  .u-modal-title{font-size:28px}
+  .u-modal-text{font-size:17px}
+  .u-modal-icon{font-size:56px}
+  .u-modal-amount{font-size:64px}
+  .storno-reason-btn{padding:18px 20px;font-size:17px}
+  .admin-btn,.logout-btn{font-size:15px;padding:10px 16px;min-height:44px}
+}
 .admin-btn{
   padding:var(--space-2) var(--space-4);border-radius:var(--radius-sm);border:1px solid var(--color-accent-border);
   background:var(--color-accent-bg);color:var(--color-accent);
