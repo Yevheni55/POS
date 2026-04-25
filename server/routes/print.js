@@ -263,16 +263,6 @@ function buildReceiptTicket({ tableName, staffName, items, total, method, time, 
   ticket += 'Platba: ' + method.toUpperCase() + '\n';
   ticket += CMD.DASHED;
   ticket += 'Dakujeme za navstevu!\n';
-
-  // WC kod — na konci uctenky vytlacit "#" velkym pismom centrovane
-  ticket += CMD.FEED;
-  ticket += CMD.ALIGN_CENTER;
-  ticket += CMD.DOUBLE_SIZE;
-  ticket += CMD.BOLD_ON;
-  ticket += '#\n';
-  ticket += CMD.BOLD_OFF;
-  ticket += CMD.NORMAL_SIZE;
-
   ticket += CMD.FEED;
   ticket += CMD.CUT;
 
@@ -480,39 +470,21 @@ function buildLockCodeTicket({ code, validUntil, staffName, time }) {
   t += '================================\n';
   t += CMD.BOLD_OFF;
 
-  t += CMD.FEED;
-  t += CMD.CUT;
-
-  return t;
-}
-
-// POST /api/print/wc-code — print a small "#" slip after the customer's
-// fiscal receipt (Portos prints its own receipt on the same printer; this is
-// a follow-up slip the customer takes to the WC).
-function buildWcCodeTicket() {
-  let t = '';
-  t += CMD.INIT;
+  // Mriežka — symbol potvrdenia kódu na klávesnici WC zámku.
+  // Customer: zadá <kód> a stlačí #.
+  t += '\n';
   t += CMD.ALIGN_CENTER;
   t += CMD.DOUBLE_SIZE;
   t += CMD.BOLD_ON;
   t += '#\n';
   t += CMD.BOLD_OFF;
   t += CMD.NORMAL_SIZE;
+
   t += CMD.FEED;
   t += CMD.CUT;
+
   return t;
 }
-router.post('/wc-code', async (req, res) => {
-  try {
-    const printer = await getPrinterForDest('uctenka');
-    const ticket = buildWcCodeTicket();
-    const result = await sendOrQueue('wc-code', ticket, printer.ip, printer.port);
-    res.json({ ok: true, queued: !!result.queued });
-  } catch (e) {
-    console.error('WC code print error:', e.message);
-    res.status(500).json({ error: e.message });
-  }
-});
 
 // POST /api/print/lockcode — print lock code receipt
 router.post('/lockcode', async (req, res) => {
