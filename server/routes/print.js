@@ -263,6 +263,16 @@ function buildReceiptTicket({ tableName, staffName, items, total, method, time, 
   ticket += 'Platba: ' + method.toUpperCase() + '\n';
   ticket += CMD.DASHED;
   ticket += 'Dakujeme za navstevu!\n';
+
+  // WC kod — na konci uctenky vytlacit "#" velkym pismom centrovane
+  ticket += CMD.FEED;
+  ticket += CMD.ALIGN_CENTER;
+  ticket += CMD.DOUBLE_SIZE;
+  ticket += CMD.BOLD_ON;
+  ticket += '#\n';
+  ticket += CMD.BOLD_OFF;
+  ticket += CMD.NORMAL_SIZE;
+
   ticket += CMD.FEED;
   ticket += CMD.CUT;
 
