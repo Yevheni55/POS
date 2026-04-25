@@ -263,6 +263,20 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
 }
 .product-card:hover .product-emoji{filter:grayscale(0) brightness(1)}
 
+/* Photo — larger square thumb above name; replaces emoji when image_url is set */
+.product-photo{
+  width:100%; aspect-ratio:1/1; max-height:120px;
+  margin:-4px 0 6px; border-radius:var(--radius-sm);
+  background-color:rgba(var(--cat-color),.08);
+  background-size:cover; background-position:center;
+  position:relative; z-index:1;
+  filter:grayscale(.05) brightness(.97);
+  transition:filter .2s;
+}
+.product-card:hover .product-photo{filter:none}
+/* Cards with photos: emoji block hidden + tighter padding */
+.product-card.has-photo{padding-top:8px}
+
 .product-name{font-weight:var(--weight-bold);font-size:var(--text-lg);margin-bottom:2px;line-height:var(--leading-snug);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .product-desc{font-size:var(--text-xs);color:var(--text-muted);margin-bottom:4px;line-height:var(--leading-snug);display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
 .product-price{

@@ -4,6 +4,13 @@ let editingProductId = null;
 let formAvailable = true;
 let formVatRate = 23;
 let vatRateTouched = false;
+// Photo upload state for the product modal:
+//   pendingImage  — data URL chosen by user, pending POST after Uložiť
+//   currentImage  — already-saved image_url shown in preview when editing
+//   clearImage    — true when the user clicked Zmazať on an existing photo
+let pendingImage = null;
+let currentImage = null;
+let clearImage = false;
 let catDragIdx = null;
 let catDragEl = null;
 let prodDragIdx = null;
@@ -660,6 +667,30 @@ function populateCompanionSelect(selfId, selectedId) {
   sel.innerHTML = options.join('');
 }
 
+function resetImageState() {
+  pendingImage = null;
+  currentImage = null;
+  clearImage = false;
+}
+
+function refreshImagePreview() {
+  var prev = byId('fImagePreview');
+  var clearBtn = byId('fImageClear');
+  var input = byId('fImageInput');
+  if (!prev) return;
+  var src = pendingImage || (clearImage ? null : currentImage);
+  if (src) {
+    prev.style.backgroundImage = 'url("' + src + '")';
+    prev.textContent = '';
+    if (clearBtn) clearBtn.style.display = '';
+  } else {
+    prev.style.backgroundImage = 'none';
+    prev.textContent = '—'; // em dash
+    if (clearBtn) clearBtn.style.display = currentImage ? '' : 'none';
+  }
+  if (input) input.value = '';
+}
+
 function openAddProduct() {
   editingProductId = null;
   byId('modalTitle').textContent = 'Pridat produkt';
@@ -669,6 +700,8 @@ function openAddProduct() {
   byId('fPrice').value = '';
   formAvailable = true;
   vatRateTouched = false;
+  resetImageState();
+  refreshImagePreview();
   updateFormToggle();
   populateCategorySelect();
   populateCompanionSelect(null, null);
@@ -692,6 +725,9 @@ function openEditProduct(id) {
   formAvailable = item.available !== undefined ? item.available : item.active;
   formVatRate = normalizeVatRate(item.vatRate);
   vatRateTouched = true;
+  resetImageState();
+  currentImage = item.imageUrl || null;
+  refreshImagePreview();
   updateFormToggle();
   populateCategorySelect();
   populateCompanionSelect(item.id, item.companionMenuItemId);
@@ -741,13 +777,27 @@ async function saveProduct() {
   const btn = byId('modalSaveBtn');
   if (btn) btnLoading(btn);
   try {
+    var savedId = editingProductId;
     if (editingProductId !== null) {
       await api.put('/menu/items/' + editingProductId, { name, emoji, price, desc, available: formAvailable, categoryId: catId, vatRate, companionMenuItemId });
-      showToast('Produkt upraveny', true);
     } else {
-      await api.post('/menu/items', { categoryId: catId, name, emoji, price, desc, available: formAvailable, vatRate, companionMenuItemId });
-      showToast('Produkt pridany', true);
+      const created = await api.post('/menu/items', { categoryId: catId, name, emoji, price, desc, available: formAvailable, vatRate, companionMenuItemId });
+      savedId = created && created.id;
     }
+
+    // Photo: handle clear / upload AFTER the row exists.
+    if (savedId) {
+      if (clearImage && !pendingImage) {
+        try { await api.del('/menu/items/' + savedId + '/image'); }
+        catch (e) { showToast('Fotku sa nepodarilo zmazať: ' + e.message, 'error'); }
+      }
+      if (pendingImage) {
+        try { await api.post('/menu/items/' + savedId + '/image', { image: pendingImage }); }
+        catch (e) { showToast('Fotku sa nepodarilo nahrať: ' + e.message, 'error'); }
+      }
+    }
+
+    showToast(editingProductId !== null ? 'Produkt upraveny' : 'Produkt pridany', true);
     closeProductModal();
     activeCatId = catId;
     await loadMenu();
@@ -884,6 +934,20 @@ export function init(container) {
             <small style="color:var(--color-text-muted);font-size:12px">Napr. "Záloha fľaša" k flaške Coly. Pri pridaní/zmazaní hlavnej položky sa pridá/zmaže aj táto automaticky.</small>
           </div>
           <div class="u-modal-field">
+            <label>Fotka (max 4 MB; JPEG / PNG / WebP)</label>
+            <div id="fImageWrap" style="display:flex;align-items:center;gap:12px;padding:10px;border:1px dashed var(--color-border);border-radius:var(--radius-sm);background:rgba(255,255,255,.02)">
+              <div id="fImagePreview" style="width:80px;height:80px;border-radius:var(--radius-sm);background:rgba(255,255,255,.04) center/cover no-repeat;border:1px solid var(--color-border);display:flex;align-items:center;justify-content:center;font-size:32px;flex-shrink:0">—</div>
+              <div style="flex:1">
+                <label class="u-btn u-btn-ghost" style="margin:0;cursor:pointer;display:inline-block;padding:8px 14px;font-size:13px">
+                  Vybrať fotku
+                  <input id="fImageInput" type="file" accept="image/jpeg,image/png,image/webp" style="display:none">
+                </label>
+                <button type="button" id="fImageClear" class="u-btn u-btn-ghost" style="display:none;margin-left:6px;padding:8px 14px;font-size:13px">Zmazať</button>
+                <div id="fImageHint" style="font-size:11px;color:var(--color-text-muted);margin-top:4px">Po výbere fotky stlač <b>Uložiť</b>.</div>
+              </div>
+            </div>
+          </div>
+          <div class="u-modal-field">
             <label>Dostupnost</label>
             <div class="u-toggle" id="fAvailToggleWrap">
               <div class="u-toggle-track on" id="fAvailToggle"><div class="u-toggle-knob"></div></div>
@@ -905,6 +969,34 @@ export function init(container) {
   byId('modalCancelBtn').addEventListener('click', closeProductModal);
   byId('modalSaveBtn').addEventListener('click', saveProduct);
   wireProductEmojiPicker();
+  // Image picker — read file → data URL → preview; clear button drops both
+  // pendingImage and (if currentImage) flags clearImage so the saved photo
+  // is removed on save.
+  if (byId('fImageInput')) {
+    byId('fImageInput').addEventListener('change', function (e) {
+      var file = this.files && this.files[0];
+      if (!file) return;
+      if (file.size > 4 * 1024 * 1024) {
+        showToast('Fotka je príliš veľká (max 4 MB)');
+        this.value = '';
+        return;
+      }
+      var fr = new FileReader();
+      fr.onload = function () {
+        pendingImage = fr.result;
+        clearImage = false;
+        refreshImagePreview();
+      };
+      fr.readAsDataURL(file);
+    });
+  }
+  if (byId('fImageClear')) {
+    byId('fImageClear').addEventListener('click', function () {
+      pendingImage = null;
+      clearImage = true;
+      refreshImagePreview();
+    });
+  }
   byId('fAvailToggleWrap').addEventListener('click', toggleFormAvail);
   byId('productModal').addEventListener('click', function (e) { if (e.target === this) closeProductModal(); });
   byId('fCategory').addEventListener('change', function () { syncVatRateSuggestion(false); });

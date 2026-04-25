@@ -55,6 +55,13 @@ app.use('/fonts', express.static(path.join(__dirname, '..', 'fonts'), {
   immutable: true
 }));
 
+// Menu item photos and other user-uploaded assets. Cache for a day; the
+// upload endpoint already cache-busts the URL with a ?v=<ts> querystring.
+app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads'), {
+  maxAge: '1d',
+  fallthrough: true,
+}));
+
 // Serve frontend files from parent directory
 app.use(express.static(path.join(__dirname, '..'), { maxAge: 0 }));
 

@@ -75,6 +75,8 @@ export const menuItems = pgTable('menu_items', {
   // Companion item that POS auto-adds alongside this one (e.g. glass-bottle deposit).
   // Client-side auto-adds/removes/syncs qty; null means no companion.
   companionMenuItemId: integer('companion_menu_item_id'),
+  // Optional photo, served from /uploads/menu/<id>.<ext>. Null falls back to emoji.
+  imageUrl: varchar('image_url', { length: 255 }),
 });
 
 export const shifts = pgTable('shifts', {

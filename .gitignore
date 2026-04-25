@@ -8,3 +8,6 @@ server/.env.ttlock
 # Local agent previews / deploy bundles
 .superpowers/
 *.tgz
+
+# User-uploaded menu photos (live on the kasa, not in version control)
+/uploads/

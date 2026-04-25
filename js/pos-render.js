@@ -402,8 +402,12 @@ function renderProducts(){
     const cc=CAT_COLORS[cat]||'125,211,252';
     const inOrder=order.find(o=>o.name===item.name);
     const qtyBadge=inOrder?`<span class="product-qty-badge">${inOrder.qty}</span>`:'';
-    return `<div class="product-card" data-name="${escHtml(item.name)}" tabindex="0" role="button" style="--cat-color:${cc}" onclick="addToOrder('${item.name.replace(/'/g,"\\'")}','${item.emoji}',${item.price})" onpointerdown="ripple(event)">
-      ${qtyBadge}<span class="product-emoji">${escHtml(item.emoji)}</span><div class="product-name">${escHtml(item.name)}</div><div class="product-desc">${escHtml(item.desc)}</div><div class="product-price">${fmt(item.price)}</div></div>`;
+    // Photo above name when set; emoji is the fallback when there's no photo.
+    const visualHtml = item.imageUrl
+      ? `<div class="product-photo" style="background-image:url('${escHtml(item.imageUrl)}')"></div>`
+      : `<span class="product-emoji">${escHtml(item.emoji)}</span>`;
+    return `<div class="product-card${item.imageUrl?' has-photo':''}" data-name="${escHtml(item.name)}" tabindex="0" role="button" style="--cat-color:${cc}" onclick="addToOrder('${item.name.replace(/'/g,"\\'")}','${item.emoji}',${item.price})" onpointerdown="ripple(event)">
+      ${qtyBadge}${visualHtml}<div class="product-name">${escHtml(item.name)}</div><div class="product-desc">${escHtml(item.desc)}</div><div class="product-price">${fmt(item.price)}</div></div>`;
   }).join('');
 }
 
