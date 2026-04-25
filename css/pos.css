@@ -544,21 +544,45 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
 .form-input:focus,.form-select:focus{border-color:rgba(139,124,246,.35);box-shadow:0 0 0 3px rgba(139,124,246,.08),inset 0 1px 4px rgba(0,0,0,.15);background:rgba(255,255,255,.05)}
 .form-input::placeholder{color:var(--color-text-dim);font-weight:var(--weight-normal)}
 
-/* STORNO REASON BUTTONS */
+/* STORNO REASON MODAL — prep choice + reason chips */
+.storno-section-label{
+  font-size:11px;font-weight:var(--weight-bold);letter-spacing:1px;
+  text-transform:uppercase;color:var(--color-text-sec);margin-bottom:8px;
+}
+.storno-prep-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.storno-prep-btn{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+  padding:18px 12px;border:2px solid var(--color-border);
+  border-radius:var(--radius-md);background:var(--color-bg-surface);
+  color:var(--color-text);font-family:var(--font-body);
+  cursor:pointer;transition:all var(--transition-fast);text-align:center;
+}
+.storno-prep-btn:hover{background:var(--color-bg-hover);border-color:var(--color-border-hover)}
+.storno-prep-btn.selected{
+  border-color:var(--color-accent);
+  background:rgba(139,124,246,.15);
+  box-shadow:0 0 0 3px rgba(139,124,246,.18);
+}
+.storno-prep-emoji{font-size:30px;line-height:1}
+.storno-prep-label{font-size:15px;font-weight:var(--weight-bold);margin-top:2px}
+.storno-prep-hint{font-size:11px;color:var(--color-text-sec);margin-top:1px}
+
+.storno-reasons-row{display:flex;flex-wrap:wrap;gap:6px}
 .storno-reason-btn{
-  display:flex;align-items:center;gap:10px;width:100%;
-  padding:14px 16px;border:1px solid var(--color-border);
+  flex:1 1 auto;
+  padding:10px 14px;border:1.5px solid var(--color-border);
   border-radius:var(--radius-sm);background:var(--color-bg-surface);
   color:var(--color-text);font-family:var(--font-body);
-  font-size:var(--text-md);font-weight:var(--weight-semibold);
-  cursor:pointer;transition:all var(--transition-fast);text-align:left;
+  font-size:var(--text-sm);font-weight:var(--weight-semibold);
+  cursor:pointer;transition:all var(--transition-fast);text-align:center;white-space:nowrap;
 }
 .storno-reason-btn:hover{
   background:var(--color-bg-hover);border-color:var(--color-border-hover);
-  transform:translateX(4px);
 }
-.storno-reason-btn:active{
-  background:var(--color-accent-bg-hover);border-color:var(--color-accent);
+.storno-reason-btn.selected{
+  border-color:var(--color-accent);
+  background:rgba(139,124,246,.18);
+  color:var(--color-accent);
 }
 
 /* OFFLINE BANNER */

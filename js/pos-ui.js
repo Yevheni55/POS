@@ -87,6 +87,13 @@ function showAlert(title, text, opts) {
 }
 
 // === Storno reason modal ===
+// Cashier picks TWO things explicitly (no auto-defaults that always
+// suggest "vratit na sklad"):
+//   1. Was the food prepared?  Ano / Nie
+//   2. Reason (5 options)
+// Plus optional free-text note. "Potvrdit" stays disabled until both are
+// chosen. The whole entry goes to /api/storno-basket; the actual stock
+// action runs later from the admin Storno page (not here).
 function showStornoReason(itemName, qty, callback) {
   var existing = document.getElementById('stornoReasonModal');
   if (existing) existing.remove();
@@ -94,86 +101,116 @@ function showStornoReason(itemName, qty, callback) {
   captureModalTrigger();
 
   var reasons = [
-    { value: 'order_error', label: 'Chyba objednavky', returnDefault: true },
-    { value: 'complaint', label: 'Reklamacia', returnDefault: false },
-    { value: 'breakage', label: 'Rozbitie / rozliatie', returnDefault: false },
-    { value: 'staff_meal', label: 'Zamestnanecka spotreba', returnDefault: false },
-    { value: 'other', label: 'Ine', returnDefault: false },
+    { value: 'order_error', label: 'Chyba objednavky' },
+    { value: 'complaint',   label: 'Reklamacia' },
+    { value: 'breakage',    label: 'Rozbite / rozliate' },
+    { value: 'staff_meal',  label: 'Zamestnanecka spotreba' },
+    { value: 'other',       label: 'Ine' },
   ];
+
+  var state = { wasPrepared: null, reason: null };
 
   var ov = document.createElement('div');
   ov.className = 'u-overlay';
   ov.id = 'stornoReasonModal';
 
   var reasonBtns = reasons.map(function(r) {
-    return '<button class="storno-reason-btn" data-reason="' + r.value + '" data-return="' + r.returnDefault + '">' + r.label + '</button>';
+    return '<button type="button" class="storno-reason-btn" data-reason="' + r.value + '">' + r.label + '</button>';
   }).join('');
 
-  ov.innerHTML = '<div class="u-modal" role="dialog" aria-modal="true" aria-labelledby="stornoModalTitle" style="max-width:380px">'
-    + '<div class="u-modal-icon">\u274C</div>'
-    + '<div class="u-modal-title" id="stornoModalTitle">Dovod storna</div>'
-    + '<div class="u-modal-text">' + qty + 'x ' + itemName + '</div>'
-    + '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px">' + reasonBtns + '</div>'
-    + '<div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:rgba(92,196,158,.06);border:1px solid rgba(92,196,158,.15);border-radius:var(--radius-sm);margin-bottom:16px">'
-    + '<input type="checkbox" id="stornoReturn">'
-    + '<label for="stornoReturn" style="font-size:var(--text-sm)">Vratit suroviny na sklad (jedlo sa nevyrobilo)</label>'
-    + '</div>'
-    + '<div class="u-modal-field" style="margin-bottom:12px">'
-    + '<label for="stornoNote" class="sr-only">Poznamka (volitelna)</label>'
-    + '<input id="stornoNote" class="form-input" placeholder="Poznamka (volitelna)">'
-    + '</div>'
-    + '<div class="u-modal-btns">'
-    + '<button class="u-btn u-btn-ghost" id="stornoSkip">Preskocit</button>'
-    + '</div>'
+  ov.innerHTML = ''
+    + '<div class="u-modal" role="dialog" aria-modal="true" aria-labelledby="stornoModalTitle" style="max-width:460px;text-align:left">'
+    +   '<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">'
+    +     '<div style="font-size:36px;line-height:1">❌</div>'
+    +     '<div>'
+    +       '<div class="u-modal-title" id="stornoModalTitle" style="margin:0;text-align:left">Storno</div>'
+    +       '<div class="u-modal-text" style="margin:2px 0 0;text-align:left">' + qty + '× ' + itemName + '</div>'
+    +     '</div>'
+    +   '</div>'
+    +   '<div class="storno-section-label">Bolo uz pripravene?</div>'
+    +   '<div class="storno-prep-row">'
+    +     '<button type="button" class="storno-prep-btn" data-prep="yes">'
+    +       '<span class="storno-prep-emoji">🔥</span>'
+    +       '<span class="storno-prep-label">Ano, pripravene</span>'
+    +       '<span class="storno-prep-hint">jedlo / napoj islo von &rarr; odpis</span>'
+    +     '</button>'
+    +     '<button type="button" class="storno-prep-btn" data-prep="no">'
+    +       '<span class="storno-prep-emoji">🔄</span>'
+    +       '<span class="storno-prep-label">Nie, nestihli sme</span>'
+    +       '<span class="storno-prep-hint">vratit suroviny na sklad</span>'
+    +     '</button>'
+    +   '</div>'
+    +   '<div class="storno-section-label" style="margin-top:14px">Dovod</div>'
+    +   '<div class="storno-reasons-row">' + reasonBtns + '</div>'
+    +   '<div class="u-modal-field" style="margin-top:14px">'
+    +     '<label for="stornoNote" class="sr-only">Poznamka</label>'
+    +     '<input id="stornoNote" class="form-input" placeholder="Poznamka (volitelna)">'
+    +   '</div>'
+    +   '<div class="u-modal-btns" style="margin-top:16px">'
+    +     '<button type="button" class="u-btn u-btn-ghost" id="stornoCancel">Zrusit</button>'
+    +     '<button type="button" class="u-btn u-btn-mint" id="stornoSubmit" disabled>Potvrdit</button>'
+    +   '</div>'
     + '</div>';
 
   document.body.appendChild(ov);
   requestAnimationFrame(function() { ov.classList.add('show'); });
 
-  function finishClose() {
-    document.removeEventListener('keydown', stornoKeydown, true);
+  var submitBtn = ov.querySelector('#stornoSubmit');
+  var noteInput = ov.querySelector('#stornoNote');
+
+  function refreshSubmit() {
+    submitBtn.disabled = !(state.wasPrepared !== null && state.reason);
+  }
+
+  function finishClose(result) {
+    document.removeEventListener('keydown', keyHandler, true);
     ov.classList.remove('show');
-    setTimeout(function() { ov.remove(); restoreModalTrigger(); }, 300);
+    setTimeout(function() { if (ov.parentNode) ov.remove(); restoreModalTrigger(); }, 250);
+    if (callback) callback(result);
   }
 
-  function stornoKeydown(ev) {
-    if (ev.key !== 'Escape') return;
-    ev.preventDefault();
-    if (callback) callback(null);
-    finishClose();
+  function keyHandler(ev) {
+    if (ev.key === 'Escape') { ev.preventDefault(); finishClose(null); }
+    else if (ev.key === 'Enter' && !submitBtn.disabled) { ev.preventDefault(); submit(); }
   }
-  document.addEventListener('keydown', stornoKeydown, true);
+  document.addEventListener('keydown', keyHandler, true);
 
-  // Checkbox — stop propagation so it doesn't trigger other handlers
-  var checkboxWrap = ov.querySelector('#stornoReturn').parentElement;
-  checkboxWrap.addEventListener('click', function(e) { e.stopPropagation(); });
+  function submit() {
+    if (state.wasPrepared === null || !state.reason) return;
+    finishClose({
+      reason: state.reason,
+      returnToStock: state.wasPrepared === false, // back-compat alias
+      wasPrepared: state.wasPrepared,
+      note: (noteInput.value || '').trim(),
+    });
+  }
 
-  // Reason button click — set checkbox default on click, then submit
   ov.addEventListener('click', function(e) {
-    var btn = e.target.closest('.storno-reason-btn');
-    if (btn) {
-      btn.style.background = 'rgba(139,124,246,.15)';
-      btn.style.borderColor = 'var(--color-accent)';
-      var reason = btn.dataset.reason;
-      var cb = document.getElementById('stornoReturn');
-      var returnToStock = cb.checked; // use whatever the user set, don't override
-      var note = document.getElementById('stornoNote').value.trim();
-      finishClose();
-      if (callback) callback({ reason: reason, returnToStock: returnToStock, note: note });
+    if (e.target === ov) { finishClose(null); return; }
+
+    var prep = e.target.closest('.storno-prep-btn');
+    if (prep) {
+      state.wasPrepared = prep.dataset.prep === 'yes';
+      ov.querySelectorAll('.storno-prep-btn').forEach(function(b) {
+        b.classList.toggle('selected', b === prep);
+      });
+      refreshSubmit();
       return;
     }
-    // Backdrop click = cancel only (no write-off)
-    if (e.target === ov) {
-      if (callback) callback(null);
-      finishClose();
+
+    var reasonBtn = e.target.closest('.storno-reason-btn');
+    if (reasonBtn) {
+      state.reason = reasonBtn.dataset.reason;
+      ov.querySelectorAll('.storno-reason-btn').forEach(function(b) {
+        b.classList.toggle('selected', b === reasonBtn);
+      });
+      refreshSubmit();
+      return;
     }
   });
 
-  // Skip = default "order_error"
-  document.getElementById('stornoSkip').addEventListener('click', function() {
-    finishClose();
-    if (callback) callback({ reason: 'order_error', returnToStock: false, note: '' });
-  });
+  ov.querySelector('#stornoCancel').addEventListener('click', function() { finishClose(null); });
+  submitBtn.addEventListener('click', submit);
 }
 
 // Sauce selector for combos. Callback receives an array of selected sauce names
