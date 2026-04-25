@@ -448,6 +448,16 @@ function buildLockCodeTicket({ code, validUntil, staffName, time }) {
   t += CMD.BOLD_OFF;
   t += '\n';
 
+  // Wake-up instruction — most customers don't realize the keypad has to be
+  // tapped first to light up before they can enter the code.
+  t += CMD.BOLD_ON;
+  t += '!! Najprv RAZNE TUKNITE\n';
+  t += '   na displej zamku  !!\n';
+  t += CMD.BOLD_OFF;
+  t += '(displej sa rozsvieti, az\n';
+  t += ' potom zadajte kod)\n';
+  t += '\n';
+
   // Big code display — # appended as the WC keypad confirm key, so the customer
   // types the digits + # to unlock. Spaced for readability.
   t += CMD.BOLD_ON;
