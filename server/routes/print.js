@@ -370,6 +370,10 @@ function buildZReportTicket(data) {
   t += CMD.LINE;
   t += CMD.ALIGN_LEFT;
   t += padLine('Celkom:', formatEur(data.totalRevenue) + ' EUR') + '\n';
+  if (data.fiscalRevenue !== undefined && data.shisha && data.shisha.count > 0) {
+    t += padLine(' z toho fiskal:', formatEur(data.fiscalRevenue) + ' EUR') + '\n';
+    t += padLine(' z toho shisha:', formatEur(data.shisha.revenue) + ' EUR (' + data.shisha.count + 'x)') + '\n';
+  }
   (data.paymentMethods || []).forEach(pm => {
     const label = pm.method.charAt(0).toUpperCase() + pm.method.slice(1) + ':';
     t += padLine(label, formatEur(pm.total) + ' EUR') + '\n';

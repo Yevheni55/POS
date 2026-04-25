@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { db } from '../db/index.js';
-import { orders, orderItems, payments, menuItems, menuCategories, staff } from '../db/schema.js';
+import { orders, orderItems, payments, menuItems, menuCategories, staff, shishaSales } from '../db/schema.js';
 import { eq, sql, gte, lte, and, desc } from 'drizzle-orm';
 import { allocateDiscountAcrossVatGroups } from '../lib/fiscal-payment.js';
 
@@ -60,9 +60,22 @@ router.get('/summary', async (req, res) => {
   .orderBy(desc(sql`SUM(${orderItems.qty})`))
   .limit(10);
 
+  // Shisha — internal off-fiscal counter; rolled into the total so the dashboard
+  // and weekly chart show real-world business revenue including shisha.
+  const [shisha] = await db.select({
+    count: sql`COUNT(*)`,
+    revenue: sql`COALESCE(SUM(${shishaSales.price}::numeric), 0)`,
+  }).from(shishaSales).where(
+    and(gte(shishaSales.soldAt, fromDate), sql`${shishaSales.soldAt} <= ${toDate}`)
+  );
+  const shishaCount = parseInt(shisha.count) || 0;
+  const shishaRevenue = parseFloat(shisha.revenue) || 0;
+  const fiscalTotal = parseFloat(revenue.total) || 0;
+
   res.json({
     period: { from, to },
-    revenue: { total: parseFloat(revenue.total), payments: parseInt(revenue.count) },
+    revenue: { total: fiscalTotal + shishaRevenue, fiscal: fiscalTotal, payments: parseInt(revenue.count) },
+    shisha: { count: shishaCount, revenue: shishaRevenue },
     orders: { total: parseInt(orderStats.total), open: parseInt(orderStats.open), closed: parseInt(orderStats.closed) },
     methods: methodStats.map(m => ({ method: m.method, total: parseFloat(m.total), count: parseInt(m.count) })),
     topItems: topItems.map(i => ({ ...i, qty: parseInt(i.qty), revenue: parseFloat(i.revenue) })),
@@ -172,7 +185,18 @@ router.get('/z-report', async (req, res) => {
       )
     );
 
-    const totalRevenue = parseFloat(revenue.total);
+    // Shisha — internal off-fiscal counter for the same calendar day.
+    const [shisha] = await db.select({
+      count: sql`COUNT(*)`,
+      revenue: sql`COALESCE(SUM(${shishaSales.price}::numeric), 0)`,
+    }).from(shishaSales).where(
+      and(gte(shishaSales.soldAt, fromDate), sql`${shishaSales.soldAt} <= ${toDate}`)
+    );
+    const shishaCount = parseInt(shisha.count) || 0;
+    const shishaRevenue = parseFloat(shisha.revenue) || 0;
+
+    const fiscalRevenue = parseFloat(revenue.total);
+    const totalRevenue = fiscalRevenue + shishaRevenue;
     const totalOrders = parseInt(orderStats.totalOrders);
     const totalItems = parseInt(itemStats.totalItems);
     const averageOrder = totalOrders > 0 ? Math.round((totalRevenue / totalOrders) * 100) / 100 : 0;
@@ -180,6 +204,7 @@ router.get('/z-report', async (req, res) => {
     res.json({
       date,
       totalRevenue,
+      fiscalRevenue,
       totalOrders,
       totalItems,
       paymentMethods: methodStats.map(m => ({
@@ -198,6 +223,7 @@ router.get('/z-report', async (req, res) => {
         qty: parseInt(i.qty),
         revenue: parseFloat(i.revenue),
       })),
+      shisha: { count: shishaCount, revenue: shishaRevenue },
       cancelledItems: parseInt(cancelledStats.cancelledItems),
       cancelledTotal: parseFloat(cancelledStats.cancelledTotal),
       averageOrder,

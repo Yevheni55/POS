@@ -111,6 +111,7 @@ export function init(container) {
           </div>
           <p class="dashboard-uz-lead">Rozpis platieb pre kontrolu a tlač Z-reportu (súčty sú zhodné s prehľadom vyššie).</p>
           <div id="uzPayments" class="loading-placeholder" style="margin-bottom:12px"></div>
+          <div id="uzShisha" style="margin-bottom:12px;font-size:13px;color:var(--color-text-sec);display:none"></div>
           <div class="flex-row">
             <a href="#reports" class="btn-outline-accent">
               Kompletný report
@@ -197,7 +198,12 @@ async function loadStats() {
         revValue.classList.remove('skeleton', 'skeleton-text');
       }
       if (revChange) {
-        revChange.textContent = summary.revenue.payments + ' platieb';
+        var changeText = summary.revenue.payments + ' platieb';
+        if (summary.shisha && summary.shisha.count > 0) {
+          changeText += ' • shisha ' + summary.shisha.count + 'x (' +
+            Number(summary.shisha.revenue).toLocaleString('sk-SK', {minimumFractionDigits:2}) + ' €)';
+        }
+        revChange.textContent = changeText;
         revChange.className = 'stat-change ' + (summary.revenue.total > 0 ? 'up' : 'neutral');
       }
       if (summary.orders && ordValue) {
@@ -410,6 +416,19 @@ async function loadUzavierka() {
       el4.innerHTML = pmHtml || 'Žiadne platby';
     } else if (el4) {
       el4.textContent = 'Žiadne platby';
+    }
+    var elShisha = _container.querySelector('#uzShisha');
+    if (elShisha) {
+      if (data && data.shisha && data.shisha.count > 0) {
+        elShisha.innerHTML = '💨 Shisha: <b>' + data.shisha.count + 'x</b>  •  ' +
+          fmtEur(data.shisha.revenue) +
+          (data.fiscalRevenue !== undefined
+            ? '  •  <span style="opacity:.7">Fiskal: ' + fmtEur(data.fiscalRevenue) + '</span>'
+            : '');
+        elShisha.style.display = '';
+      } else {
+        elShisha.style.display = 'none';
+      }
     }
   } catch (err) {
     if (uzPanel) hideLoading(uzPanel);
