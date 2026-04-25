@@ -95,6 +95,12 @@ async function _autoDeleteEmptyOrderIfApplicable(orderIdSnapshot) {
     await api.del('/orders/' + oid, { version: ver });
   } catch (e) {
     console.warn('Auto-delete empty order failed:', e && e.message);
+    // 403 here = order has a payment and the cashier is a cisnik. Without a
+    // toast they see an empty order panel + an "occupied" table for the rest
+    // of the session and have no idea why. Tell them to fetch a manager.
+    if (e && e.status === 403) {
+      showToast('Objednávku s platbou môže zrušiť len manažér', 'error');
+    }
     return;
   }
   if (currentOrderId !== oid) return; // user switched away mid-flight
@@ -144,6 +150,9 @@ function _getNextLocalOrderItemId() {
 }
 
 function _getMergeKey(item) {
+  // _noMerge rows (e.g. each combo tap with its own sauce annotation) get a
+  // per-row key so _normalizeLocalOrder never collapses them together.
+  if (item._noMerge) return '_uniq::' + item.id;
   // Include _companionOf so companion lines tied to different primaries don't merge
   // into one row (e.g. záloha for Cola and záloha for Fanta must stay separate).
   return String(item.menuItemId) + '::' + (item.note || '') + '::' + (item._companionOf || '');
@@ -225,8 +234,14 @@ function addToOrder(name, emoji, price) {
   if (/^combo\s/i.test(name) && typeof showSauceSelector === 'function') {
     showSauceSelector(name, function (sauces) {
       if (sauces == null) return; // user cancelled
-      var combo = _addToOrderCore(name, emoji, price);
+      // Combos must NOT merge into an existing combo row of the same name —
+      // each tap can have a different sauce selection, and the kitchen needs
+      // one sauce annotation line per concrete combo. Force a brand-new row,
+      // and mark it _noMerge so _normalizeLocalOrder doesn't re-collapse it
+      // at sync time.
+      var combo = _addToOrderCore(name, emoji, price, true);
       if (!combo) return;
+      combo._noMerge = true;
       var sauceNote = sauces.length ? sauces.join(' + ') : 'bez omáčky';
       _addSauceAnnotationForCombo(combo, sauceNote);
     });
@@ -261,12 +276,12 @@ function _addSauceAnnotationForCombo(primaryCombo, sauceNote) {
   _scheduleRender();
 }
 
-function _addToOrderCore(name, emoji, price) {
+function _addToOrderCore(name, emoji, price, forceNewRow) {
   var menuItemId = MENU_ID_MAP.get(name);
   if (!menuItemId) return;
 
   var order = _normalizeLocalOrder(getOrder());
-  var existing = order.find(function(item) {
+  var existing = forceNewRow ? null : order.find(function(item) {
     return !item.sent && item.menuItemId === menuItemId && !item.note && !item._companionOf;
   });
   var changedItem;
@@ -460,6 +475,24 @@ function _increaseSentItemAsUnsentDelta(order, item, delta) {
   return newItem;
 }
 
+// Show the storno reason popup and POST the write-off when the cashier
+// confirms. Extracted so changeQty can either invoke it inline (qty
+// decrement, no DELETE) or defer it into the .then of the row-DELETE
+// (so we don't record a write-off for an item the server still has).
+function _promptStornoReasonAndWriteOff(s) {
+  if (!s || !s.oid || !s.miId) return;
+  showStornoReason(s.sName, s.sQty, function(result) {
+    if (!result) return;
+    api.post('/orders/' + s.oid + '/storno-write-off', {
+      menuItemId: s.miId, qty: s.sQty,
+      reason: result.reason, note: result.note, returnToStock: result.returnToStock,
+    }).then(function(r) {
+      if (r.action === 'returned') showToast('Suroviny vratene na sklad');
+      else if (r.action === 'write_off') showToast('Odpis: ' + (r.totalCost || 0).toFixed(2) + ' \u20AC');
+    }).catch(function(e) { console.error('storno write-off error:', e); });
+  });
+}
+
 function changeQty(name,d,itemId){
   const order = getOrder();
   const item = _findOrderItemForQtyChange(order, name, itemId);
@@ -475,32 +508,24 @@ function changeQty(name,d,itemId){
     return;
   }
 
-  // Track storno for sent items being reduced
+  // Track storno for sent items being reduced. The reason popup + write-off
+  // POST are deferred for the row-delete case below until DELETE actually
+  // confirms — otherwise a 409 leaves a write-off recorded for an item the
+  // server never removed.
   var sentQty = item._sentQty || 0;
+  var stornoArgs = null;
   if (d < 0 && sentQty > 0) {
     var stornoQty = Math.min(-d, Math.min(item.qty, sentQty));
     if (stornoQty > 0) {
       var existing = _pendingStorno.find(function(s) { return s.name === name; });
       if (existing) { existing.qty += stornoQty; }
       else { _pendingStorno.push({ qty: stornoQty, name: item.name, note: item.note || '', menuItemId: item.menuItemId }); }
-
-      // Show storno reason popup immediately for qty reduction
-      var _miId = item.menuItemId;
-      var _sQty = stornoQty;
-      var _sName = item.name;
-      var _oid = currentOrderId;
-      if (_oid && _miId) {
-        showStornoReason(_sName, _sQty, function(result) {
-          if (!result) return;
-          api.post('/orders/' + _oid + '/storno-write-off', {
-            menuItemId: _miId, qty: _sQty,
-            reason: result.reason, note: result.note, returnToStock: result.returnToStock
-          }).then(function(r) {
-            if (r.action === 'returned') showToast('Suroviny vratene na sklad');
-            else if (r.action === 'write_off') showToast('Odpis: ' + (r.totalCost || 0).toFixed(2) + ' \u20AC');
-          }).catch(function(e) { console.error('changeQty storno write-off error:', e); });
-        });
-      }
+      stornoArgs = {
+        miId: item.menuItemId,
+        sQty: stornoQty,
+        sName: item.name,
+        oid: currentOrderId,
+      };
     }
   }
 
@@ -524,12 +549,27 @@ function changeQty(name,d,itemId){
           if (r && r.orderVersion != null && currentOrderId === _removeOrderId) {
             currentOrderVersion = r.orderVersion;
           }
+          // DELETE confirmed — now safe to ask the cashier for the storno reason
+          // and record the write-off. Doing this BEFORE confirmation risks
+          // recording a write-off for an item the server still has.
+          if (stornoArgs) _promptStornoReasonAndWriteOff(stornoArgs);
           // If this removal emptied the order, drop the whole account.
           return _autoDeleteEmptyOrderIfApplicable(_removeOrderId);
         })
         .catch(function(e) {
           console.warn('changeQty immediate delete failed, queued for sync:', e && e.message);
           _pendingRemovals.push(_removeItemId);
+          // Item is still on the server — drop the queued kitchen storno entry
+          // so we don't print a phantom STORNO ticket on the next send.
+          if (stornoArgs) {
+            var idxQ = _pendingStorno.findIndex(function(s) {
+              return s.menuItemId === stornoArgs.miId && s.name === stornoArgs.sName;
+            });
+            if (idxQ !== -1) {
+              if (_pendingStorno[idxQ].qty <= stornoArgs.sQty) _pendingStorno.splice(idxQ, 1);
+              else _pendingStorno[idxQ].qty -= stornoArgs.sQty;
+            }
+          }
         });
     } else if (currentOrderId && !getOrder().length) {
       // Local-only removal that emptied an existing server order — delete it too.
@@ -540,6 +580,9 @@ function changeQty(name,d,itemId){
     item._localQtyChanged = true;
     // Mirror the new qty on any linked companion line so receipt totals stay consistent.
     _upsertCompanionForPrimary(item);
+    // Qty-decrement-not-to-zero on a sent item: no DELETE happens, just a
+    // PUT in the next sync. Show the reason popup immediately as before.
+    if (stornoArgs) _promptStornoReasonAndWriteOff(stornoArgs);
   }
   _orderDirty = true;
   // Fast-path: update the qty display and total inline
