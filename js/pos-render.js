@@ -172,18 +172,23 @@ function openStornoBasket() {
     ? c.items.map(function(it){
         var when = it.createdAt ? new Date(it.createdAt).toLocaleTimeString('sk-SK',{hour:'2-digit',minute:'2-digit'}) : '';
         var pricedQty = (Number(it.unitPrice||0) * it.qty);
-        var prepIcon = it.wasPrepared ? '🔥 pripravené' : '🟢 nepripravené';
+        // Cashier-suggested wasPrepared shown as a soft hint — admin makes the final call.
+        var suggested = it.wasPrepared
+          ? '<span class="storno-suggest suggest-prep">🔥 Čašník: pripravené</span>'
+          : '<span class="storno-suggest suggest-noprep">🔄 Čašník: nepripravené</span>';
         var reasonLabel = ({order_error:'Chyba obj.', complaint:'Reklamácia', breakage:'Rozbité', staff_meal:'Zam. spotreba', other:'Iné'})[it.reason] || it.reason || '';
         return ''+
         '<div class="storno-row" data-id="'+it.id+'">'+
           '<div class="storno-row-main">'+
             '<div class="storno-row-name">'+escHtml(it.itemName)+' &times;'+it.qty+'</div>'+
-            '<div class="storno-row-meta">'+escHtml(reasonLabel)+' · '+prepIcon+' · '+escHtml(it.staffName||'')+(when?' · '+when:'')+(it.note?' · '+escHtml(it.note):'')+'</div>'+
+            '<div class="storno-row-meta">'+escHtml(reasonLabel)+' · '+escHtml(it.staffName||'')+(when?' · '+when:'')+(it.note?' · '+escHtml(it.note):'')+'</div>'+
+            '<div class="storno-row-suggest">'+suggested+'</div>'+
           '</div>'+
           '<div class="storno-row-price">'+fmt(pricedQty)+'</div>'+
           '<div class="storno-row-actions">'+
-            '<button class="u-btn u-btn-mint" onclick="resolveStornoBasketItem('+it.id+')" title="Spracovať: vykonať akciu skladu (vrátiť alebo odpísať podľa toho čo zachytil čašník)">Spracovať</button>'+
-            '<button class="u-btn u-btn-ghost" onclick="deleteStornoBasketItem('+it.id+')" title="Zmazať záznam bez akcie skladu">×</button>'+
+            '<button class="u-btn u-btn-mint storno-action-return" onclick="resolveStornoBasketItem('+it.id+',false)" title="Vrátiť suroviny späť na sklad (jedlo nebolo urobené)">🔄 Vrátiť</button>'+
+            '<button class="u-btn u-btn-rose storno-action-writeoff" onclick="resolveStornoBasketItem('+it.id+',true)" title="Odpísať: jedlo bolo urobené, ide ako strata">🔥 Odpísať</button>'+
+            '<button class="u-btn u-btn-ghost storno-action-delete" onclick="deleteStornoBasketItem('+it.id+')" title="Zmazať záznam bez akcie skladu">×</button>'+
           '</div>'+
         '</div>';
       }).join('')
@@ -193,12 +198,16 @@ function openStornoBasket() {
   ov.className = 'u-overlay';
   ov.id = 'stornoBasketModal';
   ov.innerHTML =
-    '<div class="u-modal" style="max-width:720px;width:96%;text-align:left">'+
+    '<div class="u-modal" style="max-width:760px;width:96%;text-align:left">'+
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'+
         '<div class="u-modal-title" style="margin:0">Storno — čaká na spracovanie</div>'+
         '<button class="u-btn u-btn-ghost" style="flex:0 0 auto;padding:6px 14px;min-height:auto" onclick="closeStornoBasket()">×</button>'+
       '</div>'+
-      '<div style="font-size:var(--text-sm);color:var(--color-text-sec);margin-bottom:16px">Spracovať = vykonať akciu skladu (vrátiť/odpísať). × = zmazať záznam bez akcie. Iba manažér/admin.</div>'+
+      '<div style="font-size:var(--text-sm);color:var(--color-text-sec);margin-bottom:16px">'+
+        '<b>🔄 Vrátiť</b> = suroviny ide späť na sklad (rozhodne admin). '+
+        '<b>🔥 Odpísať</b> = jedlo už bolo urobené, ide ako strata. '+
+        '<b>×</b> = záznam bol omyl, žiadna akcia skladu.'+
+      '</div>'+
       '<div class="storno-list" style="max-height:60vh;overflow-y:auto">'+rowsHtml+'</div>'+
     '</div>';
   document.body.appendChild(ov);
@@ -211,9 +220,15 @@ function closeStornoBasket() {
   if (ov) { ov.classList.remove('show'); setTimeout(function(){ if(ov.parentNode) ov.remove(); }, 250); }
 }
 
-async function resolveStornoBasketItem(id) {
+// Admin makes the final wasPrepared call: false = return to stock, true = write-off.
+// Whatever the cashier captured at storno time is shown as a hint but the
+// override here wins.
+async function resolveStornoBasketItem(id, wasPrepared) {
   try {
-    var r = await api.post('/storno-basket/' + id + '/resolve', {});
+    var body = (wasPrepared === true || wasPrepared === false)
+      ? { override: { wasPrepared: !!wasPrepared } }
+      : {};
+    var r = await api.post('/storno-basket/' + id + '/resolve', body);
     if (r && r.result) {
       if (r.result.action === 'returned') showToast('Suroviny vrátené na sklad', true);
       else if (r.result.action === 'write_off') showToast('Odpis: ' + (r.result.totalCost || 0).toFixed(2) + ' €', true);
