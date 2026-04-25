@@ -493,6 +493,45 @@ function _promptStornoReasonAndWriteOff(s) {
   });
 }
 
+// Coalesce rapid storno clicks on the same item into one popup that shows the
+// CUMULATIVE qty (sum of all unprompted clicks) instead of per-click 1.
+// Prevents the "modalka shows wrong sum" bug when a cashier hammers `−` to
+// remove qty=3 — they used to see "1x Cola" three times in quick succession
+// instead of one "3x Cola" prompt + one matching write-off.
+//
+// Tracked separately from _pendingStorno (which feeds the kitchen STORNO ticket
+// at next sendToKitchen) so flushing the popup doesn't drain the print queue.
+var _stornoUnpromptedQty = Object.create(null); // {itemName: qty awaiting popup}
+var _stornoReasonPromptTimer = null;
+var _stornoReasonPendingPrompt = null; // {sName, miId, oid}
+
+function _accumulateStornoForPrompt(args) {
+  if (!args || !args.sName || !(args.sQty > 0)) return;
+  _stornoUnpromptedQty[args.sName] = (_stornoUnpromptedQty[args.sName] || 0) + args.sQty;
+  // Switching to a different item — fire the previous one synchronously so its
+  // reason/write-off isn't lost.
+  if (_stornoReasonPendingPrompt && _stornoReasonPendingPrompt.sName !== args.sName) {
+    _firePendingStornoReasonPrompt();
+  }
+  _stornoReasonPendingPrompt = { sName: args.sName, miId: args.miId, oid: args.oid };
+  if (_stornoReasonPromptTimer) clearTimeout(_stornoReasonPromptTimer);
+  _stornoReasonPromptTimer = setTimeout(_firePendingStornoReasonPrompt, 600);
+}
+
+function _firePendingStornoReasonPrompt() {
+  if (_stornoReasonPromptTimer) {
+    clearTimeout(_stornoReasonPromptTimer);
+    _stornoReasonPromptTimer = null;
+  }
+  var pending = _stornoReasonPendingPrompt;
+  _stornoReasonPendingPrompt = null;
+  if (!pending) return;
+  var sQty = _stornoUnpromptedQty[pending.sName] || 0;
+  if (sQty <= 0) return;
+  _stornoUnpromptedQty[pending.sName] = 0;
+  _promptStornoReasonAndWriteOff({ sName: pending.sName, miId: pending.miId, oid: pending.oid, sQty: sQty });
+}
+
 function changeQty(name,d,itemId){
   const order = getOrder();
   const item = _findOrderItemForQtyChange(order, name, itemId);
@@ -552,7 +591,7 @@ function changeQty(name,d,itemId){
           // DELETE confirmed — now safe to ask the cashier for the storno reason
           // and record the write-off. Doing this BEFORE confirmation risks
           // recording a write-off for an item the server still has.
-          if (stornoArgs) _promptStornoReasonAndWriteOff(stornoArgs);
+          if (stornoArgs) _accumulateStornoForPrompt(stornoArgs);
           // If this removal emptied the order, drop the whole account.
           return _autoDeleteEmptyOrderIfApplicable(_removeOrderId);
         })
