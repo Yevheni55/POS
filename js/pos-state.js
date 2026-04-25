@@ -21,6 +21,7 @@ const session = api.getUser();
 let MENU_DATA = []; // raw array from API
 let MENU = {};      // category slug -> {label, icon, key, items}
 let MENU_ID_MAP = new Map(); // item name -> menuItemId for O(1) lookup
+let MENU_ITEM_BY_ID = new Map(); // menuItemId -> full item (for companion lookup etc.)
 let DEST_MAP = {};
 let TABLES = [];
 let ZONES = [];
@@ -35,10 +36,14 @@ async function loadMenu(data) {
   MENU = {};
   DEST_MAP = {};
   MENU_ID_MAP = new Map();
+  MENU_ITEM_BY_ID = new Map();
   MENU_DATA.forEach(cat => {
     MENU[cat.slug] = { label: cat.label, icon: cat.icon, key: cat.sortKey, items: cat.items };
     DEST_MAP[cat.slug] = cat.dest;
-    cat.items.forEach(item => { MENU_ID_MAP.set(item.name, item.id); });
+    cat.items.forEach(item => {
+      MENU_ID_MAP.set(item.name, item.id);
+      MENU_ITEM_BY_ID.set(item.id, item);
+    });
   });
 }
 

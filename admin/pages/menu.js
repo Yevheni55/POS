@@ -642,6 +642,24 @@ function populateCategorySelect() {
   sel.innerHTML = MENU_DATA.map(c => `<option value="${c.id}" ${c.id === activeCatId ? 'selected' : ''}>${c.icon} ${c.label}</option>`).join('');
 }
 
+function populateCompanionSelect(selfId, selectedId) {
+  const sel = byId('fCompanion');
+  if (!sel) return;
+  // Exclude self (can't link to yourself) and any item whose own companion points at
+  // the item being edited (prevents trivial A→B→A loops).
+  const options = ['<option value="">— žiadna —</option>'];
+  MENU_DATA.forEach(cat => {
+    cat.items.forEach(it => {
+      if (it.id === selfId) return;
+      if (selfId != null && it.companionMenuItemId === selfId) return;
+      const name = (it.emoji ? it.emoji + ' ' : '') + it.name;
+      const sel = (selectedId != null && it.id === selectedId) ? ' selected' : '';
+      options.push(`<option value="${it.id}"${sel}>${name}</option>`);
+    });
+  });
+  sel.innerHTML = options.join('');
+}
+
 function openAddProduct() {
   editingProductId = null;
   byId('modalTitle').textContent = 'Pridat produkt';
@@ -653,6 +671,7 @@ function openAddProduct() {
   vatRateTouched = false;
   updateFormToggle();
   populateCategorySelect();
+  populateCompanionSelect(null, null);
   syncVatRateSuggestion(true);
   const wrap = byId('fEmojiGridWrap');
   if (wrap) wrap.style.display = 'none';
@@ -675,6 +694,7 @@ function openEditProduct(id) {
   vatRateTouched = true;
   updateFormToggle();
   populateCategorySelect();
+  populateCompanionSelect(item.id, item.companionMenuItemId);
   byId('fCategory').value = catId;
   byId('fVatRate').value = String(formVatRate);
   byId('productModal').classList.add('show');
@@ -709,6 +729,8 @@ async function saveProduct() {
   const price = parseFloat(byId('fPrice').value) || 0;
   const vatRate = parseFloat(byId('fVatRate').value);
   const catId = byId('fCategory').value;
+  const companionRaw = byId('fCompanion') ? byId('fCompanion').value : '';
+  const companionMenuItemId = companionRaw ? Number(companionRaw) : null;
   if (!name) { showToast('Zadajte nazov produktu'); return; }
   if (price <= 0) { showToast('Zadajte platnu cenu'); return; }
   if (!isSupportedVatRate(vatRate)) {
@@ -720,10 +742,10 @@ async function saveProduct() {
   if (btn) btnLoading(btn);
   try {
     if (editingProductId !== null) {
-      await api.put('/menu/items/' + editingProductId, { name, emoji, price, desc, available: formAvailable, categoryId: catId, vatRate });
+      await api.put('/menu/items/' + editingProductId, { name, emoji, price, desc, available: formAvailable, categoryId: catId, vatRate, companionMenuItemId });
       showToast('Produkt upraveny', true);
     } else {
-      await api.post('/menu/items', { categoryId: catId, name, emoji, price, desc, available: formAvailable, vatRate });
+      await api.post('/menu/items', { categoryId: catId, name, emoji, price, desc, available: formAvailable, vatRate, companionMenuItemId });
       showToast('Produkt pridany', true);
     }
     closeProductModal();
@@ -853,6 +875,13 @@ export function init(container) {
               <option value="19">19 % - nealko napoje</option>
               <option value="23">23 % - alkohol</option>
             </select>
+          </div>
+          <div class="u-modal-field">
+            <label for="fCompanion">Automaticka priložená položka</label>
+            <select id="fCompanion">
+              <option value="">— žiadna —</option>
+            </select>
+            <small style="color:var(--color-text-muted);font-size:12px">Napr. "Záloha fľaša" k flaške Coly. Pri pridaní/zmazaní hlavnej položky sa pridá/zmaže aj táto automaticky.</small>
           </div>
           <div class="u-modal-field">
             <label>Dostupnost</label>

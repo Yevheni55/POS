@@ -21,6 +21,12 @@ export const updateCategorySchema = z.object({
   dest: z.string().max(20).optional(),
 });
 
+// Companion link: null unsets it, positive int references another menu item.
+const companionSchema = z.union([
+  z.null(),
+  z.coerce.number().int().positive(),
+]).optional();
+
 export const createMenuItemSchema = z.object({
   categoryId: z.coerce.number().int().positive(),
   name: z.string().min(1).max(100),
@@ -33,6 +39,7 @@ export const createMenuItemSchema = z.object({
   stockQty: z.coerce.number().min(0).default(0),
   minStockQty: z.coerce.number().min(0).default(0),
   vatRate: supportedVatRateSchema.optional(),
+  companionMenuItemId: companionSchema,
 });
 
 export const updateMenuItemSchema = z.object({
@@ -47,4 +54,5 @@ export const updateMenuItemSchema = z.object({
   stockQty: z.coerce.number().min(0).optional(),
   minStockQty: z.coerce.number().min(0).optional(),
   vatRate: supportedVatRateSchema.optional(),
+  companionMenuItemId: companionSchema,
 });

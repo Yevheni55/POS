@@ -41,6 +41,9 @@ export const menuItems = pgTable('menu_items', {
   trackMode: varchar('track_mode', { length: 10 }).notNull().default('none'),
   stockQty: numeric('stock_qty', { precision: 10, scale: 3 }).notNull().default('0'),
   minStockQty: numeric('min_stock_qty', { precision: 10, scale: 3 }).notNull().default('0'),
+  // Companion item that POS auto-adds alongside this one (e.g. glass-bottle deposit).
+  // Client-side auto-adds/removes/syncs qty; null means no companion.
+  companionMenuItemId: integer('companion_menu_item_id'),
 });
 
 export const shifts = pgTable('shifts', {

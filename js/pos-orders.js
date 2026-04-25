@@ -13,6 +13,69 @@ var _addToastName = '';
 var _addToastMixed = false;
 var _savingNote = false;
 
+// ---- Companion items (e.g. bottle deposit "Záloha") ----
+// A menu item can declare companionMenuItemId pointing at another menu item.
+// When the primary is added to an order, we auto-add the companion tied to it
+// via `_companionOf = primary.id`. When the primary's qty changes, the
+// companion mirrors it. When the primary is removed, the companion goes too.
+function _findCompanionLine(order, primaryId) {
+  for (var i = 0; i < order.length; i++) {
+    if (order[i]._companionOf === primaryId) return { item: order[i], index: i };
+  }
+  return null;
+}
+
+function _upsertCompanionForPrimary(primary) {
+  if (!primary || primary._companionOf) return; // never companion-of-companion
+  var primaryMenu = (typeof MENU_ITEM_BY_ID !== 'undefined') ? MENU_ITEM_BY_ID.get(primary.menuItemId) : null;
+  if (!primaryMenu || !primaryMenu.companionMenuItemId) return;
+  var companionMenu = MENU_ITEM_BY_ID.get(primaryMenu.companionMenuItemId);
+  if (!companionMenu) return;
+  var order = getOrder();
+  var found = _findCompanionLine(order, primary.id);
+  if (found) {
+    if (found.item.qty !== primary.qty) {
+      found.item.qty = primary.qty;
+      found.item._localQtyChanged = true;
+    }
+  } else {
+    order.push({
+      name: companionMenu.name,
+      emoji: companionMenu.emoji,
+      price: parseFloat(companionMenu.price) || 0,
+      qty: primary.qty,
+      note: '',
+      menuItemId: companionMenu.id,
+      id: _getNextLocalOrderItemId(),
+      _companionOf: primary.id,
+    });
+  }
+  setOrder(order);
+}
+
+// Remove the companion linked to a just-removed primary. Fire-and-forget DELETE
+// if the companion had already been synced to the server.
+function _removeCompanionOfPrimary(primaryIdSnapshot) {
+  var order = getOrder();
+  var found = _findCompanionLine(order, primaryIdSnapshot);
+  if (!found) return;
+  var companion = found.item;
+  order.splice(found.index, 1);
+  setOrder(order);
+  if (_isServerOrderItem(companion) && currentOrderId) {
+    var oid = currentOrderId;
+    var ver = currentOrderVersion;
+    api.del('/orders/' + oid + '/items/' + companion.id, { version: ver })
+      .then(function (r) {
+        if (r && r.orderVersion != null && currentOrderId === oid) currentOrderVersion = r.orderVersion;
+      })
+      .catch(function (e) {
+        console.warn('companion delete failed, queued for sync:', e && e.message);
+        _pendingRemovals.push(companion.id);
+      });
+  }
+}
+
 // Auto-delete a server order once its local state becomes empty (no items left)
 async function _autoDeleteEmptyOrderIfApplicable(orderIdSnapshot) {
   if (!currentOrderId) return;
@@ -81,7 +144,9 @@ function _getNextLocalOrderItemId() {
 }
 
 function _getMergeKey(item) {
-  return String(item.menuItemId) + '::' + (item.note || '');
+  // Include _companionOf so companion lines tied to different primaries don't merge
+  // into one row (e.g. záloha for Cola and záloha for Fanta must stay separate).
+  return String(item.menuItemId) + '::' + (item.note || '') + '::' + (item._companionOf || '');
 }
 
 function _isServerOrderItem(item) {
@@ -156,7 +221,7 @@ function addToOrder(name, emoji, price) {
 
   var order = _normalizeLocalOrder(getOrder());
   var existing = order.find(function(item) {
-    return !item.sent && item.menuItemId === menuItemId && !item.note;
+    return !item.sent && item.menuItemId === menuItemId && !item.note && !item._companionOf;
   });
   var changedItem;
   if (existing) {
@@ -177,6 +242,8 @@ function addToOrder(name, emoji, price) {
   }
   setOrder(order);
   _orderDirty = true;
+  // Mirror qty / auto-add a companion item if the menu item has one configured.
+  _upsertCompanionForPrimary(changedItem);
   var t = TABLES.find(function(x) { return x.id === selectedTableId; });
   if (t && t.status === 'free') t.status = 'occupied';
 
@@ -370,10 +437,13 @@ function changeQty(name,d,itemId){
   }
 
   const newQty = item.qty + d;
+  var primaryIdSnapshot = item.id;
   if (newQty <= 0) {
     const idx = order.indexOf(item);
     if (idx !== -1) order.splice(idx, 1);
     setOrder(order);
+    // Primary is gone — drop its companion (e.g. Záloha fľaša) too.
+    _removeCompanionOfPrimary(primaryIdSnapshot);
     // Flush server-side deletion immediately so the 30s poll / socket refresh
     // does not rehydrate the item back from the server. Fall back to the
     // pending-removal queue if this call fails (e.g. version conflict).
@@ -400,6 +470,8 @@ function changeQty(name,d,itemId){
   } else {
     item.qty = newQty;
     item._localQtyChanged = true;
+    // Mirror the new qty on any linked companion line so receipt totals stay consistent.
+    _upsertCompanionForPrimary(item);
   }
   _orderDirty = true;
   // Fast-path: update the qty display and total inline
@@ -451,6 +523,8 @@ async function doRemoveItem(name){
   if (idx !== -1) order.splice(idx, 1);
   setOrder(order);
   _orderDirty = true;
+  // Drop any companion tied to this primary (e.g. Záloha fľaša) in the same gesture.
+  _removeCompanionOfPrimary(itemId);
   renderOrder();
   updateQtyBadges();
   if (isMobile()) renderMobOrder();

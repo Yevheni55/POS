@@ -27,6 +27,7 @@ const menuItemSelect = {
   stockQty: menuItems.stockQty,
   minStockQty: menuItems.minStockQty,
   vatRate: menuItems.vatRate,
+  companionMenuItemId: menuItems.companionMenuItemId,
 };
 
 function normalizeMenuItem(item) {
@@ -39,6 +40,7 @@ function normalizeMenuItem(item) {
     vatRate: Number.isFinite(vatRate) ? vatRate : 0,
     active: !!item.active,
     available: !!item.active,
+    companionMenuItemId: item.companionMenuItemId ?? null,
   };
 }
 
