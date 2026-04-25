@@ -27,6 +27,7 @@ import portosRoutes from './routes/portos.js';
 import companyProfileRoutes from './routes/company-profile.js';
 import fiscalDocumentsRoutes from './routes/fiscal-documents.js';
 import shishaRoutes from './routes/shisha.js';
+import stornoBasketRoutes from './routes/storno-basket.js';
 import { idempotency } from './middleware/idempotency.js';
 import { ALLOWED_ORIGINS, corsOriginCallback } from './lib/cors-origin.js';
 
@@ -97,6 +98,7 @@ app.use('/api/integrations/portos', auth, portosRoutes);
 app.use('/api/company-profile', auth, companyProfileRoutes);
 app.use('/api/fiscal-documents', auth, fiscalDocumentsRoutes);
 app.use('/api/shisha', auth, shishaRoutes);
+app.use('/api/storno-basket', auth, stornoBasketRoutes);
 
 // SPA fallback
 app.get('*', (req, res) => {

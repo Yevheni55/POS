@@ -103,6 +103,7 @@ async function initPOS() {
       console.warn('Company profile from server:', profileErr);
     }
     await loadAllOrders(); // Preload all open orders for instant table switching
+    if (typeof loadStornoBasket === 'function') loadStornoBasket();
     updateTableStatuses(); // Derive table statuses from orders cache
     var fcs = Object.keys(MENU)[0];
     if (fcs) activeCategory = fcs;
@@ -123,6 +124,7 @@ async function initPOS() {
     // Fallback polling every 30 seconds (WebSocket handles real-time)
     setInterval(async function() {
     try {
+      if (typeof loadStornoBasket === 'function') loadStornoBasket();
       var oldJSON = _lastOrdersCacheJSON;
       await loadAllOrders();
       // Only re-render if data actually changed (avoid flicker)
@@ -274,6 +276,10 @@ function connectWS() {
       renderFloor();
       if (isMobile()) renderMobTables();
     } catch(e) { /* offline, skip */ }
+  });
+
+  socket.on('storno-basket:updated', function() {
+    if (typeof loadStornoBasket === 'function') loadStornoBasket();
   });
 
   socket.on('disconnect', function() {

@@ -134,6 +134,107 @@ function renderFloor(){
       ${chipBody}
     </div>`;
   }).join('');
+
+  // Always-visible Storno chip in the top-right corner of the floor canvas.
+  // Renders separately so renderStornoChip() can refresh badge/value without
+  // re-rendering the whole floor.
+  if (typeof renderStornoChip === 'function') renderStornoChip();
+}
+
+// Storno chip — fixed-position badge in floor canvas. Click opens overlay.
+function renderStornoChip() {
+  var canvas = document.getElementById('floorCanvas');
+  if (!canvas) return;
+  var c = (typeof _stornoBasketCache !== 'undefined') ? _stornoBasketCache : { count: 0, value: 0 };
+  var existing = document.getElementById('stornoChip');
+  var html =
+    '<div id="stornoChip" class="table-chip storno-chip" role="button" tabindex="0"' +
+    ' aria-label="Storno tabuľa, ' + c.count + ' položiek" onclick="openStornoBasket()">' +
+      '<div class="chip-name">STORNO</div>' +
+      (c.count > 0
+        ? '<span class="chip-badge storno-badge">' + c.count + '</span>' +
+          '<div class="chip-amount">' + fmt(c.value) + '</div>'
+        : '<div class="chip-guests" style="opacity:.55">prázdna</div>') +
+    '</div>';
+  if (existing) {
+    existing.outerHTML = html;
+  } else {
+    canvas.insertAdjacentHTML('beforeend', html);
+  }
+}
+
+function openStornoBasket() {
+  var c = (typeof _stornoBasketCache !== 'undefined') ? _stornoBasketCache : { items: [] };
+  var existing = document.getElementById('stornoBasketModal');
+  if (existing) existing.remove();
+
+  var rowsHtml = (c.items && c.items.length)
+    ? c.items.map(function(it){
+        var when = it.createdAt ? new Date(it.createdAt).toLocaleTimeString('sk-SK',{hour:'2-digit',minute:'2-digit'}) : '';
+        var pricedQty = (Number(it.unitPrice||0) * it.qty);
+        var prepIcon = it.wasPrepared ? '🔥 pripravené' : '🟢 nepripravené';
+        var reasonLabel = ({order_error:'Chyba obj.', complaint:'Reklamácia', breakage:'Rozbité', staff_meal:'Zam. spotreba', other:'Iné'})[it.reason] || it.reason || '';
+        return ''+
+        '<div class="storno-row" data-id="'+it.id+'">'+
+          '<div class="storno-row-main">'+
+            '<div class="storno-row-name">'+escHtml(it.itemName)+' &times;'+it.qty+'</div>'+
+            '<div class="storno-row-meta">'+escHtml(reasonLabel)+' · '+prepIcon+' · '+escHtml(it.staffName||'')+(when?' · '+when:'')+(it.note?' · '+escHtml(it.note):'')+'</div>'+
+          '</div>'+
+          '<div class="storno-row-price">'+fmt(pricedQty)+'</div>'+
+          '<div class="storno-row-actions">'+
+            '<button class="u-btn u-btn-mint" onclick="resolveStornoBasketItem('+it.id+')" title="Spracovať: vykonať akciu skladu (vrátiť alebo odpísať podľa toho čo zachytil čašník)">Spracovať</button>'+
+            '<button class="u-btn u-btn-ghost" onclick="deleteStornoBasketItem('+it.id+')" title="Zmazať záznam bez akcie skladu">×</button>'+
+          '</div>'+
+        '</div>';
+      }).join('')
+    : '<div style="padding:32px;text-align:center;color:var(--color-text-sec)">Žiadne čakajúce storná. 🎉</div>';
+
+  var ov = document.createElement('div');
+  ov.className = 'u-overlay';
+  ov.id = 'stornoBasketModal';
+  ov.innerHTML =
+    '<div class="u-modal" style="max-width:720px;width:96%;text-align:left">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'+
+        '<div class="u-modal-title" style="margin:0">Storno — čaká na spracovanie</div>'+
+        '<button class="u-btn u-btn-ghost" style="flex:0 0 auto;padding:6px 14px;min-height:auto" onclick="closeStornoBasket()">×</button>'+
+      '</div>'+
+      '<div style="font-size:var(--text-sm);color:var(--color-text-sec);margin-bottom:16px">Spracovať = vykonať akciu skladu (vrátiť/odpísať). × = zmazať záznam bez akcie. Iba manažér/admin.</div>'+
+      '<div class="storno-list" style="max-height:60vh;overflow-y:auto">'+rowsHtml+'</div>'+
+    '</div>';
+  document.body.appendChild(ov);
+  requestAnimationFrame(function(){ ov.classList.add('show'); });
+  ov.addEventListener('click', function(e){ if(e.target===ov) closeStornoBasket(); });
+}
+
+function closeStornoBasket() {
+  var ov = document.getElementById('stornoBasketModal');
+  if (ov) { ov.classList.remove('show'); setTimeout(function(){ if(ov.parentNode) ov.remove(); }, 250); }
+}
+
+async function resolveStornoBasketItem(id) {
+  try {
+    var r = await api.post('/storno-basket/' + id + '/resolve', {});
+    if (r && r.result) {
+      if (r.result.action === 'returned') showToast('Suroviny vrátené na sklad', true);
+      else if (r.result.action === 'write_off') showToast('Odpis: ' + (r.result.totalCost || 0).toFixed(2) + ' €', true);
+      else showToast('Spracované', true);
+    }
+    await loadStornoBasket();
+    openStornoBasket(); // re-render the list
+  } catch (e) {
+    showToast('Chyba: ' + (e && e.message), 'error');
+  }
+}
+
+async function deleteStornoBasketItem(id) {
+  try {
+    await api.del('/storno-basket/' + id);
+    showToast('Záznam zmazaný', true);
+    await loadStornoBasket();
+    openStornoBasket();
+  } catch (e) {
+    showToast('Chyba: ' + (e && e.message), 'error');
+  }
 }
 
 /** Select table and load order without switching view (e.g. initial load). */

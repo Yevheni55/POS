@@ -26,6 +26,27 @@ let DEST_MAP = {};
 let TABLES = [];
 let ZONES = [];
 
+// Storno basket — pending storno entries the cashier queued for admin to process.
+// Refreshed via loadStornoBasket() on init, every 30s poll, and on
+// socket 'storno-basket:updated' events.
+let _stornoBasketCache = { count: 0, value: 0, items: [] };
+
+async function loadStornoBasket() {
+  try {
+    var data = await api.get('/storno-basket');
+    var summary = data && data.summary || { pendingCount: 0, pendingValue: 0 };
+    _stornoBasketCache = {
+      count: Number(summary.pendingCount) || 0,
+      value: Number(summary.pendingValue) || 0,
+      items: Array.isArray(data && data.items) ? data.items : [],
+    };
+    if (typeof renderStornoChip === 'function') renderStornoChip();
+  } catch (e) {
+    // Offline / 401 — keep last cache, just log
+    console.warn('loadStornoBasket failed:', e && e.message);
+  }
+}
+
 const CAT_COLORS = {
   kava:'108,92,231', caj:'92,196,158', koktaily:'212,107,107',
   pivo:'108,92,231', vino:'106,142,196', jedlo:'72,180,190'

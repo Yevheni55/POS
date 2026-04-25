@@ -494,16 +494,26 @@ function _increaseSentItemAsUnsentDelta(order, item, delta) {
 // decrement, no DELETE) or defer it into the .then of the row-DELETE
 // (so we don't record a write-off for an item the server still has).
 function _promptStornoReasonAndWriteOff(s) {
-  if (!s || !s.oid || !s.miId) return;
+  if (!s || !s.miId) return;
   showStornoReason(s.sName, s.sQty, function(result) {
     if (!result) return;
-    api.post('/orders/' + s.oid + '/storno-write-off', {
-      menuItemId: s.miId, qty: s.sQty,
-      reason: result.reason, note: result.note, returnToStock: result.returnToStock,
-    }).then(function(r) {
-      if (r.action === 'returned') showToast('Suroviny vratene na sklad');
-      else if (r.action === 'write_off') showToast('Odpis: ' + (r.totalCost || 0).toFixed(2) + ' \u20AC');
-    }).catch(function(e) { console.error('storno write-off error:', e); });
+    // Cashier's input goes to the basket — admin will resolve it from the
+    // Storno page, which is when the actual stock revert / write-off runs.
+    api.post('/storno-basket', {
+      menuItemId: s.miId,
+      qty: s.sQty,
+      name: s.sName,
+      unitPrice: typeof s.unitPrice === 'number' ? s.unitPrice : 0,
+      reason: result.reason,
+      note: result.note || '',
+      wasPrepared: !result.returnToStock,
+      orderId: s.oid || null,
+    }).then(function () {
+      showToast('Storno zaznamenane (caka na admin)', true);
+    }).catch(function (e) {
+      console.error('storno-basket POST error:', e);
+      showToast('Storno zapis zlyhal: ' + (e && e.message), 'error');
+    });
   });
 }
 
@@ -577,6 +587,7 @@ function changeQty(name,d,itemId){
         miId: item.menuItemId,
         sQty: stornoQty,
         sName: item.name,
+        unitPrice: typeof item.price === 'number' ? item.price : 0,
         oid: currentOrderId,
       };
     }
@@ -718,19 +729,14 @@ async function doRemoveItem(name){
       });
       showToast('Storno vytlacene: ' + removedName);
 
-      // Show storno reason popup + create write-off
-      var _menuItemId = item.menuItemId;
-      var _orderId = currentOrderId;
-      var _stornoQty = sentQty;
-      showStornoReason(removedName, _stornoQty, function(result) {
-        if (!result) return;
-        api.post('/orders/' + _orderId + '/storno-write-off', {
-          menuItemId: _menuItemId, qty: _stornoQty,
-          reason: result.reason, note: result.note, returnToStock: result.returnToStock
-        }).then(function(r) {
-          if (r.action === 'returned') showToast('Suroviny vratene na sklad');
-          else if (r.action === 'write_off') showToast('Odpis vytvoreny: ' + (r.totalCost || 0).toFixed(2) + ' \u20AC');
-        }).catch(function(e) { console.error('Storno write-off error:', e); });
+      // Cashier picks reason → row goes to /storno-basket. Stock change
+      // happens later in admin Storno page (resolve), not here.
+      _promptStornoReasonAndWriteOff({
+        miId: item.menuItemId,
+        sQty: sentQty,
+        sName: removedName,
+        unitPrice: typeof item.price === 'number' ? item.price : 0,
+        oid: currentOrderId,
       });
     } catch(e) {
       console.error('removeItem storno error:', e);

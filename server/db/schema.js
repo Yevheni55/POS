@@ -18,6 +18,28 @@ export const shishaSales = pgTable('shisha_sales', {
   price: numeric('price', { precision: 8, scale: 2 }).notNull().default('17.00'),
 });
 
+// Storno basket — bucket pre stornované sent položky. Cashier `−` na
+// poslanej položke → zápis sem (žiaden stock change). Admin v Storno
+// stránke spracuje (resolve) → vtedy sa spustí stock revert / write-off
+// podľa zachyteného wasPrepared + reason.
+export const stornoBasket = pgTable('storno_basket', {
+  id: serial('id').primaryKey(),
+  menuItemId: integer('menu_item_id').notNull().references(() => menuItems.id),
+  qty: integer('qty').notNull().default(1),
+  itemName: varchar('item_name', { length: 100 }).notNull(),
+  unitPrice: numeric('unit_price', { precision: 8, scale: 2 }).notNull().default('0'),
+  note: varchar('note', { length: 200 }).notNull().default(''),
+  reason: varchar('reason', { length: 50 }).notNull().default('other'),
+  // wasPrepared=true → jedlo bolo urobené, write-off (peniaze von)
+  // wasPrepared=false → jedlo sa nestihlo urobiť, return to stock
+  wasPrepared: boolean('was_prepared').notNull().default(false),
+  orderId: integer('order_id'),
+  staffId: integer('staff_id').references(() => staff.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+  resolvedByStaffId: integer('resolved_by_staff_id').references(() => staff.id),
+});
+
 export const tables = pgTable('tables', {
   id: serial('id').primaryKey(),
   name: varchar('name', { length: 50 }).notNull(),
