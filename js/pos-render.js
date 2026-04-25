@@ -24,7 +24,10 @@ function hasPendingOrderFlushState() {
 }
 
 function flushOrderBeforeTableLeave() {
-  if (!hasPendingOrderFlushState()) return Promise.resolve(false);
+  // Resolve "true" when there is nothing to flush so that callers using the
+  // !flushed-as-abort pattern (e.g. openTable / mobile pickTable) don't bail
+  // out silently on a clean switch and prevent the new table from opening.
+  if (!hasPendingOrderFlushState()) return Promise.resolve(true);
   if (_renderTimer) { clearTimeout(_renderTimer); _renderTimer = null; }
   if (_tableLeaveFlushPromise) return _tableLeaveFlushPromise;
 
