@@ -11,3 +11,8 @@ server/.env.ttlock
 
 # User-uploaded menu photos (live on the kasa, not in version control)
 /uploads/
+
+# Playwright E2E artifacts
+/test-results/
+/playwright-report/
+/playwright/.cache/

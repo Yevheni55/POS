@@ -1,0 +1,16 @@
+{
+  "name": "pos-e2e",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "Playwright end-to-end tests for the POS browser flows. Backend integration tests live in server/test/.",
+  "scripts": {
+    "e2e": "playwright test --config=tests/e2e/playwright.config.mjs",
+    "e2e:headed": "playwright test --config=tests/e2e/playwright.config.mjs --headed",
+    "e2e:ui": "playwright test --config=tests/e2e/playwright.config.mjs --ui",
+    "e2e:install": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0"
+  }
+}
