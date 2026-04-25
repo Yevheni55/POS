@@ -356,8 +356,22 @@ function _addToOrderCore(name, emoji, price, forceNewRow) {
 
 // Sync local order state to server — called before send, payment, or table switch
 async function syncOrderToServer() {
-  if (!_orderDirty || !selectedTableId) return;
+  if (!selectedTableId) return;
   var order = getOrder();
+  // Stale local-only items can survive a page reload via the localStorage
+  // persistence in pos-state.js (and survive the polling-merge fix), but
+  // _orderDirty was reset to false on load. Without this, syncOrderToServer
+  // would early-return and confirmPayment then trips on the missing
+  // currentOrderId with "Nie je co platit". Mark dirty so we POST a fresh
+  // order for them.
+  if (!_orderDirty) {
+    var hasLocalUnsent = order.some(function (o) {
+      return o && !o.sent && typeof o.id === 'number' && o.id > 1000000000;
+    });
+    var hasPendingWork = (_pendingRemovals && _pendingRemovals.length) || (_pendingStorno && _pendingStorno.length);
+    if (!hasLocalUnsent && !hasPendingWork) return;
+    _orderDirty = true;
+  }
   if (!order.length && !currentOrderId) { _orderDirty = false; return; }
 
   try {

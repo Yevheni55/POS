@@ -272,7 +272,16 @@ function initiatePayment(method) {
   const order = getOrder();
   const total = getOrderTotal();
   if (!order.length || total <= 0) { showToast('Nie je co platit', 'warning'); return; }
-  if (!currentOrderId && !_orderDirty) { showToast('Nie je co platit', 'warning'); return; }
+  // Accept local-only items as payable even without currentOrderId/_orderDirty —
+  // they may be a stale draft the localStorage persistence preserved across a
+  // page reload (where _orderDirty resets to false). syncOrderToServer below
+  // will create the server order from them.
+  if (!currentOrderId && !_orderDirty) {
+    var hasLocalItems = order.some(function (o) {
+      return o && !o.sent && typeof o.id === 'number' && o.id > 1000000000;
+    });
+    if (!hasLocalItems) { showToast('Nie je co platit', 'warning'); return; }
+  }
   pendingPaymentMethod = method;
   const labels = { hotovost: 'Hotovost', karta: 'Karta', zaplatit: 'Univerzalna platba' };
   const icons = { hotovost: '\uD83D\uDCB5', karta: '\uD83D\uDCB3', zaplatit: '\uD83D\uDCB0' };
