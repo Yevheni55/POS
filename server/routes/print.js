@@ -205,10 +205,10 @@ function buildKitchenTicket({ dest, tableName, staffName, items, orderNum, time 
   ticket += CMD.DASHED;
 
   // Items
-  // Combos print with their sauce inline on the same line (NORMAL size for
-  // the sauce suffix so it fits the 32-char line width). The "Omáčka (combo)"
-  // companion row is emitted by the cashier client right after each combo;
-  // we absorb it here and skip its own emission.
+  // Combos absorb their "Omáčka (combo)" companion row inline so the kitchen
+  // sees combo + sauce on the same logical line at the same LARGE+BOLD size.
+  // (At LARGE size the line will wrap on a 32-char printer — that's fine,
+  // it's still all combo info; cashier requested same font/size as the burger.)
   ticket += CMD.ALIGN_LEFT;
   items.forEach((item, idx) => {
     if (item.name === 'Omáčka (combo)') return;
@@ -217,12 +217,9 @@ function buildKitchenTicket({ dest, tableName, staffName, items, orderNum, time 
     ticket += CMD.LARGE_SIZE;
     ticket += ' ' + item.qty + 'x  ' + item.name;
 
-    // If this is a combo and the very next item is its omáčka companion,
-    // print the sauce inline as "| <sauces>" in NORMAL size on the same line.
     if (/^combo /i.test(item.name)) {
       const next = items[idx + 1];
       if (next && next.name === 'Omáčka (combo)' && next.note) {
-        ticket += CMD.NORMAL_SIZE;
         ticket += '  |  ' + next.note;
       }
     }
