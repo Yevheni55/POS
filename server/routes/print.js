@@ -224,11 +224,14 @@ function buildKitchenTicket({ dest, tableName, staffName, items, orderNum, time 
       }
     }
     ticket += '\n';
+    // Note (kitchen instruction) — same LARGE+BOLD size as the item itself,
+    // prefixed with "!! " so the cook can't miss it. Was a tiny "  >> ..."
+    // line in NORMAL+regular weight that disappeared on a busy ticket.
+    if (item.note) {
+      ticket += '   !! ' + item.note + '\n';
+    }
     ticket += CMD.NORMAL_SIZE;
     ticket += CMD.BOLD_OFF;
-    if (item.note) {
-      ticket += '      >> ' + item.note + '\n';
-    }
   });
 
   // Footer

@@ -645,7 +645,11 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
 .u-modal-hint{font-size:var(--text-sm);color:var(--color-text-sec);margin:-8px 0 16px;line-height:var(--leading-relaxed)}
 .order-item-info--note{cursor:pointer;border-radius:var(--radius-sm);outline:none}
 .order-item-info--note:focus-visible{box-shadow:0 0 0 2px rgba(139,124,246,.4)}
-.order-item-note-placeholder{font-size:9px;color:var(--color-text-dim);font-style:italic;margin-top:1px;opacity:.5}
+/* "+ Pridať poznámku" placeholder — was 9px italic 50% opacity (invisible
+   on tablet for new cashiers). Now styled as a small dashed chip so it
+   reads as a tappable button, not just label text. */
+.order-item-note-placeholder{display:inline-block;font-size:12px;color:var(--color-accent,#8B7CF6);font-style:normal;font-weight:600;opacity:.9;padding:2px 8px;border:1px dashed rgba(139,124,246,.45);border-radius:8px;margin-top:4px}
+@media (pointer:coarse){.order-item-note-placeholder{font-size:14px;padding:4px 12px;border-style:solid;background:rgba(139,124,246,.08)}}
 .u-modal-amount{
   font-family:var(--font-display);font-size:var(--text-7xl);font-weight:var(--weight-bold);letter-spacing:var(--tracking-tight);
   background:linear-gradient(135deg,var(--color-accent),var(--color-accent-dim));
@@ -1389,8 +1393,10 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
 .order-item-wrap.swiped .order-item-swipe-left{transform:translateX(0)}
 .order-item-emoji{font-size:18px;flex-shrink:0;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:6px;background:rgba(255,255,255,.03)}
 .order-item-name{font-size:var(--text-lg);font-weight:var(--weight-semibold);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;margin-bottom:1px;color:var(--text-primary)}
-.order-item-note{font-size:9px;color:var(--text-muted);font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.order-item-note-placeholder{font-size:9px;color:var(--color-text-dim);font-style:italic;margin-top:1px;opacity:.5}
+/* Actual note when set — prominent chip so cashier (and the sent path)
+   sees what's on the item at a glance, not 9px italic muted ellipsis. */
+.order-item-note{display:inline-block;font-size:12px;color:#fff;font-style:normal;font-weight:600;background:rgba(139,124,246,.35);border:1px solid rgba(139,124,246,.5);padding:2px 8px;border-radius:8px;margin-top:3px;white-space:normal;max-width:100%;line-height:1.25}
+@media (pointer:coarse){.order-item-note{font-size:14px;padding:4px 12px}}
 .order-item-total{font-family:var(--font-display);font-weight:var(--weight-bold);font-size:var(--text-lg);min-width:48px;text-align:right;color:var(--text-primary);letter-spacing:var(--tracking-tight);font-variant-numeric:tabular-nums}
 /* Stepper — unified compact control */
 .order-item-qty{display:flex;align-items:center;gap:0;background:var(--surface-card);border:1px solid var(--border-default);border-radius:var(--radius-sm);overflow:hidden}
