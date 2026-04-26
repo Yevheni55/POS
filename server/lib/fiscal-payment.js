@@ -46,13 +46,113 @@ function normalizeVatRate(value) {
   return roundMoney(Number(value || 0));
 }
 
-export function buildPaymentExternalId(orderId) {
-  return `order-${orderId}-payment`;
+/**
+ * Jednoznačné externalId pre platbu objednávky (eKasa / Portos).
+ *
+ * Bez `salt` vracia legacy formát `order-N-payment` — používaný pri lookup-och
+ * starých fiscal_documents (pred zavedením salt-u). Pre NOVÉ fiškálne requesty
+ * sa volá s `{ salt }` aby externalId bolo globálne unikátne aj po DB reset-e
+ * (orderId sequence resetne, ale salt sa derivuje z payment.createdAt → ms
+ * čas → unique cez celú históriu Portos účtu).
+ *
+ * Bug, ktorý to fixuje: po vývojovom DB-truncate sa orderId 53 znova vyrobil,
+ * Portos si pamätal starý doklad pre `order-53-payment` → reconcile vrátil
+ * cudzí (Espresso) blok namiesto reálneho (2× Kofola).
+ */
+export function buildPaymentExternalId(orderId, opts) {
+  const salt = opts && opts.salt;
+  return salt ? `order-${orderId}-pay-${salt}` : `order-${orderId}-payment`;
 }
 
 /** Jednoznačné externalId pre storno doklad k danej objednávke (eKasa / Portos). */
-export function buildPaymentStornoExternalId(orderId) {
-  return `order-${orderId}-payment-storno`;
+export function buildPaymentStornoExternalId(orderId, opts) {
+  const salt = opts && opts.salt;
+  return salt ? `order-${orderId}-pay-${salt}-storno` : `order-${orderId}-payment-storno`;
+}
+
+/**
+ * Vytiahne salt z externalId vyrobeného `buildPaymentExternalId(..., {salt})`.
+ * Vracia null pre legacy formát `order-N-payment` alebo nerozpoznateľný vstup.
+ * Používa sa pri lookup-e súvisiacich storno externalId-ov tak, aby zostal
+ * konzistentný so soltom použitým pri pôvodnej platbe.
+ */
+export function parsePaymentExternalIdSalt(externalId) {
+  if (!externalId) return null;
+  const m = String(externalId).match(/^order-\d+-pay-([A-Za-z0-9-]+?)(?:-storno)?$/);
+  return m ? m[1] : null;
+}
+
+/** Vyrobí čerstvý salt pre nové fiškálne externalId (čas v base36 + 4 hex znaky). */
+export function generatePaymentExternalIdSalt() {
+  return Date.now().toString(36) + '-' + Math.floor(Math.random() * 0xffff).toString(16).padStart(4, '0');
+}
+
+/**
+ * Defense-in-depth: validuje, či doklad vrátený z Portos (cez findReceiptByExternalId)
+ * skutočne zodpovedá tomu, čo POS poslal v requestPayload. Bráni tomu, aby Portos
+ * cache (alebo iný cudzí dôvod) reconciliovalo cudzí blok namiesto reálnej platby.
+ *
+ * Slovenská finančná správa udeľuje vysoké pokuty za nevydaný/nekorektný blok,
+ * preto pri akejkoľvek nezhode RADŠEJ neuložíme cudzie údaje a označíme
+ * outcome ako `mismatch_rejected` — cashier musí ručne overiť/opakovať.
+ *
+ * Kritériá (všetky musia sedieť):
+ *   1. cashRegisterCode (ak sú prítomné na oboch stranách) — rovnaké
+ *   2. celková suma (totalAmount alebo súčet payments[].amount) — do €0.01
+ *   3. počet a názvy položiek — case-insensitive porovnanie každej položky
+ *
+ * Vracia { ok: true } alebo { ok: false, reason, remote, local }.
+ */
+export function validateReceiptMatchesRequest(receipt, requestPayload) {
+  if (!receipt || !receipt.raw) return { ok: true, reason: 'no-remote-data' };
+  const remote = receipt.raw.request && receipt.raw.request.data;
+  const local = requestPayload && requestPayload.request && requestPayload.request.data;
+  if (!remote || !local) return { ok: true, reason: 'missing-data-side' };
+
+  // 1. cashRegisterCode
+  const remoteCRC = String(remote.cashRegisterCode || '').trim();
+  const localCRC = String(local.cashRegisterCode || '').trim();
+  if (remoteCRC && localCRC && remoteCRC !== localCRC) {
+    return { ok: false, reason: 'cashRegisterCode mismatch', remote: remoteCRC, local: localCRC };
+  }
+
+  // 2. amount
+  function readTotal(d) {
+    if (d.vatRatesTaxSummary && d.vatRatesTaxSummary.totalAmount != null) return Number(d.vatRatesTaxSummary.totalAmount);
+    if (Array.isArray(d.payments) && d.payments.length) return d.payments.reduce((s, p) => s + Math.abs(Number(p.amount || 0)), 0);
+    if (d.amount != null) return Math.abs(Number(d.amount));
+    return null;
+  }
+  const remoteTotal = readTotal(remote);
+  const localTotal = readTotal(local);
+  if (remoteTotal != null && localTotal != null && Math.abs(remoteTotal - localTotal) > 0.011) {
+    return { ok: false, reason: 'amount mismatch', remote: remoteTotal, local: localTotal };
+  }
+
+  // 3. items — count + name match (best-effort, ignore correction/discount-only diffs)
+  const remoteItems = Array.isArray(remote.items) ? remote.items : [];
+  const localItems = Array.isArray(local.items) ? local.items : [];
+  const remotePositive = remoteItems.filter((i) => String(i.type || '').toLowerCase() !== 'discount');
+  const localPositive = localItems.filter((i) => String(i.type || '').toLowerCase() !== 'discount');
+  if (remotePositive.length !== localPositive.length) {
+    return {
+      ok: false,
+      reason: 'item-count mismatch',
+      remote: remotePositive.length,
+      local: localPositive.length,
+      remoteItems: remotePositive.map((i) => i.name),
+      localItems: localPositive.map((i) => i.name),
+    };
+  }
+  for (let i = 0; i < remotePositive.length; i++) {
+    const rn = String(remotePositive[i].name || '').trim().toLowerCase();
+    const ln = String(localPositive[i].name || '').trim().toLowerCase();
+    if (rn !== ln) {
+      return { ok: false, reason: 'item-name mismatch', index: i, remote: rn, local: ln };
+    }
+  }
+
+  return { ok: true };
 }
 
 export function allocateDiscountAcrossVatGroups(items, discountAmount) {
@@ -132,6 +232,7 @@ export function buildCashRegisterRequestContext({
   expectedTotal,
   cashRegisterCode,
   forceZeroVat = false,
+  externalIdSalt,
 }) {
   const config = getPortosConfig();
   const effectiveCashRegisterCode = String(cashRegisterCode || config.cashRegisterCode || '').trim();
@@ -150,7 +251,7 @@ export function buildCashRegisterRequestContext({
         footerText: null,
         cashRegisterCode: effectiveCashRegisterCode,
       },
-      externalId: buildPaymentExternalId(orderId),
+      externalId: buildPaymentExternalId(orderId, { salt: externalIdSalt }),
     },
     print: {
       printerName: config.printerName,
@@ -171,6 +272,7 @@ export function buildStornoCashRegisterRequestContext({
   referenceReceiptId,
   orderId,
   cashRegisterCode,
+  externalIdSalt,
 }) {
   const config = getPortosConfig();
   const payload = typeof originalRequestPayload === 'string'
@@ -230,7 +332,7 @@ export function buildStornoCashRegisterRequestContext({
           data.cashRegisterCode || cashRegisterCode || config.cashRegisterCode || '',
         ).trim(),
       },
-      externalId: buildPaymentStornoExternalId(orderId),
+      externalId: buildPaymentStornoExternalId(orderId, { salt: externalIdSalt }),
     },
     print: {
       printerName: payload.print?.printerName || config.printerName,
