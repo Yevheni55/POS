@@ -884,7 +884,9 @@ function openNoteModal(name, itemId){
   if (hint) hint.classList.toggle('pos-hidden', !item.sent);
   _refreshNotePresetActiveState();
   document.getElementById('noteModal').classList.add('show');
-  setTimeout(function() { document.getElementById('noteInput').focus(); }, 100);
+  // No auto-focus on the input — cashier should land on the preset chips
+  // first; the on-screen keyboard only pops up when they explicitly tap
+  // the text field for a custom note.
 }
 
 // Preset note chips — quick-insert common phrases (bez cibule, extra ostre...)
