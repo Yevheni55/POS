@@ -279,6 +279,10 @@ const api = {
     return this.post('/payments/' + paymentId + '/receipt-copy', {});
   },
 
+  refiscalizePayment(paymentId) {
+    return this.post('/payments/' + paymentId + '/refiscalize', {});
+  },
+
   invalidateMenu() {
     this._menuCache = null;
     this._menuCacheTime = 0;

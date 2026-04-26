@@ -70,6 +70,16 @@ function actionsCell(item) {
   if (item.copyAvailable) {
     html += '<button class="btn-save btn-sm" data-payment-copy="' + item.id + '" style="margin-right:6px">Kópia dokladu</button>';
   }
+  // Re-fiškalizácia: pre prípady keď doklad v Portos nezodpovedá objednávke
+  // (mismatch_rejected) alebo keď cashier hlási že blok nevyšiel / vyšiel cudzí.
+  // Pošle nový request s reálnymi položkami pod novým unique externalId
+  // a hneď vytlačí kópiu. Vyžaduje manazer/admin role.
+  if (item.fiscal) {
+    var fiscalStatus = String(item.fiscal.status || '');
+    var needsRefiscalize = fiscalStatus === 'mismatch_rejected' || fiscalStatus === 'ambiguous' || fiscalStatus === 'rejected';
+    var btnTone = needsRefiscalize ? 'background:var(--color-warning,#E0A830)' : '';
+    html += '<button class="btn-save btn-sm" data-payment-refiscalize="' + item.id + '" style="margin-right:6px;' + btnTone + '" title="Pošle nový fiškálny request a vytlačí blok">Re-fiškalizovať</button>';
+  }
   if (item.stornoEligible) {
     html += '<button class="btn-save btn-sm" data-payment-storno="' + item.id + '" style="background:var(--color-danger,#c44)">STORNO</button>';
   } else if (item.storno) {
@@ -171,6 +181,26 @@ async function printCopy(id) {
   }
 }
 
+function confirmRefiscalize(id) {
+  showConfirm(
+    'Re-fiškalizovať platbu',
+    'Pošle nový fiškálny request pre platbu #' + id + ' s reálnymi položkami pod novým externalId. Pôvodný fiškálny záznam bude nahradený a kópia bonu sa hneď vytlačí na CHDU. Použiť keď blok nevyšiel alebo vyšiel cudzí.',
+    async function () {
+      try {
+        var r = await api.refiscalizePayment(id);
+        var st = (r && r.fiscal && r.fiscal.status) || 'ok';
+        var printed = r && r.print && r.print.printed;
+        showToast('Re-fiškalizácia OK (' + st + ')' + (printed ? ' · blok vytlačený' : ' · blok v queue'), true);
+        await loadHistory();
+      } catch (e) {
+        var msg = (e && e.data && (e.data.error || e.data.detail)) || e.message || 'Re-fiškalizácia zlyhala';
+        showToast(msg, 'error');
+      }
+    },
+    { type: 'danger', confirmText: 'Re-fiškalizovať' },
+  );
+}
+
 function confirmStorno(id) {
   showConfirm(
     'Fiškálne STORNO',
@@ -199,6 +229,11 @@ function onClick(event) {
   var copy = event.target.closest('[data-payment-copy]');
   if (copy) {
     printCopy(Number(copy.dataset.paymentCopy));
+    return;
+  }
+  var refisc = event.target.closest('[data-payment-refiscalize]');
+  if (refisc) {
+    confirmRefiscalize(Number(refisc.dataset.paymentRefiscalize));
     return;
   }
   if (event.target.id === 'btnPaymentsRefresh' || event.target.closest('#btnPaymentsRefresh')) {
