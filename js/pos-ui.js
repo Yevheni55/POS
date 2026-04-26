@@ -245,7 +245,7 @@ function showSauceSelector(comboName, callback) {
     + '<div class="u-modal-text">' + comboName + '</div>'
     + '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px">' + sauceBoxes + '</div>'
     + '<div class="u-modal-btns" style="gap:8px">'
-    + '<button class="u-btn u-btn-ghost" id="sauceNone">Bez omáčky</button>'
+    + '<button class="u-btn u-btn-ice" id="sauceNone">Bez omáčky</button>'
     + '<button class="u-btn u-btn-ice" id="sauceConfirm">Potvrdiť</button>'
     + '</div>'
     + '</div>';
@@ -289,6 +289,43 @@ function showSauceSelector(comboName, callback) {
     finishClose();
     if (callback) callback(picked);
   });
+}
+
+// Manager-PIN wrapper that surfaces WHAT the cashier is about to authorise
+// (e.g. "Storno: 3× Cola (4.50 €)") above the PIN input. Without this header
+// the manager sees the same generic prompt for every storno and has to take
+// the cashier's word for the impact.
+//
+// Delegates to requireManagerPin() in pos-payments.js for the actual modal
+// open + verify flow; we just inject/refresh a context line into the static
+// modal body each time it opens.
+//
+// Signature is (contextLabel, callback) but we keep back-compat with the
+// older (callback) shape so any existing single-arg caller still works.
+function showManagerPin(contextLabel, callback) {
+  // Back-compat: if the first arg is the callback, shift.
+  if (typeof contextLabel === 'function' && callback === undefined) {
+    callback = contextLabel;
+    contextLabel = '';
+  }
+  var modal = document.getElementById('managerPinModal');
+  if (modal) {
+    var body = modal.querySelector('.u-modal-body');
+    var ctxEl = modal.querySelector('.manager-pin-context');
+    if (contextLabel) {
+      if (!ctxEl && body) {
+        ctxEl = document.createElement('div');
+        ctxEl.className = 'manager-pin-context';
+        ctxEl.style.cssText = 'font-size:14px;color:var(--color-text-muted, rgba(255,255,255,.7));margin-bottom:12px;text-align:center';
+        body.insertBefore(ctxEl, body.firstChild);
+      }
+      if (ctxEl) ctxEl.textContent = contextLabel;
+    } else if (ctxEl) {
+      // No context this time — clear the previous one rather than leak it.
+      ctxEl.textContent = '';
+    }
+  }
+  requireManagerPin(callback);
 }
 
 // Drag logic

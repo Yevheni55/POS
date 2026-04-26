@@ -72,6 +72,7 @@ function toggleEdit(){
   document.getElementById('editToggle').classList.toggle('active',editMode);
   document.getElementById('editLabel').textContent=editMode?'Hotovo':'Upravit';
   document.getElementById('floorCanvas').classList.toggle('edit-mode',editMode);
+  document.body.classList.toggle('edit-mode',editMode);
   if(!editMode)savePositions();
   renderFloor();
 }
@@ -241,7 +242,48 @@ async function resolveStornoBasketItem(id, wasPrepared) {
   }
 }
 
+// Confirm overlay before destructive delete — admin can mis-tap × under stress
+// (it sits next to 🔄 Vrátiť / 🔥 Odpísať). Cancel/Esc/backdrop = no API call.
+function _confirmStornoDelete(label) {
+  return new Promise(function (resolve) {
+    var ov = document.createElement('div');
+    ov.className = 'u-overlay';
+    ov.id = 'stornoDeleteConfirm';
+    ov.innerHTML =
+      '<div class="u-modal" role="dialog" aria-modal="true" style="max-width:380px;text-align:center">' +
+        '<div style="font-size:36px;margin-bottom:8px">⚠️</div>' +
+        '<div class="u-modal-title">Naozaj zmazať záznam?</div>' +
+        '<div class="u-modal-text" style="margin:8px 0 18px">' + escHtml(label) + '<br><span style="opacity:.7;font-size:13px">Sklad sa nedotkne — záznam jednoducho zmizne z prehľadu.</span></div>' +
+        '<div class="u-modal-btns" style="gap:12px">' +
+          '<button type="button" class="u-btn u-btn-ghost" id="stornoDelCancel">Zrušiť</button>' +
+          '<button type="button" class="u-btn u-btn-rose" id="stornoDelOk">Zmazať</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(ov);
+    requestAnimationFrame(function () { ov.classList.add('show'); });
+
+    function close(result) {
+      ov.classList.remove('show');
+      setTimeout(function () { if (ov.parentNode) ov.remove(); }, 250);
+      resolve(result);
+    }
+    ov.querySelector('#stornoDelCancel').addEventListener('click', function () { close(false); });
+    ov.querySelector('#stornoDelOk').addEventListener('click', function () { close(true); });
+    ov.addEventListener('click', function (e) { if (e.target === ov) close(false); });
+    document.addEventListener('keydown', function escH(ev) {
+      if (ev.key === 'Escape') { document.removeEventListener('keydown', escH, true); close(false); }
+    }, true);
+  });
+}
+
 async function deleteStornoBasketItem(id) {
+  // Find the basket item so we can show its name in the confirm
+  var cache = (typeof _stornoBasketCache !== 'undefined') ? _stornoBasketCache : null;
+  var items = (cache && cache.items) || [];
+  var item = items.find(function (x) { return x.id === id; });
+  var label = item ? (item.qty + '× ' + item.itemName) : ('záznam #' + id);
+  var ok = await _confirmStornoDelete(label);
+  if (!ok) return;
   try {
     await api.del('/storno-basket/' + id);
     showToast('Záznam zmazaný', true);
@@ -527,18 +569,25 @@ function renderOrder(){
     const esc=o.name.replace(/'/g,"\\'");
     const _isSent=o.sent;
     const _moveSelected=moveMode&&moveSelectedItems.indexOf(o.id)>=0;
+    // Companion rows (auto-mirrored qty, e.g. Záloha fľaša) get a small chain badge
+    // so cashiers know "where this row came from" — primary stays unchanged.
+    const _isCompanion=!!o._companionOf;
+    const _parent=_isCompanion?order.find(function(p){return p.id===o._companionOf}):null;
+    const _parentName=_parent?_parent.name:'';
+    const _companionBadge=_isCompanion?`<span class="companion-badge" title="Auto: viazane na ${escHtml(_parentName)}" style="margin-left:6px;opacity:.6;font-size:14px">&#128279;</span>`:'';
+    const _companionTitleAttr=_isCompanion?` title="Auto: viazane na ${escHtml(_parentName)}"`:'';
     if(moveMode){
-      return `<div class="order-item-wrap${_moveSelected?' move-selected':''}" data-item-id="${o.id}" onclick="toggleMoveSelection(${o.id})">
+      return `<div class="order-item-wrap${_moveSelected?' move-selected':''}" data-item-id="${o.id}"${_companionTitleAttr} onclick="toggleMoveSelection(${o.id})">
   <div class="order-item-inner${_isSent?' sent':''}"><div class="move-sel">${_moveSelected?'&#10003;':''}</div><span class="order-item-emoji">${escHtml(o.emoji)}</span>
   <div class="order-item-info"><div class="order-item-name">${escHtml(o.name)}</div>${o.note?`<div class="order-item-note">${escHtml(o.note)}</div>`:''}</div>
-  <span class="order-item-total">${o.qty}x &middot; ${fmt(o.price*o.qty)}</span></div>
+  <span class="order-item-total">${o.qty}x${_companionBadge} &middot; ${fmt(o.price*o.qty)}</span></div>
 </div>`;
     }
-    return `<div class="order-item-wrap" data-item-id="${o.id}" ontouchstart="swipeStart(event,this)" ontouchmove="swipeMove(event,this)" ontouchend="swipeEnd(event,this)" onmousedown="swipeStart(event,this)" onmousemove="swipeMove(event,this)" onmouseup="swipeEnd(event,this)">
+    return `<div class="order-item-wrap" data-item-id="${o.id}"${_companionTitleAttr} ontouchstart="swipeStart(event,this)" ontouchmove="swipeMove(event,this)" ontouchend="swipeEnd(event,this)" onmousedown="swipeStart(event,this)" onmousemove="swipeMove(event,this)" onmouseup="swipeEnd(event,this)">
   <div class="order-item-inner${_isSent?' sent':''}"><span class="order-item-emoji">${escHtml(o.emoji)}</span>
   <div class="order-item-info order-item-info--note" role="button" tabindex="0" onclick="openNoteModal('${esc}', ${o.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openNoteModal('${esc}', ${o.id});}"><div class="order-item-name">${escHtml(o.name)}</div>${o.note?`<div class="order-item-note">${escHtml(o.note)}</div>`:'<div class="order-item-note order-item-note-placeholder">+ poznamka</div>'}</div>
   <button class="order-item-move" onclick="enterMoveMode(${o.id})" aria-label="Presunut">&#8599;</button>
-  <div class="order-item-qty"><button class="qty-btn" onclick="changeQty('${esc}', -1, ${o.id})" onpointerdown="startQtyHold('${esc}', -1, ${o.id})">&minus;</button><span class="qty-val">${o.qty}</span><button class="qty-btn" onclick="changeQty('${esc}', 1, ${o.id})" onpointerdown="startQtyHold('${esc}', 1, ${o.id})">+</button></div>
+  <div class="order-item-qty"><button class="qty-btn" onclick="changeQty('${esc}', -1, ${o.id})" onpointerdown="startQtyHold('${esc}', -1, ${o.id})">&minus;</button><span class="qty-val">${o.qty}</span>${_companionBadge}<button class="qty-btn" onclick="changeQty('${esc}', 1, ${o.id})" onpointerdown="startQtyHold('${esc}', 1, ${o.id})">+</button></div>
   <div class="order-item-total">${fmt(o.price*o.qty)}</div></div>
   <div class="order-item-swipe-left"><button class="swipe-btn swipe-btn-move" onclick="enterMoveMode(${o.id})" aria-label="Presunut polozku">&#8599;</button><button class="swipe-btn swipe-btn-note" onclick="openNoteModal('${esc}', ${o.id})" aria-label="Poznamka">&#9998;</button><button class="swipe-btn swipe-btn-del" onclick="removeItem('${esc}')" aria-label="Odstranit polozku">&#10005;</button></div>
 </div>`}).join('')}

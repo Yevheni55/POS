@@ -408,6 +408,11 @@ function closeManagerPinModal() {
 async function sendToKitchen() {
   await syncOrderToServer();
 
+  var btn = null;
+  var mobBtn = null;
+  var btnOriginalHTML = null;
+  var mobBtnOriginalHTML = null;
+
   try {
     var stornoResult = await flushPendingStornoTickets();
     if (stornoResult && stornoResult.printed) {
@@ -421,10 +426,20 @@ async function sendToKitchen() {
       return;
     }
 
-    var btn = document.getElementById('btnSend');
-    var mobBtn = document.getElementById('mobBtnSend');
-    if (btn) btnLoading(btn);
-    if (mobBtn) btnLoading(mobBtn);
+    btn = document.getElementById('btnSend');
+    mobBtn = document.getElementById('mobBtnSend');
+    if (btn) {
+      btnOriginalHTML = btn.innerHTML;
+      btn.disabled = true;
+      btn.style.pointerEvents = 'none';
+      btn.innerHTML = '<span class="btn-spinner"></span>Posielam…';
+    }
+    if (mobBtn) {
+      mobBtnOriginalHTML = mobBtn.innerHTML;
+      mobBtn.disabled = true;
+      mobBtn.style.pointerEvents = 'none';
+      mobBtn.innerHTML = '<span class="btn-spinner"></span>Posielam…';
+    }
 
     var result = await api.post('/orders/' + currentOrderId + '/send-and-print', {});
 
@@ -448,9 +463,26 @@ async function sendToKitchen() {
     console.error('sendToKitchen error:', e);
     showToast('Chyba: ' + e.message);
   } finally {
-    if (btn) btnReset(btn);
-    if (mobBtn) btnReset(mobBtn);
+    if (btn) {
+      if (btnOriginalHTML !== null) btn.innerHTML = btnOriginalHTML;
+      btn.disabled = false;
+      btn.style.pointerEvents = '';
+    }
+    if (mobBtn) {
+      if (mobBtnOriginalHTML !== null) mobBtn.innerHTML = mobBtnOriginalHTML;
+      mobBtn.disabled = false;
+      mobBtn.style.pointerEvents = '';
+    }
   }
+}
+
+// One-time spinner style for the "Posielam..." button state in sendToKitchen.
+// Lives here (not in css/pos.css) because js/pos-payments.js owns this UX bit.
+if (typeof document !== 'undefined' && !document.getElementById('btn-spinner-style')) {
+  var _btnSpinnerStyle = document.createElement('style');
+  _btnSpinnerStyle.id = 'btn-spinner-style';
+  _btnSpinnerStyle.textContent = '@keyframes btn-spin{to{transform:rotate(360deg)}}.btn-spinner{display:inline-block;width:14px;height:14px;margin-right:6px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:btn-spin .8s linear infinite;vertical-align:-2px}';
+  document.head.appendChild(_btnSpinnerStyle);
 }
 
 // printTicket removed - printing now via /api/print/kitchen

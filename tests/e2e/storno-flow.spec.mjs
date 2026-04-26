@@ -162,6 +162,10 @@ test('Admin × deletes basket entry without touching stock', async ({ page }) =>
   await page.locator('#stornoChip').click();
   const overlay = page.locator('#stornoBasketModal');
   await overlay.locator('button.storno-action-delete').first().click();
+  // × now opens a confirm overlay first — must click Zmazať to actually delete.
+  const confirmOv = page.locator('#stornoDeleteConfirm');
+  await expect(confirmOv).toBeVisible();
+  await confirmOv.locator('#stornoDelOk').click();
   await expect(page.locator('.toast-item .toast-message').last()).toContainText(/zmazaný/i);
 
   const pg = await import('pg');

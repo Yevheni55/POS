@@ -509,7 +509,7 @@ function _promptStornoReasonAndWriteOff(s) {
       wasPrepared: !result.returnToStock,
       orderId: s.oid || null,
     }).then(function () {
-      showToast('Storno zaznamenane (caka na admin)', true);
+      showToast('✔ Storno zapísané', true);
     }).catch(function (e) {
       console.error('storno-basket POST error:', e);
       showToast('Storno zapis zlyhal: ' + (e && e.message), 'error');
@@ -678,7 +678,10 @@ async function removeItem(name){
   // If sent and user is cisnik (not manazer/admin), require manager PIN
   var user = api.getUser();
   if (item.sent && user && user.role === 'cisnik') {
-    requireManagerPin(function() { doRemoveItem(name); });
+    var _stQty = item._sentQty || item.qty || 1;
+    var _stPrice = typeof item.price === 'number' ? item.price : 0;
+    var _ctx = 'Storno: ' + _stQty + '× ' + name + ' (' + (_stPrice * _stQty).toFixed(2) + ' €)';
+    showManagerPin(_ctx, function() { doRemoveItem(name); });
     return;
   }
 
@@ -758,7 +761,13 @@ async function clearOrder(){
     });
     var user = api.getUser();
     if (hasSentItems && user && user.role === 'cisnik') {
-      requireManagerPin(function() { doClearOrder(); });
+      var _orderTotal = getOrder().reduce(function(sum, it) {
+        var p = typeof it.price === 'number' ? it.price : 0;
+        var q = typeof it.qty === 'number' ? it.qty : 0;
+        return sum + p * q;
+      }, 0);
+      var _ctx = 'Storno celej objednávky (' + _orderTotal.toFixed(2) + ' €)';
+      showManagerPin(_ctx, function() { doClearOrder(); });
       return;
     }
     await doClearOrder();

@@ -94,16 +94,14 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
     radial-gradient(circle at 1px 1px, rgba(255,255,255,.03) 1px, transparent 0) 0 0 / 40px 40px;
 }
 
-/* STORNO chip — sticky in top-right of floor canvas */
+/* STORNO chip — fixed in top-right of viewport, just below header */
 .table-chip.storno-chip{
-  position:sticky; left:auto; top:12px; right:12px; margin-left:auto;
+  position:fixed; top:80px; right:12px; left:auto; z-index:50;
   background:linear-gradient(135deg,rgba(224,112,112,.12),rgba(224,112,112,.22));
   border-color:rgba(224,112,112,.45); border-left-color:var(--color-danger);
   cursor:pointer; box-shadow:0 4px 14px rgba(224,112,112,.16);
   display:inline-flex; flex-direction:column; align-items:flex-start;
   width:auto; min-width:130px; padding:10px 14px;
-  /* Make it float in the top-right corner of the scroll viewport */
-  float:right; margin-right:12px; margin-top:12px;
 }
 .table-chip.storno-chip .chip-name{color:var(--color-danger);font-size:18px}
 .table-chip.storno-chip .chip-badge{background:var(--color-danger);color:#fff;font-size:12px;padding:2px 8px}
@@ -706,7 +704,7 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
 .help-keys-table td{padding:6px var(--space-2);vertical-align:middle}
 .help-keys-table kbd{background:var(--surface-card);border:1px solid var(--border-default);border-radius:var(--radius-xs);padding:2px var(--space-2);font-family:inherit;font-size:var(--text-base);font-weight:var(--weight-semibold)}
 /* .u-btn-new-account removed — old move account modal */
-.manager-pin-input{text-align:center;font-size:var(--text-7xl);letter-spacing:8px;font-variant-numeric:tabular-nums}
+.manager-pin-input{text-align:center;font-size:var(--text-5xl);letter-spacing:6px;font-variant-numeric:tabular-nums}
 .manager-pin-error{color:var(--action-danger);font-size:var(--text-base);text-align:center;margin-top:var(--space-2)}
 .u-modal-loading{text-align:center;color:var(--text-muted);padding:var(--space-3)}
 .order-tab-merge{color:var(--action-primary);border-color:var(--action-primary-border);font-size:var(--text-lg);padding:6px 10px;align-items:center;justify-content:center}
@@ -796,6 +794,27 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
   .u-modal-amount{font-size:64px}
   .storno-reason-btn{padding:18px 20px;font-size:17px}
   .admin-btn,.logout-btn{font-size:15px;padding:10px 16px;min-height:44px}
+  /* Footer action row (Zlava / Rozdelit / Presun) — bigger touch targets */
+  .extra-row{gap:12px}
+  .extra-row .btn-discount,
+  .extra-row .btn-split,
+  .extra-row .btn-move{
+    min-height:48px;
+    font-size:var(--text-sm);
+    padding:var(--space-3) var(--space-4);
+  }
+  /* Storno bucket modal action buttons (Vrátiť / Odpísať / ×) */
+  .storno-row-actions{gap:12px}
+  .storno-row-actions .u-btn{min-height:48px;padding:12px 18px;font-size:var(--text-sm)}
+  .storno-row-actions .storno-action-return,
+  .storno-row-actions .storno-action-writeoff{min-height:48px;padding:12px 18px}
+  .storno-row-actions .storno-action-delete{
+    min-height:48px;padding:12px 18px;margin-left:16px;font-size:18px;
+  }
+  /* Order panel typography — comfortable arm's-length read */
+  .order-item-name{font-size:24px;font-weight:600}
+  .order-item-price{font-size:20px;font-variant-numeric:tabular-nums}
+  .order-item-wrap{min-height:56px}
 }
 .admin-btn{
   padding:var(--space-2) var(--space-4);border-radius:var(--radius-sm);border:1px solid var(--color-accent-border);
@@ -1320,7 +1339,7 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
    per line. */
 @media (min-width:769px) and (max-width:1366px) and (pointer:coarse){
   .order-panel{width:480px}
-  .order-item-wrap{overflow:visible;padding:8px 6px}
+  .order-item-wrap{overflow:visible;padding:8px 6px;min-height:56px}
   .order-item-inner{
     display:grid;
     grid-template-columns:auto 1fr auto;
@@ -1333,7 +1352,7 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
   }
   .order-item-info{grid-area:info;min-width:0;max-width:none}
   .order-item-name{
-    font-size:22px;font-weight:var(--weight-bold);
+    font-size:24px;font-weight:600;
     white-space:normal;overflow:visible;text-overflow:clip;
     max-width:none;line-height:1.2;word-break:break-word;
     color:var(--text-primary);
@@ -1344,4 +1363,33 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
   .order-item-qty{grid-area:qty;justify-self:start;flex-shrink:0}
   .order-item-qty .qty-btn{width:48px;height:48px;font-size:24px}
   .order-item-total{grid-area:total;justify-self:end;font-size:26px;font-weight:var(--weight-extrabold);white-space:nowrap}
+}
+
+/* Floor edit mode — make it obvious a tap will drag, not select */
+body.edit-mode .table-chip {
+  cursor: move;
+  box-shadow: 0 0 0 2px var(--color-warning, #E0A830) inset, 0 4px 16px rgba(224,168,48,.25);
+  animation: edit-pulse 1.6s ease-in-out infinite;
+}
+body.edit-mode .table-chip::after {
+  content: "✥";
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  font-size: 14px;
+  opacity: .8;
+  color: var(--color-warning, #E0A830);
+  pointer-events: none;
+}
+body.edit-mode .table-chip.storno-chip {
+  /* The storno chip isn't draggable — exclude it from the indicator */
+  animation: none;
+  box-shadow: none;
+  cursor: pointer;
+}
+body.edit-mode .table-chip.storno-chip::after { content: none; }
+body.edit-mode #editToggle { background: var(--color-warning, #E0A830); color: #1a1a1a; font-weight: 700; }
+@keyframes edit-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px var(--color-warning, #E0A830) inset, 0 4px 16px rgba(224,168,48,.25); }
+  50%      { box-shadow: 0 0 0 2px var(--color-warning, #E0A830) inset, 0 4px 22px rgba(224,168,48,.45); }
 }
