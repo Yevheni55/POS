@@ -156,22 +156,31 @@ router.post('/:id/resolve', requireRole('manazer', 'admin'), asyncRoute(async (r
         .set({ resolvedAt: new Date(), resolvedByStaffId: req.user.id })
         .where(eq(stornoBasket.id, id));
 
-      const eventType = out.action === 'returned' ? 'storno_basket_returned' : 'storno_basket_write_off';
-      logEvent(tx, {
-        orderId: row.order_id,
-        type: eventType,
-        payload: {
-          basketId: id, menuItemId: row.menu_item_id, qty: row.qty,
-          reason, wasPrepared, writeOffId: out.writeOffId, totalCost: out.totalCost,
-        },
-        staffId: req.user.id,
-      }).catch(() => {});
-
-      return out;
+      // Audit logging is INTENTIONALLY done outside the transaction (after
+      // commit) — order_id on the basket row may point to an auto-deleted
+      // empty order, and order_events.order_id has a NOT NULL FK that would
+      // abort the resolve transaction (silently rolling back the stock
+      // change) if we tried to insert with tx.
+      return { out, eventOrderId: row.order_id, reason, wasPrepared };
     });
 
+    const { out, eventOrderId, reason: resolvedReason, wasPrepared: resolvedWasPrepared } = result;
+    const eventType = out.action === 'returned' ? 'storno_basket_returned' : 'storno_basket_write_off';
+    if (eventOrderId) {
+      logEvent(db, {
+        orderId: eventOrderId,
+        type: eventType,
+        payload: {
+          basketId: id, menuItemId: out.menuItemId, qty: out.qty,
+          reason: resolvedReason, wasPrepared: resolvedWasPrepared,
+          writeOffId: out.writeOffId, totalCost: out.totalCost,
+        },
+        staffId: req.user.id,
+      }).catch((e) => console.warn('storno_basket audit log skipped:', e && e.message));
+    }
+
     emitEvent(req, 'storno-basket:updated', { id, action: 'resolved' });
-    res.json({ ok: true, result });
+    res.json({ ok: true, result: out });
   } catch (e) {
     if (e && e.status === 404) return res.status(404).json({ error: 'Záznam nenájdený' });
     if (e && e.status === 409) return res.status(409).json({ error: 'Už spracované' });
