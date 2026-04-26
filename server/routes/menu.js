@@ -1,11 +1,11 @@
 import { Router } from 'express';
-import { eq, asc } from 'drizzle-orm';
+import { eq, asc, sql } from 'drizzle-orm';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 import { db } from '../db/index.js';
-import { menuCategories, menuItems } from '../db/schema.js';
+import { menuCategories, menuItems, orderItems, orders } from '../db/schema.js';
 import { formatSupportedVatRates, inferVatRateForMenuItem, isSupportedVatRate } from '../lib/menu-vat.js';
 import { requireRole } from '../middleware/requireRole.js';
 import { validate } from '../middleware/validate.js';
@@ -82,6 +82,35 @@ router.get('/', async (req, res) => {
   }));
 
   res.json(menu);
+});
+
+// GET /api/menu/top — top-selling items in the last 14 days, used by the
+// "Najcastejsie" pseudo-category in the cashier UI for one-tap access.
+// Empty fallback (fresh install / no orders yet): first 12 active items by id.
+router.get('/top', async (req, res) => {
+  const rows = await db.select({
+    ...menuItemSelect,
+    totalQty: sql`SUM(${orderItems.qty})::int`,
+  })
+  .from(orderItems)
+  .innerJoin(orders, eq(orderItems.orderId, orders.id))
+  .innerJoin(menuItems, eq(orderItems.menuItemId, menuItems.id))
+  .where(sql`${orders.createdAt} > NOW() - INTERVAL '14 days' AND ${menuItems.active} = true`)
+  .groupBy(menuItems.id)
+  .orderBy(sql`SUM(${orderItems.qty}) DESC`)
+  .limit(12);
+
+  if (rows.length) {
+    return res.json(rows.map(r => ({ ...normalizeMenuItem(r), totalQty: Number(r.totalQty) || 0 })));
+  }
+
+  // Fallback for fresh systems without order history yet.
+  const fallback = await db.select(menuItemSelect)
+    .from(menuItems)
+    .where(eq(menuItems.active, true))
+    .orderBy(asc(menuItems.id))
+    .limit(12);
+  res.json(fallback.map(item => ({ ...normalizeMenuItem(item), totalQty: 0 })));
 });
 
 // POST /api/menu/categories (manazer/admin only)

@@ -208,6 +208,11 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
 .search-icon{position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:18px;color:var(--color-text-sec);pointer-events:none}
 .search-hint{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:var(--text-2xs);color:var(--color-text-dim);padding:2px 6px;border-radius:var(--radius-xs);border:1px solid var(--color-border);font-weight:var(--weight-semibold);pointer-events:none;font-family:monospace}
 
+/* Wrapper around categories + products-grid. On desktop it behaves as a
+   transparent flex-column passthrough (children flow vertically just like
+   before this wrapper existed). On tablet it flips to a horizontal row,
+   turning the categories strip into a left-side sidebar. */
+.cat-grid-wrap{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden}
 .categories{display:flex;gap:3px;margin-bottom:6px;flex-shrink:0;overflow-x:auto;scrollbar-width:none}
 .categories::-webkit-scrollbar{display:none}
 .cat-btn{padding:var(--space-2) var(--space-4);border-radius:var(--radius-sm);border:1px solid var(--color-border);background:transparent;color:var(--text-secondary);font-family:var(--font-body);font-size:var(--text-md);font-weight:var(--weight-semibold);cursor:pointer;white-space:nowrap;transition:all var(--transition-fast)}
@@ -815,6 +820,43 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
   .order-item-name{font-size:24px;font-weight:600}
   .order-item-price{font-size:20px;font-variant-numeric:tabular-nums}
   .order-item-wrap{min-height:56px}
+
+  /* === TABLET CATEGORIES SIDEBAR ===
+     Flip cat-grid-wrap to a horizontal row so .categories becomes a
+     fixed-width vertical sidebar on the left of the products grid.
+     Search bar stays full-width above (untouched). */
+  .cat-grid-wrap{flex-direction:row;gap:8px;align-items:stretch}
+  .categories{
+    flex:0 0 140px;
+    flex-direction:column;
+    margin-bottom:0;
+    overflow-y:auto;
+    overflow-x:hidden;
+    gap:6px;
+    padding-right:4px;
+    scrollbar-width:thin;
+    scrollbar-color:rgba(255,255,255,.06) transparent;
+  }
+  .categories::-webkit-scrollbar{display:block;width:3px}
+  .categories::-webkit-scrollbar-thumb{background:rgba(255,255,255,.06);border-radius:8px}
+  .cat-btn{
+    width:100%;
+    min-height:64px;
+    padding:8px 4px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:4px;
+    white-space:normal;
+    text-align:center;
+    line-height:1.15;
+    font-size:12px;
+  }
+  .cat-btn .cat-icon{margin-right:0;font-size:22px}
+  .cat-btn .cat-key{display:none}
+  /* Narrower cards so 4–5 columns fit in the reduced-width grid area */
+  .products-grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
 }
 .admin-btn{
   padding:var(--space-2) var(--space-4);border-radius:var(--radius-sm);border:1px solid var(--color-accent-border);

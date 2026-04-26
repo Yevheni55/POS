@@ -25,6 +25,9 @@ let MENU_ITEM_BY_ID = new Map(); // menuItemId -> full item (for companion looku
 let DEST_MAP = {};
 let TABLES = [];
 let ZONES = [];
+// Top-sold items (last 14 days) feeding the "🔥 Najcastejsie" pseudo-category.
+// Refreshed on init + every 5 minutes; see loadTopItems below.
+let TOP_ITEMS = [];
 
 // Storno basket — pending storno entries the cashier queued for admin to process.
 // Refreshed via loadStornoBasket() on init, every 30s poll, and on
@@ -58,6 +61,12 @@ async function loadMenu(data) {
   DEST_MAP = {};
   MENU_ID_MAP = new Map();
   MENU_ITEM_BY_ID = new Map();
+  // Synthetic "Najcastejsie" pseudo-category — must be first so init code that
+  // does `Object.keys(MENU)[0]` lands here, and so renderCategories shows it
+  // as the leading tab. Empty items array keeps existing MENU iteration
+  // helpers (getItemCat / search) safe; renderProducts has a special branch
+  // to pull from TOP_ITEMS instead.
+  MENU['__top__'] = { label: 'Najcastejsie', icon: '🔥', key: 'B00', items: [] };
   MENU_DATA.forEach(cat => {
     MENU[cat.slug] = { label: cat.label, icon: cat.icon, key: cat.sortKey, items: cat.items };
     DEST_MAP[cat.slug] = cat.dest;
@@ -66,7 +75,33 @@ async function loadMenu(data) {
       MENU_ITEM_BY_ID.set(item.id, item);
     });
   });
+  // Fire-and-forget: kick off the top-sold list. Don't block menu load on it —
+  // the pseudo-tab will populate as soon as the request returns and any active
+  // render that's looking at __top__ will pick it up via the helper below.
+  loadTopItems();
 }
+
+// Pull the top-sold items from the server. Items come back with full menu
+// fields (id, name, emoji, price, imageUrl…) so the existing product-card
+// template can render them directly. Failures keep the previous list — the
+// pseudo-tab just stays "stale" until the next 5-minute tick succeeds.
+async function loadTopItems() {
+  try {
+    var data = api.getTopItems ? await api.getTopItems() : await api.get('/menu/top');
+    TOP_ITEMS = Array.isArray(data) ? data : [];
+    if (typeof activeCategory !== 'undefined' && activeCategory === '__top__'
+        && typeof renderProducts === 'function' && typeof currentView !== 'undefined'
+        && currentView === 'products') {
+      renderProducts();
+    }
+  } catch (e) {
+    console.warn('loadTopItems failed:', e && e.message);
+  }
+}
+
+// Refresh the "Najcastejsie" feed every 5 minutes so it tracks the day's
+// real ordering pattern without a per-payment hook.
+setInterval(loadTopItems, 5 * 60 * 1000);
 
 async function loadTables(data) {
   TABLES = data || await api.get('/tables');
@@ -267,7 +302,9 @@ function getUserRole() {
 }
 
 // ===== STATE =====
-let currentView='tables', activeZone='interior', selectedTableId=null, activeCategory=null;
+// activeCategory defaults to the "Najcastejsie" pseudo-tab so the cashier
+// lands on the most-frequent items without drilling into a real category.
+let currentView='tables', activeZone='interior', selectedTableId=null, activeCategory='__top__';
 let searchQuery='', tipPercent=0, noteItemName=null, noteItemId=null, pendingPaymentMethod=null;
 let editMode=false;
 let currentOrderId=null;

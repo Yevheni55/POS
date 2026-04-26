@@ -181,6 +181,12 @@ const api = {
     return this._menuCache;
   },
 
+  // Top-sold items in the last 14 days — backs the "Najcastejsie" pseudo-tab.
+  // Not cached client-side: pos-state.js manages refresh cadence.
+  getTopItems() {
+    return this.request('/menu/top', { method: 'GET' });
+  },
+
   getPortosStatus() {
     return this.get('/integrations/portos/status');
   },

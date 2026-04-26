@@ -428,6 +428,22 @@ function renderProducts(){
     Object.entries(MENU).forEach(([cat,c])=>{c.items.forEach(i=>{
       if(i.name.toLowerCase().includes(searchQuery)||i.desc.toLowerCase().includes(searchQuery)){items.push(i);itemCats[i.name]=cat}
     })});
+  } else if (activeCategory === '__top__') {
+    // "Najcastejsie" pseudo-category — TOP_ITEMS already carries the same
+    // shape as MENU[*].items, so the existing product-card template Just Works.
+    // Map each row back to its real category so the per-card accent color
+    // (CAT_COLORS lookup in the template) still matches its origin tab.
+    var topList = (typeof TOP_ITEMS !== 'undefined' && Array.isArray(TOP_ITEMS)) ? TOP_ITEMS : [];
+    items = topList;
+    items.forEach(function(i){
+      var realCat = null;
+      Object.entries(MENU).forEach(function(entry){
+        var cat = entry[0]; var c = entry[1];
+        if (cat === '__top__') return;
+        if (c.items && c.items.some(function(m){ return m.id === i.id; })) realCat = cat;
+      });
+      itemCats[i.name] = realCat || 'jedlo';
+    });
   } else {
     if (!activeCategory || !MENU[activeCategory]) { grid.innerHTML=''; return; }
     items=MENU[activeCategory].items;
