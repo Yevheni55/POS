@@ -464,7 +464,8 @@ function renderProducts(){
     const visualHtml = item.imageUrl
       ? `<div class="product-photo" style="background-image:url('${escHtml(item.imageUrl)}')"></div>`
       : `<span class="product-emoji">${escHtml(item.emoji)}</span>`;
-    return `<div class="product-card${item.imageUrl?' has-photo':''}" data-name="${escHtml(item.name)}" tabindex="0" role="button" style="--cat-color:${cc}" onclick="addToOrder('${item.name.replace(/'/g,"\\'")}','${item.emoji}',${item.price})" onpointerdown="ripple(event)">
+    var _esc=item.name.replace(/'/g,"\\'");
+    return `<div class="product-card${item.imageUrl?' has-photo':''}" data-name="${escHtml(item.name)}" tabindex="0" role="button" style="--cat-color:${cc}" onclick="addToOrderClick('${_esc}','${item.emoji}',${item.price})" onpointerdown="ripple(event);_lpStart(event,'${_esc}','${item.emoji}',${item.price})" onpointerup="_lpCancel()" onpointerleave="_lpCancel()" onpointercancel="_lpCancel()" oncontextmenu="event.preventDefault()">
       ${qtyBadge}${visualHtml}<div class="product-name">${escHtml(item.name)}</div><div class="product-desc">${escHtml(item.desc)}</div><div class="product-price">${fmt(item.price)}</div></div>`;
   }).join('');
 }
@@ -519,6 +520,158 @@ function ripple(e){
   setTimeout(()=>card.classList.remove('ripple'),400);
 }
 
+// ===== Long-press qty popup on product cards =====
+// 5 people order Pivo → 1 long-press → tap +5 instead of 5 separate taps.
+// Detector lives on the card template itself (onpointerdown/up/leave) so we
+// don't have to delegate; the click is then short-circuited by addToOrderClick
+// when _lpFired is true so a single tap still adds 1 normally.
+var _lpTimer = null;
+var _lpFired = false;
+var _lpStartX = 0, _lpStartY = 0;
+function _lpStart(ev, name, emoji, price) {
+  if (ev.button !== undefined && ev.button !== 0) return; // ignore right/middle click
+  _lpFired = false;
+  _lpCancel();
+  _lpStartX = ev.clientX || 0;
+  _lpStartY = ev.clientY || 0;
+  _lpTimer = setTimeout(function () {
+    _lpFired = true;
+    _showQtyPopup(ev, name, emoji, price);
+  }, 500);
+}
+function _lpCancel() {
+  if (_lpTimer) { clearTimeout(_lpTimer); _lpTimer = null; }
+}
+function addToOrderClick(name, emoji, price) {
+  // Long-press already showed the popup; swallow the trailing click.
+  if (_lpFired) { _lpFired = false; return; }
+  addToOrder(name, emoji, price);
+}
+function _showQtyPopup(ev, name, emoji, price) {
+  var existing = document.getElementById('qtyPopup');
+  if (existing) existing.remove();
+
+  var p = document.createElement('div');
+  p.id = 'qtyPopup';
+  p.setAttribute('role', 'dialog');
+  p.setAttribute('aria-label', 'Pridať viac kusov');
+  p.style.cssText = 'position:fixed;z-index:300;display:flex;gap:8px;padding:10px;background:rgba(8,14,20,.96);border:1px solid rgba(255,255,255,.12);border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.5);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)';
+
+  var qtys = [1, 2, 3, 5, 10];
+  qtys.forEach(function (q) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = '+' + q;
+    b.style.cssText = 'min-width:54px;min-height:54px;padding:0;background:var(--color-accent,#8B7CF6);color:#fff;border:none;border-radius:10px;font-size:18px;font-weight:700;cursor:pointer;touch-action:manipulation';
+    b.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (typeof addToOrderN === 'function') addToOrderN(name, emoji, price, q);
+      else { for (var i = 0; i < q; i++) addToOrder(name, emoji, price); }
+      if (p.parentNode) p.remove();
+    });
+    p.appendChild(b);
+  });
+  document.body.appendChild(p);
+
+  // Position near touch — clamp to viewport so the whole row stays visible.
+  var x = ev.clientX || (ev.touches && ev.touches[0] && ev.touches[0].clientX) || _lpStartX || 100;
+  var y = ev.clientY || (ev.touches && ev.touches[0] && ev.touches[0].clientY) || _lpStartY || 100;
+  var rect = p.getBoundingClientRect();
+  var vw = window.innerWidth, vh = window.innerHeight;
+  var left = Math.min(Math.max(8, x - rect.width / 2), vw - rect.width - 8);
+  var top = Math.min(Math.max(8, y - rect.height - 16), vh - rect.height - 8);
+  p.style.left = left + 'px';
+  p.style.top = top + 'px';
+
+  // Dismiss on outside tap (defer to skip the same pointer event that opened it).
+  setTimeout(function () {
+    function dismiss(e) {
+      if (!p.contains(e.target)) {
+        if (p.parentNode) p.remove();
+        document.removeEventListener('pointerdown', dismiss, true);
+        document.removeEventListener('keydown', escDismiss, true);
+      }
+    }
+    function escDismiss(e) {
+      if (e.key === 'Escape') {
+        if (p.parentNode) p.remove();
+        document.removeEventListener('pointerdown', dismiss, true);
+        document.removeEventListener('keydown', escDismiss, true);
+      }
+    }
+    document.addEventListener('pointerdown', dismiss, true);
+    document.addEventListener('keydown', escDismiss, true);
+  }, 0);
+}
+
+// ===== Live table status badge in the order panel header =====
+// Sits next to "Stol N" so the cashier sees, at a glance, whether the table
+// is free, just opened (dwell time), or has items already in the kitchen.
+function _renderTableStatus() {
+  var label = document.getElementById('orderTableLabel');
+  if (!label || !label.parentNode) return;
+  var el = document.getElementById('tableStatusBadge');
+  if (!el) {
+    el = document.createElement('span');
+    el.id = 'tableStatusBadge';
+    el.style.cssText = 'display:inline-block;margin-left:10px;font-size:12px;font-weight:600;padding:3px 8px;border-radius:8px;letter-spacing:.3px;vertical-align:middle;white-space:nowrap';
+    label.parentNode.insertBefore(el, label.nextSibling);
+  }
+
+  var t = (typeof TABLES !== 'undefined' && Array.isArray(TABLES) && typeof selectedTableId !== 'undefined')
+    ? TABLES.find(function (x) { return x.id === selectedTableId; })
+    : null;
+
+  // No table selected → hide the badge.
+  if (!t) { el.style.display = 'none'; el.textContent = ''; return; }
+  el.style.display = 'inline-block';
+
+  var status = t.status;
+
+  // Pick the active order for time + sent-qty stats.
+  var ord = null;
+  if (typeof tableOrdersList !== 'undefined' && tableOrdersList.length) {
+    ord = tableOrdersList.find(function (o) { return o.id === currentOrderId; }) || tableOrdersList[0];
+  }
+
+  var minutesOpen = null;
+  if (ord && ord.createdAt) {
+    var ms = Date.now() - new Date(ord.createdAt).getTime();
+    if (!isNaN(ms) && ms >= 0) minutesOpen = Math.floor(ms / 60000);
+  }
+
+  // Items already sent to kitchen (server-side flag mirrored locally).
+  var sentQty = 0;
+  var localItems = (typeof tableOrders !== 'undefined' && tableOrders[selectedTableId]) || [];
+  for (var i = 0; i < localItems.length; i++) {
+    if (localItems[i] && localItems[i].sent) sentQty += (localItems[i].qty || 0);
+  }
+  // If we have no local items yet but the active order from the server has sent items, fall back to it.
+  if (!sentQty && ord && ord.items) {
+    for (var j = 0; j < ord.items.length; j++) {
+      if (ord.items[j] && ord.items[j].sent) sentQty += (ord.items[j].qty || 0);
+    }
+  }
+
+  var text, bg, fg;
+  if (status === 'free' || (!ord && !localItems.length)) {
+    text = '🟢 voľný'; // 🟢
+    bg = 'rgba(92,196,158,.18)';
+    fg = '#5CC49E';
+  } else if (sentQty > 0) {
+    text = '📤 ' + sentQty + ' ks v kuchyni' + (minutesOpen != null ? ' · ' + minutesOpen + ' min' : ''); // 📤
+    bg = 'rgba(139,124,246,.18)';
+    fg = '#8B7CF6';
+  } else {
+    text = '🟠 otvorený' + (minutesOpen != null ? ' ' + minutesOpen + ' min' : ''); // 🟠
+    bg = 'rgba(224,168,48,.18)';
+    fg = '#E0A830';
+  }
+  el.textContent = text;
+  el.style.background = bg;
+  el.style.color = fg;
+}
+
 function renderOrder(){
   const order=getOrder(),c=document.getElementById('orderItems');
   const countEl=document.getElementById('orderCount');
@@ -527,6 +680,7 @@ function renderOrder(){
   countEl.textContent=newCount;
   countEl.classList.toggle('zero',newCount===0);
   if(newCount!==oldCount&&newCount>0){countEl.classList.add('bump');setTimeout(()=>countEl.classList.remove('bump'),250)}
+  _renderTableStatus();
   // Render account tabs (rich: label + meta with item count & total)
   var tabsEl=document.getElementById('orderTabs');
   var orderPanel=document.getElementById('orderItems');
@@ -726,3 +880,11 @@ document.addEventListener('DOMContentLoaded',function(){
   var dm=document.getElementById('discountModal');
   if(dm)dm.addEventListener('click',function(e){if(e.target===this)closeDiscountModal()});
 });
+
+// Keep the "X min" portion of the order header status badge fresh without
+// forcing a full renderOrder pass.
+setInterval(function(){
+  if (typeof _renderTableStatus === 'function') {
+    try { _renderTableStatus(); } catch (e) { /* badge is non-essential */ }
+  }
+}, 60000);

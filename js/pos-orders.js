@@ -224,6 +224,15 @@ function _queueAddToast(emoji, name, qtyAdded) {
   }, 180);
 }
 
+// Bulk add — used by the long-press qty popup so 5x Pivo is one user gesture.
+// Plain loop over addToOrder is correct (merge-into-existing-row + companion
+// mirroring keep working); the per-call DOM append is cheap for n <= 10.
+function addToOrderN(name, emoji, price, n) {
+  var count = parseInt(n, 10) || 1;
+  if (count < 1) count = 1;
+  for (var i = 0; i < count; i++) addToOrder(name, emoji, price);
+}
+
 function addToOrder(name, emoji, price) {
   var menuItemId = MENU_ID_MAP.get(name);
   if (!menuItemId) return;

@@ -790,6 +790,26 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
   .order-tab{font-size:16px;padding:12px 16px}
   .pos-subtotal-row{font-size:18px}
   .order-panel{width:380px}
+  /* Order total — must dominate the screen so the customer reads it
+     instantly when the cashier turns the tablet ("koľko platím?"). */
+  .sum-total-wrap{
+    border-top:2px solid var(--border-default);
+    padding:14px 0 8px;
+    margin-top:6px;
+    align-items:baseline;
+  }
+  .sum-total-label{
+    font-size:14px;
+    opacity:.7;
+    text-transform:uppercase;
+    letter-spacing:1px;
+  }
+  #total,.sum-total-val{
+    font-size:40px;
+    font-weight:800;
+    font-variant-numeric:tabular-nums;
+    line-height:1.0;
+  }
   .form-input,.form-select,.u-modal-field input,.u-modal-field textarea,.u-modal-field select{height:52px;font-size:17px}
   .u-btn{font-size:17px;min-height:52px;padding:12px 20px}
   .u-modal{padding:36px;min-width:380px;max-width:520px}

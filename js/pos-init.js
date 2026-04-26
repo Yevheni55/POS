@@ -417,3 +417,45 @@ document.getElementById('paymentModal').addEventListener('click',function(e){if(
 document.getElementById('noteModal').addEventListener('click',function(e){if(e.target===this)closeNoteModal()});
 /* moveModal + moveAccountModal removed — replaced by inline move mode + table picker */
 document.getElementById('managerPinModal').addEventListener('click',function(e){if(e.target===this)closeManagerPinModal()});
+
+// iOS-style swipe-back: drag from left edge of order panel to the right (>120px) to return to floor view.
+// Same effect as tapping the small "Stoly" button (#btnTableView) — easier to hit on a tablet.
+(function attachSwipeBack(){
+  if(!('ontouchstart' in window))return;
+  var sx=0,sy=0,st=0,tracking=false;
+  function onStart(e){
+    var panel=document.querySelector('.order-panel');
+    if(!panel||panel.classList.contains('pos-hidden'))return;
+    // Skip if any modal overlay is open
+    if(document.querySelector('.u-overlay.show'))return;
+    var t=e.touches[0];
+    var rect=panel.getBoundingClientRect();
+    // Touch must start INSIDE the panel and within 60px of its left edge
+    if(t.clientX<rect.left||t.clientX>rect.right)return;
+    if(t.clientY<rect.top||t.clientY>rect.bottom)return;
+    if(t.clientX-rect.left>60)return;
+    sx=t.clientX;sy=t.clientY;st=Date.now();tracking=true;
+  }
+  function onMove(e){
+    if(!tracking)return;
+    var t=e.touches[0];
+    var dx=t.clientX-sx,dy=t.clientY-sy;
+    // Cancel if user drags vertically (intends to scroll the order list)
+    if(Math.abs(dy)>40&&Math.abs(dy)>Math.abs(dx))tracking=false;
+  }
+  function onEnd(e){
+    if(!tracking)return;
+    tracking=false;
+    var t=(e.changedTouches&&e.changedTouches[0])||null;
+    if(!t)return;
+    var dx=t.clientX-sx,dy=t.clientY-sy,dt=Date.now()-st;
+    // Threshold: >120px right, <60px vertical drift, <600ms total
+    if(dx>120&&Math.abs(dy)<60&&dt<600){
+      if(typeof switchView==='function')switchView('tables');
+      else{var b=document.getElementById('btnTableView');if(b)b.click();}
+    }
+  }
+  document.addEventListener('touchstart',onStart,{passive:true});
+  document.addEventListener('touchmove',onMove,{passive:true});
+  document.addEventListener('touchend',onEnd,{passive:true});
+})();
