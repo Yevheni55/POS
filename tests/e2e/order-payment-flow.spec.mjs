@@ -3,7 +3,9 @@
 // real Postgres with PORTOS_ENABLED=false (no fiscalisation).
 
 import { test, expect } from '@playwright/test';
-import { loginAndOpenPos, openTable, clickProduct } from './_setup/helpers.mjs';
+import { loginAndOpenPos, openTable, clickProduct, resetTransientData } from './_setup/helpers.mjs';
+
+test.beforeEach(async () => { await resetTransientData(); });
 
 test.describe('Order → Send → Pay', () => {
   test('opens an empty table, adds 2 items, sends to kitchen, pays', async ({ page }) => {
@@ -17,14 +19,16 @@ test.describe('Order → Send → Pay', () => {
     await clickProduct(page, 'Cola 0,5 l');
     await clickProduct(page, 'Cola 0,5 l');
 
-    // 3. Order list shows both rows; Cola has qty 2 (single row, not 2 × qty 1).
+    // 3. Order list: Pivo + Cola + Záloha (companion auto-adds with Cola, qty mirrored).
     const orderItems = page.locator('.order-item-wrap');
-    await expect(orderItems).toHaveCount(2);
+    await expect(orderItems).toHaveCount(3);
     const colaRow = page.locator('.order-item-wrap').filter({ hasText: 'Cola 0,5 l' });
     await expect(colaRow.locator('.qty-val')).toHaveText('2');
+    const zalohaRow = page.locator('.order-item-wrap').filter({ hasText: 'Záloha fľaša' });
+    await expect(zalohaRow.locator('.qty-val')).toHaveText('2');
 
-    // 4. Subtotal = 1*2.50 + 2*2.50 = 7.50 €
-    await expect(page.locator('#orderTotal')).toContainText('7,50');
+    // 4. Subtotal = 1*2.50 + 2*2.50 + 2*0.15 = 7.80 €
+    await expect(page.locator('#total')).toContainText('7,80');
 
     // 5. Send to kitchen.
     await page.locator('#btnSend').click();
@@ -32,7 +36,7 @@ test.describe('Order → Send → Pay', () => {
     await expect(page.locator('.order-item-inner.sent').first()).toBeVisible({ timeout: 10_000 });
 
     // 6. Pay (cash). With PORTOS_ENABLED=false the fiscal step is a no-op.
-    await page.locator('#btnPayCash, [data-pay-method="hotovost"]').first().click();
+    await page.locator('.btn-cash').first().click();
     // Confirmation modal opens — confirm.
     await page.locator('#paymentModal .u-btn-mint').click();
 

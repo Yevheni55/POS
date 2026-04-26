@@ -41,6 +41,6 @@ test('local draft survives loadAllOrders + page reload + still pays', async ({ p
   await expect(page.locator('.order-item-wrap').filter({ hasText: 'Cola 0,5 l' })).toBeVisible();
 
   // (c) Press Pay — payment modal must open (NOT a "Nie je co platit" toast).
-  await page.locator('#btnPayCash, [data-pay-method="hotovost"]').first().click();
+  await page.locator('.btn-cash').first().click();
   await expect(page.locator('#paymentModal.show')).toBeVisible({ timeout: 5_000 });
 });

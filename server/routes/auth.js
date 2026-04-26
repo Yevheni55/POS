@@ -15,6 +15,10 @@ const PIN_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 const PIN_MAX_ATTEMPTS = 10;
 
 function pinRateLimit(req, res, next) {
+  // E2E suite logs in dozens of times from 127.0.0.1 in seconds; the limiter
+  // would 429 most tests. Disable explicitly when DISABLE_PIN_RATE_LIMIT=true
+  // (set by tests/e2e/_setup/global-setup.mjs). Production never sets this.
+  if (process.env.DISABLE_PIN_RATE_LIMIT === 'true') return next();
   const ip = req.ip || req.connection.remoteAddress;
   const now = Date.now();
   const entry = _pinAttempts.get(ip);

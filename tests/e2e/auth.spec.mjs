@@ -10,8 +10,11 @@ test.beforeEach(async () => { await resetTransientData(); });
 async function login(name, pin) {
   const ctx = await request.newContext({ baseURL: process.env.E2E_BASE_URL });
   const r = await ctx.post('/api/auth/login', { data: { name, pin } });
+  // Read body BEFORE disposing — ctx.dispose() invalidates the response object.
+  const status = r.status();
+  const body = r.ok() ? await r.json() : null;
   await ctx.dispose();
-  return { status: r.status(), body: r.ok() ? await r.json() : null };
+  return { status, body };
 }
 
 test('Valid PIN login returns a JWT', async () => {

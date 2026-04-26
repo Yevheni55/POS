@@ -165,6 +165,15 @@ async function seedMinimal(url) {
       INSERT INTO printers (name, dest, ip, port, active)
       VALUES ('TestBar', 'all', '127.0.0.1', 9999, true)
     `);
+    // Open shift for Admin (staff_id=1). Without this, init() in pos-init.js
+    // hits /shifts/current → null → opens the "Otvorit zmenu" modal and never
+    // calls runPosBootstrap(), so .table-chip never renders.
+    // resetTransientData() does NOT truncate shifts, so this persists across
+    // every spec.
+    await db.execute(sql`
+      INSERT INTO shifts (staff_id, opening_cash, status)
+      VALUES (1, 100, 'open')
+    `);
   } finally {
     await pool.end().catch(() => {});
   }
@@ -179,6 +188,13 @@ function startServer(url) {
       JWT_SECRET: 'e2e-test-secret-do-not-use-in-prod',
       PORTOS_ENABLED: 'false',          // crucial — no fiscalization in tests
       CORS_ALLOW_LAN: 'true',
+      // server/routes/invoice-scan.js news up OpenAI at module-import time —
+      // any non-empty key satisfies the constructor. We never actually call
+      // /api/invoice-scan in tests so the stub is fine.
+      OPENAI_API_KEY: process.env.OPENAI_API_KEY || 'sk-test-stub',
+      // Disable the PIN rate limiter — tests log in dozens of times from
+      // 127.0.0.1 in seconds and would otherwise 429.
+      DISABLE_PIN_RATE_LIMIT: 'true',
     };
     serverProc = spawn('node', ['server.js'], {
       cwd: SERVER_DIR, env, stdio: ['ignore', 'pipe', 'pipe'],

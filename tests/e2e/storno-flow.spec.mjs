@@ -51,8 +51,12 @@ test('Modal — Potvrdiť disabled until both prep + reason chosen', async ({ pa
   await expect(modal.locator('#stornoSubmit')).toBeEnabled();
 });
 
-test('Modal — Cancel keeps the item on the order', async ({ page }) => {
-  await loginAndOpenPos(page);
+test('Modal — Cancel does NOT create a storno_basket entry', async ({ page }) => {
+  // Note: clicking − on a sent qty=1 item splices the row optimistically and
+  // fires the server DELETE before the reason modal opens. The product
+  // invariant under test is therefore "Cancel must not record a write-off",
+  // not "Cancel restores the row" (the row is already gone server-side).
+  const auth = await loginAndOpenPos(page);
   await openTable(page, 'Stol 1');
   await clickProduct(page, 'Pivo 0.5 l');
   await page.locator('#btnSend').click();
@@ -60,13 +64,20 @@ test('Modal — Cancel keeps the item on the order', async ({ page }) => {
 
   await page.locator('.order-item-wrap', { hasText: 'Pivo 0.5 l' })
     .locator('.qty-btn', { hasText: '−' }).click();
+  await expect(page.locator('#stornoReasonModal')).toBeVisible();
   await page.locator('#stornoReasonModal #stornoCancel').click();
   await expect(page.locator('#stornoReasonModal')).toHaveCount(0);
 
-  // Item still in order with qty 1 (the optimistic local splice happens AFTER
-  // the modal returns a result via _accumulateStornoForPrompt; cancel returns
-  // null so the local state is unchanged).
-  await expect(page.locator('.order-item-wrap', { hasText: 'Pivo 0.5 l' })).toBeVisible();
+  // Wait a beat for any (un-)wanted POSTs to settle.
+  await page.waitForTimeout(400);
+
+  // No storno_basket entry should exist for this cancel.
+  const ctx = await request.newContext({ baseURL: process.env.E2E_BASE_URL });
+  const r = await ctx.get('/api/storno-basket', { headers: { Authorization: `Bearer ${auth.token}` } });
+  const body = await r.json();
+  expect(body.summary.pendingCount).toBe(0);
+  expect(body.items.length).toBe(0);
+  await ctx.dispose();
 });
 
 test('Confirm posts to storno_basket; admin sees STORNO chip + count', async ({ page }) => {
@@ -108,7 +119,7 @@ test('Admin Vrátiť reverts ingredient stock', async ({ page }) => {
 
   await overlay.locator('button.storno-action-return').first().click();
   // Toast confirms returned.
-  await expect(page.locator('.toast.show')).toContainText(/vrátené|vratené/i);
+  await expect(page.locator('.toast-item .toast-message').last()).toContainText(/vrátené|vratené/i);
 
   // Verify ingredient stock restored.
   const ctx = await request.newContext({ baseURL: process.env.E2E_BASE_URL });
@@ -129,7 +140,7 @@ test('Admin Odpísať creates a write-off (stock NOT reverted)', async ({ page }
   await page.locator('#stornoChip').click();
   const overlay = page.locator('#stornoBasketModal');
   await overlay.locator('button.storno-action-writeoff').first().click();
-  await expect(page.locator('.toast.show')).toContainText(/Odpis/i);
+  await expect(page.locator('.toast-item .toast-message').last()).toContainText(/Odpis/i);
 
   // Verify a write_off row exists.
   const pg = await import('pg');
@@ -151,7 +162,7 @@ test('Admin × deletes basket entry without touching stock', async ({ page }) =>
   await page.locator('#stornoChip').click();
   const overlay = page.locator('#stornoBasketModal');
   await overlay.locator('button.storno-action-delete').first().click();
-  await expect(page.locator('.toast.show')).toContainText(/zmazaný/i);
+  await expect(page.locator('.toast-item .toast-message').last()).toContainText(/zmazaný/i);
 
   const pg = await import('pg');
   const pool = new pg.default.Pool({ connectionString: process.env.E2E_DATABASE_URL });

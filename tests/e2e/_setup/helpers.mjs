@@ -39,6 +39,11 @@ export async function resetTransientData() {
     await pool.query(`UPDATE ingredients SET current_qty = 50 WHERE name = 'Pivo svetle 10 sud'`);
     // Reset Cola (id=2) simple-tracked stock to 100.
     await pool.query(`UPDATE menu_items SET stock_qty = 100 WHERE id = 2`);
+    // menu-api.spec.mjs PUTs to /menu/items/2 changing Cola's price + companion.
+    // Restore both so later specs see Cola at 2.50 € with the Záloha companion.
+    await pool.query(`UPDATE menu_items SET price = 2.50, companion_menu_item_id = 3 WHERE id = 2`);
+    // Same spec uploads/deletes images to/from menu_items/1 — clear it.
+    await pool.query(`UPDATE menu_items SET image_url = NULL WHERE id = 1`);
   } finally {
     await pool.end().catch(() => {});
   }
@@ -80,10 +85,26 @@ export async function openPosWithToken(page, auth) {
   await page.locator('.table-chip').first().waitFor({ state: 'visible', timeout: 10_000 });
 }
 
-/** Click a product card by name and wait for it to appear in the order panel. */
+/** Click a product card by name. If the card isn't visible (different category
+ *  active), click the search field and type the name first to filter to it. */
 export async function clickProduct(page, productName) {
-  await page.locator(`.product-card[data-name="${productName}"]`).click();
+  const card = page.locator(`.product-card[data-name="${productName}"]`);
+  if (!(await card.isVisible().catch(() => false))) {
+    await typeInProductSearch(page, productName);
+  }
+  await card.click();
   await page.locator(`.order-item-name`, { hasText: productName }).first().waitFor({ state: 'visible' });
+}
+
+/** Switch the products panel to a category by visible label (e.g. "Burgre"). */
+export async function selectCategory(page, label) {
+  await page.locator('.cat-btn', { hasText: label }).first().click();
+}
+
+/** Type into the products search box to filter the grid. */
+export async function typeInProductSearch(page, q) {
+  const input = page.locator('#productSearch, input[placeholder*="Hladat"]').first();
+  await input.fill(q);
 }
 
 /** Open a table chip by its visible name (e.g. "Stol 1") and wait for the
