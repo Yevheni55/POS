@@ -4,6 +4,46 @@ import { request } from '@playwright/test';
 
 const BASE_URL = process.env.E2E_BASE_URL || 'http://127.0.0.1:3081';
 const ADMIN_PIN = process.env.E2E_ADMIN_PIN || '1234';
+const CISNIK_PIN = process.env.E2E_CISNIK_PIN || '5678';
+
+export const PINS = { admin: ADMIN_PIN, cisnik: CISNIK_PIN };
+
+/** Wipe rows that tests typically dirty (orders, payments, storno_basket,
+ *  shisha_sales, write_offs, fiscal_documents, events) without touching the
+ *  seeded menu/staff/tables/ingredients/recipes. Use in test.beforeEach so
+ *  spec files don't bleed into each other. */
+export async function resetTransientData() {
+  const ctx = await request.newContext({ baseURL: BASE_URL });
+  // No public API for truncate — go straight to PG via the helper container.
+  // Tests run sequentially (workers:1), so this is safe.
+  const pg = await import('pg');
+  const url = process.env.E2E_DATABASE_URL || 'postgresql://pos:pos@localhost:5432/pos_test';
+  const pool = new pg.default.Pool({ connectionString: url });
+  try {
+    // Reset in dependency order (children first).
+    await pool.query(`
+      TRUNCATE
+        write_off_items, write_offs,
+        storno_basket,
+        shisha_sales,
+        fiscal_documents,
+        idempotency_keys, events,
+        order_events, payments,
+        order_items, orders,
+        stock_movements
+      RESTART IDENTITY CASCADE
+    `);
+    // Reset table statuses so each test starts with all tables free.
+    await pool.query(`UPDATE tables SET status = 'free'`);
+    // Reset ingredient stock to seeded value (avoid drift across tests).
+    await pool.query(`UPDATE ingredients SET current_qty = 50 WHERE name = 'Pivo svetle 10 sud'`);
+    // Reset Cola (id=2) simple-tracked stock to 100.
+    await pool.query(`UPDATE menu_items SET stock_qty = 100 WHERE id = 2`);
+  } finally {
+    await pool.end().catch(() => {});
+  }
+  await ctx.dispose();
+}
 
 /** Hit /api/auth/login as the seeded admin and return { token, user }. */
 export async function apiLogin(name = 'Admin', pin = ADMIN_PIN) {

@@ -113,41 +113,54 @@ async function seedMinimal(url) {
   const db = drizzle(pool);
   try {
     // Admin staff with PIN 1234
-    const pinHash = await bcrypt.hash('1234', 10);
+    const adminHash = await bcrypt.hash('1234', 10);
+    const cisnikHash = await bcrypt.hash('5678', 10);
     await db.execute(sql`
-      INSERT INTO staff (name, pin, role, active) VALUES ('Admin', ${pinHash}, 'admin', true)
+      INSERT INTO staff (name, pin, role, active) VALUES
+        ('Admin',    ${adminHash},  'admin', true),
+        ('Cisnik 1', ${cisnikHash}, 'cisnik', true)
     `);
-    // One bar table
+    // Tables
     await db.execute(sql`
-      INSERT INTO tables (name, seats, zone, shape, x, y, status)
-      VALUES ('Stol 1', 4, 'interior', 'rect', 100, 100, 'free')
+      INSERT INTO tables (name, seats, zone, shape, x, y, status) VALUES
+        ('Stol 1', 4, 'interior', 'rect',  60,  80, 'free'),
+        ('Stol 2', 4, 'interior', 'rect', 240,  80, 'free'),
+        ('Bar',    2, 'interior', 'round', 60, 240, 'free')
     `);
-    // Menu category + 2 items: Pivo (recipe-tracked) + Cola (simple-tracked)
+    // Menu category — bar
     await db.execute(sql`
-      INSERT INTO menu_categories (slug, label, icon, sort_key, dest)
-      VALUES ('napoje', 'Napoje', '🥤', 'B01', 'bar')
+      INSERT INTO menu_categories (slug, label, icon, sort_key, dest) VALUES
+        ('napoje', 'Napoje', '🥤', 'B01', 'bar'),
+        ('burgre', 'Burgre', '🍔', 'K01', 'kuchyna')
     `);
-    // Ingredient for Pivo
+    // Ingredient for Pivo (recipe trackMode)
     await db.execute(sql`
       INSERT INTO ingredients (name, unit, current_qty, cost_per_unit)
       VALUES ('Pivo svetle 10 sud', 'l', 50, 1.5)
     `);
-    // Pivo (recipe trackMode)
+    // Items, IDs assigned in insertion order:
+    //   1 = Pivo 0.5 l (recipe-tracked, no companion)
+    //   2 = Cola 0,5 l (simple, companion → 3)
+    //   3 = Záloha fľaša (no track, no companion)
+    //   4 = Combo BBQ Smash (no track, name starts "Combo " → opens sauce modal)
+    //   5 = Omáčka (combo) (0 €, used as combo annotation row)
     await db.execute(sql`
-      INSERT INTO menu_items (category_id, name, emoji, price, vat_rate, track_mode, stock_qty)
-      VALUES (1, 'Pivo 0.5 l', '🍺', 2.50, 19, 'recipe', 0)
+      INSERT INTO menu_items (category_id, name, emoji, price, vat_rate, track_mode, stock_qty) VALUES
+        (1, 'Pivo 0.5 l',         '🍺', 2.50, 19, 'recipe', 0),
+        (1, 'Cola 0,5 l',         '🥤', 2.50, 19, 'simple', 100),
+        (1, 'Záloha fľaša',       '📦', 0.15, 19, 'none',   0),
+        (2, 'Combo BBQ Smash',    '🍔', 13.00, 19, 'none',  0),
+        (2, 'Omáčka (combo)',     '🥫', 0.00, 19, 'none',   0)
     `);
+    // Recipe: Pivo (id=1) needs 0.5 L of ingredient 1
     await db.execute(sql`
       INSERT INTO recipes (menu_item_id, ingredient_id, qty_per_unit)
       VALUES (1, 1, 0.5)
     `);
-    // Cola (simple trackMode, stock 100)
-    await db.execute(sql`
-      INSERT INTO menu_items (category_id, name, emoji, price, vat_rate, track_mode, stock_qty)
-      VALUES (1, 'Cola 0,5 l', '🥤', 2.50, 19, 'simple', 100)
-    `);
-    // One bar printer pointing at localhost so sendOrQueue catches the failure
-    // gracefully and queues — doesn't block tests.
+    // Companion: Cola (id=2) auto-adds Záloha (id=3)
+    await db.execute(sql`UPDATE menu_items SET companion_menu_item_id = 3 WHERE id = 2`);
+    // One bar printer pointing at localhost — sendOrQueue catches the failure
+    // gracefully and queues; doesn't block tests.
     await db.execute(sql`
       INSERT INTO printers (name, dest, ip, port, active)
       VALUES ('TestBar', 'all', '127.0.0.1', 9999, true)
