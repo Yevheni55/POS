@@ -882,8 +882,37 @@ function openNoteModal(name, itemId){
   document.getElementById('noteInput').value = item.note || '';
   var hint = document.getElementById('noteModalSentHint');
   if (hint) hint.classList.toggle('pos-hidden', !item.sent);
+  _refreshNotePresetActiveState();
   document.getElementById('noteModal').classList.add('show');
   setTimeout(function() { document.getElementById('noteInput').focus(); }, 100);
+}
+
+// Preset note chips — quick-insert common phrases (bez cibule, extra ostre...)
+// so cashier doesn't have to type on tablet. Toggling: tap an inactive chip
+// appends it (comma-separated); tap an active one removes the phrase.
+function appendNotePreset(text) {
+  var input = document.getElementById('noteInput');
+  if (!input) return;
+  var parts = (input.value || '')
+    .split(',')
+    .map(function (s) { return s.trim(); })
+    .filter(Boolean);
+  var idx = parts.indexOf(text);
+  if (idx >= 0) parts.splice(idx, 1);
+  else parts.push(text);
+  input.value = parts.join(', ');
+  _refreshNotePresetActiveState();
+}
+
+function _refreshNotePresetActiveState() {
+  var input = document.getElementById('noteInput');
+  if (!input) return;
+  var current = (input.value || '').toLowerCase();
+  var chips = document.querySelectorAll('#notePresets .note-preset-chip');
+  for (var i = 0; i < chips.length; i++) {
+    var label = (chips[i].textContent || '').trim().toLowerCase();
+    chips[i].classList.toggle('is-active', label && current.indexOf(label) >= 0);
+  }
 }
 function closeNoteModal(){
   document.getElementById('noteModal').classList.remove('show');

@@ -236,6 +236,16 @@
     <div class="u-modal-title" id="noteModalTitle">Poznamka k polozke</div>
     <p class="u-modal-hint pos-hidden" id="noteModalSentHint">Polozka uz bola odoslana — poznamka sa ulozi k uctu. Novy bon sa nevytlaci.</p>
     <div class="u-modal-body">
+      <div class="note-presets" id="notePresets">
+        <button type="button" class="note-preset-chip" onclick="appendNotePreset('bez cibule')">bez cibule</button>
+        <button type="button" class="note-preset-chip" onclick="appendNotePreset('bez majonezy')">bez majonezy</button>
+        <button type="button" class="note-preset-chip" onclick="appendNotePreset('bez paradajok')">bez paradajok</button>
+        <button type="button" class="note-preset-chip" onclick="appendNotePreset('extra ostre')">extra ostre</button>
+        <button type="button" class="note-preset-chip" onclick="appendNotePreset('medium')">medium</button>
+        <button type="button" class="note-preset-chip" onclick="appendNotePreset('prepecene')">prepecene</button>
+        <button type="button" class="note-preset-chip" onclick="appendNotePreset('bez ladu')">bez ladu</button>
+        <button type="button" class="note-preset-chip" onclick="appendNotePreset('alergia')">alergia</button>
+      </div>
       <div class="u-modal-field">
         <label for="noteInput" class="sr-only">Poznamka k polozke</label><input id="noteInput" type="text" placeholder="Napr. bez cibule, extra ostra..." maxlength="200">
       </div>
