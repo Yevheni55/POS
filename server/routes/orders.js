@@ -10,6 +10,7 @@ import { logEvent } from '../lib/audit.js';
 import { emitEvent } from '../lib/emit.js';
 import { enrichOrders } from '../lib/order-queries.js';
 import { validate } from '../middleware/validate.js';
+import { requireRole } from '../middleware/requireRole.js';
 import { createOrderSchema, addItemsSchema, updateItemSchema, batchSchema, splitSchema, moveItemsSchema, discountSchema, stornoSendSchema, stornoWriteOffSchema } from '../schemas/orders.js';
 import { deductStockForSentItems, applyWriteOff } from '../lib/stock.js';
 import { asyncRoute } from '../lib/async-route.js';
@@ -579,15 +580,9 @@ router.post('/:id/move-items', validate(moveItemsSchema), asyncRoute(async (req,
 }));
 
 // POST /api/orders/:id/discount — apply discount to order
-router.post('/:id/discount', validate(discountSchema), asyncRoute(async (req, res) => {
+router.post('/:id/discount', requireRole('manazer', 'admin'), validate(discountSchema), asyncRoute(async (req, res) => {
   const orderId = +req.params.id;
   const { discountId, customPercent, version } = req.body;
-
-  // Role check: only manazer/admin
-  const { role } = req.user;
-  if (role === 'cisnik') {
-    return res.status(403).json({ error: 'Pristup odmietnuty' });
-  }
 
   // Get order
   const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
@@ -647,7 +642,7 @@ router.post('/:id/discount', validate(discountSchema), asyncRoute(async (req, re
 }));
 
 // DELETE /api/orders/:id/discount — remove discount from order
-router.delete('/:id/discount', asyncRoute(async (req, res) => {
+router.delete('/:id/discount', requireRole('manazer', 'admin'), asyncRoute(async (req, res) => {
   const orderId = +req.params.id;
   const { version } = req.body || {};
 

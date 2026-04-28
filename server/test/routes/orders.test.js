@@ -869,29 +869,52 @@ describe('Discount endpoints', () => {
       assert.equal(res.status, 404);
     });
 
-    it('cisnik is blocked from removing a discount', async () => {
+    it('rejects cisnik DELETE /discount with 403', async () => {
       const orderRes = await createOrder({
         tableId: fixtures.table1.id,
         items: [{ menuItemId: fixtures.itemBurger.id, qty: 1 }],
       });
       const orderId = orderRes.body.id;
 
-      // Apply discount as manazer first
       await request
         .post(`/api/orders/${orderId}/discount`)
         .set('Authorization', `Bearer ${tokens.manazer()}`)
         .send({ discountId: discount.id });
 
-      // Attempt removal as cisnik — the discount route does a role check
-      // Note: DELETE /discount does NOT check role directly, only POST does.
-      // This test documents the actual behavior.
       const res = await request
         .delete(`/api/orders/${orderId}/discount`)
         .set('Authorization', `Bearer ${tokens.cisnik()}`);
 
-      // Current implementation allows any authenticated user to DELETE discount
-      // (role check is only on POST). Document actual behavior:
+      assert.equal(res.status, 403);
+      assert.equal(res.body.error, 'Pristup odmietnuty');
+
+      const order = await fetchOrder(orderId);
+      assert.equal(order.discountId, discount.id);
+      assert.ok(order.discountAmount, 'discount must remain applied after rejected removal');
+    });
+
+    it('allows admin to DELETE /discount with 200', async () => {
+      const orderRes = await createOrder({
+        tableId: fixtures.table1.id,
+        items: [{ menuItemId: fixtures.itemBurger.id, qty: 1 }],
+      });
+      const orderId = orderRes.body.id;
+
+      await request
+        .post(`/api/orders/${orderId}/discount`)
+        .set('Authorization', `Bearer ${tokens.manazer()}`)
+        .send({ discountId: discount.id });
+
+      const res = await request
+        .delete(`/api/orders/${orderId}/discount`)
+        .set('Authorization', `Bearer ${tokens.admin()}`);
+
       assert.equal(res.status, 200);
+      assert.equal(res.body.discountAmount, null);
+
+      const order = await fetchOrder(orderId);
+      assert.equal(order.discountId, null);
+      assert.equal(order.discountAmount, null);
     });
   });
 });
