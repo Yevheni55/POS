@@ -100,14 +100,30 @@ router.post('/login', validate(loginSchema), async (req, res) => {
 });
 
 // POST /api/auth/verify-manager — verify manager PIN for storno
-// NOTE: scoped to the original in-memory behaviour is intentionally left in
-// place here — the DB-backed limiter is only wired on /login in this PR.
+// PR-B: same DB-backed limiter as /login. Key: matched manager staffId
+// (per-staff lockout); falls back to IP bucket when no manager row matches.
+// Brute-force attempts therefore fill the IP bucket and lock the terminal.
 router.post('/verify-manager', validate(loginSchema), async (req, res) => {
   const { pin } = req.body;
+  const ip = req.ip || req.connection?.remoteAddress || '';
+
   const allManagers = await db.select().from(staff)
     .where(and(eq(staff.active, true), sql`${staff.role} IN ('manazer', 'admin')`));
   const found = allManagers.find(s => bcrypt.compareSync(pin, s.pin));
-  if (!found) return res.status(401).json({ error: 'Neopravneny pristup' });
+
+  const lockKey = found ? { staffId: found.id, ip } : { staffId: null, ip };
+  const fails = await countRecentFailures(lockKey);
+  if (fails >= PIN_MAX_ATTEMPTS) {
+    res.set('Retry-After', String(Math.ceil(PIN_WINDOW_MS / 1000)));
+    return res.status(429).json({ error: 'Prilis vela pokusov. Skuste neskor.' });
+  }
+
+  if (!found) {
+    await recordAttempt({ staffId: null, ip, success: false });
+    return res.status(401).json({ error: 'Neopravneny pristup' });
+  }
+
+  await recordAttempt({ staffId: found.id, ip, success: true });
   res.json({ ok: true, name: found.name });
 });
 
