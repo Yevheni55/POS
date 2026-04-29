@@ -20,6 +20,17 @@ function readFiscalFromPaymentResponse(result, err) {
 }
 
 function normalizeFiscalOutcome(result, err) {
+  // PR-C: fiscal/payment paths refuse to queue offline. Surface as blocked
+  // so the operator sees an unambiguous "must be online" message instead of
+  // the misleading "queued for later" banner.
+  if (err && err.code === 'OFFLINE_NO_QUEUE') {
+    return {
+      kind: 'blocked',
+      tone: 'error',
+      message: err.message || 'Pripojenie nie je dostupne — platbu nie je mozne dokoncit offline.',
+    };
+  }
+
   if (err && err.status === 409) {
     return { kind: 'blocked', tone: 'error', message: err.message || 'Objednavka sa zmenila, skus to prosim znovu.' };
   }

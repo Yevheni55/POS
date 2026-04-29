@@ -1,6 +1,19 @@
 // Shared API client for all POS pages
 const API_BASE = window.location.origin + '/api';
 
+// PR-C: do not auto-replay fiscal/payment writes on reconnect. The cashier
+// must explicitly retry online so the operator confirms the action.
+const OFFLINE_NO_QUEUE_PREFIXES = ['/payments', '/fiscal-documents'];
+
+function _shouldBlockOfflineQueue(path) {
+  if (typeof path !== 'string') return false;
+  for (var i = 0; i < OFFLINE_NO_QUEUE_PREFIXES.length; i++) {
+    var prefix = OFFLINE_NO_QUEUE_PREFIXES[i];
+    if (path === prefix || path.indexOf(prefix + '/') === 0) return true;
+  }
+  return false;
+}
+
 const api = {
   _offline: false,
   _queue: [],
@@ -29,7 +42,15 @@ const api = {
 
     let synced = 0;
     let failed = 0;
+    let dropped = 0;
     for (const op of queue) {
+      // Defensive: drop any legacy queued fiscal/payment ops left behind from
+      // a pre-PR-C client. They must never auto-replay.
+      if (op && _shouldBlockOfflineQueue(op.path)) {
+        console.warn('Dropped queued fiscal/payment op (cannot auto-replay):', op.method, op.path);
+        dropped++;
+        continue;
+      }
       try {
         const headers = {};
         if (op.idempotencyKey) headers['X-Idempotency-Key'] = op.idempotencyKey;
@@ -46,7 +67,7 @@ const api = {
       }
     }
     this._saveQueue();
-    return { synced, failed, remaining: this._queue.length };
+    return { synced, failed, dropped, remaining: this._queue.length };
   },
 
   getToken() {
@@ -127,6 +148,17 @@ const api = {
       if (err.name === 'TypeError' && err.message.includes('fetch')) {
         this._offline = true;
         if (options.method && options.method !== 'GET') {
+          // PR-C: fiscal/payment paths must not be auto-replayed. Refuse at
+          // queue time and surface a distinct error so the caller can show
+          // "must be online" instead of a misleading "queued" banner.
+          if (_shouldBlockOfflineQueue(path)) {
+            const offlineErr = new Error('Pripojenie nie je dostupne — operacia vyzaduje online stav.');
+            offlineErr.code = 'OFFLINE_NO_QUEUE';
+            offlineErr.path = path;
+            offlineErr.method = options.method;
+            console.warn('Offline: refused to queue fiscal op', options.method, path);
+            throw offlineErr;
+          }
           this._queue.push({
             path,
             method: options.method,
