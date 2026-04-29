@@ -533,7 +533,12 @@ function openNewOrderModal() {
     + '<textarea id="fPoNote" class="form-input" rows="2" placeholder="Dodacie podmienky, poznamky..."></textarea>'
     + '</div>'
     + '<div>'
-    + '<div class="form-label" style="margin-bottom:8px">Polozky<span class="required-mark" aria-hidden="true"> *</span></div>'
+    + '<div class="form-label" style="margin-bottom:4px">Polozky<span class="required-mark" aria-hidden="true"> *</span></div>'
+    + '<div style="font-size:var(--text-xs);color:var(--color-text-sec);margin-bottom:8px;line-height:1.5">'
+    + 'Mnozstvo a cena su vzdy v JEDNOTKE suroviny (ks / L / kg — vidis ju pri nazve v dropdowne).'
+    + '<br>Priklad: 6× flasa 1.5L Kinley za 11.24 € → ak surovina je v <code>ks</code> zadaj <code>6</code> a <code>1.87</code>; ak v <code>L</code> zadaj <code>9</code> a <code>1.25</code>.'
+    + '<br>Zadavaj cenu BEZ DPH a BEZ vratneho obalu.'
+    + '</div>'
     + '<div id="poItemsWrap"></div>'
     + '<button class="btn-outline-accent" id="poAddItemBtn" type="button" style="margin-top:8px">'
     + '<svg aria-hidden="true" viewBox="0 0 14 14" style="width:12px;height:12px"><line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
@@ -641,8 +646,9 @@ function addItemRow() {
     + '<select class="po-ingredient-select" style="flex:2;min-width:140px;padding:8px 10px;border-radius:var(--radius-sm);border:1px solid var(--color-border);background:rgba(255,255,255,.04);font-family:var(--font-body);font-size:13px;color:var(--color-text);outline:none">'
     + ingredientOpts
     + '</select>'
-    + '<input class="po-qty-input" type="number" step="0.01" min="0" placeholder="Mnozstvo" style="flex:1;min-width:80px;padding:8px 10px;border-radius:var(--radius-sm);border:1px solid var(--color-border);background:rgba(255,255,255,.04);font-family:var(--font-body);font-size:13px;color:var(--color-text);outline:none">'
-    + '<input class="po-cost-input" type="number" step="0.01" min="0" placeholder="Jedn. cena" style="flex:1;min-width:80px;padding:8px 10px;border-radius:var(--radius-sm);border:1px solid var(--color-border);background:rgba(255,255,255,.04);font-family:var(--font-body);font-size:13px;color:var(--color-text);outline:none">'
+    + '<input class="po-qty-input" type="number" step="0.01" min="0" placeholder="Mnozstvo" title="Pocet jednotiek surovinky (ks / L / kg)" style="flex:1;min-width:80px;padding:8px 10px;border-radius:var(--radius-sm);border:1px solid var(--color-border);background:rgba(255,255,255,.04);font-family:var(--font-body);font-size:13px;color:var(--color-text);outline:none">'
+    + '<input class="po-cost-input" type="number" step="0.0001" min="0" placeholder="Cena za jednotku" title="Cena za 1 jednotku surovinky bez DPH a bez vratneho obalu" style="flex:1;min-width:80px;padding:8px 10px;border-radius:var(--radius-sm);border:1px solid var(--color-border);background:rgba(255,255,255,.04);font-family:var(--font-body);font-size:13px;color:var(--color-text);outline:none">'
+    + '<span class="po-unit-hint" aria-hidden="true" style="flex:0 0 auto;font-size:11px;color:var(--color-text-sec);font-family:var(--font-body);min-width:36px"></span>'
     + '<span class="po-line-total" style="flex:0 0 90px;text-align:right;font-family:var(--font-display);font-weight:600;font-size:13px;color:var(--color-text-sec)">0,00 \u20AC</span>'
     + '<button class="act-btn del po-remove-btn" type="button" title="Odstranit" style="flex-shrink:0">'
     + '<svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
@@ -651,9 +657,31 @@ function addItemRow() {
   wrap.appendChild(row);
 
   // Wire up line total calculation
+  var ingSelect = row.querySelector('.po-ingredient-select');
   var qtyInput = row.querySelector('.po-qty-input');
   var costInput = row.querySelector('.po-cost-input');
   var lineTotal = row.querySelector('.po-line-total');
+  var unitHint = row.querySelector('.po-unit-hint');
+
+  // Relabel placeholders + show unit suffix once an ingredient is picked, so
+  // the manager always knows whether they are entering ks / L / kg and can't
+  // confuse "cena za fl'asu" with "cena za liter".
+  function applyUnitLabels() {
+    var id = Number(ingSelect.value);
+    var ing = id ? ingredients.find(function (x) { return x.id === id; }) : null;
+    var unit = ing && ing.unit ? ing.unit : '';
+    if (unit) {
+      qtyInput.placeholder = 'Mnozstvo (' + unit + ')';
+      costInput.placeholder = 'Cena (\u20AC/' + unit + ')';
+      unitHint.textContent = '\u20AC/' + unit;
+      unitHint.title = 'Cena je za 1 ' + unit;
+    } else {
+      qtyInput.placeholder = 'Mnozstvo';
+      costInput.placeholder = 'Cena za jednotku';
+      unitHint.textContent = '';
+      unitHint.title = '';
+    }
+  }
 
   function updateLineTotal() {
     var qty = parseFloat(qtyInput.value) || 0;
@@ -662,6 +690,7 @@ function addItemRow() {
     updateGrandTotal();
   }
 
+  ingSelect.addEventListener('change', applyUnitLabels);
   qtyInput.addEventListener('input', updateLineTotal);
   costInput.addEventListener('input', updateLineTotal);
 
