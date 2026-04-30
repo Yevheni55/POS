@@ -233,8 +233,17 @@ function buildKitchenTicket({ dest, tableName, staffName, items, orderNum, time 
     if (item.name === 'Omáčka (combo)') return;
 
     ticket += CMD.BOLD_ON;
-    ticket += CMD.LARGE_SIZE;
-    ticket += ' ' + item.qty + 'x  ' + s(item.name);
+    // qty > 1 → DOUBLE_SIZE (height + width) prefix so the cook can't miss
+    // multi-portion lines on a busy ticket. qty == 1 stays at LARGE.
+    if (item.qty > 1) {
+      ticket += CMD.DOUBLE_SIZE;
+      ticket += ' ' + item.qty + 'x ';
+      ticket += CMD.LARGE_SIZE;
+      ticket += ' ' + s(item.name);
+    } else {
+      ticket += CMD.LARGE_SIZE;
+      ticket += ' ' + item.qty + 'x  ' + s(item.name);
+    }
 
     if (/^combo /i.test(item.name)) {
       const next = items[idx + 1];

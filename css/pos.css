@@ -94,9 +94,13 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
     radial-gradient(circle at 1px 1px, rgba(255,255,255,.03) 1px, transparent 0) 0 0 / 40px 40px;
 }
 
-/* STORNO chip — fixed in top-right of viewport, just below header */
+/* STORNO chip — anchored to top-right of the floor canvas (NOT viewport).
+   Was position:fixed earlier, but on tablet that pinned it on top of the
+   "Upravit" toolbar button. .floor-canvas is position:relative, so absolute
+   positioning here keeps the chip inside the canvas area, leaving the
+   toolbar button clear. */
 .table-chip.storno-chip{
-  position:fixed; top:80px; right:12px; left:auto; z-index:50;
+  position:absolute; top:12px; right:12px; left:auto; z-index:5;
   background:linear-gradient(135deg,rgba(224,112,112,.12),rgba(224,112,112,.22));
   border-color:rgba(224,112,112,.45); border-left-color:var(--color-danger);
   cursor:pointer; box-shadow:0 4px 14px rgba(224,112,112,.16);
