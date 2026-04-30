@@ -13,6 +13,21 @@ const PRINTER_PORT = parseInt(process.env.PRINTER_PORT || '9100');
 const RETRY_INTERVAL_MS = 15_000;   // check queue every 15s
 const MAX_RETRY_ATTEMPTS = 50;      // give up after 50 tries (~12 min)
 
+// Strip Latin diacritics down to ASCII so thermal printers (default code page
+// CP437) don't render garbage when menu/table/staff names contain Slovak
+// characters (č, š, ť, ý, á, ô, ľ, ž, ä, …). The wire-write path uses
+// Buffer.from(data, 'binary'), which truncates codepoints > 255 — without this
+// normalize step receipts come out with Omß / Tat8rka / Surfersk8 etc.
+// Full CP852/CP1250 support (with ESC t n) is a follow-up; transliteration is
+// the pragmatic fix that keeps tickets readable for kitchen/bar.
+const _NON_DECOMPOSING = { 'đ': 'd', 'Đ': 'D', 'ł': 'l', 'Ł': 'L' };
+function s(text) {
+  return String(text == null ? '' : text)
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[đĐłŁ]/g, function (c) { return _NON_DECOMPOSING[c]; });
+}
+
 // ESC/POS commands
 const ESC = '\x1B';
 const GS = '\x1D';
@@ -192,17 +207,17 @@ function buildKitchenTicket({ dest, tableName, staffName, items, orderNum, time 
   // Header
   ticket += CMD.ALIGN_CENTER;
   ticket += CMD.DOUBLE_SIZE;
-  ticket += dest + '\n';
+  ticket += s(dest) + '\n';
   ticket += CMD.NORMAL_SIZE;
   ticket += CMD.DASHED;
 
   // Table + Time
   ticket += CMD.LARGE_SIZE;
   ticket += CMD.BOLD_ON;
-  ticket += tableName + '\n';
+  ticket += s(tableName) + '\n';
   ticket += CMD.BOLD_OFF;
   ticket += CMD.NORMAL_SIZE;
-  ticket += time + '  |  ' + staffName + '\n';
+  ticket += time + '  |  ' + s(staffName) + '\n';
   if (orderNum) ticket += '#' + orderNum + '\n';
   ticket += CMD.DASHED;
 
@@ -213,16 +228,18 @@ function buildKitchenTicket({ dest, tableName, staffName, items, orderNum, time 
   // it's still all combo info; cashier requested same font/size as the burger.)
   ticket += CMD.ALIGN_LEFT;
   items.forEach((item, idx) => {
+    // Match against the raw DB string (still UTF-8 inside Node) — DON'T compare
+    // against transliterated form, the combo-companion row is "Omáčka (combo)".
     if (item.name === 'Omáčka (combo)') return;
 
     ticket += CMD.BOLD_ON;
     ticket += CMD.LARGE_SIZE;
-    ticket += ' ' + item.qty + 'x  ' + item.name;
+    ticket += ' ' + item.qty + 'x  ' + s(item.name);
 
     if (/^combo /i.test(item.name)) {
       const next = items[idx + 1];
       if (next && next.name === 'Omáčka (combo)' && next.note) {
-        ticket += '  |  ' + next.note;
+        ticket += '  |  ' + s(next.note);
       }
     }
     ticket += '\n';
@@ -230,7 +247,7 @@ function buildKitchenTicket({ dest, tableName, staffName, items, orderNum, time 
     // prefixed with "!! " so the cook can't miss it. Was a tiny "  >> ..."
     // line in NORMAL+regular weight that disappeared on a busy ticket.
     if (item.note) {
-      ticket += '   !! ' + item.note + '\n';
+      ticket += '   !! ' + s(item.note) + '\n';
     }
     ticket += CMD.NORMAL_SIZE;
     ticket += CMD.BOLD_OFF;
@@ -257,8 +274,8 @@ function buildReceiptTicket({ tableName, staffName, items, total, method, time, 
   ticket += 'UCTENKA\n';
   ticket += CMD.NORMAL_SIZE;
   ticket += CMD.LINE;
-  ticket += tableName + '  |  ' + time + '\n';
-  ticket += 'Cisnik: ' + staffName + '\n';
+  ticket += s(tableName) + '  |  ' + time + '\n';
+  ticket += 'Cisnik: ' + s(staffName) + '\n';
   if (orderNum) ticket += 'Obj. #' + orderNum + '\n';
   ticket += CMD.LINE;
 
@@ -266,7 +283,7 @@ function buildReceiptTicket({ tableName, staffName, items, total, method, time, 
   ticket += CMD.ALIGN_LEFT;
   items.forEach(item => {
     const price = (item.price * item.qty).toFixed(2).replace('.', ',') + ' E';
-    const line = ' ' + item.qty + 'x ' + item.name;
+    const line = ' ' + item.qty + 'x ' + s(item.name);
     const pad = 32 - line.length - price.length;
     ticket += line + (pad > 0 ? ' '.repeat(pad) : '  ') + price + '\n';
   });
@@ -279,7 +296,7 @@ function buildReceiptTicket({ tableName, staffName, items, total, method, time, 
   ticket += 'CELKOM: ' + total.toFixed(2).replace('.', ',') + ' EUR\n';
   ticket += CMD.NORMAL_SIZE;
   ticket += CMD.BOLD_OFF;
-  ticket += 'Platba: ' + method.toUpperCase() + '\n';
+  ticket += 'Platba: ' + s(method).toUpperCase() + '\n';
   ticket += CMD.DASHED;
   ticket += 'Dakujeme za navstevu!\n';
   ticket += CMD.FEED;
@@ -394,7 +411,8 @@ function buildZReportTicket(data) {
     t += padLine(' z toho shisha:', formatEur(data.shisha.revenue) + ' EUR (' + data.shisha.count + 'x)') + '\n';
   }
   (data.paymentMethods || []).forEach(pm => {
-    const label = pm.method.charAt(0).toUpperCase() + pm.method.slice(1) + ':';
+    const m = s(pm.method);
+    const label = m.charAt(0).toUpperCase() + m.slice(1) + ':';
     t += padLine(label, formatEur(pm.total) + ' EUR') + '\n';
   });
   t += CMD.LINE;
@@ -421,7 +439,7 @@ function buildZReportTicket(data) {
   t += CMD.LINE;
   (data.categoryBreakdown || []).forEach(cat => {
     const right = formatEur(cat.total) + ' EUR ' + cat.count + 'x';
-    t += padLine(cat.category, right) + '\n';
+    t += padLine(s(cat.category), right) + '\n';
   });
 
   // TOP POLOZKY section
@@ -432,7 +450,7 @@ function buildZReportTicket(data) {
   t += CMD.LINE;
   (data.topItems || []).forEach((item, i) => {
     const rank = (i + 1) + '. ';
-    t += padLine(rank + item.name, item.qty + 'x') + '\n';
+    t += padLine(rank + s(item.name), item.qty + 'x') + '\n';
   });
 
   // Footer
@@ -496,12 +514,12 @@ function buildLockCodeTicket({ code, validUntil, staffName, time }) {
   t += CMD.BOLD_ON;
   t += 'Platny do:\n';
   t += CMD.BOLD_OFF;
-  t += validUntil + '\n';
+  t += s(validUntil) + '\n';
   t += CMD.LINE;
 
   // Footer info
   t += '\n';
-  t += time + '  |  ' + staffName + '\n';
+  t += time + '  |  ' + s(staffName) + '\n';
   t += '\n';
   t += CMD.BOLD_ON;
   t += '================================\n';
