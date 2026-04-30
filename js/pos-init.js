@@ -103,6 +103,7 @@ async function initPOS() {
       console.warn('Company profile from server:', profileErr);
     }
     await loadAllOrders(); // Preload all open orders for instant table switching
+    if (typeof loadStornoBasket === 'function') loadStornoBasket();
     updateTableStatuses(); // Derive table statuses from orders cache
     var fcs = Object.keys(MENU)[0];
     if (fcs) activeCategory = fcs;
@@ -123,6 +124,7 @@ async function initPOS() {
     // Fallback polling every 30 seconds (WebSocket handles real-time)
     setInterval(async function() {
     try {
+      if (typeof loadStornoBasket === 'function') loadStornoBasket();
       var oldJSON = _lastOrdersCacheJSON;
       await loadAllOrders();
       // Only re-render if data actually changed (avoid flicker)
@@ -130,25 +132,31 @@ async function initPOS() {
         updateTableStatuses();
         if (currentView === 'tables') renderFloor();
         if (isMobile()) renderMobTables();
-        // If currently viewing a table, refresh its display from new cache
+        // If currently viewing a table, refresh its display from new cache —
+        // but preserve any local-only unsent additions the cashier is still
+        // typing in (otherwise the 30s tick wipes them).
         if (selectedTableId && allOrdersCache[selectedTableId]) {
           tableOrdersList = allOrdersCache[selectedTableId];
           if (tableOrdersList.length) {
             var current = tableOrdersList.find(function(o) { return o.id === currentOrderId; }) || tableOrdersList[0];
             currentOrderId = current.id;
             currentOrderVersion = current.version || null;
-            tableOrders[selectedTableId] = current.items.map(function(i) {
-              return {
-                id: i.id, name: i.name, emoji: i.emoji, price: i.price,
-                qty: i.qty, note: i.note, menuItemId: i.menuItemId,
-                orderId: current.id, desc: i.desc || '', sent: !!i.sent,
-                _sentQty: i.sent ? i.qty : 0
-              };
-            });
+            tableOrders[selectedTableId] = _mergePreservingLocalAdditions(
+              current.items, tableOrders[selectedTableId], current.id
+            );
           } else {
-            currentOrderId = null;
-            currentOrderVersion = null;
-            tableOrders[selectedTableId] = [];
+            // No server order for this table — but keep any local-only rows
+            // the cashier may have just started before the order is synced.
+            var keptLocal = (tableOrders[selectedTableId] || []).filter(function (p) {
+              return p && !p.sent && typeof p.id === 'number' && p.id > 1000000000;
+            });
+            if (keptLocal.length) {
+              tableOrders[selectedTableId] = keptLocal;
+            } else {
+              currentOrderId = null;
+              currentOrderVersion = null;
+              tableOrders[selectedTableId] = [];
+            }
             tableOrdersList = [];
           }
           renderOrder();
@@ -268,6 +276,10 @@ function connectWS() {
       renderFloor();
       if (isMobile()) renderMobTables();
     } catch(e) { /* offline, skip */ }
+  });
+
+  socket.on('storno-basket:updated', function() {
+    if (typeof loadStornoBasket === 'function') loadStornoBasket();
   });
 
   socket.on('disconnect', function() {
@@ -405,3 +417,45 @@ document.getElementById('paymentModal').addEventListener('click',function(e){if(
 document.getElementById('noteModal').addEventListener('click',function(e){if(e.target===this)closeNoteModal()});
 /* moveModal + moveAccountModal removed — replaced by inline move mode + table picker */
 document.getElementById('managerPinModal').addEventListener('click',function(e){if(e.target===this)closeManagerPinModal()});
+
+// iOS-style swipe-back: drag from left edge of order panel to the right (>120px) to return to floor view.
+// Same effect as tapping the small "Stoly" button (#btnTableView) — easier to hit on a tablet.
+(function attachSwipeBack(){
+  if(!('ontouchstart' in window))return;
+  var sx=0,sy=0,st=0,tracking=false;
+  function onStart(e){
+    var panel=document.querySelector('.order-panel');
+    if(!panel||panel.classList.contains('pos-hidden'))return;
+    // Skip if any modal overlay is open
+    if(document.querySelector('.u-overlay.show'))return;
+    var t=e.touches[0];
+    var rect=panel.getBoundingClientRect();
+    // Touch must start INSIDE the panel and within 60px of its left edge
+    if(t.clientX<rect.left||t.clientX>rect.right)return;
+    if(t.clientY<rect.top||t.clientY>rect.bottom)return;
+    if(t.clientX-rect.left>60)return;
+    sx=t.clientX;sy=t.clientY;st=Date.now();tracking=true;
+  }
+  function onMove(e){
+    if(!tracking)return;
+    var t=e.touches[0];
+    var dx=t.clientX-sx,dy=t.clientY-sy;
+    // Cancel if user drags vertically (intends to scroll the order list)
+    if(Math.abs(dy)>40&&Math.abs(dy)>Math.abs(dx))tracking=false;
+  }
+  function onEnd(e){
+    if(!tracking)return;
+    tracking=false;
+    var t=(e.changedTouches&&e.changedTouches[0])||null;
+    if(!t)return;
+    var dx=t.clientX-sx,dy=t.clientY-sy,dt=Date.now()-st;
+    // Threshold: >120px right, <60px vertical drift, <600ms total
+    if(dx>120&&Math.abs(dy)<60&&dt<600){
+      if(typeof switchView==='function')switchView('tables');
+      else{var b=document.getElementById('btnTableView');if(b)b.click();}
+    }
+  }
+  document.addEventListener('touchstart',onStart,{passive:true});
+  document.addEventListener('touchmove',onMove,{passive:true});
+  document.addEventListener('touchend',onEnd,{passive:true});
+})();

@@ -176,10 +176,15 @@ async function updateTableProp(prop, val) {
 // ===== DRAG (mouse) =====
 function startDrag(e, id) {
   if (e.button !== 0) return;
+  // The mousedown listener is delegated on #floorCanvas, so e.currentTarget is
+  // the canvas — NOT the chip. Resolve the chip from e.target so dragOffX/Y are
+  // measured from the chip's top-left corner (otherwise the first onDrag
+  // teleports the chip to x=0,y=0 and the cursor stays behind).
+  const el = e.target.closest('.table-chip');
+  if (!el) return;
   e.preventDefault();
   dragId = id;
   didDrag = false;
-  const el = e.currentTarget;
   const rect = el.getBoundingClientRect();
   dragOffX = e.clientX - rect.left;
   dragOffY = e.clientY - rect.top;
@@ -197,6 +202,7 @@ function onDrag(e) {
   let nx = e.clientX - cr.left - dragOffX + canvas.scrollLeft;
   let ny = e.clientY - cr.top - dragOffY + canvas.scrollTop;
   if (gridSnap) { nx = Math.round(nx / 20) * 20; ny = Math.round(ny / 20) * 20; }
+  else { nx = Math.round(nx); ny = Math.round(ny); }
   nx = Math.max(0, nx);
   ny = Math.max(0, ny);
   const idx = TABLES.findIndex(x => x.id === dragId);
@@ -227,7 +233,8 @@ function onTouchStart(e) {
   const chip = e.target.closest('.table-chip');
   if (!chip) return;
   e.preventDefault();
-  const id = chip.dataset.id;
+  // dataset.id is a string; coerce so later === comparisons against TABLES[*].id (number) match
+  const id = Number(chip.dataset.id);
   dragId = id;
   didDrag = false;
   const rect = chip.getBoundingClientRect();
@@ -248,6 +255,7 @@ function onTouchMove(e) {
   let nx = touch.clientX - cr.left - dragOffX + canvas.scrollLeft;
   let ny = touch.clientY - cr.top - dragOffY + canvas.scrollTop;
   if (gridSnap) { nx = Math.round(nx / 20) * 20; ny = Math.round(ny / 20) * 20; }
+  else { nx = Math.round(nx); ny = Math.round(ny); }
   nx = Math.max(0, nx);
   ny = Math.max(0, ny);
   const idx = TABLES.findIndex(x => x.id === dragId);
@@ -548,14 +556,16 @@ export function init(container) {
   });
 
   // Floor canvas: mousedown for drag, click for select/deselect
+  // NOTE: dataset.id is a string, but TABLES[*].id is a number from the DB.
+  // Coerce here so findIndex/===/data-id lookups all work.
   $('#floorCanvas').addEventListener('mousedown', function (e) {
     const chip = e.target.closest('.table-chip');
-    if (chip) startDrag(e, chip.dataset.id);
+    if (chip) startDrag(e, Number(chip.dataset.id));
   });
   $('#floorCanvas').addEventListener('click', function (e) {
     const chip = e.target.closest('.table-chip');
     if (chip) {
-      selectTable(e, chip.dataset.id);
+      selectTable(e, Number(chip.dataset.id));
     } else if (e.target === this && selectedTableId && !didDrag) {
       closeProps();
     }

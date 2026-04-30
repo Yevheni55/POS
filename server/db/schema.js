@@ -9,6 +9,37 @@ export const staff = pgTable('staff', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
+// Shisha — interný counter mimo fiškálneho obehu. Každý klik tlačidla v admin
+// vloží jeden riadok. Slúži iba pre naše účtovníctvo.
+export const shishaSales = pgTable('shisha_sales', {
+  id: serial('id').primaryKey(),
+  staffId: integer('staff_id').references(() => staff.id),
+  soldAt: timestamp('sold_at', { withTimezone: true }).defaultNow().notNull(),
+  price: numeric('price', { precision: 8, scale: 2 }).notNull().default('17.00'),
+});
+
+// Storno basket — bucket pre stornované sent položky. Cashier `−` na
+// poslanej položke → zápis sem (žiaden stock change). Admin v Storno
+// stránke spracuje (resolve) → vtedy sa spustí stock revert / write-off
+// podľa zachyteného wasPrepared + reason.
+export const stornoBasket = pgTable('storno_basket', {
+  id: serial('id').primaryKey(),
+  menuItemId: integer('menu_item_id').notNull().references(() => menuItems.id),
+  qty: integer('qty').notNull().default(1),
+  itemName: varchar('item_name', { length: 100 }).notNull(),
+  unitPrice: numeric('unit_price', { precision: 8, scale: 2 }).notNull().default('0'),
+  note: varchar('note', { length: 200 }).notNull().default(''),
+  reason: varchar('reason', { length: 50 }).notNull().default('other'),
+  // wasPrepared=true → jedlo bolo urobené, write-off (peniaze von)
+  // wasPrepared=false → jedlo sa nestihlo urobiť, return to stock
+  wasPrepared: boolean('was_prepared').notNull().default(false),
+  orderId: integer('order_id'),
+  staffId: integer('staff_id').references(() => staff.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+  resolvedByStaffId: integer('resolved_by_staff_id').references(() => staff.id),
+});
+
 export const tables = pgTable('tables', {
   id: serial('id').primaryKey(),
   name: varchar('name', { length: 50 }).notNull(),
@@ -41,6 +72,11 @@ export const menuItems = pgTable('menu_items', {
   trackMode: varchar('track_mode', { length: 10 }).notNull().default('none'),
   stockQty: numeric('stock_qty', { precision: 10, scale: 3 }).notNull().default('0'),
   minStockQty: numeric('min_stock_qty', { precision: 10, scale: 3 }).notNull().default('0'),
+  // Companion item that POS auto-adds alongside this one (e.g. glass-bottle deposit).
+  // Client-side auto-adds/removes/syncs qty; null means no companion.
+  companionMenuItemId: integer('companion_menu_item_id'),
+  // Optional photo, served from /uploads/menu/<id>.<ext>. Null falls back to emoji.
+  imageUrl: varchar('image_url', { length: 255 }),
 });
 
 export const shifts = pgTable('shifts', {

@@ -89,11 +89,51 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
 
 /* Floor canvas */
 .floor-canvas{
-  flex:1;position:relative;overflow:hidden;
+  flex:1;position:relative;overflow:auto;
   background:
     radial-gradient(circle at 1px 1px, rgba(255,255,255,.03) 1px, transparent 0) 0 0 / 40px 40px;
 }
-.floor-canvas.edit-abs{overflow:auto}
+
+/* STORNO chip — fixed in top-right of viewport, just below header */
+.table-chip.storno-chip{
+  position:fixed; top:80px; right:12px; left:auto; z-index:50;
+  background:linear-gradient(135deg,rgba(224,112,112,.12),rgba(224,112,112,.22));
+  border-color:rgba(224,112,112,.45); border-left-color:var(--color-danger);
+  cursor:pointer; box-shadow:0 4px 14px rgba(224,112,112,.16);
+  display:inline-flex; flex-direction:column; align-items:flex-start;
+  width:auto; min-width:130px; padding:10px 14px;
+}
+.table-chip.storno-chip .chip-name{color:var(--color-danger);font-size:18px}
+.table-chip.storno-chip .chip-badge{background:var(--color-danger);color:#fff;font-size:12px;padding:2px 8px}
+.table-chip.storno-chip .chip-amount{color:var(--color-danger)}
+
+/* Storno basket modal rows */
+.storno-row{
+  display:flex; align-items:center; gap:12px;
+  padding:12px 14px; border-bottom:1px solid var(--color-border);
+}
+.storno-row:last-child{border-bottom:0}
+.storno-row-main{flex:1;min-width:0}
+.storno-row-name{font-weight:var(--weight-bold);font-size:var(--text-base)}
+.storno-row-meta{font-size:var(--text-xs);color:var(--color-text-sec);margin-top:2px}
+.storno-row-price{
+  font-family:var(--font-display); font-weight:var(--weight-extrabold);
+  font-variant-numeric:tabular-nums; color:var(--color-text);
+  min-width:80px; text-align:right;
+}
+.storno-row-actions{display:flex;gap:6px;flex:0 0 auto;align-items:center}
+.storno-row-actions .u-btn{flex:0 0 auto;padding:8px 14px;min-height:auto;font-size:13px}
+.storno-row-actions .storno-action-delete{padding:6px 12px;font-size:16px;line-height:1}
+
+/* Cashier-suggested wasPrepared hint inside a basket row */
+.storno-row-suggest{margin-top:4px}
+.storno-suggest{
+  display:inline-block;font-size:11px;font-weight:var(--weight-semibold);
+  padding:2px 8px;border-radius:var(--radius-full);
+  background:rgba(255,255,255,.04);border:1px solid var(--color-border);
+}
+.storno-suggest.suggest-prep{color:var(--color-danger);border-color:rgba(224,112,112,.30)}
+.storno-suggest.suggest-noprep{color:var(--color-success);border-color:rgba(92,196,158,.30)}
 .floor-canvas.edit-mode{cursor:default;background:radial-gradient(circle at 1px 1px, rgba(139,124,246,.06) 1px, transparent 0) 0 0 / 40px 40px}
 
 /* TABLE CHIP — compact draggable */
@@ -168,6 +208,11 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
 .search-icon{position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:18px;color:var(--color-text-sec);pointer-events:none}
 .search-hint{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:var(--text-2xs);color:var(--color-text-dim);padding:2px 6px;border-radius:var(--radius-xs);border:1px solid var(--color-border);font-weight:var(--weight-semibold);pointer-events:none;font-family:monospace}
 
+/* Wrapper around categories + products-grid. On desktop it behaves as a
+   transparent flex-column passthrough (children flow vertically just like
+   before this wrapper existed). On tablet it flips to a horizontal row,
+   turning the categories strip into a left-side sidebar. */
+.cat-grid-wrap{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden}
 .categories{display:flex;gap:3px;margin-bottom:6px;flex-shrink:0;overflow-x:auto;scrollbar-width:none}
 .categories::-webkit-scrollbar{display:none}
 .cat-btn{padding:var(--space-2) var(--space-4);border-radius:var(--radius-sm);border:1px solid var(--color-border);background:transparent;color:var(--text-secondary);font-family:var(--font-body);font-size:var(--text-md);font-weight:var(--weight-semibold);cursor:pointer;white-space:nowrap;transition:all var(--transition-fast)}
@@ -220,6 +265,20 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
   transition:filter .2s;
 }
 .product-card:hover .product-emoji{filter:grayscale(0) brightness(1)}
+
+/* Photo — larger square thumb above name; replaces emoji when image_url is set */
+.product-photo{
+  width:100%; aspect-ratio:1/1; max-height:120px;
+  margin:-4px 0 6px; border-radius:var(--radius-sm);
+  background-color:rgba(var(--cat-color),.08);
+  background-size:cover; background-position:center;
+  position:relative; z-index:1;
+  filter:grayscale(.05) brightness(.97);
+  transition:filter .2s;
+}
+.product-card:hover .product-photo{filter:none}
+/* Cards with photos: emoji block hidden + tighter padding */
+.product-card.has-photo{padding-top:8px}
 
 .product-name{font-weight:var(--weight-bold);font-size:var(--text-lg);margin-bottom:2px;line-height:var(--leading-snug);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .product-desc{font-size:var(--text-xs);color:var(--text-muted);margin-bottom:4px;line-height:var(--leading-snug);display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
@@ -513,21 +572,45 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
 .form-input:focus,.form-select:focus{border-color:rgba(139,124,246,.35);box-shadow:0 0 0 3px rgba(139,124,246,.08),inset 0 1px 4px rgba(0,0,0,.15);background:rgba(255,255,255,.05)}
 .form-input::placeholder{color:var(--color-text-dim);font-weight:var(--weight-normal)}
 
-/* STORNO REASON BUTTONS */
+/* STORNO REASON MODAL — prep choice + reason chips */
+.storno-section-label{
+  font-size:11px;font-weight:var(--weight-bold);letter-spacing:1px;
+  text-transform:uppercase;color:var(--color-text-sec);margin-bottom:8px;
+}
+.storno-prep-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.storno-prep-btn{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+  padding:18px 12px;border:2px solid var(--color-border);
+  border-radius:var(--radius-md);background:var(--color-bg-surface);
+  color:var(--color-text);font-family:var(--font-body);
+  cursor:pointer;transition:all var(--transition-fast);text-align:center;
+}
+.storno-prep-btn:hover{background:var(--color-bg-hover);border-color:var(--color-border-hover)}
+.storno-prep-btn.selected{
+  border-color:var(--color-accent);
+  background:rgba(139,124,246,.15);
+  box-shadow:0 0 0 3px rgba(139,124,246,.18);
+}
+.storno-prep-emoji{font-size:30px;line-height:1}
+.storno-prep-label{font-size:15px;font-weight:var(--weight-bold);margin-top:2px}
+.storno-prep-hint{font-size:11px;color:var(--color-text-sec);margin-top:1px}
+
+.storno-reasons-row{display:flex;flex-wrap:wrap;gap:6px}
 .storno-reason-btn{
-  display:flex;align-items:center;gap:10px;width:100%;
-  padding:14px 16px;border:1px solid var(--color-border);
+  flex:1 1 auto;
+  padding:10px 14px;border:1.5px solid var(--color-border);
   border-radius:var(--radius-sm);background:var(--color-bg-surface);
   color:var(--color-text);font-family:var(--font-body);
-  font-size:var(--text-md);font-weight:var(--weight-semibold);
-  cursor:pointer;transition:all var(--transition-fast);text-align:left;
+  font-size:var(--text-sm);font-weight:var(--weight-semibold);
+  cursor:pointer;transition:all var(--transition-fast);text-align:center;white-space:nowrap;
 }
 .storno-reason-btn:hover{
   background:var(--color-bg-hover);border-color:var(--color-border-hover);
-  transform:translateX(4px);
 }
-.storno-reason-btn:active{
-  background:var(--color-accent-bg-hover);border-color:var(--color-accent);
+.storno-reason-btn.selected{
+  border-color:var(--color-accent);
+  background:rgba(139,124,246,.18);
+  color:var(--color-accent);
 }
 
 /* OFFLINE BANNER */
@@ -562,7 +645,11 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
 .u-modal-hint{font-size:var(--text-sm);color:var(--color-text-sec);margin:-8px 0 16px;line-height:var(--leading-relaxed)}
 .order-item-info--note{cursor:pointer;border-radius:var(--radius-sm);outline:none}
 .order-item-info--note:focus-visible{box-shadow:0 0 0 2px rgba(139,124,246,.4)}
-.order-item-note-placeholder{font-size:9px;color:var(--color-text-dim);font-style:italic;margin-top:1px;opacity:.5}
+/* "+ Pridať poznámku" placeholder — was 9px italic 50% opacity (invisible
+   on tablet for new cashiers). Now styled as a small dashed chip so it
+   reads as a tappable button, not just label text. */
+.order-item-note-placeholder{display:inline-block;font-size:12px;color:var(--color-accent,#8B7CF6);font-style:normal;font-weight:600;opacity:.9;padding:2px 8px;border:1px dashed rgba(139,124,246,.45);border-radius:8px;margin-top:4px}
+@media (pointer:coarse){.order-item-note-placeholder{font-size:14px;padding:4px 12px;border-style:solid;background:rgba(139,124,246,.08)}}
 .u-modal-amount{
   font-family:var(--font-display);font-size:var(--text-7xl);font-weight:var(--weight-bold);letter-spacing:var(--tracking-tight);
   background:linear-gradient(135deg,var(--color-accent),var(--color-accent-dim));
@@ -570,6 +657,11 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
   margin:12px 0;
 }
 .u-modal-body{text-align:left;margin-bottom:24px;display:flex;flex-direction:column;gap:14px}
+.note-presets{display:flex;flex-wrap:wrap;gap:6px}
+.note-preset-chip{font-family:inherit;background:rgba(139,124,246,.12);color:var(--color-text);border:1px solid rgba(139,124,246,.28);border-radius:18px;padding:6px 14px;font-size:13px;cursor:pointer;transition:background .15s,border-color .15s}
+.note-preset-chip:hover,.note-preset-chip:focus-visible{background:rgba(139,124,246,.22);border-color:rgba(139,124,246,.5);outline:none}
+.note-preset-chip.is-active{background:rgba(139,124,246,.4);border-color:var(--color-accent,#8B7CF6);color:#fff;font-weight:600}
+@media (pointer:coarse){.note-preset-chip{min-height:40px;padding:8px 16px;font-size:14px}}
 .u-modal-field label{display:block;font-size:var(--text-sm);font-weight:var(--weight-semibold);color:var(--color-text-sec);margin-bottom:5px;text-transform:uppercase;letter-spacing:var(--tracking-wide)}
 .u-modal-field input,.u-modal-field textarea,.u-modal-field select{
   width:100%;height:44px;padding:0 var(--space-4);border-radius:var(--radius-sm);
@@ -626,7 +718,7 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
 .help-keys-table td{padding:6px var(--space-2);vertical-align:middle}
 .help-keys-table kbd{background:var(--surface-card);border:1px solid var(--border-default);border-radius:var(--radius-xs);padding:2px var(--space-2);font-family:inherit;font-size:var(--text-base);font-weight:var(--weight-semibold)}
 /* .u-btn-new-account removed — old move account modal */
-.manager-pin-input{text-align:center;font-size:var(--text-7xl);letter-spacing:8px;font-variant-numeric:tabular-nums}
+.manager-pin-input{text-align:center;font-size:var(--text-5xl);letter-spacing:6px;font-variant-numeric:tabular-nums}
 .manager-pin-error{color:var(--action-danger);font-size:var(--text-base);text-align:center;margin-top:var(--space-2)}
 .u-modal-loading{text-align:center;color:var(--text-muted);padding:var(--space-3)}
 .order-tab-merge{color:var(--action-primary);border-color:var(--action-primary-border);font-size:var(--text-lg);padding:6px 10px;align-items:center;justify-content:center}
@@ -659,6 +751,141 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
   .table-chip{width:78px;height:78px;padding:5px 4px;gap:2px}
   .table-chip.large{width:105px;height:78px}
   .chip-name{font-size:12px}.chip-badge{font-size:7px;padding:1px 4px}.chip-amount{font-size:10px}.chip-guests{font-size:8px}
+}
+
+/* ===== TABLET (touch, 10–13") — bump everything for arm's-length use =====
+   Placed AFTER the 1100/800 shrink blocks so the cascade favours bigger
+   sizes on touch devices, while non-touch laptops in the same width range
+   keep the dense desktop layout. */
+@media (min-width:769px) and (max-width:1366px) and (pointer:coarse){
+  .header-title{font-size:26px}
+  .header-clock{font-size:22px}
+  .header-subtitle,.header-date{font-size:13px}
+  .view-btn,.zone-btn,.cat-btn{font-size:16px;padding:10px 16px}
+  .floor-title{font-size:30px}
+  .floor-stat,.legend-item{font-size:15px}
+  .floor-legend{display:flex}
+  .table-chip{width:130px;height:130px;padding:12px;gap:5px}
+  .table-chip.large{width:170px;height:130px}
+  .chip-name{font-size:22px}
+  .chip-badge{font-size:11px;padding:3px 8px}
+  .chip-amount{font-size:17px}
+  .chip-guests{font-size:13px}
+  .chip-time{font-size:13px}
+  .search-input{font-size:18px;min-height:50px;padding:12px 12px 12px 44px}
+  .search-icon{font-size:22px}
+  /* Menu products — slightly smaller so more fit per row */
+  .product-card{min-height:92px;padding:9px}
+  .product-emoji{font-size:22px;margin-bottom:2px}
+  .product-name{font-size:15px;line-height:var(--leading-snug)}
+  .product-desc{font-size:11px}
+  .product-price{font-size:18px}
+  /* Order list — bigger so the cashier reads it from arm's length */
+  .order-item-wrap{padding:10px 12px}
+  .order-item-emoji{font-size:30px}
+  /* Allow long names to wrap on tablet — the base rule clips at 140 px with
+     ellipsis, which hides the rest of names like "Combo Vegetarian Halloumi"
+     once the font is bumped. */
+  .order-item-name{
+    font-size:22px;font-weight:var(--weight-bold);
+    white-space:normal;overflow:visible;text-overflow:clip;
+    max-width:none;line-height:1.2;word-break:break-word;
+  }
+  .order-item-inner{min-height:54px;align-items:flex-start}
+  .order-item-total{font-size:24px;font-weight:var(--weight-extrabold)}
+  .order-item-qty{gap:8px}
+  .order-item-qty .qty-btn{width:44px;height:44px;font-size:22px}
+  .qty-btn,.qty-popup-btn{width:48px;height:48px;font-size:24px}
+  .order-tab{font-size:16px;padding:12px 16px}
+  .pos-subtotal-row{font-size:18px}
+  .order-panel{width:380px}
+  /* Order total — must dominate the screen so the customer reads it
+     instantly when the cashier turns the tablet ("koľko platím?"). */
+  .sum-total-wrap{
+    border-top:2px solid var(--border-default);
+    padding:14px 0 8px;
+    margin-top:6px;
+    align-items:baseline;
+  }
+  .sum-total-label{
+    font-size:14px;
+    opacity:.7;
+    text-transform:uppercase;
+    letter-spacing:1px;
+  }
+  #total,.sum-total-val{
+    font-size:40px;
+    font-weight:800;
+    font-variant-numeric:tabular-nums;
+    line-height:1.0;
+  }
+  .form-input,.form-select,.u-modal-field input,.u-modal-field textarea,.u-modal-field select{height:52px;font-size:17px}
+  .u-btn{font-size:17px;min-height:52px;padding:12px 20px}
+  .u-modal{padding:36px;min-width:380px;max-width:520px}
+  .u-modal-title{font-size:28px}
+  .u-modal-text{font-size:17px}
+  .u-modal-icon{font-size:56px}
+  .u-modal-amount{font-size:64px}
+  .storno-reason-btn{padding:18px 20px;font-size:17px}
+  .admin-btn,.logout-btn{font-size:15px;padding:10px 16px;min-height:44px}
+  /* Footer action row (Zlava / Rozdelit / Presun) — bigger touch targets */
+  .extra-row{gap:12px}
+  .extra-row .btn-discount,
+  .extra-row .btn-split,
+  .extra-row .btn-move{
+    min-height:48px;
+    font-size:var(--text-sm);
+    padding:var(--space-3) var(--space-4);
+  }
+  /* Storno bucket modal action buttons (Vrátiť / Odpísať / ×) */
+  .storno-row-actions{gap:12px}
+  .storno-row-actions .u-btn{min-height:48px;padding:12px 18px;font-size:var(--text-sm)}
+  .storno-row-actions .storno-action-return,
+  .storno-row-actions .storno-action-writeoff{min-height:48px;padding:12px 18px}
+  .storno-row-actions .storno-action-delete{
+    min-height:48px;padding:12px 18px;margin-left:16px;font-size:18px;
+  }
+  /* Order panel typography — comfortable arm's-length read */
+  .order-item-name{font-size:24px;font-weight:600}
+  .order-item-price{font-size:20px;font-variant-numeric:tabular-nums}
+  .order-item-wrap{min-height:56px}
+
+  /* === TABLET CATEGORIES SIDEBAR ===
+     Flip cat-grid-wrap to a horizontal row so .categories becomes a
+     fixed-width vertical sidebar on the left of the products grid.
+     Search bar stays full-width above (untouched). */
+  .cat-grid-wrap{flex-direction:row;gap:8px;align-items:stretch}
+  .categories{
+    flex:0 0 140px;
+    flex-direction:column;
+    margin-bottom:0;
+    overflow-y:auto;
+    overflow-x:hidden;
+    gap:6px;
+    padding-right:4px;
+    scrollbar-width:thin;
+    scrollbar-color:rgba(255,255,255,.06) transparent;
+  }
+  .categories::-webkit-scrollbar{display:block;width:3px}
+  .categories::-webkit-scrollbar-thumb{background:rgba(255,255,255,.06);border-radius:8px}
+  .cat-btn{
+    width:100%;
+    min-height:64px;
+    padding:8px 4px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:4px;
+    white-space:normal;
+    text-align:center;
+    line-height:1.15;
+    font-size:12px;
+  }
+  .cat-btn .cat-icon{margin-right:0;font-size:22px}
+  .cat-btn .cat-key{display:none}
+  /* Narrower cards so 4–5 columns fit in the reduced-width grid area */
+  .products-grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
 }
 .admin-btn{
   padding:var(--space-2) var(--space-4);border-radius:var(--radius-sm);border:1px solid var(--color-accent-border);
@@ -1166,8 +1393,10 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
 .order-item-wrap.swiped .order-item-swipe-left{transform:translateX(0)}
 .order-item-emoji{font-size:18px;flex-shrink:0;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:6px;background:rgba(255,255,255,.03)}
 .order-item-name{font-size:var(--text-lg);font-weight:var(--weight-semibold);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;margin-bottom:1px;color:var(--text-primary)}
-.order-item-note{font-size:9px;color:var(--text-muted);font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.order-item-note-placeholder{font-size:9px;color:var(--color-text-dim);font-style:italic;margin-top:1px;opacity:.5}
+/* Actual note when set — prominent chip so cashier (and the sent path)
+   sees what's on the item at a glance, not 9px italic muted ellipsis. */
+.order-item-note{display:inline-block;font-size:12px;color:#fff;font-style:normal;font-weight:600;background:rgba(139,124,246,.35);border:1px solid rgba(139,124,246,.5);padding:2px 8px;border-radius:8px;margin-top:3px;white-space:normal;max-width:100%;line-height:1.25}
+@media (pointer:coarse){.order-item-note{font-size:14px;padding:4px 12px}}
 .order-item-total{font-family:var(--font-display);font-weight:var(--weight-bold);font-size:var(--text-lg);min-width:48px;text-align:right;color:var(--text-primary);letter-spacing:var(--tracking-tight);font-variant-numeric:tabular-nums}
 /* Stepper — unified compact control */
 .order-item-qty{display:flex;align-items:center;gap:0;background:var(--surface-card);border:1px solid var(--border-default);border-radius:var(--radius-sm);overflow:hidden}
@@ -1175,3 +1404,65 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
 .qty-btn:last-child{border-right:none;border-left:1px solid var(--border-default)}
 .qty-val{font-family:var(--font-display);font-weight:var(--weight-bold);font-size:var(--text-lg);min-width:24px;text-align:center;font-variant-numeric:tabular-nums;padding:0 2px}
 .order-item-actions{display:none}
+
+/* === TABLET ORDER LIST OVERRIDES — placed at end so they win over base rules ===
+   Layout: name on its own full-width row, then emoji + qty + total below.
+   Even very long names ("Combo Vegetarian Halloumi") get the full panel width
+   to themselves so the cashier doesn't see "Co\nmb\no..." stacked 2 letters
+   per line. */
+@media (min-width:769px) and (max-width:1366px) and (pointer:coarse){
+  .order-panel{width:480px}
+  .order-item-wrap{overflow:visible;padding:8px 6px;min-height:56px}
+  .order-item-inner{
+    display:grid;
+    grid-template-columns:auto 1fr auto;
+    grid-template-areas:
+      "info  info  info"
+      "emoji qty   total";
+    column-gap:10px;row-gap:6px;
+    align-items:center;
+    min-height:54px;padding:10px 12px;
+  }
+  .order-item-info{grid-area:info;min-width:0;max-width:none}
+  .order-item-name{
+    font-size:24px;font-weight:600;
+    white-space:normal;overflow:visible;text-overflow:clip;
+    max-width:none;line-height:1.2;word-break:break-word;
+    color:var(--text-primary);
+    -webkit-line-clamp:initial;
+    display:block;
+  }
+  .order-item-emoji{grid-area:emoji;font-size:32px;line-height:1;flex-shrink:0}
+  .order-item-qty{grid-area:qty;justify-self:start;flex-shrink:0}
+  .order-item-qty .qty-btn{width:48px;height:48px;font-size:24px}
+  .order-item-total{grid-area:total;justify-self:end;font-size:26px;font-weight:var(--weight-extrabold);white-space:nowrap}
+}
+
+/* Floor edit mode — make it obvious a tap will drag, not select */
+body.edit-mode .table-chip {
+  cursor: move;
+  box-shadow: 0 0 0 2px var(--color-warning, #E0A830) inset, 0 4px 16px rgba(224,168,48,.25);
+  animation: edit-pulse 1.6s ease-in-out infinite;
+}
+body.edit-mode .table-chip::after {
+  content: "✥";
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  font-size: 14px;
+  opacity: .8;
+  color: var(--color-warning, #E0A830);
+  pointer-events: none;
+}
+body.edit-mode .table-chip.storno-chip {
+  /* The storno chip isn't draggable — exclude it from the indicator */
+  animation: none;
+  box-shadow: none;
+  cursor: pointer;
+}
+body.edit-mode .table-chip.storno-chip::after { content: none; }
+body.edit-mode #editToggle { background: var(--color-warning, #E0A830); color: #1a1a1a; font-weight: 700; }
+@keyframes edit-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px var(--color-warning, #E0A830) inset, 0 4px 16px rgba(224,168,48,.25); }
+  50%      { box-shadow: 0 0 0 2px var(--color-warning, #E0A830) inset, 0 4px 22px rgba(224,168,48,.45); }
+}

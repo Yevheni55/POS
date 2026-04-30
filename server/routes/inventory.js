@@ -382,6 +382,7 @@ router.put('/purchase-orders/:id', mgr, validate(updatePurchaseOrderSchema), asy
   }
 
   await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT id FROM purchase_orders WHERE id = ${poId} FOR UPDATE`);
     if (po.status === 'received' && req.body.items) {
       // Ak je faktúra už prijatá, pri úprave vrátime pôvodné množstvá do skladu
       // a potom znova aplikujeme nové — aby stav skladu sedel a história bola auditovateľná.

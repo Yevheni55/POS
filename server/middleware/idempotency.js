@@ -23,20 +23,30 @@ export function idempotency(req, res, next) {
       return res.end(cached.response);
     }
 
-    // Intercept res.json to capture the response (only cache 2xx)
+    // Intercept res.json to capture the response (only cache 2xx).
+    // Persist the key BEFORE sending the response so concurrent retries
+    // serialize on the unique constraint and a re-execution of the route
+    // can't slip through the race window between "response out" and
+    // "row committed".
     const originalJson = res.json.bind(res);
-    res.json = function (body) {
+    res.json = async function (body) {
       const statusCode = res.statusCode || 200;
       const responseStr = JSON.stringify(body);
 
       // Only cache successful responses — 4xx/5xx must not be cached
       // so the client can retry with corrected data using the same key
       if (statusCode >= 200 && statusCode < 300) {
-        db.insert(idempotencyKeys).values({
-          key,
-          statusCode,
-          response: responseStr,
-        }).onConflictDoNothing().catch(e => console.error('Idempotency store error:', e));
+        try {
+          await db.insert(idempotencyKeys).values({
+            key,
+            statusCode,
+            response: responseStr,
+          }).onConflictDoNothing();
+        } catch (e) {
+          // Never throw from inside a wrapped res.json — post-headers
+          // errors are ugly. Prefer user success over a missed cache row.
+          console.error('Idempotency store error:', e);
+        }
       }
 
       return originalJson(body);

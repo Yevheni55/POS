@@ -17,6 +17,9 @@ import {
   buildPaymentExternalId,
   buildPaymentStornoExternalId,
   buildStornoCashRegisterRequestContext,
+  parsePaymentExternalIdSalt,
+  generatePaymentExternalIdSalt,
+  validateReceiptMatchesRequest,
 } from '../lib/fiscal-payment.js';
 import { emitEvent } from '../lib/emit.js';
 import { formatSupportedVatRates, isSupportedVatRate } from '../lib/menu-vat.js';
@@ -125,18 +128,17 @@ async function upsertFiscalDocument(txOrDb, values) {
   return document;
 }
 
-/** Predajný doklad (nie STORNO) — pri viacerých riadkoch na orderId bez ORDER BY PostgreSQL vracal náhodný riadok. */
+/** Predajný doklad (nie STORNO) — externalId formát sa môže líšiť (legacy
+ * `order-N-payment` alebo nový salted `order-N-pay-<salt>`), preto hľadáme
+ * priamo cez orderId + sourceType=payment a vyberieme najnovší. */
 async function selectSaleFiscalDocumentForOrder(txOrDb, orderId) {
-  const saleExt = buildPaymentExternalId(orderId);
-  const byExt = await txOrDb.select().from(fiscalDocuments).where(eq(fiscalDocuments.externalId, saleExt)).limit(1);
-  if (byExt.length) return byExt[0];
-  const fallback = await txOrDb
+  const rows = await txOrDb
     .select()
     .from(fiscalDocuments)
     .where(and(eq(fiscalDocuments.orderId, orderId), eq(fiscalDocuments.sourceType, 'payment')))
     .orderBy(desc(fiscalDocuments.id))
     .limit(1);
-  return fallback[0] ?? null;
+  return rows[0] ?? null;
 }
 
 function toFiscalResponse(document) {
@@ -309,6 +311,17 @@ async function enrichSuccessfulFiscalOutcome({ requestPayload, outcome }) {
   const receipt = await findReceiptByExternalIdWithRetry(requestPayload.request.externalId, {
     cashRegisterCode: cashRegisterFromFiscalPayload(requestPayload),
   });
+  if (!receipt) return outcome;
+  // Defense-in-depth: do NOT merge a remote receipt that doesn't match what
+  // we sent. Otherwise a stale Portos cache (e.g. after dev DB reset) could
+  // pin our payment to a stranger's receipt — finančná správa vidí mismatch
+  // amount/items voči tomu čo sme reálne predali → pokuta.
+  const v = validateReceiptMatchesRequest(receipt, requestPayload);
+  if (!v.ok) {
+    console.error('[Portos] Receipt mismatch on enrich — refusing to merge cudzí blok',
+      { externalId: requestPayload.request.externalId, ...v });
+    return { ...outcome, resultMode: 'mismatch_rejected', mismatchReason: v.reason };
+  }
   return mergeReceiptOutcome(outcome, receipt);
 }
 
@@ -345,6 +358,15 @@ async function resolveFiscalAttempt({ requestPayload, initialOutcome }) {
         ...initialOutcome,
         resultMode: 'ambiguous',
       };
+    }
+    // Defense-in-depth: refuse to reconcile a remote doc whose items/amount
+    // don't match the request — that's how the "Espresso instead of 2× Kofola"
+    // bug happened (stale Portos cache for a recycled orderId).
+    const v = validateReceiptMatchesRequest(existingReceipt, requestPayload);
+    if (!v.ok) {
+      console.error('[Portos] Receipt mismatch on reconcile — keeping outcome as ambiguous',
+        { externalId, ...v });
+      return { ...initialOutcome, resultMode: 'mismatch_rejected', mismatchReason: v.reason };
     }
 
     let copyPrinted = false;
@@ -487,6 +509,9 @@ router.post('/', staff, validate(createPaymentSchema), asyncRoute(async (req, re
   }
 
   const activeCashRegisterCode = await getActiveCashRegisterCode();
+  // Fresh salt per payment so externalId is globally unique even if orderId
+  // sequence resets (dev DB truncate would otherwise collide with a Portos
+  // doc cached under the same `order-N-payment` key from a previous cycle).
   const requestPayload = buildCashRegisterRequestContext({
     orderId,
     items: orderContext.items,
@@ -495,6 +520,7 @@ router.post('/', staff, validate(createPaymentSchema), asyncRoute(async (req, re
     expectedTotal: orderContext.expectedTotal,
     cashRegisterCode: activeCashRegisterCode,
     forceZeroVat: !vatRegistered,
+    externalIdSalt: generatePaymentExternalIdSalt(),
   });
 
   let fiscalOutcome;
@@ -514,13 +540,15 @@ router.post('/', staff, validate(createPaymentSchema), asyncRoute(async (req, re
   if (
     fiscalOutcome.resultMode === 'validation_error' ||
     fiscalOutcome.resultMode === 'rejected' ||
-    fiscalOutcome.resultMode === 'blocked'
+    fiscalOutcome.resultMode === 'blocked' ||
+    fiscalOutcome.resultMode === 'mismatch_rejected'
   ) {
     console.warn(
       `[Portos] Payment ${fiscalOutcome.resultMode} for order=${orderId} ` +
       `cashRegister=${requestPayload.request.data.cashRegisterCode} ` +
       `errorCode=${fiscalOutcome.errorCode ?? '-'} ` +
-      `detail="${fiscalOutcome.errorDetail || ''}"`,
+      `detail="${fiscalOutcome.errorDetail || ''}" ` +
+      `mismatchReason="${fiscalOutcome.mismatchReason || ''}"`,
     );
     await upsertFiscalDocument(db, buildFiscalDocumentValues({
       orderId,
@@ -532,13 +560,17 @@ router.post('/', staff, validate(createPaymentSchema), asyncRoute(async (req, re
       detail: fiscalOutcome.errorDetail,
       errorDetail: fiscalOutcome.errorDetail,
     });
+    const mismatchMsg = fiscalOutcome.resultMode === 'mismatch_rejected'
+      ? `Doklad z eKasy NEZHODA s objednávkou (${fiscalOutcome.mismatchReason || 'neznámy dôvod'}). Kontaktuj manažéra — platbu NEUKLADAJ ako úspešnú.`
+      : null;
     return res.status(fiscalOutcome.resultMode === 'blocked' ? 503 : (fiscalOutcome.httpStatus || 400)).json({
-      error: certificateHint || fiscalOutcome.errorDetail || 'Fiskalizacia bola odmietnuta',
+      error: mismatchMsg || certificateHint || fiscalOutcome.errorDetail || 'Fiskalizacia bola odmietnuta',
       fiscal: {
         status: fiscalOutcome.resultMode,
         externalId: requestPayload.request.externalId,
         errorCode: fiscalOutcome.errorCode,
         errorDetail: fiscalOutcome.errorDetail,
+        mismatchReason: fiscalOutcome.mismatchReason || null,
         certificateIssue: Boolean(certificateHint),
         cashRegisterCodeUsed: requestPayload.request.data.cashRegisterCode,
       },
@@ -671,10 +703,11 @@ router.get('/history', asyncRoute(async (req, res) => {
 
   const mappedItems = filteredByQuery.map((row) => {
     const related = docsByPaymentId.get(row.id) || [];
-    const saleExt = buildPaymentExternalId(row.orderId);
-    const stornoExt = buildPaymentStornoExternalId(row.orderId);
-    const saleDoc = related.find((d) => d.externalId === saleExt) || related.find((d) => d.sourceType === 'payment') || null;
-    const stornoDoc = related.find((d) => d.externalId === stornoExt) || related.find((d) => d.sourceType === 'storno') || null;
+    // sourceType is the source of truth — externalId formát sa zmenil
+    // (legacy `order-N-payment` vs nový `order-N-pay-<salt>`) a dvojitý
+    // formátový lookup by mohol minúť doc od starej eKasy.
+    const saleDoc = related.find((d) => d.sourceType === 'payment') || null;
+    const stornoDoc = related.find((d) => d.sourceType === 'storno') || null;
 
     const referenceReceiptId = saleDoc ? saleDoc.receiptId || saleDoc.okp : null;
     const stornoEligible = Boolean(
@@ -741,10 +774,12 @@ router.get('/:id/fiscal', asyncRoute(async (req, res) => {
   const docs = await db.select().from(fiscalDocuments).where(eq(fiscalDocuments.paymentId, paymentId));
   if (!docs.length) return res.status(404).json({ error: 'Fiskalny doklad nenajdeny' });
 
-  const saleExternalId = buildPaymentExternalId(payment.orderId);
-  const stornoExternalId = buildPaymentStornoExternalId(payment.orderId);
-  const document = docs.find((d) => d.externalId === saleExternalId) || docs[0];
-  const stornoRow = docs.find((d) => d.externalId === stornoExternalId);
+  const document = docs.find((d) => d.sourceType === 'payment') || docs[0];
+  const stornoRow = docs.find((d) => d.sourceType === 'storno');
+  // Compute the EXPECTED storno externalId aligned with the sale doc's salt,
+  // so the admin UI can show the right id even before the storno exists.
+  const saltFromSale = parsePaymentExternalIdSalt(document?.externalId);
+  const stornoExternalId = buildPaymentStornoExternalId(payment.orderId, { salt: saltFromSale });
 
   const referenceReceiptId = document.receiptId || document.okp;
   const stornoEligible = Boolean(
@@ -774,11 +809,11 @@ router.post('/:id/receipt-copy', asyncRoute(async (req, res) => {
     return res.status(400).json({ error: 'Portos nie je zapnuty' });
   }
 
-  const saleExternalId = buildPaymentExternalId(payment.orderId);
-  const [document] = await db.select().from(fiscalDocuments).where(
-    and(eq(fiscalDocuments.paymentId, paymentId), eq(fiscalDocuments.externalId, saleExternalId)),
-  );
-  const fallback = document || (await db.select().from(fiscalDocuments).where(eq(fiscalDocuments.paymentId, paymentId)))[0];
+  // Always pick the doc by sourceType=payment + paymentId — externalId
+  // formát už nie je deterministic z orderId (salt suffix), takže buildXxx
+  // už nie je dostatočný kľúč. Stored externalId z DB je use-this.
+  const docs = await db.select().from(fiscalDocuments).where(eq(fiscalDocuments.paymentId, paymentId));
+  const fallback = docs.find((d) => d.sourceType === 'payment') || docs[0];
   if (!fallback?.externalId) {
     return res.status(404).json({ error: 'Fiskalny doklad nema dostupny externalId' });
   }
@@ -812,6 +847,115 @@ router.post('/:id/receipt-copy', asyncRoute(async (req, res) => {
   }
 }));
 
+/**
+ * POST /api/payments/:id/refiscalize
+ *
+ * Manuálne pre-pošle fiškálny request pre danú platbu pod NOVÝM unique
+ * externalId. Použiť keď pôvodný doklad sa nikdy poriadne nezaregistroval
+ * (Portos vrátil cudzí cache cez `findReceiptByExternalId`, alebo platba
+ * bola označená `mismatch_rejected`).
+ *
+ * Postaví requestPayload zo skutočných order_items + menu_items, pošle do
+ * Portos, validuje response, nahradí starý fiscal_document záznam novým.
+ * Pokuta-kritické: vyžaduje role manazer/admin a neukladá nezhodný receipt.
+ */
+router.post('/:id/refiscalize', mgr, asyncRoute(async (req, res) => {
+  const paymentId = Number.parseInt(req.params.id, 10);
+  if (!Number.isFinite(paymentId)) {
+    return res.status(400).json({ error: 'Neplatne ID platby' });
+  }
+  if (!isPortosEnabled()) {
+    return res.status(400).json({ error: 'Portos nie je zapnuty' });
+  }
+
+  const [payment] = await db.select().from(payments).where(eq(payments.id, paymentId));
+  if (!payment) return res.status(404).json({ error: 'Platba nenajdena' });
+
+  const orderContext = await loadOrderPaymentContext(payment.orderId);
+  if (!orderContext) return res.status(404).json({ error: 'Objednavka nenajdena' });
+  if (!orderContext.items.length) return res.status(400).json({ error: 'Objednavka nema polozky' });
+
+  const vatRegistered = await isVatRegisteredBusiness();
+  const activeCashRegisterCode = await getActiveCashRegisterCode();
+  const requestPayload = buildCashRegisterRequestContext({
+    orderId: payment.orderId,
+    items: orderContext.items,
+    discountAmount: orderContext.discountAmount,
+    method: payment.method,
+    expectedTotal: orderContext.expectedTotal,
+    cashRegisterCode: activeCashRegisterCode,
+    forceZeroVat: !vatRegistered,
+    externalIdSalt: generatePaymentExternalIdSalt(),
+  });
+
+  let fiscalOutcome;
+  try {
+    const initialOutcome = await registerCashReceiptWithRetry(requestPayload);
+    fiscalOutcome = await resolveFiscalAttempt({ requestPayload, initialOutcome });
+  } catch (error) {
+    if (!(error instanceof PortosTransportError)) {
+      console.error('Refiscalize error:', error);
+    }
+    fiscalOutcome = await resolveFiscalAttempt({
+      requestPayload,
+      initialOutcome: buildTransportFailure(requestPayload, error instanceof Error ? error : new Error(String(error))),
+    });
+  }
+
+  const acceptedModes = new Set(['online_success', 'offline_accepted', 'reconciled_online_success', 'reconciled_offline_accepted']);
+  if (!acceptedModes.has(fiscalOutcome.resultMode)) {
+    return res.status(502).json({
+      error: 'Refiskalizacia neprosla — Portos vratil ' + fiscalOutcome.resultMode + (fiscalOutcome.errorDetail ? ': ' + fiscalOutcome.errorDetail : ''),
+      fiscal: { status: fiscalOutcome.resultMode, externalId: requestPayload.request.externalId, mismatchReason: fiscalOutcome.mismatchReason || null },
+    });
+  }
+
+  // Replace any existing fiscal_document for this payment with the fresh one.
+  // We DELETE the stale row so admin UI no longer points at the cudzí blok.
+  // Storno doc (sourceType='storno'), if any, stays as-is.
+  await db.delete(fiscalDocuments).where(and(
+    eq(fiscalDocuments.paymentId, paymentId),
+    eq(fiscalDocuments.sourceType, 'payment'),
+  ));
+  const fiscalDocument = await upsertFiscalDocument(db, buildFiscalDocumentValues({
+    orderId: payment.orderId,
+    requestPayload,
+    outcome: fiscalOutcome,
+    paymentId,
+  }));
+
+  // Print a copy on the CHDU so the cashier physically gets the receipt.
+  let printOutcome = { ok: true, printed: false, queued: false };
+  try {
+    const printResult = await printCopyByExternalId(requestPayload.request.externalId, {
+      cashRegisterCode: requestPayload.request.data.cashRegisterCode,
+    });
+    printOutcome = { ok: isPrintCopyResponseSuccess(printResult), printed: !!printResult.printed, raw: printResult.raw };
+  } catch (e) {
+    console.warn('Refiscalize: print copy failed', e && e.message);
+    printOutcome = { ok: false, printed: false, error: e && e.message };
+  }
+
+  await logEvent(db, {
+    orderId: payment.orderId,
+    type: 'payment_refiscalized',
+    payload: {
+      paymentId,
+      newExternalId: requestPayload.request.externalId,
+      receiptId: fiscalOutcome.receiptId,
+      receiptNumber: fiscalOutcome.receiptNumber,
+      printed: printOutcome.printed,
+    },
+    staffId: req.user.id,
+  });
+
+  res.json({
+    ok: true,
+    fiscal: toFiscalResponse(fiscalDocument),
+    print: printOutcome,
+  });
+}));
+
 router.post('/:id/fiscal-storno', mgr, asyncRoute(async (req, res) => {
   const paymentId = Number.parseInt(req.params.id, 10);
   if (!Number.isFinite(paymentId)) {
@@ -825,19 +969,21 @@ router.post('/:id/fiscal-storno', mgr, asyncRoute(async (req, res) => {
     return res.status(400).json({ error: 'Portos nie je zapnuty' });
   }
 
-  const saleExternalId = buildPaymentExternalId(payment.orderId);
-  const stornoExternalId = buildPaymentStornoExternalId(payment.orderId);
+  // Find the actual sale doc first (sourceType-based — externalId formát je
+  // teraz salted, deterministic builder by minul nový dok), then derive the
+  // matching storno externalId from its salt so existence check + new send
+  // share the same id space.
+  const docsForPayment = await db.select().from(fiscalDocuments).where(eq(fiscalDocuments.paymentId, paymentId));
+  const saleDoc = docsForPayment.find((d) => d.sourceType === 'payment');
+  if (!saleDoc) {
+    return res.status(404).json({ error: 'Nenasiel sa povodny fiškálny doklad platby' });
+  }
+  const saltFromSale = parsePaymentExternalIdSalt(saleDoc.externalId);
+  const stornoExternalId = buildPaymentStornoExternalId(payment.orderId, { salt: saltFromSale });
 
   const [existingStorno] = await db.select().from(fiscalDocuments).where(eq(fiscalDocuments.externalId, stornoExternalId));
   if (existingStorno) {
     return res.status(409).json({ error: 'Storno pre tuto objednavku uz bolo odoslane', fiscal: toFiscalResponse(existingStorno) });
-  }
-
-  const [saleDoc] = await db.select().from(fiscalDocuments).where(
-    and(eq(fiscalDocuments.paymentId, paymentId), eq(fiscalDocuments.externalId, saleExternalId)),
-  );
-  if (!saleDoc) {
-    return res.status(404).json({ error: 'Nenasiel sa povodny fiškálny doklad platby' });
   }
 
   if (!STORNO_ELIGIBLE_MODES.has(saleDoc.resultMode)) {
@@ -863,6 +1009,7 @@ router.post('/:id/fiscal-storno', mgr, asyncRoute(async (req, res) => {
       referenceReceiptId,
       orderId: payment.orderId,
       cashRegisterCode: saleDoc.cashRegisterCode || (await getActiveCashRegisterCode()),
+      externalIdSalt: saltFromSale,
     });
   } catch (err) {
     console.error('Fiscal storno build error:', err);

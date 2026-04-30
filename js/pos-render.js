@@ -24,7 +24,10 @@ function hasPendingOrderFlushState() {
 }
 
 function flushOrderBeforeTableLeave() {
-  if (!hasPendingOrderFlushState()) return Promise.resolve(false);
+  // Resolve "true" when there is nothing to flush so that callers using the
+  // !flushed-as-abort pattern (e.g. openTable / mobile pickTable) don't bail
+  // out silently on a clean switch and prevent the new table from opening.
+  if (!hasPendingOrderFlushState()) return Promise.resolve(true);
   if (_renderTimer) { clearTimeout(_renderTimer); _renderTimer = null; }
   if (_tableLeaveFlushPromise) return _tableLeaveFlushPromise;
 
@@ -48,6 +51,10 @@ async function switchView(v){
     var flushed = await flushOrderBeforeTableLeave();
     if (!flushed) return;
   }
+  // Catch up on admin-side layout changes if the socket was offline while away
+  if (v === 'tables') {
+    try { await loadTables(); } catch (e) { /* offline, render cached */ }
+  }
   currentView=v;
   document.getElementById('btnTableView').classList.toggle('active',v==='tables');
   document.getElementById('btnProductView').classList.toggle('active',v==='products');
@@ -57,13 +64,15 @@ async function switchView(v){
   if(v==='tables')renderFloor();if(v==='products')renderProducts();
 }
 
-// Edit mode
+// Edit mode — POS-local floor rearrangement. Positions persist via PUT /tables/:id
+// and are emitted as `table:updated` to all clients, so what gets saved here shows
+// up identically in the admin floor plan and on every other device without reload.
 function toggleEdit(){
   editMode=!editMode;
   document.getElementById('editToggle').classList.toggle('active',editMode);
   document.getElementById('editLabel').textContent=editMode?'Hotovo':'Upravit';
   document.getElementById('floorCanvas').classList.toggle('edit-mode',editMode);
-  document.getElementById('floorCanvas').classList.toggle('edit-abs',editMode);
+  document.body.classList.toggle('edit-mode',editMode);
   if(!editMode)savePositions();
   renderFloor();
 }
@@ -76,42 +85,39 @@ function renderFloorZones(){
 }
 function setZone(id){activeZone=id;renderFloorZones();renderFloor()}
 
-// Floor canvas with draggable chips
+// Floor canvas — absolute-pixel positioning, identical coordinate system to admin.
+// Admin drag-and-drop on /admin#tables writes the same (x,y) integers we read here.
+// Canvas becomes scrollable if tables extend beyond its visible area.
 function renderFloor(){
   const canvas=document.getElementById('floorCanvas');
+  if(!canvas)return;
   const filtered=TABLES.filter(t=>t.zone===activeZone);
   const sl={free:'Volny',occupied:'Obsad.',reserved:'Rez.',dirty:'Cistit'};
   const titles={free:'Otvorit objednavku',occupied:'Zobrazit ucet',reserved:'Otvorit rezervaciu',dirty:'Oznacit ako volny'};
   const personIcon='<svg aria-hidden="true" viewBox="0 0 16 16" width="10" height="10"><path d="M8 7a3 3 0 100-6 3 3 0 000 6zm-5 9a5 5 0 0110 0H3z" fill="currentColor"/></svg>';
+
+  // Grow the canvas so the rightmost / bottom-most chip isn't clipped. Chip reaches
+  // roughly 150x110 beyond its top-left anchor, plus breathing room.
+  var maxX=0,maxY=0;
+  for(var i=0;i<filtered.length;i++){
+    if(filtered[i].x>maxX)maxX=filtered[i].x;
+    if(filtered[i].y>maxY)maxY=filtered[i].y;
+  }
+  canvas.style.minWidth=Math.max(maxX+220,600)+'px';
+  canvas.style.minHeight=Math.max(maxY+180,400)+'px';
 
   canvas.innerHTML=filtered.map(t=>{
     const ord=tableOrders[t.id]||[];
     const total=ord.reduce((s,o)=>s+o.price*o.qty,0);
     const isSel=t.id===selectedTableId;
     const shapeClass=t.shape==='round'?'round':t.shape==='large'?'large':'';
-    // Edit mode: absolute px. Normal mode: percentage-based positioning
-    let posStyle;
-    if(editMode){
-      posStyle=`left:${t.x}px;top:${t.y}px`;
-    } else {
-      if(!renderFloor._refW){
-        var maxX=0,maxY=0;
-        TABLES.forEach(function(tb){if(tb.x>maxX)maxX=tb.x;if(tb.y>maxY)maxY=tb.y});
-        renderFloor._refW=Math.max(maxX+170,600);
-        renderFloor._refH=Math.max(maxY+130,400);
-      }
-      const pctX=((t.x/renderFloor._refW)*100).toFixed(1);
-      const pctY=((t.y/renderFloor._refH)*100).toFixed(1);
-      posStyle=`left:${pctX}%;top:${pctY}%`;
-    }
+    const posStyle=`left:${t.x}px;top:${t.y}px`;
 
-    // Accessibility label
     const ariaParts=[escHtml(t.name),sl[t.status]||t.status,t.seats+' miest'];
     if(t.status==='occupied'&&total>0)ariaParts.push(fmt(total));
     if(t.status==='reserved'&&t.time)ariaParts.push(t.time);
     const ariaLabel=ariaParts.join(', ');
 
-    // Build chip interior — hierarchy: name > badge > guests > amount
     let chipBody=`<div class="chip-name">${escHtml(t.name)}</div>`;
     chipBody+=`<span class="chip-badge ${t.status}">${sl[t.status]||t.status}</span>`;
     chipBody+=`<div class="chip-guests">${personIcon} ${t.seats}</div>`;
@@ -129,6 +135,163 @@ function renderFloor(){
       ${chipBody}
     </div>`;
   }).join('');
+
+  // Always-visible Storno chip in the top-right corner of the floor canvas.
+  // Renders separately so renderStornoChip() can refresh badge/value without
+  // re-rendering the whole floor.
+  if (typeof renderStornoChip === 'function') renderStornoChip();
+}
+
+// Storno chip — fixed-position badge in floor canvas. Click opens overlay.
+function renderStornoChip() {
+  var canvas = document.getElementById('floorCanvas');
+  if (!canvas) return;
+  var c = (typeof _stornoBasketCache !== 'undefined') ? _stornoBasketCache : { count: 0, value: 0 };
+  var existing = document.getElementById('stornoChip');
+  var html =
+    '<div id="stornoChip" class="table-chip storno-chip" role="button" tabindex="0"' +
+    ' aria-label="Storno tabuľa, ' + c.count + ' položiek" onclick="openStornoBasket()">' +
+      '<div class="chip-name">STORNO</div>' +
+      (c.count > 0
+        ? '<span class="chip-badge storno-badge">' + c.count + '</span>' +
+          '<div class="chip-amount">' + fmt(c.value) + '</div>'
+        : '<div class="chip-guests" style="opacity:.55">prázdna</div>') +
+    '</div>';
+  if (existing) {
+    existing.outerHTML = html;
+  } else {
+    canvas.insertAdjacentHTML('beforeend', html);
+  }
+}
+
+function openStornoBasket() {
+  var c = (typeof _stornoBasketCache !== 'undefined') ? _stornoBasketCache : { items: [] };
+  var existing = document.getElementById('stornoBasketModal');
+  if (existing) existing.remove();
+
+  var rowsHtml = (c.items && c.items.length)
+    ? c.items.map(function(it){
+        var when = it.createdAt ? new Date(it.createdAt).toLocaleTimeString('sk-SK',{hour:'2-digit',minute:'2-digit'}) : '';
+        var pricedQty = (Number(it.unitPrice||0) * it.qty);
+        // Cashier-suggested wasPrepared shown as a soft hint — admin makes the final call.
+        var suggested = it.wasPrepared
+          ? '<span class="storno-suggest suggest-prep">🔥 Čašník: pripravené</span>'
+          : '<span class="storno-suggest suggest-noprep">🔄 Čašník: nepripravené</span>';
+        var reasonLabel = ({order_error:'Chyba obj.', complaint:'Reklamácia', breakage:'Rozbité', staff_meal:'Zam. spotreba', other:'Iné'})[it.reason] || it.reason || '';
+        return ''+
+        '<div class="storno-row" data-id="'+it.id+'">'+
+          '<div class="storno-row-main">'+
+            '<div class="storno-row-name">'+escHtml(it.itemName)+' &times;'+it.qty+'</div>'+
+            '<div class="storno-row-meta">'+escHtml(reasonLabel)+' · '+escHtml(it.staffName||'')+(when?' · '+when:'')+(it.note?' · '+escHtml(it.note):'')+'</div>'+
+            '<div class="storno-row-suggest">'+suggested+'</div>'+
+          '</div>'+
+          '<div class="storno-row-price">'+fmt(pricedQty)+'</div>'+
+          '<div class="storno-row-actions">'+
+            '<button class="u-btn u-btn-mint storno-action-return" onclick="resolveStornoBasketItem('+it.id+',false)" title="Vrátiť suroviny späť na sklad (jedlo nebolo urobené)">🔄 Vrátiť</button>'+
+            '<button class="u-btn u-btn-rose storno-action-writeoff" onclick="resolveStornoBasketItem('+it.id+',true)" title="Odpísať: jedlo bolo urobené, ide ako strata">🔥 Odpísať</button>'+
+            '<button class="u-btn u-btn-ghost storno-action-delete" onclick="deleteStornoBasketItem('+it.id+')" title="Zmazať záznam bez akcie skladu">×</button>'+
+          '</div>'+
+        '</div>';
+      }).join('')
+    : '<div style="padding:32px;text-align:center;color:var(--color-text-sec)">Žiadne čakajúce storná. 🎉</div>';
+
+  var ov = document.createElement('div');
+  ov.className = 'u-overlay';
+  ov.id = 'stornoBasketModal';
+  ov.innerHTML =
+    '<div class="u-modal" style="max-width:760px;width:96%;text-align:left">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'+
+        '<div class="u-modal-title" style="margin:0">Storno — čaká na spracovanie</div>'+
+        '<button class="u-btn u-btn-ghost" style="flex:0 0 auto;padding:6px 14px;min-height:auto" onclick="closeStornoBasket()">×</button>'+
+      '</div>'+
+      '<div style="font-size:var(--text-sm);color:var(--color-text-sec);margin-bottom:16px">'+
+        '<b>🔄 Vrátiť</b> = suroviny ide späť na sklad (rozhodne admin). '+
+        '<b>🔥 Odpísať</b> = jedlo už bolo urobené, ide ako strata. '+
+        '<b>×</b> = záznam bol omyl, žiadna akcia skladu.'+
+      '</div>'+
+      '<div class="storno-list" style="max-height:60vh;overflow-y:auto">'+rowsHtml+'</div>'+
+    '</div>';
+  document.body.appendChild(ov);
+  requestAnimationFrame(function(){ ov.classList.add('show'); });
+  ov.addEventListener('click', function(e){ if(e.target===ov) closeStornoBasket(); });
+}
+
+function closeStornoBasket() {
+  var ov = document.getElementById('stornoBasketModal');
+  if (ov) { ov.classList.remove('show'); setTimeout(function(){ if(ov.parentNode) ov.remove(); }, 250); }
+}
+
+// Admin makes the final wasPrepared call: false = return to stock, true = write-off.
+// Whatever the cashier captured at storno time is shown as a hint but the
+// override here wins.
+async function resolveStornoBasketItem(id, wasPrepared) {
+  try {
+    var body = (wasPrepared === true || wasPrepared === false)
+      ? { override: { wasPrepared: !!wasPrepared } }
+      : {};
+    var r = await api.post('/storno-basket/' + id + '/resolve', body);
+    if (r && r.result) {
+      if (r.result.action === 'returned') showToast('Suroviny vrátené na sklad', true);
+      else if (r.result.action === 'write_off') showToast('Odpis: ' + (r.result.totalCost || 0).toFixed(2) + ' €', true);
+      else showToast('Spracované', true);
+    }
+    await loadStornoBasket();
+    openStornoBasket(); // re-render the list
+  } catch (e) {
+    showToast('Chyba: ' + (e && e.message), 'error');
+  }
+}
+
+// Confirm overlay before destructive delete — admin can mis-tap × under stress
+// (it sits next to 🔄 Vrátiť / 🔥 Odpísať). Cancel/Esc/backdrop = no API call.
+function _confirmStornoDelete(label) {
+  return new Promise(function (resolve) {
+    var ov = document.createElement('div');
+    ov.className = 'u-overlay';
+    ov.id = 'stornoDeleteConfirm';
+    ov.innerHTML =
+      '<div class="u-modal" role="dialog" aria-modal="true" style="max-width:380px;text-align:center">' +
+        '<div style="font-size:36px;margin-bottom:8px">⚠️</div>' +
+        '<div class="u-modal-title">Naozaj zmazať záznam?</div>' +
+        '<div class="u-modal-text" style="margin:8px 0 18px">' + escHtml(label) + '<br><span style="opacity:.7;font-size:13px">Sklad sa nedotkne — záznam jednoducho zmizne z prehľadu.</span></div>' +
+        '<div class="u-modal-btns" style="gap:12px">' +
+          '<button type="button" class="u-btn u-btn-ghost" id="stornoDelCancel">Zrušiť</button>' +
+          '<button type="button" class="u-btn u-btn-rose" id="stornoDelOk">Zmazať</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(ov);
+    requestAnimationFrame(function () { ov.classList.add('show'); });
+
+    function close(result) {
+      ov.classList.remove('show');
+      setTimeout(function () { if (ov.parentNode) ov.remove(); }, 250);
+      resolve(result);
+    }
+    ov.querySelector('#stornoDelCancel').addEventListener('click', function () { close(false); });
+    ov.querySelector('#stornoDelOk').addEventListener('click', function () { close(true); });
+    ov.addEventListener('click', function (e) { if (e.target === ov) close(false); });
+    document.addEventListener('keydown', function escH(ev) {
+      if (ev.key === 'Escape') { document.removeEventListener('keydown', escH, true); close(false); }
+    }, true);
+  });
+}
+
+async function deleteStornoBasketItem(id) {
+  // Find the basket item so we can show its name in the confirm
+  var cache = (typeof _stornoBasketCache !== 'undefined') ? _stornoBasketCache : null;
+  var items = (cache && cache.items) || [];
+  var item = items.find(function (x) { return x.id === id; });
+  var label = item ? (item.qty + '× ' + item.itemName) : ('záznam #' + id);
+  var ok = await _confirmStornoDelete(label);
+  if (!ok) return;
+  try {
+    await api.del('/storno-basket/' + id);
+    showToast('Záznam zmazaný', true);
+    await loadStornoBasket();
+    openStornoBasket();
+  } catch (e) {
+    showToast('Chyba: ' + (e && e.message), 'error');
+  }
 }
 
 /** Select table and load order without switching view (e.g. initial load). */
@@ -265,6 +428,22 @@ function renderProducts(){
     Object.entries(MENU).forEach(([cat,c])=>{c.items.forEach(i=>{
       if(i.name.toLowerCase().includes(searchQuery)||i.desc.toLowerCase().includes(searchQuery)){items.push(i);itemCats[i.name]=cat}
     })});
+  } else if (activeCategory === '__top__') {
+    // "Najcastejsie" pseudo-category — TOP_ITEMS already carries the same
+    // shape as MENU[*].items, so the existing product-card template Just Works.
+    // Map each row back to its real category so the per-card accent color
+    // (CAT_COLORS lookup in the template) still matches its origin tab.
+    var topList = (typeof TOP_ITEMS !== 'undefined' && Array.isArray(TOP_ITEMS)) ? TOP_ITEMS : [];
+    items = topList;
+    items.forEach(function(i){
+      var realCat = null;
+      Object.entries(MENU).forEach(function(entry){
+        var cat = entry[0]; var c = entry[1];
+        if (cat === '__top__') return;
+        if (c.items && c.items.some(function(m){ return m.id === i.id; })) realCat = cat;
+      });
+      itemCats[i.name] = realCat || 'jedlo';
+    });
   } else {
     if (!activeCategory || !MENU[activeCategory]) { grid.innerHTML=''; return; }
     items=MENU[activeCategory].items;
@@ -281,8 +460,14 @@ function renderProducts(){
     const cc=CAT_COLORS[cat]||'125,211,252';
     const inOrder=order.find(o=>o.name===item.name);
     const qtyBadge=inOrder?`<span class="product-qty-badge">${inOrder.qty}</span>`:'';
-    return `<div class="product-card" data-name="${escAttr(item.name)}" tabindex="0" role="button" style="--cat-color:${cc}" onclick="addToOrder('${escAttr(item.name.replace(/'/g,"\\'"))}','${escAttr(item.emoji)}',${item.price})" onpointerdown="ripple(event)">
-      ${qtyBadge}<span class="product-emoji">${escHtml(item.emoji)}</span><div class="product-name">${escHtml(item.name)}</div><div class="product-desc">${escHtml(item.desc)}</div><div class="product-price">${fmt(item.price)}</div></div>`;
+    // Photo above name when set; emoji is the fallback when there's no photo.
+    const visualHtml = item.imageUrl
+      ? `<div class="product-photo" style="background-image:url('${escAttr(item.imageUrl)}')"></div>`
+      : `<span class="product-emoji">${escHtml(item.emoji)}</span>`;
+    var _esc = escAttr(item.name.replace(/'/g, "\\'"));
+    var _emoji = escAttr(item.emoji);
+    return `<div class="product-card${item.imageUrl?' has-photo':''}" data-name="${escAttr(item.name)}" tabindex="0" role="button" style="--cat-color:${cc}" onclick="addToOrderClick('${_esc}','${_emoji}',${item.price})" onpointerdown="ripple(event);_lpStart(event,'${_esc}','${_emoji}',${item.price})" onpointerup="_lpCancel()" onpointerleave="_lpCancel()" onpointercancel="_lpCancel()" oncontextmenu="event.preventDefault()">
+      ${qtyBadge}${visualHtml}<div class="product-name">${escHtml(item.name)}</div><div class="product-desc">${escHtml(item.desc)}</div><div class="product-price">${fmt(item.price)}</div></div>`;
   }).join('');
 }
 
@@ -336,6 +521,158 @@ function ripple(e){
   setTimeout(()=>card.classList.remove('ripple'),400);
 }
 
+// ===== Long-press qty popup on product cards =====
+// 5 people order Pivo → 1 long-press → tap +5 instead of 5 separate taps.
+// Detector lives on the card template itself (onpointerdown/up/leave) so we
+// don't have to delegate; the click is then short-circuited by addToOrderClick
+// when _lpFired is true so a single tap still adds 1 normally.
+var _lpTimer = null;
+var _lpFired = false;
+var _lpStartX = 0, _lpStartY = 0;
+function _lpStart(ev, name, emoji, price) {
+  if (ev.button !== undefined && ev.button !== 0) return; // ignore right/middle click
+  _lpFired = false;
+  _lpCancel();
+  _lpStartX = ev.clientX || 0;
+  _lpStartY = ev.clientY || 0;
+  _lpTimer = setTimeout(function () {
+    _lpFired = true;
+    _showQtyPopup(ev, name, emoji, price);
+  }, 500);
+}
+function _lpCancel() {
+  if (_lpTimer) { clearTimeout(_lpTimer); _lpTimer = null; }
+}
+function addToOrderClick(name, emoji, price) {
+  // Long-press already showed the popup; swallow the trailing click.
+  if (_lpFired) { _lpFired = false; return; }
+  addToOrder(name, emoji, price);
+}
+function _showQtyPopup(ev, name, emoji, price) {
+  var existing = document.getElementById('qtyPopup');
+  if (existing) existing.remove();
+
+  var p = document.createElement('div');
+  p.id = 'qtyPopup';
+  p.setAttribute('role', 'dialog');
+  p.setAttribute('aria-label', 'Pridať viac kusov');
+  p.style.cssText = 'position:fixed;z-index:300;display:flex;gap:8px;padding:10px;background:rgba(8,14,20,.96);border:1px solid rgba(255,255,255,.12);border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.5);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)';
+
+  var qtys = [1, 2, 3, 5, 10];
+  qtys.forEach(function (q) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = '+' + q;
+    b.style.cssText = 'min-width:54px;min-height:54px;padding:0;background:var(--color-accent,#8B7CF6);color:#fff;border:none;border-radius:10px;font-size:18px;font-weight:700;cursor:pointer;touch-action:manipulation';
+    b.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (typeof addToOrderN === 'function') addToOrderN(name, emoji, price, q);
+      else { for (var i = 0; i < q; i++) addToOrder(name, emoji, price); }
+      if (p.parentNode) p.remove();
+    });
+    p.appendChild(b);
+  });
+  document.body.appendChild(p);
+
+  // Position near touch — clamp to viewport so the whole row stays visible.
+  var x = ev.clientX || (ev.touches && ev.touches[0] && ev.touches[0].clientX) || _lpStartX || 100;
+  var y = ev.clientY || (ev.touches && ev.touches[0] && ev.touches[0].clientY) || _lpStartY || 100;
+  var rect = p.getBoundingClientRect();
+  var vw = window.innerWidth, vh = window.innerHeight;
+  var left = Math.min(Math.max(8, x - rect.width / 2), vw - rect.width - 8);
+  var top = Math.min(Math.max(8, y - rect.height - 16), vh - rect.height - 8);
+  p.style.left = left + 'px';
+  p.style.top = top + 'px';
+
+  // Dismiss on outside tap (defer to skip the same pointer event that opened it).
+  setTimeout(function () {
+    function dismiss(e) {
+      if (!p.contains(e.target)) {
+        if (p.parentNode) p.remove();
+        document.removeEventListener('pointerdown', dismiss, true);
+        document.removeEventListener('keydown', escDismiss, true);
+      }
+    }
+    function escDismiss(e) {
+      if (e.key === 'Escape') {
+        if (p.parentNode) p.remove();
+        document.removeEventListener('pointerdown', dismiss, true);
+        document.removeEventListener('keydown', escDismiss, true);
+      }
+    }
+    document.addEventListener('pointerdown', dismiss, true);
+    document.addEventListener('keydown', escDismiss, true);
+  }, 0);
+}
+
+// ===== Live table status badge in the order panel header =====
+// Sits next to "Stol N" so the cashier sees, at a glance, whether the table
+// is free, just opened (dwell time), or has items already in the kitchen.
+function _renderTableStatus() {
+  var label = document.getElementById('orderTableLabel');
+  if (!label || !label.parentNode) return;
+  var el = document.getElementById('tableStatusBadge');
+  if (!el) {
+    el = document.createElement('span');
+    el.id = 'tableStatusBadge';
+    el.style.cssText = 'display:inline-block;margin-left:10px;font-size:12px;font-weight:600;padding:3px 8px;border-radius:8px;letter-spacing:.3px;vertical-align:middle;white-space:nowrap';
+    label.parentNode.insertBefore(el, label.nextSibling);
+  }
+
+  var t = (typeof TABLES !== 'undefined' && Array.isArray(TABLES) && typeof selectedTableId !== 'undefined')
+    ? TABLES.find(function (x) { return x.id === selectedTableId; })
+    : null;
+
+  // No table selected → hide the badge.
+  if (!t) { el.style.display = 'none'; el.textContent = ''; return; }
+  el.style.display = 'inline-block';
+
+  var status = t.status;
+
+  // Pick the active order for time + sent-qty stats.
+  var ord = null;
+  if (typeof tableOrdersList !== 'undefined' && tableOrdersList.length) {
+    ord = tableOrdersList.find(function (o) { return o.id === currentOrderId; }) || tableOrdersList[0];
+  }
+
+  var minutesOpen = null;
+  if (ord && ord.createdAt) {
+    var ms = Date.now() - new Date(ord.createdAt).getTime();
+    if (!isNaN(ms) && ms >= 0) minutesOpen = Math.floor(ms / 60000);
+  }
+
+  // Items already sent to kitchen (server-side flag mirrored locally).
+  var sentQty = 0;
+  var localItems = (typeof tableOrders !== 'undefined' && tableOrders[selectedTableId]) || [];
+  for (var i = 0; i < localItems.length; i++) {
+    if (localItems[i] && localItems[i].sent) sentQty += (localItems[i].qty || 0);
+  }
+  // If we have no local items yet but the active order from the server has sent items, fall back to it.
+  if (!sentQty && ord && ord.items) {
+    for (var j = 0; j < ord.items.length; j++) {
+      if (ord.items[j] && ord.items[j].sent) sentQty += (ord.items[j].qty || 0);
+    }
+  }
+
+  var text, bg, fg;
+  if (status === 'free' || (!ord && !localItems.length)) {
+    text = '🟢 voľný'; // 🟢
+    bg = 'rgba(92,196,158,.18)';
+    fg = '#5CC49E';
+  } else if (sentQty > 0) {
+    text = '📤 ' + sentQty + ' ks v kuchyni' + (minutesOpen != null ? ' · ' + minutesOpen + ' min' : ''); // 📤
+    bg = 'rgba(139,124,246,.18)';
+    fg = '#8B7CF6';
+  } else {
+    text = '🟠 otvorený' + (minutesOpen != null ? ' ' + minutesOpen + ' min' : ''); // 🟠
+    bg = 'rgba(224,168,48,.18)';
+    fg = '#E0A830';
+  }
+  el.textContent = text;
+  el.style.background = bg;
+  el.style.color = fg;
+}
+
 function renderOrder(){
   const order=getOrder(),c=document.getElementById('orderItems');
   const countEl=document.getElementById('orderCount');
@@ -344,6 +681,7 @@ function renderOrder(){
   countEl.textContent=newCount;
   countEl.classList.toggle('zero',newCount===0);
   if(newCount!==oldCount&&newCount>0){countEl.classList.add('bump');setTimeout(()=>countEl.classList.remove('bump'),250)}
+  _renderTableStatus();
   // Render account tabs (rich: label + meta with item count & total)
   var tabsEl=document.getElementById('orderTabs');
   var orderPanel=document.getElementById('orderItems');
@@ -402,18 +740,25 @@ function renderOrder(){
     const esc=escAttr(o.name.replace(/'/g,"\\'"));
     const _isSent=o.sent;
     const _moveSelected=moveMode&&moveSelectedItems.indexOf(o.id)>=0;
+    // Companion rows (auto-mirrored qty, e.g. Záloha fľaša) get a small chain badge
+    // so cashiers know "where this row came from" — primary stays unchanged.
+    const _isCompanion=!!o._companionOf;
+    const _parent=_isCompanion?order.find(function(p){return p.id===o._companionOf}):null;
+    const _parentName=_parent?_parent.name:'';
+    const _companionBadge=_isCompanion?`<span class="companion-badge" title="Auto: viazane na ${escHtml(_parentName)}" style="margin-left:6px;opacity:.6;font-size:14px">&#128279;</span>`:'';
+    const _companionTitleAttr=_isCompanion?` title="Auto: viazane na ${escHtml(_parentName)}"`:'';
     if(moveMode){
-      return `<div class="order-item-wrap${_moveSelected?' move-selected':''}" data-item-id="${o.id}" onclick="toggleMoveSelection(${o.id})">
+      return `<div class="order-item-wrap${_moveSelected?' move-selected':''}" data-item-id="${o.id}"${_companionTitleAttr} onclick="toggleMoveSelection(${o.id})">
   <div class="order-item-inner${_isSent?' sent':''}"><div class="move-sel">${_moveSelected?'&#10003;':''}</div><span class="order-item-emoji">${escHtml(o.emoji)}</span>
   <div class="order-item-info"><div class="order-item-name">${escHtml(o.name)}</div>${o.note?`<div class="order-item-note">${escHtml(o.note)}</div>`:''}</div>
-  <span class="order-item-total">${o.qty}x &middot; ${fmt(o.price*o.qty)}</span></div>
+  <span class="order-item-total">${o.qty}x${_companionBadge} &middot; ${fmt(o.price*o.qty)}</span></div>
 </div>`;
     }
-    return `<div class="order-item-wrap" data-item-id="${o.id}" ontouchstart="swipeStart(event,this)" ontouchmove="swipeMove(event,this)" ontouchend="swipeEnd(event,this)" onmousedown="swipeStart(event,this)" onmousemove="swipeMove(event,this)" onmouseup="swipeEnd(event,this)">
+    return `<div class="order-item-wrap" data-item-id="${o.id}"${_companionTitleAttr} ontouchstart="swipeStart(event,this)" ontouchmove="swipeMove(event,this)" ontouchend="swipeEnd(event,this)" onmousedown="swipeStart(event,this)" onmousemove="swipeMove(event,this)" onmouseup="swipeEnd(event,this)">
   <div class="order-item-inner${_isSent?' sent':''}"><span class="order-item-emoji">${escHtml(o.emoji)}</span>
-  <div class="order-item-info order-item-info--note" role="button" tabindex="0" onclick="openNoteModal('${esc}', ${o.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openNoteModal('${esc}', ${o.id});}"><div class="order-item-name">${escHtml(o.name)}</div>${o.note?`<div class="order-item-note">${escHtml(o.note)}</div>`:'<div class="order-item-note order-item-note-placeholder">+ poznamka</div>'}</div>
+  <div class="order-item-info order-item-info--note" role="button" tabindex="0" onclick="openNoteModal('${esc}', ${o.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openNoteModal('${esc}', ${o.id});}"><div class="order-item-name">${escHtml(o.name)}</div>${o.note?`<div class="order-item-note">&#9998; ${escHtml(o.note)}</div>`:'<div class="order-item-note-placeholder">&#9998; Pridať poznámku</div>'}</div>
   <button class="order-item-move" onclick="enterMoveMode(${o.id})" aria-label="Presunut">&#8599;</button>
-  <div class="order-item-qty"><button class="qty-btn" onclick="changeQty('${esc}', -1, ${o.id})" onpointerdown="startQtyHold('${esc}', -1, ${o.id})">&minus;</button><span class="qty-val">${o.qty}</span><button class="qty-btn" onclick="changeQty('${esc}', 1, ${o.id})" onpointerdown="startQtyHold('${esc}', 1, ${o.id})">+</button></div>
+  <div class="order-item-qty"><button class="qty-btn" onclick="changeQty('${esc}', -1, ${o.id})" onpointerdown="startQtyHold('${esc}', -1, ${o.id})">&minus;</button><span class="qty-val">${o.qty}</span>${_companionBadge}<button class="qty-btn" onclick="changeQty('${esc}', 1, ${o.id})" onpointerdown="startQtyHold('${esc}', 1, ${o.id})">+</button></div>
   <div class="order-item-total">${fmt(o.price*o.qty)}</div></div>
   <div class="order-item-swipe-left"><button class="swipe-btn swipe-btn-move" onclick="enterMoveMode(${o.id})" aria-label="Presunut polozku">&#8599;</button><button class="swipe-btn swipe-btn-note" onclick="openNoteModal('${esc}', ${o.id})" aria-label="Poznamka">&#9998;</button><button class="swipe-btn swipe-btn-del" onclick="removeItem('${esc}')" aria-label="Odstranit polozku">&#10005;</button></div>
 </div>`}).join('')}
@@ -536,3 +881,11 @@ document.addEventListener('DOMContentLoaded',function(){
   var dm=document.getElementById('discountModal');
   if(dm)dm.addEventListener('click',function(e){if(e.target===this)closeDiscountModal()});
 });
+
+// Keep the "X min" portion of the order header status badge fresh without
+// forcing a full renderOrder pass.
+setInterval(function(){
+  if (typeof _renderTableStatus === 'function') {
+    try { _renderTableStatus(); } catch (e) { /* badge is non-essential */ }
+  }
+}, 60000);

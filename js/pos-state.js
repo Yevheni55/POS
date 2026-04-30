@@ -21,9 +21,34 @@ const session = api.getUser();
 let MENU_DATA = []; // raw array from API
 let MENU = {};      // category slug -> {label, icon, key, items}
 let MENU_ID_MAP = new Map(); // item name -> menuItemId for O(1) lookup
+let MENU_ITEM_BY_ID = new Map(); // menuItemId -> full item (for companion lookup etc.)
 let DEST_MAP = {};
 let TABLES = [];
 let ZONES = [];
+// Top-sold items (last 14 days) feeding the "🔥 Najcastejsie" pseudo-category.
+// Refreshed on init + every 5 minutes; see loadTopItems below.
+let TOP_ITEMS = [];
+
+// Storno basket — pending storno entries the cashier queued for admin to process.
+// Refreshed via loadStornoBasket() on init, every 30s poll, and on
+// socket 'storno-basket:updated' events.
+let _stornoBasketCache = { count: 0, value: 0, items: [] };
+
+async function loadStornoBasket() {
+  try {
+    var data = await api.get('/storno-basket');
+    var summary = data && data.summary || { pendingCount: 0, pendingValue: 0 };
+    _stornoBasketCache = {
+      count: Number(summary.pendingCount) || 0,
+      value: Number(summary.pendingValue) || 0,
+      items: Array.isArray(data && data.items) ? data.items : [],
+    };
+    if (typeof renderStornoChip === 'function') renderStornoChip();
+  } catch (e) {
+    // Offline / 401 — keep last cache, just log
+    console.warn('loadStornoBasket failed:', e && e.message);
+  }
+}
 
 const CAT_COLORS = {
   kava:'108,92,231', caj:'92,196,158', koktaily:'212,107,107',
@@ -35,17 +60,51 @@ async function loadMenu(data) {
   MENU = {};
   DEST_MAP = {};
   MENU_ID_MAP = new Map();
+  MENU_ITEM_BY_ID = new Map();
+  // Synthetic "Najcastejsie" pseudo-category — must be first so init code that
+  // does `Object.keys(MENU)[0]` lands here, and so renderCategories shows it
+  // as the leading tab. Empty items array keeps existing MENU iteration
+  // helpers (getItemCat / search) safe; renderProducts has a special branch
+  // to pull from TOP_ITEMS instead.
+  MENU['__top__'] = { label: 'Najcastejsie', icon: '🔥', key: 'B00', items: [] };
   MENU_DATA.forEach(cat => {
     MENU[cat.slug] = { label: cat.label, icon: cat.icon, key: cat.sortKey, items: cat.items };
     DEST_MAP[cat.slug] = cat.dest;
-    cat.items.forEach(item => { MENU_ID_MAP.set(item.name, item.id); });
+    cat.items.forEach(item => {
+      MENU_ID_MAP.set(item.name, item.id);
+      MENU_ITEM_BY_ID.set(item.id, item);
+    });
   });
+  // Fire-and-forget: kick off the top-sold list. Don't block menu load on it —
+  // the pseudo-tab will populate as soon as the request returns and any active
+  // render that's looking at __top__ will pick it up via the helper below.
+  loadTopItems();
 }
+
+// Pull the top-sold items from the server. Items come back with full menu
+// fields (id, name, emoji, price, imageUrl…) so the existing product-card
+// template can render them directly. Failures keep the previous list — the
+// pseudo-tab just stays "stale" until the next 5-minute tick succeeds.
+async function loadTopItems() {
+  try {
+    var data = api.getTopItems ? await api.getTopItems() : await api.get('/menu/top');
+    TOP_ITEMS = Array.isArray(data) ? data : [];
+    if (typeof activeCategory !== 'undefined' && activeCategory === '__top__'
+        && typeof renderProducts === 'function' && typeof currentView !== 'undefined'
+        && currentView === 'products') {
+      renderProducts();
+    }
+  } catch (e) {
+    console.warn('loadTopItems failed:', e && e.message);
+  }
+}
+
+// Refresh the "Najcastejsie" feed every 5 minutes so it tracks the day's
+// real ordering pattern without a per-payment hook.
+setInterval(loadTopItems, 5 * 60 * 1000);
 
 async function loadTables(data) {
   TABLES = data || await api.get('/tables');
-  // Reset floor reference space cache
-  if (typeof renderFloor !== 'undefined') renderFloor._refW = 0;
   // Derive zones from table data
   const zoneSet = new Map();
   const zoneLabels = {interior:'Interier', bar:'Bar', terasa:'Terasa'};
@@ -71,9 +130,14 @@ async function loadAllOrders() {
     });
     allOrdersCache = newCache;
     _lastOrdersCacheJSON = JSON.stringify(newCache);
-    // Populate tableOrders for all tables so renderFloor shows totals on chips
+    // Populate tableOrders for all tables so renderFloor shows totals on chips.
+    // CRITICAL: preserve local-only unsent rows (id > 1e9, sent=false) — without
+    // this, the 30s poll / socket refresh overwrites a draft order the cashier
+    // is still typing in, and "Pay" then says "Nie je co platit" because
+    // tableOrders[id] is suddenly [].
     TABLES.forEach(function(t) {
       var tOrders = newCache[t.id] || [];
+      var prev = tableOrders[t.id] || [];
       if (tOrders.length) {
         // Sum all items across all open orders for this table
         var allItems = [];
@@ -84,9 +148,21 @@ async function loadAllOrders() {
             });
           }
         });
+        // Append any local-only rows the cashier added that aren't on the server yet.
+        prev.forEach(function(p) {
+          if (!p || p.sent) return;
+          if (typeof p.id !== 'number' || p.id <= 1000000000) return;
+          if (allItems.some(function(m) { return m.id === p.id; })) return;
+          allItems.push(p);
+        });
         tableOrders[t.id] = allItems;
       } else {
-        tableOrders[t.id] = [];
+        // No server orders for this table — keep any local-only draft rows
+        // instead of wiping them. Only fully-clear if there are none.
+        var keptLocal = prev.filter(function(p) {
+          return p && !p.sent && typeof p.id === 'number' && p.id > 1000000000;
+        });
+        tableOrders[t.id] = keptLocal;
       }
     });
     _persistTableOrdersNow();
@@ -133,6 +209,36 @@ function refreshTableStatus(tableId) {
   table.status = _tableHasAnyItems(tableId) ? 'occupied' : 'free';
 }
 
+// Map a server-side order item into the client's tableOrders shape.
+function _mapServerOrderItem(i, orderId) {
+  return {
+    id: i.id, name: i.name, emoji: i.emoji, price: i.price,
+    qty: i.qty, note: i.note, menuItemId: i.menuItemId,
+    orderId: orderId, desc: i.desc || '', sent: !!i.sent,
+    _sentQty: i.sent ? i.qty : 0,
+  };
+}
+
+// Merge fresh server items with the cashier's in-progress local additions.
+// Without this, the 30s poll / socket order:updated would silently wipe rows the
+// cashier is still typing in (item disappears mid-add) — see pos-init.js refresh
+// and the loadTableOrder rebuild below.
+//
+// Local-only rows are anything still using a client-side id (> 1e9 boundary set
+// by _getNextLocalOrderItemId) AND not yet synced (sent === false). Sent rows
+// always come from the server, so we never preserve those from the prev state.
+function _mergePreservingLocalAdditions(serverItems, prevLocalItems, orderId) {
+  var mapped = serverItems.map(function (i) { return _mapServerOrderItem(i, orderId); });
+  if (!Array.isArray(prevLocalItems) || !prevLocalItems.length) return mapped;
+  prevLocalItems.forEach(function (p) {
+    if (!p || p.sent) return;
+    if (typeof p.id !== 'number' || p.id <= 1000000000) return;
+    if (mapped.some(function (m) { return m.id === p.id; })) return;
+    mapped.push(p);
+  });
+  return mapped;
+}
+
 async function loadTableOrder(tableId, forceRefresh) {
   try {
     if (!forceRefresh && allOrdersCache[tableId]) {
@@ -148,18 +254,23 @@ async function loadTableOrder(tableId, forceRefresh) {
       var current = tableOrdersList.find(function(o) { return o.id === currentOrderId; }) || tableOrdersList[0];
       currentOrderId = current.id;
       currentOrderVersion = current.version || null;
-      tableOrders[tableId] = current.items.map(function(i) {
-        return {
-          id: i.id, name: i.name, emoji: i.emoji, price: i.price,
-          qty: i.qty, note: i.note, menuItemId: i.menuItemId,
-          orderId: current.id, desc: i.desc || '', sent: !!i.sent,
-          _sentQty: i.sent ? i.qty : 0
-        };
-      });
+      tableOrders[tableId] = _mergePreservingLocalAdditions(
+        current.items, tableOrders[tableId], current.id
+      );
     } else {
-      currentOrderId = null;
-      currentOrderVersion = null;
-      tableOrders[tableId] = [];
+      // Server has no orders for this table — but the cashier may have just
+      // started a brand-new local-only order. Keep those rows; if there are
+      // none, fall through to the empty-state.
+      var keptLocal = (tableOrders[tableId] || []).filter(function (p) {
+        return p && !p.sent && typeof p.id === 'number' && p.id > 1000000000;
+      });
+      if (keptLocal.length) {
+        tableOrders[tableId] = keptLocal;
+      } else {
+        currentOrderId = null;
+        currentOrderVersion = null;
+        tableOrders[tableId] = [];
+      }
       tableOrdersList = [];
     }
     refreshTableStatus(tableId);
@@ -191,7 +302,9 @@ function getUserRole() {
 }
 
 // ===== STATE =====
-let currentView='tables', activeZone='interior', selectedTableId=null, activeCategory=null;
+// activeCategory defaults to the "Najcastejsie" pseudo-tab so the cashier
+// lands on the most-frequent items without drilling into a real category.
+let currentView='tables', activeZone='interior', selectedTableId=null, activeCategory='__top__';
 let searchQuery='', tipPercent=0, noteItemName=null, noteItemId=null, pendingPaymentMethod=null;
 let editMode=false;
 let currentOrderId=null;

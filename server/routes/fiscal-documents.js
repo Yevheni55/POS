@@ -4,7 +4,7 @@ import { and, desc, eq } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { fiscalDocuments, orders, payments, tables } from '../db/schema.js';
 import { logEvent } from '../lib/audit.js';
-import { buildPaymentStornoExternalId, buildStornoCashRegisterRequestContext } from '../lib/fiscal-payment.js';
+import { buildPaymentStornoExternalId, buildStornoCashRegisterRequestContext, parsePaymentExternalIdSalt } from '../lib/fiscal-payment.js';
 import { getActiveCashRegisterCode } from '../lib/active-cash-register.js';
 import {
   findReceiptByExternalIdWithRetry,
@@ -254,7 +254,9 @@ async function runFiscalStorno({ document, staffId }) {
     return { status: 400, body: { error: 'Portos nie je zapnuty' } };
   }
 
-  const stornoExternalId = buildPaymentStornoExternalId(document.orderId);
+  // Storno externalId musí byť konzistentný so soltom z pôvodného sale doc.
+  const saleSalt = parsePaymentExternalIdSalt(document.externalId);
+  const stornoExternalId = buildPaymentStornoExternalId(document.orderId, { salt: saleSalt });
   const [existingStorno] = await db.select().from(fiscalDocuments)
     .where(eq(fiscalDocuments.externalId, stornoExternalId))
     .limit(1);
@@ -293,6 +295,7 @@ async function runFiscalStorno({ document, staffId }) {
       referenceReceiptId,
       orderId: document.orderId,
       cashRegisterCode: document.cashRegisterCode || (await getActiveCashRegisterCode()),
+      externalIdSalt: saleSalt,
     });
   } catch (error) {
     console.error('Fiscal storno build error:', error);
@@ -440,7 +443,8 @@ async function selectFiscalDocuments(whereClause) {
 }
 
 async function loadDocumentMeta(document) {
-  const stornoExternalId = document.orderId ? buildPaymentStornoExternalId(document.orderId) : null;
+  const stornoSalt = parsePaymentExternalIdSalt(document.externalId);
+  const stornoExternalId = document.orderId ? buildPaymentStornoExternalId(document.orderId, { salt: stornoSalt }) : null;
   let stornoDone = false;
 
   if (document.paymentId && stornoExternalId) {

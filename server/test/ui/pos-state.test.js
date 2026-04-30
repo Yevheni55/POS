@@ -2,7 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(__dirname, '../../..');
 
 function createElementStub() {
   return {
@@ -80,7 +84,7 @@ async function loadPosState() {
   context.window = context;
   context.globalThis = context;
 
-  const scriptPath = path.resolve('C:/Users/yevhe/Desktop/POS/js/pos-state.js');
+  const scriptPath = path.join(REPO_ROOT, 'js/pos-state.js');
   const script = readFileSync(scriptPath, 'utf8');
   vm.runInContext(script, context, { filename: scriptPath });
 

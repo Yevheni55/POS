@@ -23,8 +23,13 @@ const PIN_MAX_ATTEMPTS = 5;
  * Count failed auth attempts for the given (staffId|ip) in the last window.
  * staffId is preferred; ip is the fallback when no staff row matched before.
  * Returns 0 on any DB error so a hiccup never blocks login entirely.
+ *
+ * E2E bypass: tests log in dozens of times from 127.0.0.1 in seconds and
+ * would otherwise trip PIN_MAX_ATTEMPTS. tests/e2e/_setup/global-setup.mjs
+ * sets DISABLE_PIN_RATE_LIMIT=true; production never sets it.
  */
 async function countRecentFailures({ staffId, ip }) {
+  if (process.env.DISABLE_PIN_RATE_LIMIT === 'true') return 0;
   const since = new Date(Date.now() - PIN_WINDOW_MS);
   try {
     if (staffId != null) {

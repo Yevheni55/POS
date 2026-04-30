@@ -25,6 +25,7 @@ tar -czf "$TGZ" \
   --exclude=node_modules \
   --exclude=server/node_modules \
   --exclude=server/.env \
+  --exclude=uploads \
   --exclude='*.tgz' \
   .
 

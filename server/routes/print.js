@@ -207,16 +207,33 @@ function buildKitchenTicket({ dest, tableName, staffName, items, orderNum, time 
   ticket += CMD.DASHED;
 
   // Items
+  // Combos absorb their "Omáčka (combo)" companion row inline so the kitchen
+  // sees combo + sauce on the same logical line at the same LARGE+BOLD size.
+  // (At LARGE size the line will wrap on a 32-char printer — that's fine,
+  // it's still all combo info; cashier requested same font/size as the burger.)
   ticket += CMD.ALIGN_LEFT;
-  items.forEach(item => {
+  items.forEach((item, idx) => {
+    if (item.name === 'Omáčka (combo)') return;
+
     ticket += CMD.BOLD_ON;
     ticket += CMD.LARGE_SIZE;
-    ticket += ' ' + item.qty + 'x  ' + item.name + '\n';
+    ticket += ' ' + item.qty + 'x  ' + item.name;
+
+    if (/^combo /i.test(item.name)) {
+      const next = items[idx + 1];
+      if (next && next.name === 'Omáčka (combo)' && next.note) {
+        ticket += '  |  ' + next.note;
+      }
+    }
+    ticket += '\n';
+    // Note (kitchen instruction) — same LARGE+BOLD size as the item itself,
+    // prefixed with "!! " so the cook can't miss it. Was a tiny "  >> ..."
+    // line in NORMAL+regular weight that disappeared on a busy ticket.
+    if (item.note) {
+      ticket += '   !! ' + item.note + '\n';
+    }
     ticket += CMD.NORMAL_SIZE;
     ticket += CMD.BOLD_OFF;
-    if (item.note) {
-      ticket += '      >> ' + item.note + '\n';
-    }
   });
 
   // Footer
@@ -372,6 +389,10 @@ function buildZReportTicket(data) {
   t += CMD.LINE;
   t += CMD.ALIGN_LEFT;
   t += padLine('Celkom:', formatEur(data.totalRevenue) + ' EUR') + '\n';
+  if (data.fiscalRevenue !== undefined && data.shisha && data.shisha.count > 0) {
+    t += padLine(' z toho fiskal:', formatEur(data.fiscalRevenue) + ' EUR') + '\n';
+    t += padLine(' z toho shisha:', formatEur(data.shisha.revenue) + ' EUR (' + data.shisha.count + 'x)') + '\n';
+  }
   (data.paymentMethods || []).forEach(pm => {
     const label = pm.method.charAt(0).toUpperCase() + pm.method.slice(1) + ':';
     t += padLine(label, formatEur(pm.total) + ' EUR') + '\n';
@@ -446,11 +467,25 @@ function buildLockCodeTicket({ code, validUntil, staffName, time }) {
   t += CMD.BOLD_OFF;
   t += '\n';
 
-  // Big code display
+  // Wake-up instruction — most customers don't realize the keypad has to be
+  // tapped first to light up before they can enter the code.
   t += CMD.BOLD_ON;
   t += CMD.DOUBLE_SIZE;
-  // Add spacing between digits for readability
-  const spaced = code.split('').join('  ');
+  t += 'NAJPRV RAZNE\n';
+  t += 'TUKNITE\n';
+  t += 'NA DISPLEJ\n';
+  t += 'ZAMKU !\n';
+  t += CMD.NORMAL_SIZE;
+  t += CMD.BOLD_OFF;
+  t += '(displej sa rozsvieti,\n';
+  t += ' az potom zadajte kod)\n';
+  t += '\n';
+
+  // Big code display — # appended as the WC keypad confirm key, so the customer
+  // types the digits + # to unlock. Spaced for readability.
+  t += CMD.BOLD_ON;
+  t += CMD.DOUBLE_SIZE;
+  const spaced = (code + '#').split('').join('  ');
   t += spaced + '\n';
   t += CMD.NORMAL_SIZE;
   t += CMD.BOLD_OFF;
@@ -471,6 +506,19 @@ function buildLockCodeTicket({ code, validUntil, staffName, time }) {
   t += CMD.BOLD_ON;
   t += '================================\n';
   t += CMD.BOLD_OFF;
+
+  // Closing-the-door reminder — many customers leave the door ajar after WC,
+  // the auto-lock then doesn't engage and the next customer walks in on them.
+  t += '\n';
+  t += CMD.BOLD_ON;
+  t += CMD.DOUBLE_SIZE;
+  t += 'PROSIME\n';
+  t += 'ZABUCHNUT\n';
+  t += 'DVERE\n';
+  t += CMD.NORMAL_SIZE;
+  t += CMD.BOLD_OFF;
+  t += '(aby sa zamok\n';
+  t += ' automaticky zamkol)\n';
 
   t += CMD.FEED;
   t += CMD.CUT;

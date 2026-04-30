@@ -13,6 +13,7 @@ import { validate } from '../middleware/validate.js';
 import { requireRole } from '../middleware/requireRole.js';
 import { createOrderSchema, addItemsSchema, updateItemSchema, batchSchema, splitSchema, moveItemsSchema, discountSchema, stornoSendSchema, stornoWriteOffSchema } from '../schemas/orders.js';
 import { deductStockForSentItems, applyWriteOff } from '../lib/stock.js';
+import { applyStornoStockResolution } from '../lib/storno-stock.js';
 import { asyncRoute } from '../lib/async-route.js';
 
 const router = Router();
@@ -203,15 +204,16 @@ router.delete('/:orderId/items/:itemId', asyncRoute(async (req, res) => {
   const { version } = req.body || {};
 
   try {
-    await db.transaction(async (tx) => {
+    const newVersion = await db.transaction(async (tx) => {
       const bumped = await bumpVersion(tx, orderId, version);
       if (version !== undefined && !bumped) throw new VersionConflictError();
       await tx.delete(orderItems).where(and(eq(orderItems.id, itemId), eq(orderItems.orderId, orderId)));
+      return bumped ? bumped.version : null;
     });
 
     logEvent(db, { orderId, type: 'item_removed', payload: { itemId }, staffId: req.user.id }).catch(e => console.error('Audit log error:', e));
     emitEvent(req, 'order:updated', { orderId });
-    res.json({ ok: true });
+    res.json({ ok: true, deleted: true, orderVersion: newVersion });
   } catch (e) {
     if (e instanceof VersionConflictError) return res.status(409).json({ error: VERSION_CONFLICT_MSG });
     throw e;
@@ -300,6 +302,7 @@ router.post('/:id/send', asyncRoute(async (req, res) => {
   const orderId = +req.params.id;
 
   const { unsentItems, stockResult } = await db.transaction(async (tx) => {
+    await bumpVersion(tx, orderId);
     const unsentItems = await tx.select({
       id: orderItems.id, name: menuItems.name, emoji: menuItems.emoji,
       qty: orderItems.qty, note: orderItems.note, menuItemId: orderItems.menuItemId
@@ -588,51 +591,55 @@ router.post('/:id/discount', requireRole('manazer', 'admin'), validate(discountS
   const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
   if (!order) return res.status(404).json({ error: 'Objednavka nenajdena' });
 
-  // Calculate order subtotal
-  const items = await db.select({
-    qty: orderItems.qty,
-    price: menuItems.price,
-  })
-  .from(orderItems)
-  .innerJoin(menuItems, eq(orderItems.menuItemId, menuItems.id))
-  .where(eq(orderItems.orderId, orderId));
-
-  const subtotal = items.reduce((s, i) => s + parseFloat(i.price) * i.qty, 0);
-
-  let discountAmount = 0;
-  let appliedDiscountId = null;
-
-  if (discountId) {
-    // Look up predefined discount
-    const [disc] = await db.select().from(discounts).where(eq(discounts.id, discountId));
-    if (!disc) return res.status(404).json({ error: 'Zlava nenajdena' });
-
-    appliedDiscountId = disc.id;
-    const discValue = parseFloat(disc.value);
-    if (disc.type === 'percent') {
-      discountAmount = Math.round(subtotal * discValue / 100 * 100) / 100;
-    } else {
-      discountAmount = Math.min(discValue, subtotal);
-    }
-  } else if (customPercent !== undefined) {
-    const pct = Math.max(0, Math.min(100, parseFloat(customPercent) || 0));
-    discountAmount = Math.round(subtotal * pct / 100 * 100) / 100;
-  } else {
+  if (!discountId && customPercent === undefined) {
     return res.status(400).json({ error: 'discountId alebo customPercent je povinny' });
   }
 
   try {
-    const updated = await db.transaction(async (tx) => {
+    const result = await db.transaction(async (tx) => {
       const bumped = await bumpVersion(tx, orderId, version);
       if (version !== undefined && !bumped) throw new VersionConflictError();
+
+      // Calculate order subtotal inside tx so concurrent item adds cannot leave it stale
+      const items = await tx.select({
+        qty: orderItems.qty,
+        price: menuItems.price,
+      })
+      .from(orderItems)
+      .innerJoin(menuItems, eq(orderItems.menuItemId, menuItems.id))
+      .where(eq(orderItems.orderId, orderId));
+
+      const subtotal = items.reduce((s, i) => s + parseFloat(i.price) * i.qty, 0);
+
+      let discountAmount = 0;
+      let appliedDiscountId = null;
+
+      if (discountId) {
+        const [disc] = await tx.select().from(discounts).where(eq(discounts.id, discountId));
+        if (!disc) return { error: 'Zlava nenajdena', status: 404 };
+
+        appliedDiscountId = disc.id;
+        const discValue = parseFloat(disc.value);
+        if (disc.type === 'percent') {
+          discountAmount = Math.round(subtotal * discValue / 100 * 100) / 100;
+        } else {
+          discountAmount = Math.min(discValue, subtotal);
+        }
+      } else {
+        const pct = Math.max(0, Math.min(100, parseFloat(customPercent) || 0));
+        discountAmount = Math.round(subtotal * pct / 100 * 100) / 100;
+      }
 
       const [updated] = await tx.update(orders).set({
         discountId: appliedDiscountId,
         discountAmount: String(discountAmount),
       }).where(eq(orders.id, orderId)).returning();
-      return updated;
+      return { updated, appliedDiscountId, discountAmount };
     });
 
+    if (result.error) return res.status(result.status).json({ error: result.error });
+
+    const { updated, appliedDiscountId, discountAmount } = result;
     logEvent(db, { orderId, type: 'discount_applied', payload: { discountId: appliedDiscountId, discountAmount, customPercent }, staffId: req.user.id }).catch(e => console.error('Audit log error:', e));
     res.json({ ...updated, discountAmount: parseFloat(updated.discountAmount) });
   } catch (e) {
@@ -645,6 +652,10 @@ router.post('/:id/discount', requireRole('manazer', 'admin'), validate(discountS
 router.delete('/:id/discount', requireRole('manazer', 'admin'), asyncRoute(async (req, res) => {
   const orderId = +req.params.id;
   const { version } = req.body || {};
+
+  if (req.user.role === 'cisnik') {
+    return res.status(403).json({ error: 'Pristup odmietnuty' });
+  }
 
   try {
     const { updated, previousDiscountId } = await db.transaction(async (tx) => {
@@ -733,82 +744,40 @@ router.delete('/:id', asyncRoute(async (req, res) => {
 }));
 
 // POST /api/orders/:id/storno-write-off — create write-off from POS storno
-router.post('/:id/storno-write-off', validate(stornoWriteOffSchema), asyncRoute(async (req, res) => {
+// Kept for backward-compat (admin direct write-off, e.g. from inventory page).
+// Production cashier flow now goes through /api/storno-basket → admin resolves.
+// Schema-validated (PR-2.2) and gated to manazer/admin role.
+router.post('/:id/storno-write-off', requireRole('manazer', 'admin'), validate(stornoWriteOffSchema), asyncRoute(async (req, res) => {
   const orderId = +req.params.id;
   const { menuItemId, qty, reason, note, returnToStock } = req.body;
   const staffId = req.user.id;
   const woReason = reason;
 
-  // Map storno reasons to write-off reasons
-  const reasonMap = { order_error: 'other', complaint: 'damage', breakage: 'damage', staff_meal: 'other', other: 'other' };
+  try {
+    const result = await db.transaction(async (tx) => {
+      const [mi] = await tx.select().from(menuItems).where(eq(menuItems.id, menuItemId));
+      if (!mi) return { skipped: true, reason: 'menu item not found' };
 
-  const result = await db.transaction(async (tx) => {
-    const [mi] = await tx.select().from(menuItems).where(eq(menuItems.id, menuItemId));
-    if (!mi) return { skipped: true, reason: 'menu item not found' };
-
-    // If returnToStock = true, this was an error (food not made), no write-off needed
-    // Just reverse the stock deduction that happened on send
-    if (returnToStock) {
-      if (mi.trackMode === 'simple') {
-        const prev = parseFloat(mi.stockQty);
-        const next = Math.round((prev + qty) * 1000) / 1000;
-        await tx.update(menuItems).set({ stockQty: String(next) }).where(eq(menuItems.id, mi.id));
-      } else if (mi.trackMode === 'recipe') {
-        const recipeLines = await tx.select().from(recipes).where(eq(recipes.menuItemId, mi.id));
-        for (const line of recipeLines) {
-          const [ing] = await tx.select().from(ingredients).where(eq(ingredients.id, line.ingredientId));
-          if (!ing) continue;
-          const addBack = parseFloat(line.qtyPerUnit) * qty;
-          const next = Math.round((parseFloat(ing.currentQty) + addBack) * 1000) / 1000;
-          await tx.update(ingredients).set({ currentQty: String(next) }).where(eq(ingredients.id, ing.id));
-        }
-      }
-      logEvent(tx, { orderId, type: 'storno_return', payload: { menuItemId, qty, reason: woReason, note: note || '' }, staffId }).catch(() => {});
-      return { action: 'returned', menuItemId, qty };
-    }
-
-    // returnToStock = false → food was made, it's a loss → create write-off
-    // Always create write-off record regardless of trackMode
-    const woItems = [];
-    let totalCost = 0;
-
-    if (mi.trackMode === 'simple') {
-      woItems.push({ ingredientId: null, menuItemId: mi.id, qty: qty, unitCost: parseFloat(mi.price) });
-    } else if (mi.trackMode === 'recipe') {
-      const recipeLines = await tx.select().from(recipes).where(eq(recipes.menuItemId, mi.id));
-      for (const line of recipeLines) {
-        const [ing] = await tx.select().from(ingredients).where(eq(ingredients.id, line.ingredientId));
-        if (!ing) continue;
-        woItems.push({ ingredientId: ing.id, qty: parseFloat(line.qtyPerUnit) * qty, unitCost: parseFloat(ing.costPerUnit) });
-      }
-    }
-    // For trackMode='none' — no ingredient items, just record the loss with menu price
-    totalCost = woItems.length
-      ? woItems.reduce((s, i) => s + Math.round(i.qty * i.unitCost * 100) / 100, 0)
-      : Math.round(parseFloat(mi.price) * qty * 100) / 100;
-
-    const [wo] = await tx.insert(writeOffs).values({
-      status: 'approved', reason: reasonMap[woReason] || 'other',
-      note: 'POS storno: ' + (note || woReason) + ' (Obj. #' + orderId + ', ' + mi.name + ' x' + qty + ')',
-      totalCost: String(totalCost), createdBy: staffId, approvedBy: staffId, approvedAt: new Date(),
-    }).returning();
-
-    for (const item of woItems) {
-      if (!item.ingredientId) continue;
-      const lineCost = Math.round(item.qty * item.unitCost * 100) / 100;
-      await tx.insert(writeOffItems).values({
-        writeOffId: wo.id, ingredientId: item.ingredientId,
-        quantity: String(item.qty), unitCost: String(item.unitCost), totalCost: String(lineCost),
+      const out = await applyStornoStockResolution(tx, {
+        menuItem: mi,
+        qty,
+        wasPrepared: !returnToStock,
+        reason: woReason,
+        note,
+        orderId,
+        staffId,
       });
-    }
-    // Note: stock was already deducted when the order was sent, so no additional deduction
-    // The write-off is just a record of the loss
 
-    logEvent(tx, { orderId, type: 'storno_write_off', payload: { menuItemId, qty, reason: woReason, writeOffId: wo.id, totalCost }, staffId }).catch(() => {});
-    return { action: 'write_off', writeOffId: wo.id, totalCost, menuItemId, qty };
-  });
+      const eventType = out.action === 'returned' ? 'storno_return' : 'storno_write_off';
+      logEvent(tx, { orderId, type: eventType, payload: { menuItemId, qty, reason: woReason, note: note || '', writeOffId: out.writeOffId, totalCost: out.totalCost }, staffId }).catch(() => {});
+      return out;
+    });
 
-  res.json(result);
+    res.json(result);
+  } catch (err) {
+    console.error('Storno write-off failed:', err);
+    res.status(500).json({ error: 'Storno write-off failed' });
+  }
 }));
 
 // GET /api/orders/:id/events — audit log for an order (manazer/admin only)

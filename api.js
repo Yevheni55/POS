@@ -26,6 +26,20 @@ const api = {
     localStorage.setItem('pos_offline_queue', JSON.stringify(this._queue));
   },
 
+  // Clears OFFLINE state + banner once a fetch succeeds. Stale banner stays
+  // until next request otherwise — see fix in claude/amazing-mccarthy-f841b1.
+  _setOnline() {
+    if (this._offline) {
+      this._offline = false;
+      var b = document.querySelector('#offlineBanner, .offline-banner');
+      if (b) {
+        if (b.classList) b.classList.remove('show');
+        b.remove();
+      }
+      if (document.body) document.body.classList.remove('is-offline');
+    }
+  },
+
   _loadQueue() {
     try {
       this._queue = JSON.parse(localStorage.getItem('pos_offline_queue') || '[]');
@@ -142,7 +156,7 @@ const api = {
         throw err;
       }
 
-      this._offline = false;
+      this._setOnline();
       return data;
     } catch (err) {
       if (err.name === 'TypeError' && err.message.includes('fetch')) {
@@ -197,6 +211,12 @@ const api = {
     this._menuCache = await this.get('/menu');
     this._menuCacheTime = Date.now();
     return this._menuCache;
+  },
+
+  // Top-sold items in the last 14 days — backs the "Najcastejsie" pseudo-tab.
+  // Not cached client-side: pos-state.js manages refresh cadence.
+  getTopItems() {
+    return this.request('/menu/top', { method: 'GET' });
   },
 
   getPortosStatus() {
@@ -289,6 +309,10 @@ const api = {
 
   printReceiptCopy(paymentId) {
     return this.post('/payments/' + paymentId + '/receipt-copy', {});
+  },
+
+  refiscalizePayment(paymentId) {
+    return this.post('/payments/' + paymentId + '/refiscalize', {});
   },
 
   invalidateMenu() {

@@ -25,6 +25,8 @@ import ttlockRoutes from './routes/ttlock.js';
 import portosRoutes from './routes/portos.js';
 import companyProfileRoutes from './routes/company-profile.js';
 import fiscalDocumentsRoutes from './routes/fiscal-documents.js';
+import shishaRoutes from './routes/shisha.js';
+import stornoBasketRoutes from './routes/storno-basket.js';
 import { idempotency } from './middleware/idempotency.js';
 import { auth } from './middleware/auth.js';
 import { ALLOWED_ORIGINS, corsOriginCallback } from './lib/cors-origin.js';
@@ -32,6 +34,7 @@ import { ALLOWED_ORIGINS, corsOriginCallback } from './lib/cors-origin.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
+app.set('trust proxy', 'loopback');
 
 // PR-2.3: allow req.ip to honour X-Forwarded-For when running behind a
 // reverse proxy (Docker, nginx, etc). Must be set BEFORE any middleware.
@@ -40,6 +43,10 @@ const app = express();
 app.set('trust proxy', Number(process.env.TRUST_PROXY || 0));
 
 // Middleware
+// NOTE: CSP temporarily disabled again — the minimal policy broke stylesheet
+// loading in production. Needs to be re-enabled after a careful audit of
+// every inline handler, CSS background URL, service-worker fetch, and the
+// socket.io handshake. Trust proxy stays (separate concern).
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
@@ -48,10 +55,41 @@ app.use(compression());
 app.use(cors({ origin: corsOriginCallback }));
 app.use(express.json({ limit: '20mb' }));
 
+// Service worker — inject the current build version so every fresh deploy
+// (= server restart) ships a bytewise-different sw.js → browser detects an
+// update → install runs → activate prunes the old cache. No more
+// Ctrl+Shift+R after each deploy.
+const SW_VERSION = process.env.BUILD_VERSION || String(Date.now());
+let _swSourceCache = null;
+async function readSwSource() {
+  if (_swSourceCache) return _swSourceCache;
+  const fs = await import('node:fs/promises');
+  _swSourceCache = await fs.readFile(path.join(__dirname, '..', 'sw.js'), 'utf8');
+  return _swSourceCache;
+}
+app.get('/sw.js', async (req, res) => {
+  try {
+    const src = await readSwSource();
+    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Service-Worker-Allowed', '/');
+    res.send(src.replace(/__SW_VERSION__/g, SW_VERSION));
+  } catch (e) {
+    res.status(500).send('// SW unavailable');
+  }
+});
+
 // Serve fonts with long cache (1 year)
 app.use('/fonts', express.static(path.join(__dirname, '..', 'fonts'), {
   maxAge: '365d',
   immutable: true
+}));
+
+// Menu item photos and other user-uploaded assets. Cache for a day; the
+// upload endpoint already cache-busts the URL with a ?v=<ts> querystring.
+app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads'), {
+  maxAge: '1d',
+  fallthrough: true,
 }));
 
 // Serve frontend files from parent directory
@@ -82,6 +120,8 @@ app.use('/api/ttlock', auth, ttlockRoutes);
 app.use('/api/integrations/portos', auth, portosRoutes);
 app.use('/api/company-profile', auth, companyProfileRoutes);
 app.use('/api/fiscal-documents', auth, fiscalDocumentsRoutes);
+app.use('/api/shisha', auth, shishaRoutes);
+app.use('/api/storno-basket', auth, stornoBasketRoutes);
 
 // SPA fallback
 app.get('*', (req, res) => {

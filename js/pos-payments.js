@@ -131,14 +131,32 @@ function finalizeSuccessfulPayment(message, tone) {
   if (isMobile()) closeMobPayDrawer();
   currentOrderId = null;
   currentOrderVersion = null;
+  // Drop any client-side mutation flags from the just-paid order so they can
+  // not leak into a fresh order on the same table (otherwise a stale
+  // _pendingStorno / _pendingRemovals would fire on the next sendToKitchen
+  // and POST against a closed orderId, surfacing as "Objednavka nenajdena").
+  if (typeof _pendingStorno !== 'undefined') _pendingStorno = [];
+  if (typeof _pendingRemovals !== 'undefined') _pendingRemovals = [];
+  _orderDirty = false;
 
   return loadTableOrder(selectedTableId, true).then(function () {
-    renderOrder();
-    if (isMobile()) renderMobOrder();
-    updateTableStatuses();
-    if (currentView === 'tables') renderFloor();
-    if (isMobile()) renderMobTables();
-    showToast(message, tone);
+    // Bounce the cashier back to the floor: order panel hides, the just-paid
+    // table now shows as free, and a fresh tap starts a clean new order
+    // instead of typing into a closed-order limbo.
+    var navPromise;
+    if (isMobile() && typeof switchMobTab === 'function') {
+      navPromise = switchMobTab('mobTabTables');
+    } else if (typeof switchView === 'function') {
+      navPromise = switchView('tables');
+    }
+    return Promise.resolve(navPromise).then(function () {
+      renderOrder();
+      if (isMobile() && typeof renderMobOrder === 'function') renderMobOrder();
+      updateTableStatuses();
+      if (currentView === 'tables' && typeof renderFloor === 'function') renderFloor();
+      if (isMobile() && typeof renderMobTables === 'function') renderMobTables();
+      showToast(message, tone);
+    });
   });
 }
 
@@ -161,31 +179,49 @@ async function printKitchenAndBarTickets(items, orderId) {
   var context = getPrintContext();
   var foodItems = items.filter(function (i) { return getItemDest(i.name) === 'kuchyna'; });
   var drinkItems = items.filter(function (i) { return getItemDest(i.name) !== 'kuchyna'; });
-  var prints = [];
+  var tasks = [];
 
   if (foodItems.length) {
-    prints.push(api.post('/print/kitchen', {
+    tasks.push({ dest: 'kuchyna', count: foodItems.length, promise: api.post('/print/kitchen', {
       dest: 'KUCHYNA',
       tableName: context.tableName,
       staffName: context.staffName,
       items: foodItems.map(function (i) { return { qty: i.qty, name: i.name, note: i.note || '' }; }),
       orderNum: orderId
-    }));
+    }) });
   }
 
   if (drinkItems.length) {
-    prints.push(api.post('/print/kitchen', {
+    tasks.push({ dest: 'bar', count: drinkItems.length, promise: api.post('/print/kitchen', {
       dest: 'BAR',
       tableName: context.tableName,
       staffName: context.staffName,
       items: drinkItems.map(function (i) { return { qty: i.qty, name: i.name, note: i.note || '' }; }),
       orderNum: orderId
-    }));
+    }) });
   }
 
-  if (!prints.length) return { printed: 0 };
-  await Promise.all(prints);
-  return { printed: items.length, foodCount: foodItems.length, drinkCount: drinkItems.length };
+  if (!tasks.length) return { printed: 0 };
+
+  // Resolve each print job individually so a failed bar doesn't kill the toast
+  // for kuchyna (and vice versa). The /api/print/kitchen endpoint returns
+  // { ok: true, queued: bool } — queued=true means printer was offline and
+  // job went to the local queue.
+  var results = await Promise.all(tasks.map(function (t) {
+    return t.promise.then(function (resp) {
+      var queued = !!(resp && resp.queued);
+      return { dest: t.dest, count: t.count, ok: true, queued: queued };
+    }, function (err) {
+      return { dest: t.dest, count: t.count, ok: false, queued: false, error: err };
+    });
+  }));
+
+  return {
+    printed: items.length,
+    foodCount: foodItems.length,
+    drinkCount: drinkItems.length,
+    results: results,
+  };
 }
 
 async function printStornoKitchenAndBarTickets(items, orderId) {
@@ -265,7 +301,16 @@ function initiatePayment(method) {
   const order = getOrder();
   const total = getOrderTotal();
   if (!order.length || total <= 0) { showToast('Nie je co platit', 'warning'); return; }
-  if (!currentOrderId && !_orderDirty) { showToast('Nie je co platit', 'warning'); return; }
+  // Accept local-only items as payable even without currentOrderId/_orderDirty —
+  // they may be a stale draft the localStorage persistence preserved across a
+  // page reload (where _orderDirty resets to false). syncOrderToServer below
+  // will create the server order from them.
+  if (!currentOrderId && !_orderDirty) {
+    var hasLocalItems = order.some(function (o) {
+      return o && !o.sent && typeof o.id === 'number' && o.id > 1000000000;
+    });
+    if (!hasLocalItems) { showToast('Nie je co platit', 'warning'); return; }
+  }
   pendingPaymentMethod = method;
   const labels = { hotovost: 'Hotovost', karta: 'Karta', zaplatit: 'Univerzalna platba' };
   const icons = { hotovost: '\uD83D\uDCB5', karta: '\uD83D\uDCB3', zaplatit: '\uD83D\uDCB0' };
@@ -392,6 +437,11 @@ function closeManagerPinModal() {
 async function sendToKitchen() {
   await syncOrderToServer();
 
+  var btn = null;
+  var mobBtn = null;
+  var btnOriginalHTML = null;
+  var mobBtnOriginalHTML = null;
+
   try {
     var stornoResult = await flushPendingStornoTickets();
     if (stornoResult && stornoResult.printed) {
@@ -405,10 +455,20 @@ async function sendToKitchen() {
       return;
     }
 
-    var btn = document.getElementById('btnSend');
-    var mobBtn = document.getElementById('mobBtnSend');
-    if (btn) btnLoading(btn);
-    if (mobBtn) btnLoading(mobBtn);
+    btn = document.getElementById('btnSend');
+    mobBtn = document.getElementById('mobBtnSend');
+    if (btn) {
+      btnOriginalHTML = btn.innerHTML;
+      btn.disabled = true;
+      btn.style.pointerEvents = 'none';
+      btn.innerHTML = '<span class="btn-spinner"></span>Posielam…';
+    }
+    if (mobBtn) {
+      mobBtnOriginalHTML = mobBtn.innerHTML;
+      mobBtn.disabled = true;
+      mobBtn.style.pointerEvents = 'none';
+      mobBtn.innerHTML = '<span class="btn-spinner"></span>Posielam…';
+    }
 
     var result = await api.post('/orders/' + currentOrderId + '/send-and-print', {});
 
@@ -416,25 +476,74 @@ async function sendToKitchen() {
       showToast('Nie je co odoslat', 'warning');
       return;
     }
-    await printKitchenAndBarTickets(result.items, currentOrderId);
+    var printOutcome = await printKitchenAndBarTickets(result.items, currentOrderId);
 
     await loadTableOrder(selectedTableId, true);
     renderOrder();
     if (isMobile()) renderMobOrder();
 
-    var foodItems = result.items.filter(function(i) { return getItemDest(i.name) === 'kuchyna'; });
-    var drinkItems = result.items.filter(function(i) { return getItemDest(i.name) !== 'kuchyna'; });
-    var msg = [];
-    if (foodItems.length) msg.push('kuchyna ' + foodItems.length);
-    if (drinkItems.length) msg.push('bar ' + drinkItems.length);
-    showToast('Bon: ' + msg.join(' + '), true);
+    // Build a toast that reflects the REAL print outcome per destination:
+    //   - printed online   => "✔ Bon vytlačený: kuchyňa 2 + bar 1"   (success)
+    //   - went to queue    => "⏳ Bon do queue: kuchyňa 2 + bar 1 — tlačiareň offline"  (warning)
+    //   - mixed            => "Bon: kuchyňa 2 vytlačený + bar 1 do queue (offline)"   (warning)
+    //   - all failed hard  => fall through to catch and show error
+    var perDest = (printOutcome && printOutcome.results) || [];
+    function fmt(d) {
+      var label = d.dest === 'kuchyna' ? 'kuchyňa' : 'bar';
+      return label + ' ' + d.count;
+    }
+
+    if (perDest.length === 0) {
+      // Defensive: nothing was actually dispatched (shouldn't happen given printed>0)
+      showToast('Bon odoslany', 'success');
+    } else {
+      var failed = perDest.filter(function (d) { return !d.ok; });
+      var queued = perDest.filter(function (d) { return d.ok && d.queued; });
+      var printed = perDest.filter(function (d) { return d.ok && !d.queued; });
+
+      if (failed.length && !printed.length && !queued.length) {
+        // Every job threw — surface as an error so cashier knows nothing reached printer or queue
+        var errMsg = (failed[0].error && failed[0].error.message) || 'tlač zlyhala';
+        showToast('Chyba tlače: ' + perDest.map(fmt).join(' + ') + ' — ' + errMsg, 'error');
+      } else if (queued.length === perDest.length) {
+        // All went to offline queue
+        showToast('⏳ Bon do queue: ' + perDest.map(fmt).join(' + ') + ' — tlačiareň offline', 'warning');
+      } else if (printed.length === perDest.length) {
+        // Everything actually printed
+        showToast('✔ Bon vytlačený: ' + perDest.map(fmt).join(' + '), 'success');
+      } else {
+        // Mixed: show per-destination state
+        var parts = perDest.map(function (d) {
+          if (!d.ok) return fmt(d) + ' chyba';
+          return fmt(d) + (d.queued ? ' do queue' : ' vytlačený');
+        });
+        showToast('Bon: ' + parts.join(' + ') + (queued.length ? ' (offline)' : ''), 'warning');
+      }
+    }
   } catch (e) {
     console.error('sendToKitchen error:', e);
-    showToast('Chyba: ' + e.message);
+    showToast('Chyba: ' + e.message, 'error');
   } finally {
-    if (btn) btnReset(btn);
-    if (mobBtn) btnReset(mobBtn);
+    if (btn) {
+      if (btnOriginalHTML !== null) btn.innerHTML = btnOriginalHTML;
+      btn.disabled = false;
+      btn.style.pointerEvents = '';
+    }
+    if (mobBtn) {
+      if (mobBtnOriginalHTML !== null) mobBtn.innerHTML = mobBtnOriginalHTML;
+      mobBtn.disabled = false;
+      mobBtn.style.pointerEvents = '';
+    }
   }
+}
+
+// One-time spinner style for the "Posielam..." button state in sendToKitchen.
+// Lives here (not in css/pos.css) because js/pos-payments.js owns this UX bit.
+if (typeof document !== 'undefined' && !document.getElementById('btn-spinner-style')) {
+  var _btnSpinnerStyle = document.createElement('style');
+  _btnSpinnerStyle.id = 'btn-spinner-style';
+  _btnSpinnerStyle.textContent = '@keyframes btn-spin{to{transform:rotate(360deg)}}.btn-spinner{display:inline-block;width:14px;height:14px;margin-right:6px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:btn-spin .8s linear infinite;vertical-align:-2px}';
+  document.head.appendChild(_btnSpinnerStyle);
 }
 
 // printTicket removed - printing now via /api/print/kitchen

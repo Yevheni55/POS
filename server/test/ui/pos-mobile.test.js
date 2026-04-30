@@ -2,7 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(__dirname, '../../..');
 
 function createElementStub() {
   return {
@@ -99,7 +103,7 @@ function loadPosMobile(options = {}) {
   sandbox.window = sandbox;
   sandbox.globalThis = sandbox;
 
-  const scriptPath = path.resolve('C:/Users/yevhe/Desktop/POS/js/pos-mobile.js');
+  const scriptPath = path.join(REPO_ROOT, 'js/pos-mobile.js');
   const script = readFileSync(scriptPath, 'utf8');
   vm.runInNewContext(script, sandbox, { filename: scriptPath });
 
@@ -110,7 +114,7 @@ function loadPosMobile(options = {}) {
 }
 
 test('mobile checkout drawer exposes split bill action', () => {
-  const html = readFileSync(path.resolve('C:/Users/yevhe/Desktop/POS/pos-enterprise.html'), 'utf8');
+  const html = readFileSync(path.join(REPO_ROOT, 'pos-enterprise.html'), 'utf8');
 
   assert.match(
     html,
