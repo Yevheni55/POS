@@ -74,13 +74,106 @@ router.get('/summary', mgr, async (req, res) => {
   const shishaRevenue = parseFloat(shisha.revenue) || 0;
   const fiscalTotal = parseFloat(revenue.total) || 0;
 
+  // Per-day breakdown for the Trzby tab (chronological, last day at the
+  // bottom). Uses payments to mirror the headline `revenue.total` number.
+  const dailyRows = await db.execute(sql`
+    SELECT
+      to_char(p.created_at::date, 'YYYY-MM-DD') AS date,
+      COUNT(DISTINCT p.order_id)::int AS orders,
+      COALESCE(SUM(p.amount::numeric), 0)::float AS revenue
+    FROM payments p
+    WHERE p.created_at >= ${fromDate} AND p.created_at <= ${toDate}
+    GROUP BY p.created_at::date
+    ORDER BY p.created_at::date
+  `);
+
+  // Per-hour-of-day breakdown for the Hodiny tab. Aggregates across all
+  // dates in the period so peak service hours stand out.
+  const hourlyRows = await db.execute(sql`
+    SELECT
+      EXTRACT(HOUR FROM p.created_at)::int AS hour,
+      COUNT(DISTINCT p.order_id)::int AS orders,
+      COALESCE(SUM(p.amount::numeric), 0)::float AS revenue
+    FROM payments p
+    WHERE p.created_at >= ${fromDate} AND p.created_at <= ${toDate}
+    GROUP BY EXTRACT(HOUR FROM p.created_at)
+    ORDER BY EXTRACT(HOUR FROM p.created_at)
+  `);
+
+  // Per-staff breakdown for the Zamestnanci tab. Joins payments → orders →
+  // staff so each cashier's revenue is attributable from their own sales.
+  const staffRows = await db.execute(sql`
+    SELECT
+      s.name,
+      COUNT(DISTINCT o.id)::int AS orders,
+      COUNT(DISTINCT p.id)::int AS payments,
+      COALESCE(SUM(p.amount::numeric), 0)::float AS revenue
+    FROM payments p
+    INNER JOIN orders o ON o.id = p.order_id
+    INNER JOIN staff s ON s.id = o.staff_id
+    WHERE p.created_at >= ${fromDate} AND p.created_at <= ${toDate}
+    GROUP BY s.id, s.name
+    ORDER BY revenue DESC
+  `);
+
+  const dailyArr = dailyRows.rows.map((r) => {
+    const orders = Number(r.orders) || 0;
+    const revenue = Number(r.revenue) || 0;
+    return {
+      date: r.date,
+      orders,
+      revenue,
+      avgCheck: orders > 0 ? roundMoney(revenue / orders) : 0,
+      peakHours: '',
+    };
+  });
+  const hourlyArr = hourlyRows.rows.map((r) => ({
+    hour: String(r.hour).padStart(2, '0') + ':00',
+    orders: Number(r.orders) || 0,
+    revenue: Number(r.revenue) || 0,
+  }));
+  const staffArr = staffRows.rows.map((r) => {
+    const orders = Number(r.orders) || 0;
+    const revenue = Number(r.revenue) || 0;
+    return {
+      name: r.name,
+      shifts: 0,
+      orders,
+      revenue,
+      avgCheck: orders > 0 ? roundMoney(revenue / orders) : 0,
+      rating: 0,
+    };
+  });
+
+  const totalRevenue = fiscalTotal + shishaRevenue;
+  const totalOrders = parseInt(orderStats.total) || 0;
+  const avgCheck = totalOrders > 0 ? roundMoney(totalRevenue / totalOrders) : 0;
+  const topRevenue = staffArr.length ? staffArr[0].revenue : 0;
+  const topItemsArr = topItems.map(i => ({ ...i, qty: parseInt(i.qty), revenue: parseFloat(i.revenue) }));
+
   res.json({
     period: { from, to },
-    revenue: { total: fiscalTotal + shishaRevenue, fiscal: fiscalTotal, payments: parseInt(revenue.count) },
+    // Nested shape (modern callers).
+    revenue: { total: totalRevenue, fiscal: fiscalTotal, payments: parseInt(revenue.count) },
     shisha: { count: shishaCount, revenue: shishaRevenue },
-    orders: { total: parseInt(orderStats.total), open: parseInt(orderStats.open), closed: parseInt(orderStats.closed) },
+    orders: { total: totalOrders, open: parseInt(orderStats.open), closed: parseInt(orderStats.closed) },
     methods: methodStats.map(m => ({ method: m.method, total: parseFloat(m.total), count: parseInt(m.count) })),
-    topItems: topItems.map(i => ({ ...i, qty: parseInt(i.qty), revenue: parseFloat(i.revenue) })),
+    topItems: topItemsArr,
+    // Flat aliases consumed by admin/pages/reports.js so the dashboard
+    // KPI strip + 4 tabs render directly without a frontend rewrite.
+    totalRevenue,
+    totalOrders,
+    avgCheck,
+    topRevenue,
+    daily: dailyArr,
+    hourly: hourlyArr,
+    staff: staffArr,
+    products: topItemsArr.map((it) => ({
+      name: it.name,
+      category: '',
+      qty: it.qty,
+      revenue: it.revenue,
+    })),
   });
 });
 
