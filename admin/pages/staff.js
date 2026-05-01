@@ -178,6 +178,21 @@ function openStaffModal(id) {
           <input id="fEmail" type="text" placeholder="email@example.com" value="${emp ? emp.email : ''}">
         </div>
       </div>
+      <div class="u-modal-row">
+        <div class="u-modal-field">
+          <label for="fPosition">Pozicia</label>
+          <input id="fPosition" type="text" maxlength="50" placeholder="napr. Casnik" value="${emp && emp.position ? emp.position : ''}">
+        </div>
+        <div class="u-modal-field">
+          <label for="fHourlyRate">Hodinova sadza (EUR)</label>
+          <input id="fHourlyRate" type="number" step="0.01" min="0" placeholder="0.00" value="${emp && emp.hourlyRate != null ? emp.hourlyRate : ''}">
+        </div>
+      </div>
+      <div class="u-modal-field">
+        <label for="fAttendancePin">Dochadzka PIN (4-6 cifier)</label>
+        <input id="fAttendancePin" type="text" pattern="\\d{4,6}" placeholder="Nastavit / zmenit" value="">
+        <small id="fAttendancePinStatus" class="muted" style="display:block;margin-top:4px">${emp && emp.hasAttendancePin ? 'PIN je nastaveny - vyplnte len ak chcete zmenit' : (emp ? 'PIN nie je nastaveny' : '')}</small>
+      </div>
       <div class="u-modal-field">
         <label>Stav</label>
         <div class="u-toggle" id="fActiveToggle">
@@ -226,15 +241,22 @@ function openStaffModal(id) {
     const phone = document.getElementById('fPhone').value.trim();
     const email = document.getElementById('fEmail').value.trim();
     const active = document.getElementById('fActive').classList.contains('on');
+    const position = document.getElementById('fPosition').value.trim();
+    const hourlyRate = document.getElementById('fHourlyRate').value.trim();
+    const attendancePin = document.getElementById('fAttendancePin').value.trim();
+
+    const body = { name, surname, role, pin, phone, email, active, position };
+    if (hourlyRate !== '') body.hourlyRate = hourlyRate;
+    if (attendancePin) body.attendancePin = attendancePin;
 
     const saveBtn = document.getElementById('staffModalSave');
     if (saveBtn) btnLoading(saveBtn);
     try {
       if (editingId) {
-        await api.put('/staff/' + editingId, { name, surname, role, pin, phone, email, active });
+        await api.put('/staff/' + editingId, body);
         showToast('Zamestnanec upraveny', true);
       } else {
-        await api.post('/staff', { name, surname, role, pin, phone, email, active });
+        await api.post('/staff', body);
         showToast('Zamestnanec pridany', true);
       }
       closeModal();
