@@ -94,13 +94,26 @@
       }
       currentState = res.data.currentState;
       renderStatus(res.data.staff, currentState, res.data.todayMinutes);
-      showToast(type === 'clock_in' ? 'Prichod zaznamenany' : 'Odchod zaznamenany', true);
-      // Auto-clear after success so the next person sees a fresh terminal.
+      showSplash(type, res.data.staff && res.data.staff.name);
       setTimeout(function () {
         pin = ''; currentStaff = null; currentState = 'clocked_out';
         renderPin(); renderStatus(null);
-      }, 2400);
+      }, 3200);
     });
+  }
+
+  function showSplash(type, name) {
+    var el = document.getElementById('splash');
+    if (!el) return;
+    var now = new Date();
+    var hh = String(now.getHours()).padStart(2, '0');
+    var mm = String(now.getMinutes()).padStart(2, '0');
+    document.getElementById('splashTitle').textContent =
+      (type === 'clock_in' ? 'Príchod ' : 'Odchod ') + hh + ':' + mm;
+    document.getElementById('splashName').textContent = name || '';
+    el.className = 'doch-splash show ' + (type === 'clock_in' ? 'in' : 'out');
+    el.hidden = false;
+    setTimeout(function () { el.className = 'doch-splash'; el.hidden = true; }, 3000);
   }
 
   document.querySelectorAll('.doch-key[data-d]').forEach(function (b) {

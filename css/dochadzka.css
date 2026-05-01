@@ -25,3 +25,25 @@ body { margin: 0; padding: 0; background: var(--surface-bg, #0e0e12); color: var
 .doch-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 .doch-toast.ok  { background: rgba(95, 200, 130, .9); color: #07120a; }
 .doch-toast.err { background: rgba(224, 112, 112, .92); color: #2a0707; }
+
+.doch-splash{
+  position:fixed;inset:0;z-index:50;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(0,0,0,.45);
+  opacity:0;pointer-events:none;transition:opacity .2s;
+}
+.doch-splash.show{opacity:1;pointer-events:auto}
+.doch-splash-card{
+  text-align:center;padding:28px 32px;border-radius:18px;
+  background:linear-gradient(135deg,#5edba8,#42c490);
+  color:#07120a;min-width:280px;
+  box-shadow:0 12px 48px rgba(0,0,0,.4);
+  transform:scale(.95);transition:transform .2s;
+}
+.doch-splash.show .doch-splash-card{transform:scale(1)}
+.doch-splash.out .doch-splash-card{
+  background:linear-gradient(135deg,#f1a47a,#e08a5b);color:#2a0e02;
+}
+.doch-splash-icon{font-size:64px;line-height:1;margin-bottom:6px;font-weight:700}
+.doch-splash-title{font-size:28px;font-weight:700}
+.doch-splash-name{font-size:20px;font-weight:600;opacity:.9;margin-top:4px}
