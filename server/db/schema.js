@@ -6,6 +6,11 @@ export const staff = pgTable('staff', {
   pin: varchar('pin', { length: 255 }).notNull(),
   role: varchar('role', { length: 20 }).notNull().default('cisnik'),
   active: boolean('active').notNull().default(true),
+  // Attendance / payroll. attendance_pin is a separate bcrypt hash so
+  // a leaked POS PIN can't be used to clock anyone in/out, and vice versa.
+  position: varchar('position', { length: 50 }).notNull().default(''),
+  hourlyRate: numeric('hourly_rate', { precision: 8, scale: 2 }),
+  attendancePin: varchar('attendance_pin', { length: 60 }),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -412,4 +417,23 @@ export const authAttempts = pgTable('auth_attempts', {
 }, (t) => [
   index('auth_attempts_staff_created_idx').on(t.staffId, t.createdAt),
   index('auth_attempts_ip_created_idx').on(t.ip, t.createdAt),
+]);
+
+// ===================== ATTENDANCE =====================
+
+export const attendanceEvents = pgTable('attendance_events', {
+  id: serial('id').primaryKey(),
+  staffId: integer('staff_id').notNull().references(() => staff.id),
+  // 'clock_in' or 'clock_out'. Kept as varchar to mirror the existing
+  // schema style instead of a Drizzle enum (no migration churn).
+  type: varchar('type', { length: 12 }).notNull(),
+  at: timestamp('at').notNull().defaultNow(),
+  // 'pin' for the dochadzka.html terminal, 'manual' for admin overrides.
+  source: varchar('source', { length: 20 }).notNull().default('pin'),
+  note: varchar('note', { length: 200 }).notNull().default(''),
+  // For manual edits: who entered/edited the row.
+  editedBy: integer('edited_by').references(() => staff.id),
+}, (t) => [
+  index('attendance_events_staff_at_idx').on(t.staffId, t.at),
+  index('attendance_events_at_idx').on(t.at),
 ]);
