@@ -2,11 +2,21 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { db } from '../db/index.js';
 import { staff, attendanceEvents, authAttempts } from '../db/schema.js';
-import { eq, and, gte, desc, sql, count } from 'drizzle-orm';
+import { eq, and, gte, lte, desc, sql, count } from 'drizzle-orm';
 import { validate } from '../middleware/validate.js';
 import { asyncRoute } from '../lib/async-route.js';
-import { pinSchema, clockSchema } from '../schemas/attendance.js';
-import { pairEventsToShifts, summarizeHours } from '../lib/attendance.js';
+import { requireRole } from '../middleware/requireRole.js';
+import {
+  pinSchema,
+  clockSchema,
+  manualEventSchema,
+  summaryQuerySchema,
+} from '../schemas/attendance.js';
+import {
+  pairEventsToShifts,
+  summarizeHours,
+  computeWage,
+} from '../lib/attendance.js';
 
 export const publicRouter = Router();
 export const adminRouter = Router();
@@ -152,6 +162,103 @@ publicRouter.post('/clock', validate(clockSchema), asyncRoute(async (req, res) =
     currentState: after.currentState,
     todayMinutes: after.todayMinutes,
   });
+}));
+
+// ===== Admin / manager attendance API =====================================
+// Mounted at /api/attendance with the JWT `auth` middleware. Public PIN
+// routes match first (Express order in app.js), so /identify and /clock
+// stay PIN-only; everything below requires manazer or admin.
+
+const mgr = requireRole('manazer', 'admin');
+
+adminRouter.get('/history/:staffId', mgr, asyncRoute(async (req, res) => {
+  const staffId = Number.parseInt(req.params.staffId, 10);
+  if (!Number.isFinite(staffId)) return res.status(400).json({ error: 'Neplatne staffId' });
+  const from = String(req.query.from || '').match(/^\d{4}-\d{2}-\d{2}$/) ? req.query.from : null;
+  const to = String(req.query.to || '').match(/^\d{4}-\d{2}-\d{2}$/) ? req.query.to : null;
+  if (!from || !to) return res.status(400).json({ error: 'from a to musia byt YYYY-MM-DD' });
+  const fromDate = new Date(from + 'T00:00:00Z');
+  const toDate = new Date(to + 'T23:59:59Z');
+
+  const events = await db.select().from(attendanceEvents).where(and(
+    eq(attendanceEvents.staffId, staffId),
+    gte(attendanceEvents.at, fromDate),
+    lte(attendanceEvents.at, toDate),
+  )).orderBy(attendanceEvents.at);
+
+  const shifts = pairEventsToShifts(events);
+  const summary = summarizeHours(shifts);
+  const [s] = await db.select().from(staff).where(eq(staff.id, staffId));
+  res.json({
+    staff: s ? { id: s.id, name: s.name, position: s.position || '', hourlyRate: s.hourlyRate } : null,
+    events,
+    shifts: shifts.map((sh) => ({
+      inAt: sh.inEvent ? sh.inEvent.at : null,
+      outAt: sh.outEvent ? sh.outEvent.at : null,
+      minutes: sh.minutes,
+      closed: sh.closed,
+    })),
+    summary: {
+      minutes: summary.minutes,
+      openShifts: summary.openShifts,
+      wage: computeWage(summary.minutes, s?.hourlyRate),
+    },
+  });
+}));
+
+adminRouter.get('/summary', mgr, asyncRoute(async (req, res) => {
+  const parsed = summaryQuerySchema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Bad query' });
+  const fromDate = new Date(parsed.data.from + 'T00:00:00Z');
+  const toDate = new Date(parsed.data.to + 'T23:59:59Z');
+
+  const allStaff = await db.select().from(staff).where(eq(staff.active, true));
+  const allEvents = await db.select().from(attendanceEvents).where(and(
+    gte(attendanceEvents.at, fromDate),
+    lte(attendanceEvents.at, toDate),
+  )).orderBy(attendanceEvents.at);
+
+  const byStaff = new Map();
+  for (const e of allEvents) {
+    if (!byStaff.has(e.staffId)) byStaff.set(e.staffId, []);
+    byStaff.get(e.staffId).push(e);
+  }
+
+  const rows = allStaff.map((s) => {
+    const events = byStaff.get(s.id) || [];
+    const shifts = pairEventsToShifts(events);
+    const summary = summarizeHours(shifts);
+    return {
+      staffId: s.id,
+      name: s.name,
+      position: s.position || '',
+      hourlyRate: s.hourlyRate,
+      minutes: summary.minutes,
+      openShifts: summary.openShifts,
+      wage: computeWage(summary.minutes, s.hourlyRate),
+    };
+  });
+
+  res.json({ from: parsed.data.from, to: parsed.data.to, rows });
+}));
+
+adminRouter.post('/events', mgr, validate(manualEventSchema), asyncRoute(async (req, res) => {
+  const [event] = await db.insert(attendanceEvents).values({
+    staffId: req.body.staffId,
+    type: req.body.type,
+    at: new Date(req.body.at),
+    source: 'manual',
+    note: req.body.note || '',
+    editedBy: req.user.id,
+  }).returning();
+  res.status(201).json({ event });
+}));
+
+adminRouter.delete('/events/:id', mgr, asyncRoute(async (req, res) => {
+  const id = Number.parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Neplatne id' });
+  await db.delete(attendanceEvents).where(eq(attendanceEvents.id, id));
+  res.json({ ok: true });
 }));
 
 export default publicRouter;

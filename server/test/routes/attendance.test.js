@@ -18,6 +18,7 @@ import { eq, sql } from 'drizzle-orm';
 import { app } from '../../app.js';
 import { testDb, truncateAll, seed, closeDb } from '../helpers/setup.js';
 import * as schema from '../../db/schema.js';
+import { tokens } from '../helpers/auth.js';
 
 const { staff, attendanceEvents } = schema;
 const request = supertest(app);
@@ -34,19 +35,22 @@ async function makeStaffWithAttendancePin(pin) {
   return row;
 }
 
-describe('attendance public PIN routes', () => {
-  before(async () => {
-    app.set('io', { emit: () => {} });
-  });
+// Lifecycle hooks at module level so they apply to every describe block in
+// this file. Moving them inside a single describe would close the DB pool
+// before later describes ran.
+before(async () => {
+  app.set('io', { emit: () => {} });
+});
 
+after(async () => {
+  await closeDb();
+});
+
+describe('attendance public PIN routes', () => {
   beforeEach(async () => {
     // Clean slate so per-test PIN buckets and attendance rows do not leak.
     await truncateAll();
     await seed();
-  });
-
-  after(async () => {
-    await closeDb();
   });
 
   it('POST /api/attendance/identify returns staff + currentState=clocked_out', async () => {
@@ -112,5 +116,73 @@ describe('attendance public PIN routes', () => {
     const res = await request.post('/api/attendance/identify').send({ pin: '4321' });
     assert.equal(res.status, 200);
     assert.equal(res.body.currentState, 'clocked_in');
+  });
+});
+
+describe('attendance admin routes (manazer/admin only)', () => {
+  beforeEach(async () => {
+    await truncateAll();
+    await seed();
+  });
+
+  it('GET /api/attendance/history/:staffId returns events + computed shifts', async () => {
+    const s = await makeStaffWithAttendancePin('4321');
+    await testDb.insert(attendanceEvents).values([
+      { staffId: s.id, type: 'clock_in',  at: new Date('2026-05-01T09:00:00Z'), source: 'pin' },
+      { staffId: s.id, type: 'clock_out', at: new Date('2026-05-01T13:00:00Z'), source: 'pin' },
+    ]);
+
+    const res = await request
+      .get(`/api/attendance/history/${s.id}?from=2026-05-01&to=2026-05-01`)
+      .set('Authorization', `Bearer ${tokens.admin()}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.events.length, 2);
+    assert.equal(res.body.summary.minutes, 240);
+    assert.equal(res.body.summary.openShifts, 0);
+  });
+
+  it('GET /api/attendance/summary returns one row per staff with wage', async () => {
+    const s = await makeStaffWithAttendancePin('4321');
+    await testDb.insert(attendanceEvents).values([
+      { staffId: s.id, type: 'clock_in',  at: new Date('2026-05-01T09:00:00Z'), source: 'pin' },
+      { staffId: s.id, type: 'clock_out', at: new Date('2026-05-01T13:00:00Z'), source: 'pin' },
+    ]);
+
+    const res = await request
+      .get('/api/attendance/summary?from=2026-05-01&to=2026-05-31')
+      .set('Authorization', `Bearer ${tokens.admin()}`);
+    assert.equal(res.status, 200);
+    const row = res.body.rows.find((r) => r.staffId === s.id);
+    assert.ok(row);
+    assert.equal(row.minutes, 240);
+    // 240 min = 4 h * 7.50 EUR/h = 30.00 EUR
+    assert.equal(row.wage, 30);
+  });
+
+  it('POST /api/attendance/events adds a manual entry (admin only)', async () => {
+    const s = await makeStaffWithAttendancePin('4321');
+
+    const res = await request
+      .post('/api/attendance/events')
+      .set('Authorization', `Bearer ${tokens.admin()}`)
+      .send({ staffId: s.id, type: 'clock_in', at: '2026-05-01T09:00:00Z', note: 'forgot' });
+    assert.equal(res.status, 201);
+    assert.equal(res.body.event.source, 'manual');
+    assert.equal(res.body.event.note, 'forgot');
+  });
+
+  it('DELETE /api/attendance/events/:id removes a manual entry (admin only)', async () => {
+    const s = await makeStaffWithAttendancePin('4321');
+    const [ev] = await testDb.insert(attendanceEvents).values({
+      staffId: s.id, type: 'clock_in', at: new Date('2026-05-01T09:00:00Z'), source: 'manual',
+    }).returning();
+
+    const res = await request
+      .delete(`/api/attendance/events/${ev.id}`)
+      .set('Authorization', `Bearer ${tokens.admin()}`);
+    assert.equal(res.status, 200);
+
+    const left = await testDb.select().from(attendanceEvents).where(eq(attendanceEvents.id, ev.id));
+    assert.equal(left.length, 0);
   });
 });
