@@ -312,6 +312,46 @@ document.addEventListener('DOMContentLoaded', function() {
     mobSearchQuery = e.target.value.toLowerCase().trim();
     renderMobMenu();
   });
+
+  // ----- Keyboard-aware product scroll padding (mobile) -----
+  // On iOS Safari and most Android browsers the on-screen keyboard does
+  // NOT resize the layout viewport; it just slides up over the page,
+  // covering the bottom of .mob-products. The cashier reaches the
+  // search bar but cannot scroll to items hidden under the keyboard
+  // because the scroll container's last items already fit inside the
+  // (uncovered) viewport — there is nothing further to scroll to.
+  //
+  // Fix: when the search input is focused, measure the keyboard height
+  // via window.visualViewport (the only API that gives us "real visible
+  // viewport") and set --kb-height as a CSS variable on the products
+  // container. Its bottom padding grows by that amount so every menu
+  // item is reachable above the keyboard.
+  const vv = window.visualViewport;
+  const products = document.getElementById('mobProducts');
+  function applyKeyboardPadding() {
+    if (!products) return;
+    var kb = 0;
+    if (vv) {
+      // visualViewport.height shrinks when the OSK is visible. Diff vs
+      // window.innerHeight ≈ keyboard height. Add a small safety margin.
+      kb = Math.max(0, Math.round(window.innerHeight - vv.height));
+    }
+    products.style.setProperty('--kb-height', kb > 40 ? (kb + 24) + 'px' : '0px');
+  }
+  function clearKeyboardPadding() {
+    if (products) products.style.setProperty('--kb-height', '0px');
+  }
+  if (si && products) {
+    si.addEventListener('focus', applyKeyboardPadding);
+    si.addEventListener('blur', clearKeyboardPadding);
+    if (vv) {
+      vv.addEventListener('resize', function () {
+        // Only react while the input is focused — otherwise rotation /
+        // browser-bar collapse would constantly repaint padding.
+        if (document.activeElement === si) applyKeyboardPadding();
+      });
+    }
+  }
 });
 
 // Mobile clock
