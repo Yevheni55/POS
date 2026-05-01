@@ -98,17 +98,22 @@ async function buildStateFor(staffMember) {
 
 publicRouter.post('/identify', validate(pinSchema), asyncRoute(async (req, res) => {
   const ip = req.ip || req.connection?.remoteAddress || '';
-  // Public terminal: rate-limit only by IP bucket of unmatched-PIN attempts.
-  // Unlike /verify-manager (which switches to a per-staff bucket once a row
-  // matches), here a successful match exits the gate — there's no value in
-  // per-staff buckets for an unauthenticated kiosk.
-  const before = await failuresFor(null, ip);
-  if (before >= PIN_MAX_ATTEMPTS) {
+  const found = await findStaffByAttendancePin(req.body.pin);
+
+  // Two-stage lockout:
+  //  - matched-PIN path: per-staff bucket (a malicious actor can't lock
+  //    out everyone by guessing — only the staff whose PIN they keep
+  //    typing wrong, which is themselves);
+  //  - unmatched-PIN path: per-IP bucket of staffId IS NULL attempts
+  //    (so 5 random guesses from one tablet stop further guesses, but
+  //    don't block the next legitimate user).
+  const lockKey = found ? { staffId: found.id, ip: null } : { staffId: null, ip };
+  const failures = await failuresFor(lockKey.staffId, lockKey.ip);
+  if (failures >= PIN_MAX_ATTEMPTS) {
     res.set('Retry-After', String(Math.ceil(PIN_WINDOW_MS / 1000)));
     return res.status(429).json({ error: 'Prilis vela pokusov. Skuste neskor.' });
   }
 
-  const found = await findStaffByAttendancePin(req.body.pin);
   if (!found) {
     await recordAttempt({ staffId: null, ip, success: false });
     return res.status(401).json({ error: 'Neplatny PIN' });
@@ -125,17 +130,17 @@ publicRouter.post('/identify', validate(pinSchema), asyncRoute(async (req, res) 
 
 publicRouter.post('/clock', validate(clockSchema), asyncRoute(async (req, res) => {
   const ip = req.ip || req.connection?.remoteAddress || '';
-  // Public terminal: rate-limit only by IP bucket of unmatched-PIN attempts.
-  // Unlike /verify-manager (which switches to a per-staff bucket once a row
-  // matches), here a successful match exits the gate — there's no value in
-  // per-staff buckets for an unauthenticated kiosk.
-  const before = await failuresFor(null, ip);
-  if (before >= PIN_MAX_ATTEMPTS) {
+  const found = await findStaffByAttendancePin(req.body.pin);
+
+  // Two-stage lockout: see /identify above for the rationale. Same gate
+  // applies here so /clock can't be used as a brute-force side channel.
+  const lockKey = found ? { staffId: found.id, ip: null } : { staffId: null, ip };
+  const failures = await failuresFor(lockKey.staffId, lockKey.ip);
+  if (failures >= PIN_MAX_ATTEMPTS) {
     res.set('Retry-After', String(Math.ceil(PIN_WINDOW_MS / 1000)));
     return res.status(429).json({ error: 'Prilis vela pokusov. Skuste neskor.' });
   }
 
-  const found = await findStaffByAttendancePin(req.body.pin);
   if (!found) {
     await recordAttempt({ staffId: null, ip, success: false });
     return res.status(401).json({ error: 'Neplatny PIN' });

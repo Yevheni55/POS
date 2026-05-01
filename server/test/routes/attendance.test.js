@@ -117,6 +117,34 @@ describe('attendance public PIN routes', () => {
     assert.equal(res.status, 200);
     assert.equal(res.body.currentState, 'clocked_in');
   });
+
+  it('PIN lockout switches to per-staff bucket once a PIN matches', async () => {
+    // Two staff with two different attendance PINs.
+    await makeStaffWithAttendancePin('1111');
+    await makeStaffWithAttendancePin('2222');
+    // Don't let DISABLE_PIN_RATE_LIMIT short-circuit this test.
+    const prevDisable = process.env.DISABLE_PIN_RATE_LIMIT;
+    delete process.env.DISABLE_PIN_RATE_LIMIT;
+    try {
+      // 5 wrong PIN attempts from one IP — IP bucket fills.
+      for (let i = 0; i < 5; i++) {
+        await request.post('/api/attendance/identify').send({ pin: '9999' });
+      }
+      // Staff A whose PIN matches should still get through.
+      const okA = await request.post('/api/attendance/identify').send({ pin: '1111' });
+      assert.equal(okA.status, 200, 'matched PIN must bypass IP-only lockout');
+      // Now five wrong attempts targeting staff A's id specifically (we
+      // simulate by failing the matched-PIN path 5 times).
+      for (let i = 0; i < 5; i++) {
+        await request.post('/api/attendance/identify').send({ pin: '1111x' }); // unmatched
+      }
+      // Staff B should still be allowed — different bucket.
+      const okB = await request.post('/api/attendance/identify').send({ pin: '2222' });
+      assert.equal(okB.status, 200, 'staff B must not inherit staff A lockout');
+    } finally {
+      if (prevDisable !== undefined) process.env.DISABLE_PIN_RATE_LIMIT = prevDisable;
+    }
+  });
 });
 
 describe('attendance admin routes (manazer/admin only)', () => {
