@@ -249,6 +249,7 @@ adminRouter.post('/events', mgr, validate(manualEventSchema), asyncRoute(async (
     at: new Date(req.body.at),
     source: 'manual',
     note: req.body.note || '',
+    reason: req.body.reason,
     editedBy: req.user.id,
   }).returning();
   res.status(201).json({ event });

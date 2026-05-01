@@ -159,16 +159,26 @@ describe('attendance admin routes (manazer/admin only)', () => {
     assert.equal(row.wage, 30);
   });
 
-  it('POST /api/attendance/events adds a manual entry (admin only)', async () => {
+  it('POST /api/attendance/events saves the reason field', async () => {
     const s = await makeStaffWithAttendancePin('4321');
 
     const res = await request
       .post('/api/attendance/events')
       .set('Authorization', `Bearer ${tokens.admin()}`)
-      .send({ staffId: s.id, type: 'clock_in', at: '2026-05-01T09:00:00Z', note: 'forgot' });
+      .send({ staffId: s.id, type: 'clock_in', at: '2026-05-01T09:00:00Z', reason: 'forgot', note: 'zabudol' });
     assert.equal(res.status, 201);
+    assert.equal(res.body.event.reason, 'forgot');
     assert.equal(res.body.event.source, 'manual');
-    assert.equal(res.body.event.note, 'forgot');
+  });
+
+  it('POST /api/attendance/events rejects when reason missing', async () => {
+    const s = await makeStaffWithAttendancePin('4321');
+
+    const res = await request
+      .post('/api/attendance/events')
+      .set('Authorization', `Bearer ${tokens.admin()}`)
+      .send({ staffId: s.id, type: 'clock_in', at: '2026-05-01T09:00:00Z' });
+    assert.equal(res.status, 400);
   });
 
   it('DELETE /api/attendance/events/:id removes a manual entry (admin only)', async () => {
