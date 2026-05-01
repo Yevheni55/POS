@@ -1,0 +1,27 @@
+:root { color-scheme: dark; }
+body { margin: 0; padding: 0; background: var(--surface-bg, #0e0e12); color: var(--text-primary, #e9e9f0); font-family: var(--font-body, system-ui); -webkit-tap-highlight-color: transparent; }
+.doch-shell { max-width: 460px; margin: 0 auto; padding: 24px 20px env(safe-area-inset-bottom, 16px); }
+.doch-title { text-align: center; margin: 8px 0 16px; font-size: 28px; letter-spacing: .02em; }
+.doch-status { min-height: 110px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 16px 12px; border-radius: 14px; background: var(--surface-card, #1a1a22); margin-bottom: 16px; }
+.doch-status-empty { opacity: .55; font-size: 18px; }
+.doch-status-name { font-size: 26px; font-weight: 700; }
+.doch-status-pos { opacity: .7; font-size: 14px; }
+.doch-status-state { font-size: 16px; padding: 4px 12px; border-radius: 999px; margin-top: 6px; }
+.doch-status-state.clocked_in  { background: rgba(95, 200, 130, .18); color: #6ed599; }
+.doch-status-state.clocked_out { background: rgba(180, 180, 200, .14); color: #b9b9c7; }
+.doch-status-today { opacity: .8; font-size: 14px; }
+.doch-pin-display { display: flex; gap: 12px; justify-content: center; min-height: 28px; margin: 8px 0 14px; }
+.doch-pin-display .dot { width: 16px; height: 16px; border-radius: 50%; background: var(--text-primary, #fff); display: inline-block; }
+.doch-pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.doch-key { font-size: 26px; font-weight: 600; padding: 18px 0; border-radius: 12px; border: 1px solid rgba(255, 255, 255, .08); background: var(--surface-card, #1a1a22); color: inherit; cursor: pointer; min-height: 64px; }
+.doch-key:active { transform: scale(.97); background: rgba(255, 255, 255, .06); }
+.doch-key-clr { background: rgba(224, 112, 112, .18); }
+.doch-key-bk  { background: rgba(180, 180, 200, .12); }
+.doch-actions { display: flex; gap: 12px; margin-top: 18px; }
+.doch-btn { flex: 1; padding: 22px 0; font-size: 22px; font-weight: 700; border-radius: 14px; border: 0; color: #07120a; cursor: pointer; min-height: 72px; }
+.doch-btn-in  { background: linear-gradient(135deg, #5edba8, #42c490); }
+.doch-btn-out { background: linear-gradient(135deg, #f1a47a, #e08a5b); color: #2a0e02; }
+.doch-toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(40px); opacity: 0; transition: opacity .2s, transform .2s; padding: 12px 18px; border-radius: 999px; background: #222; font-weight: 600; }
+.doch-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.doch-toast.ok  { background: rgba(95, 200, 130, .9); color: #07120a; }
+.doch-toast.err { background: rgba(224, 112, 112, .92); color: #2a0707; }

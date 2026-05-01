@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="sk">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Dochadzka</title>
+  <link rel="stylesheet" href="/tokens.css?v=12" />
+  <link rel="stylesheet" href="/a11y.css?v=12" />
+  <link rel="stylesheet" href="/css/dochadzka.css?v=12" />
+</head>
+<body>
+  <main class="doch-shell">
+    <h1 class="doch-title">Dochadzka</h1>
+
+    <section class="doch-status" id="status">
+      <div class="doch-status-empty">Zadaj svoj PIN</div>
+    </section>
+
+    <section class="doch-pin">
+      <div class="doch-pin-display" id="pinDisplay" aria-live="polite"></div>
+      <div class="doch-pad">
+        <button class="doch-key" data-d="1">1</button>
+        <button class="doch-key" data-d="2">2</button>
+        <button class="doch-key" data-d="3">3</button>
+        <button class="doch-key" data-d="4">4</button>
+        <button class="doch-key" data-d="5">5</button>
+        <button class="doch-key" data-d="6">6</button>
+        <button class="doch-key" data-d="7">7</button>
+        <button class="doch-key" data-d="8">8</button>
+        <button class="doch-key" data-d="9">9</button>
+        <button class="doch-key doch-key-clr" id="pinClr">C</button>
+        <button class="doch-key" data-d="0">0</button>
+        <button class="doch-key doch-key-bk" id="pinBk">&larr;</button>
+      </div>
+    </section>
+
+    <section class="doch-actions" id="actions" hidden>
+      <button class="doch-btn doch-btn-in"  id="btnIn"  hidden>Prichod</button>
+      <button class="doch-btn doch-btn-out" id="btnOut" hidden>Odchod</button>
+    </section>
+
+    <div class="doch-toast" id="toast" role="status" aria-live="polite"></div>
+  </main>
+  <script src="/js/dochadzka.js?v=12"></script>
+</body>
+</html>

@@ -31,6 +31,9 @@ var STATIC_ASSETS = [
   '/components/confirm.js',
   '/fonts/fonts.css',
   '/manifest.json',
+  '/dochadzka.html',
+  '/js/dochadzka.js',
+  '/css/dochadzka.css',
 ];
 
 self.addEventListener('install', function (e) {
