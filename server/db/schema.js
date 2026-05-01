@@ -431,6 +431,10 @@ export const attendanceEvents = pgTable('attendance_events', {
   // 'pin' for the dochadzka.html terminal, 'manual' for admin overrides.
   source: varchar('source', { length: 20 }).notNull().default('pin'),
   note: varchar('note', { length: 200 }).notNull().default(''),
+  // For source='manual': required reason from a fixed enum (forgot,
+  // wrong_time, shift_change, pin_failed, other). NULL for PIN-driven
+  // and auto_close rows so the column is always meaningful.
+  reason: varchar('reason', { length: 20 }),
   // For manual edits: who entered/edited the row.
   editedBy: integer('edited_by').references(() => staff.id),
 }, (t) => [
