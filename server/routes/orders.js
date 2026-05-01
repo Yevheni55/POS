@@ -45,8 +45,10 @@ async function consolidateSentOrderItems(tx, orderId) {
     menuItemId: orderItems.menuItemId,
     note: orderItems.note,
     qty: orderItems.qty,
+    name: menuItems.name,
   })
     .from(orderItems)
+    .innerJoin(menuItems, eq(orderItems.menuItemId, menuItems.id))
     .where(and(eq(orderItems.orderId, orderId), eq(orderItems.sent, true)))
     .orderBy(orderItems.id);
 
@@ -56,6 +58,16 @@ async function consolidateSentOrderItems(tx, orderId) {
   const duplicateIds = [];
 
   for (const row of sentRows) {
+    // Combos with sauce annotations must NEVER be consolidated. Two taps of
+    // "Combo Big Mac" with two different sauces would otherwise be merged
+    // into qty=2 with note='', and the kitchen ticket builder
+    // (server/routes/print.js:buildKitchenTicket) only reads the FIRST
+    // adjacent "Omáčka (combo)" row's note — the second sauce silently
+    // disappears. Same defensive skip for the sauce annotation row itself,
+    // because each sauce note is paired 1:1 with its preceding combo.
+    if (row.name && /^combo /i.test(row.name)) continue;
+    if (row.name === 'Omáčka (combo)') continue;
+
     const key = `${row.menuItemId}::${row.note || ''}`;
     const existing = grouped.get(key);
     if (!existing) {

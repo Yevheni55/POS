@@ -27,11 +27,37 @@ function _findCompanionLine(order, primaryId) {
 
 function _upsertCompanionForPrimary(primary) {
   if (!primary || primary._companionOf) return; // never companion-of-companion
-  var primaryMenu = (typeof MENU_ITEM_BY_ID !== 'undefined') ? MENU_ITEM_BY_ID.get(primary.menuItemId) : null;
-  if (!primaryMenu || !primaryMenu.companionMenuItemId) return;
-  var companionMenu = MENU_ITEM_BY_ID.get(primaryMenu.companionMenuItemId);
-  if (!companionMenu) return;
   var order = getOrder();
+
+  // Always mirror qty on any existing companion line tied to this primary.
+  // This covers sauce annotations on combos (added imperatively by
+  // _addSauceAnnotationForCombo) — they don't have a companionMenuItemId on
+  // the menu_items table but they DO point at the combo via _companionOf,
+  // so we must keep their qty in sync when the cashier presses + on the
+  // combo. Without this, "+ Combo" left the sauce stuck at qty=1 while the
+  // combo went to qty=2, which printed wrong on the kitchen ticket.
+  var mutated = false;
+  for (var i = 0; i < order.length; i++) {
+    var row = order[i];
+    if (row._companionOf === primary.id && row.qty !== primary.qty) {
+      row.qty = primary.qty;
+      row._localQtyChanged = true;
+      mutated = true;
+    }
+  }
+
+  // Then handle the declarative case: a menu_item with companionMenuItemId
+  // (e.g. Cola → Záloha fľaša) auto-adds its companion if none exists yet.
+  var primaryMenu = (typeof MENU_ITEM_BY_ID !== 'undefined') ? MENU_ITEM_BY_ID.get(primary.menuItemId) : null;
+  if (!primaryMenu || !primaryMenu.companionMenuItemId) {
+    if (mutated) setOrder(order);
+    return;
+  }
+  var companionMenu = MENU_ITEM_BY_ID.get(primaryMenu.companionMenuItemId);
+  if (!companionMenu) {
+    if (mutated) setOrder(order);
+    return;
+  }
   var found = _findCompanionLine(order, primary.id);
   if (found) {
     if (found.item.qty !== primary.qty) {
