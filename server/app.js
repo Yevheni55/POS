@@ -27,6 +27,10 @@ import companyProfileRoutes from './routes/company-profile.js';
 import fiscalDocumentsRoutes from './routes/fiscal-documents.js';
 import shishaRoutes from './routes/shisha.js';
 import stornoBasketRoutes from './routes/storno-basket.js';
+import {
+  publicRouter as attendancePublicRouter,
+  adminRouter as attendanceAdminRouter,
+} from './routes/attendance.js';
 import { idempotency } from './middleware/idempotency.js';
 import { auth } from './middleware/auth.js';
 import { ALLOWED_ORIGINS, corsOriginCallback } from './lib/cors-origin.js';
@@ -98,6 +102,10 @@ app.use(express.static(path.join(__dirname, '..'), { maxAge: 0 }));
 // Public routes (no auth needed)
 app.use('/api/auth', authRoutes);
 app.use('/api/health', healthRoutes);
+// Public attendance terminal — PIN-only (attendancePin), no JWT. Must be
+// mounted BEFORE the admin router below so /identify and /clock match
+// without going through auth.
+app.use('/api/attendance', attendancePublicRouter);
 
 // Idempotency middleware for write operations
 app.use('/api', idempotency);
@@ -122,6 +130,10 @@ app.use('/api/company-profile', auth, companyProfileRoutes);
 app.use('/api/fiscal-documents', auth, fiscalDocumentsRoutes);
 app.use('/api/shisha', auth, shishaRoutes);
 app.use('/api/storno-basket', auth, stornoBasketRoutes);
+// Admin attendance — same /api/attendance prefix, but JWT-gated. Express
+// matches the more specific routes from the public router first; admin
+// paths only fall through to here. Routes are added in Task 5.
+app.use('/api/attendance', auth, attendanceAdminRouter);
 
 // SPA fallback
 app.get('*', (req, res) => {
