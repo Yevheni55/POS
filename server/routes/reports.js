@@ -87,6 +87,12 @@ router.get('/summary', mgr, async (req, res) => {
   // Per-day breakdown for the Trzby tab (chronological). Bins payments by
   // their LOCAL Bratislava date so a 01:30-local payment lands in the same
   // day the bartender thinks of, not the next UTC day.
+  // Postgres planner sees each Drizzle `${TZ}` interpolation as a separate
+  // parameter placeholder ($1 vs $5 etc). When GROUP BY and ORDER BY both
+  // include `... AT TIME ZONE ${TZ} ...`, the parser treats them as
+  // structurally different expressions and refuses with "column
+  // p.created_at must appear in the GROUP BY clause". Workaround: ORDER BY
+  // uses positional column reference (1) which always matches the SELECT.
   const dailyRows = await db.execute(sql`
     SELECT
       to_char((p.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ})::date, 'YYYY-MM-DD') AS date,
@@ -94,8 +100,8 @@ router.get('/summary', mgr, async (req, res) => {
       COALESCE(SUM(p.amount::numeric), 0)::float AS revenue
     FROM payments p
     WHERE p.created_at >= ${fromBoundary} AND p.created_at <= ${toBoundary}
-    GROUP BY (p.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ})::date
-    ORDER BY (p.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ})::date
+    GROUP BY 1
+    ORDER BY 1
   `);
 
   // Per-hour-of-day breakdown for the Hodiny tab. Hours are LOCAL Bratislava
@@ -107,8 +113,8 @@ router.get('/summary', mgr, async (req, res) => {
       COALESCE(SUM(p.amount::numeric), 0)::float AS revenue
     FROM payments p
     WHERE p.created_at >= ${fromBoundary} AND p.created_at <= ${toBoundary}
-    GROUP BY EXTRACT(HOUR FROM (p.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ}))
-    ORDER BY EXTRACT(HOUR FROM (p.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ}))
+    GROUP BY 1
+    ORDER BY 1
   `);
 
   // Per-staff breakdown for the Zamestnanci tab. Joins payments → orders →
