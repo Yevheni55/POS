@@ -597,6 +597,17 @@ function changeQty(name,d,itemId){
   if (!item) return;
 
   if (d > 0 && item.sent) {
+    // Combos need a sauce paired 1:1 with each portion. The sent combo's
+    // sauce annotation belongs to that specific portion, and after a server
+    // round-trip we no longer have the local _companionOf link to clone it
+    // safely. Reroute through addToOrder so the sauce picker opens for the
+    // new portion and the cashier can choose Chilli-mayo / Tatárka / etc.
+    // Without this, +on a sent combo created an orphan combo row in the DB
+    // and printed on the kitchen ticket as "1x Combo …" with no sauce line.
+    if (/^combo /i.test(item.name) && typeof addToOrder === 'function') {
+      addToOrder(item.name, item.emoji, item.price);
+      return;
+    }
     _increaseSentItemAsUnsentDelta(order, item, d);
     setOrder(order);
     _orderDirty = true;

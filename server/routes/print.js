@@ -235,23 +235,41 @@ function buildKitchenTicket({ dest, tableName, staffName, items, orderNum, time 
     ticket += CMD.BOLD_ON;
     // qty > 1 → DOUBLE_SIZE (height + width) prefix so the cook can't miss
     // multi-portion lines on a busy ticket. qty == 1 stays at LARGE.
+    // Effective text width on a 32-column thermal printer:
+    //   - LARGE_SIZE = single-width  → 32 columns
+    //   - DOUBLE_SIZE = double-width → 16 columns
+    // qty=1 spends ~6 chars on " 1x  ", leaving ~26 for the name.
+    // qty>1 spends ~4 large chars on " 2x " = 8 visible columns,
+    // leaving ~24 for the LARGE name (the qty itself prints in DOUBLE).
+    const nameAscii = s(item.name);
+    const sauceAscii = (() => {
+      if (!/^combo /i.test(item.name)) return '';
+      const next = items[idx + 1];
+      if (next && next.name === 'Omáčka (combo)' && next.note) return s(next.note);
+      return '';
+    })();
+    const nameBudget = item.qty > 1 ? 24 : 26;
+    const inlineSauce = sauceAscii && (nameAscii.length + 3 + sauceAscii.length) <= nameBudget;
+
     if (item.qty > 1) {
       ticket += CMD.DOUBLE_SIZE;
       ticket += ' ' + item.qty + 'x ';
       ticket += CMD.LARGE_SIZE;
-      ticket += ' ' + s(item.name);
+      ticket += ' ' + nameAscii;
     } else {
       ticket += CMD.LARGE_SIZE;
-      ticket += ' ' + item.qty + 'x  ' + s(item.name);
+      ticket += ' ' + item.qty + 'x  ' + nameAscii;
     }
-
-    if (/^combo /i.test(item.name)) {
-      const next = items[idx + 1];
-      if (next && next.name === 'Omáčka (combo)' && next.note) {
-        ticket += '  |  ' + s(next.note);
-      }
-    }
+    if (inlineSauce) ticket += '  |  ' + sauceAscii;
     ticket += '\n';
+    // If the sauce did NOT fit inline, drop it on its own line right under
+    // the combo at the same LARGE+BOLD size so the cook can still see it.
+    // Looks like:
+    //    2x  Combo BBQ Smash
+    //       » Big Mac domaca
+    if (sauceAscii && !inlineSauce) {
+      ticket += '   » ' + sauceAscii + '\n';
+    }
     // Note (kitchen instruction) — same LARGE+BOLD size as the item itself,
     // prefixed with "!! " so the cook can't miss it. Was a tiny "  >> ..."
     // line in NORMAL+regular weight that disappeared on a busy ticket.
