@@ -11,7 +11,10 @@ function $(sel) {
 }
 
 function getInitials(name, surname) {
-  return (name.charAt(0) + surname.charAt(0)).toUpperCase();
+  const safe = (s) => (s && typeof s === 'string') ? s : '';
+  const n = safe(name);
+  const s = safe(surname);
+  return ((n.charAt(0) || '?') + s.charAt(0)).toUpperCase();
 }
 
 function getRoleClass(role) {
@@ -19,7 +22,10 @@ function getRoleClass(role) {
 }
 
 function formatNum(n) {
-  return n.toLocaleString('sk-SK');
+  // Defensive: e.orders / e.revenue are not in the GET /api/staff response
+  // shape (no JOIN with orders/payments). undefined.toLocaleString() used
+  // to throw and crashed the entire staff page render.
+  return Number(n || 0).toLocaleString('sk-SK');
 }
 
 async function loadStaff() {
@@ -44,7 +50,7 @@ function renderStaff() {
   const roleF = $('#roleFilter').value;
 
   const filtered = staff.filter(e => {
-    const fullName = (e.name + ' ' + e.surname).toLowerCase();
+    const fullName = ((e.name || '') + ' ' + (e.surname || '')).toLowerCase();
     if (search && !fullName.includes(search)) return false;
     if (roleF && e.role !== roleF) return false;
     return true;
@@ -62,15 +68,24 @@ function renderStaff() {
       ? '<svg viewBox="0 0 20 20"><path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="10" r="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="3" y1="17" x2="17" y2="3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>'
       : '<svg viewBox="0 0 20 20"><path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="10" r="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>';
 
+    const fullName = ((e.name || '') + (e.surname ? ' ' + e.surname : '')).trim() || '—';
+    const roleLabel = ({ admin: 'Admin', manazer: 'Manažér', cisnik: 'Čašník' })[e.role] || e.role || '';
+    const positionLine = e.position
+      ? `<div class="staff-stats">${escapeHtml(e.position)}${e.hourlyRate != null ? ' · <strong>' + Number(e.hourlyRate).toFixed(2) + ' €/h</strong>' : ''}</div>`
+      : (e.hourlyRate != null ? `<div class="staff-stats"><strong>${Number(e.hourlyRate).toFixed(2)} €/h</strong></div>` : '');
+    const dochBadge = e.hasAttendancePin
+      ? '<span class="badge badge-success" style="font-size:11px;padding:2px 6px">Dochádzka PIN</span>'
+      : '';
     return `<div class="staff-card" style="animation-delay:${i * 50}ms">
       <div class="staff-top">
         <div class="staff-avatar ${getRoleClass(e.role)}">${getInitials(e.name, e.surname)}</div>
         <div>
-          <div class="staff-name">${e.name} ${e.surname}</div>
+          <div class="staff-name">${escapeHtml(fullName)}</div>
           <div class="staff-role-wrap">
-            <span class="role-badge ${getRoleClass(e.role)}">${e.role}</span>
+            <span class="role-badge ${getRoleClass(e.role)}">${escapeHtml(roleLabel)}</span>
             <span class="status-dot ${e.active ? 'active' : 'inactive'}"></span>
-            <span class="status-label">${e.active ? 'Aktivny' : 'Neaktivny'}</span>
+            <span class="status-label">${e.active ? 'Aktívny' : 'Neaktívny'}</span>
+            ${dochBadge}
           </div>
         </div>
       </div>
@@ -79,10 +94,10 @@ function renderStaff() {
         <span class="pin-value">${pinDisplay}</span>
         <button class="pin-toggle" data-pin-id="${e.id}" aria-label="Zobrazit/skryt PIN">${eyeIcon}</button>
       </div>
-      <div class="staff-stats"><span>${formatNum(e.orders)}</span> objednavok | <span>${formatNum(e.revenue)} EUR</span> trzby</div>
+      ${positionLine}
       <div class="staff-actions">
-        <button class="btn-edit" data-edit-id="${e.id}">Upravit</button>
-        <button class="btn-toggle-status ${!e.active ? 'activate' : ''}" data-toggle-id="${e.id}">${e.active ? 'Deaktivovat' : 'Aktivovat'}</button>
+        <button class="btn-edit" data-edit-id="${e.id}">Upraviť</button>
+        <button class="btn-toggle-status ${!e.active ? 'activate' : ''}" data-toggle-id="${e.id}">${e.active ? 'Deaktivovať' : 'Aktivovať'}</button>
       </div>
     </div>`;
   }).join('');
@@ -141,43 +156,30 @@ function openStaffModal(id) {
   ov.innerHTML = `<div class="u-modal" style="text-align:left;max-width:520px">
     <div class="u-modal-title" style="text-align:center">${title}</div>
     <div class="u-modal-body">
-      <div class="u-modal-row">
-        <div class="u-modal-field">
-          <label for="fName">Meno<span class="required-mark" aria-hidden="true"> *</span></label>
-          <input id="fName" type="text" placeholder="Meno" aria-required="true" data-validate="required" value="${emp ? emp.name : ''}">
-        </div>
-        <div class="u-modal-field">
-          <label for="fSurname">Priezvisko<span class="required-mark" aria-hidden="true"> *</span></label>
-          <input id="fSurname" type="text" placeholder="Priezvisko" aria-required="true" data-validate="required" value="${emp ? emp.surname : ''}">
-        </div>
+      <div class="u-modal-field">
+        <label for="fName">Meno<span class="required-mark" aria-hidden="true"> *</span></label>
+        <input id="fName" type="text" placeholder="Meno (alebo Meno Priezvisko)" aria-required="true" data-validate="required" value="${emp && emp.name ? escapeHtml(emp.name) : ''}">
       </div>
+      <input id="fSurname" type="hidden" value="">
       <div class="u-modal-field">
         <label for="fRole">Rola</label>
         <select id="fRole">
-          <option value="Admin"${emp && emp.role === 'Admin' ? ' selected' : ''}>Admin</option>
-          <option value="Manazer"${emp && emp.role === 'Manazer' ? ' selected' : ''}>Manazer</option>
-          <option value="Cisnik"${(!emp || emp.role === 'Cisnik') ? ' selected' : ''}>Cisnik</option>
+          <option value="admin"${emp && emp.role === 'admin' ? ' selected' : ''}>Admin</option>
+          <option value="manazer"${emp && emp.role === 'manazer' ? ' selected' : ''}>Manažér</option>
+          <option value="cisnik"${(!emp || emp.role === 'cisnik') ? ' selected' : ''}>Čašník</option>
         </select>
       </div>
       <div class="u-modal-row" style="align-items:flex-end">
         <div class="u-modal-field">
           <label for="fPin">PIN kod<span class="required-mark" aria-hidden="true"> *</span></label>
-          <input id="fPin" type="text" placeholder="4 cislice" aria-required="true" data-validate="required|pin" maxlength="4" pattern="[0-9]{4}" value="${emp ? emp.pin : ''}">
+          <input id="fPin" type="text" placeholder="${emp ? 'Vyplňte len pri zmene' : '4 číslice'}" ${emp ? '' : 'aria-required="true" data-validate="required|pin"'} maxlength="6" pattern="[0-9]{4,6}" value="">
         </div>
         <div style="flex:0 0 auto">
           <button class="btn-generate" id="btnGenPin">Generovat</button>
         </div>
       </div>
-      <div class="u-modal-row">
-        <div class="u-modal-field">
-          <label for="fPhone">Telefon</label>
-          <input id="fPhone" type="text" placeholder="+421..." value="${emp ? emp.phone : ''}">
-        </div>
-        <div class="u-modal-field">
-          <label for="fEmail">Email</label>
-          <input id="fEmail" type="text" placeholder="email@example.com" value="${emp ? emp.email : ''}">
-        </div>
-      </div>
+      <input id="fPhone" type="hidden" value="">
+      <input id="fEmail" type="hidden" value="">
       <div class="u-modal-row">
         <div class="u-modal-field">
           <label for="fPosition">Pozicia</label>
@@ -234,18 +236,21 @@ function openStaffModal(id) {
   document.getElementById('staffModalSave').onclick = async () => {
     if (!validateForm(ov)) return;
 
-    const name = document.getElementById('fName').value.trim();
-    const surname = document.getElementById('fSurname').value.trim();
+    const nameRaw = document.getElementById('fName').value.trim();
+    const surnameRaw = document.getElementById('fSurname').value.trim();
     const role = document.getElementById('fRole').value;
     const pin = document.getElementById('fPin').value.trim();
-    const phone = document.getElementById('fPhone').value.trim();
-    const email = document.getElementById('fEmail').value.trim();
     const active = document.getElementById('fActive').classList.contains('on');
     const position = document.getElementById('fPosition').value.trim();
     const hourlyRate = document.getElementById('fHourlyRate').value.trim();
     const attendancePin = document.getElementById('fAttendancePin').value.trim();
 
-    const body = { name, surname, role, pin, phone, email, active, position };
+    // The staff table has no surname/phone/email columns — fold surname into
+    // the single `name` field (zod schema accepts up to 100 chars). Phone/email
+    // inputs are kept in the form for now but not sent.
+    const fullName = (nameRaw + (surnameRaw ? ' ' + surnameRaw : '')).trim();
+    const body = { name: fullName, role, position, active };
+    if (pin) body.pin = pin;
     if (hourlyRate !== '') body.hourlyRate = hourlyRate;
     if (attendancePin) body.attendancePin = attendancePin;
 

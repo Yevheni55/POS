@@ -957,3 +957,87 @@ textarea.form-input,textarea.form-select,.u-modal-field textarea{height:auto;min
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
+
+/* ==================== DOCHADZKA (admin) ==================== */
+.doch-toolbar{
+  display:flex;align-items:flex-end;justify-content:space-between;gap:14px;
+  flex-wrap:wrap;margin-bottom:18px;
+}
+.doch-toolbar-dates{
+  display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;
+}
+.doch-toolbar-label{
+  display:flex;flex-direction:column;gap:4px;
+  font-size:11px;font-weight:600;color:var(--color-text-dim);
+  text-transform:uppercase;letter-spacing:.5px;
+}
+.doch-input{
+  padding:8px 10px;border-radius:var(--radius-sm);
+  border:1px solid var(--color-border);
+  background:rgba(255,255,255,.03);color:var(--color-text);
+  font-family:var(--font-body);font-size:var(--text-base);font-weight:500;
+  min-height:36px;outline:none;transition:border-color .15s, background .15s;
+}
+.doch-input:focus{
+  border-color:var(--color-accent-glow,rgba(139,124,246,.5));
+  background:rgba(255,255,255,.05);
+}
+.doch-input[type="date"], .doch-input[type="datetime-local"]{ color-scheme:dark; }
+.doch-toolbar-presets{
+  display:flex;gap:6px;align-self:flex-end;
+}
+.doch-preset{
+  padding:8px 12px !important;font-size:12px !important;
+  min-height:36px !important;width:auto !important;
+}
+.doch-stats{ margin-bottom:18px }
+@media (max-width: 900px){
+  .doch-stats{ grid-template-columns:repeat(2,1fr) }
+}
+@media (max-width: 480px){
+  .doch-stats{ grid-template-columns:1fr }
+}
+
+.doch-panel{ margin-bottom:18px }
+.doch-table th.data-th, .doch-table td.data-td{ white-space:nowrap }
+.doch-table td.num{ font-variant-numeric:tabular-nums;text-align:right }
+.doch-detail-btn{
+  padding:6px 12px !important;font-size:12px !important;
+  min-height:32px !important;
+}
+
+.doch-detail-host{ margin-top:14px }
+.doch-detail-panel{
+  background:linear-gradient(135deg,rgba(139,124,246,.04),var(--color-bg-surface));
+  border-color:rgba(139,124,246,.18);
+}
+.doch-detail-summary{
+  display:flex;flex-wrap:wrap;align-items:center;gap:8px;
+  padding:10px 12px;margin:0 0 14px;border-radius:var(--radius-sm);
+  background:rgba(255,255,255,.03);
+  font-size:13px;color:var(--color-text-sec);
+}
+.doch-detail-summary strong{ color:var(--color-text) }
+.dot-sep{ opacity:.4;margin:0 4px }
+
+.doch-manual-form{
+  display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;
+  padding:12px;margin-bottom:14px;border-radius:var(--radius-sm);
+  background:rgba(255,255,255,.02);border:1px dashed var(--color-border);
+}
+.doch-manual-form .doch-toolbar-label{ flex:0 0 auto;min-width:140px }
+.doch-manual-submit{
+  padding:8px 18px !important;font-size:13px !important;
+  min-height:36px !important;width:auto !important;align-self:flex-end;
+}
+
+.doch-event-del{
+  padding:4px 10px !important;font-size:14px !important;
+  min-height:28px !important;line-height:1;
+  border-color:rgba(224,112,112,.18) !important;
+  color:var(--color-danger) !important;
+}
+.doch-event-del:hover{
+  background:rgba(224,112,112,.12) !important;
+  border-color:rgba(224,112,112,.4) !important;
+}

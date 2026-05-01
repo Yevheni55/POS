@@ -1,13 +1,20 @@
 'use strict';
 
+// Admin -> Dochadzka. Reuses the existing design system:
+//  - .panel / .panel-title for sections
+//  - .data-table for the staff list and the per-staff event log
+//  - .stat-grid / .stat-card for the top KPI strip
+//  - .badge-warning / .badge-info for inline status pills
+//  - showConfirm() for destructive confirms (no native confirm())
+//  - showToast() for non-blocking feedback
+
 let _container = null;
 let _from = todayMinusDays(7);
-let _to = today();
+let _to = todayIso();
 let _summary = { rows: [] };
 let _expanded = null; // staffId currently expanded
 
 function todayIso() { return new Date().toISOString().slice(0, 10); }
-function today() { return todayIso(); }
 function todayMinusDays(n) {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() - n);
@@ -15,7 +22,7 @@ function todayMinusDays(n) {
 }
 
 function fmtMinutes(m) {
-  if (!Number.isFinite(m)) return '0h 0m';
+  if (!Number.isFinite(m) || m <= 0) return '0h 0m';
   const h = Math.floor(m / 60);
   const mm = m % 60;
   return h + 'h ' + mm + 'm';
@@ -26,10 +33,28 @@ function escapeHtml(v) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
+function formatLocalDateTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString('sk-SK', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+// Build a value compatible with <input type="datetime-local"> (local TZ)
+function nowForDateTimeLocal() {
+  const d = new Date();
+  const off = d.getTimezoneOffset();
+  const local = new Date(d.getTime() - off * 60000);
+  return local.toISOString().slice(0, 16);
+}
 
 async function loadSummary() {
-  const res = await api.get(`/attendance/summary?from=${_from}&to=${_to}`);
-  _summary = res || { rows: [] };
+  try {
+    const res = await api.get(`/attendance/summary?from=${_from}&to=${_to}`);
+    _summary = res || { rows: [] };
+  } catch (err) {
+    _summary = { rows: [] };
+    showToast(err.message || 'Chyba načítania prehlěadu', 'error');
+  }
   render();
 }
 
@@ -37,43 +62,176 @@ async function loadHistory(staffId) {
   return api.get(`/attendance/history/${staffId}?from=${_from}&to=${_to}`);
 }
 
+function totalsFor(rows) {
+  let totalMinutes = 0, totalWage = 0, openShifts = 0, withRate = 0;
+  for (const r of rows) {
+    totalMinutes += Number(r.minutes) || 0;
+    totalWage += Number(r.wage) || 0;
+    openShifts += Number(r.openShifts) || 0;
+    if (r.hourlyRate != null) withRate += 1;
+  }
+  return { totalMinutes, totalWage, openShifts, totalStaff: rows.length, withRate };
+}
+
 function render() {
   if (!_container) return;
-  _container.innerHTML =
-    '<header class="admin-page-header"><h1>Dochadzka</h1></header>' +
-    '<div class="admin-toolbar">' +
-      '<label>Od <input type="date" id="dFrom" value="' + _from + '"></label>' +
-      '<label>Do <input type="date" id="dTo" value="' + _to + '"></label>' +
-      '<button class="admin-btn" id="dRefresh">Obnovit</button>' +
+
+  const t = totalsFor(_summary.rows || []);
+
+  const html =
+    '<div class="doch-toolbar">' +
+      '<div class="doch-toolbar-dates">' +
+        '<label class="doch-toolbar-label">Od' +
+          '<input type="date" id="dFrom" class="doch-input" value="' + _from + '">' +
+        '</label>' +
+        '<label class="doch-toolbar-label">Do' +
+          '<input type="date" id="dTo" class="doch-input" value="' + _to + '">' +
+        '</label>' +
+        '<div class="doch-toolbar-presets">' +
+          '<button type="button" class="btn-secondary doch-preset" data-preset="7">7 dní</button>' +
+          '<button type="button" class="btn-secondary doch-preset" data-preset="30">30 dní</button>' +
+          '<button type="button" class="btn-secondary doch-preset" data-preset="month">Tento mesiac</button>' +
+        '</div>' +
+      '</div>' +
+      '<button class="btn-add" id="dRefresh">' +
+        '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3a5 5 0 015 5 5 5 0 01-5 5 5 5 0 01-3.5-1.4L3 13l-1-3 3 1-1.1 1.1A4 4 0 008 12a4 4 0 100-8 4 4 0 00-3.5 2H6V5H2v4h1V7.5A5 5 0 018 3z"/></svg>' +
+        'Obnoviť' +
+      '</button>' +
     '</div>' +
-    '<table class="admin-table doch-table">' +
-      '<thead><tr><th>Meno</th><th>Pozicia</th><th>Sadza</th><th>Hodiny</th><th>Otv. smeny</th><th>Mzda</th><th></th></tr></thead>' +
-      '<tbody id="dBody"></tbody>' +
-    '</table>' +
-    '<div id="dDetail"></div>';
+
+    '<div class="stat-grid doch-stats">' +
+      '<div class="stat-card">' +
+        '<div class="stat-icon ice">' +
+          '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>' +
+        '</div>' +
+        '<div class="stat-info">' +
+          '<div class="stat-label">Spolu hodín</div>' +
+          '<div class="stat-value">' + escapeHtml(fmtMinutes(t.totalMinutes)) + '</div>' +
+          '<div class="stat-change neutral">' + t.totalStaff + ' ' + (t.totalStaff === 1 ? 'zamestnanec' : 'zamestnancov') + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="stat-card">' +
+        '<div class="stat-icon mint">' +
+          '<svg viewBox="0 0 24 24"><path d="M3 7h18M3 12h18M3 17h18"/><path d="M7 5v14M17 5v14"/></svg>' +
+        '</div>' +
+        '<div class="stat-info">' +
+          '<div class="stat-label">Mzda spolu</div>' +
+          '<div class="stat-value">' + escapeHtml(fmtEur(t.totalWage)) + '</div>' +
+          '<div class="stat-change neutral">' + t.withRate + ' so sadzbou</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="stat-card">' +
+        '<div class="stat-icon lavender">' +
+          '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M3 21a9 9 0 0118 0"/></svg>' +
+        '</div>' +
+        '<div class="stat-info">' +
+          '<div class="stat-label">Aktívni</div>' +
+          '<div class="stat-value">' + t.totalStaff + '</div>' +
+          '<div class="stat-change neutral">' + (_from === _to ? 'dnes' : (_from + ' → ' + _to)) + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="stat-card">' +
+        '<div class="stat-icon ' + (t.openShifts > 0 ? 'amber' : 'mint') + '">' +
+          '<svg viewBox="0 0 24 24"><path d="M12 8v5l3 2"/><circle cx="12" cy="12" r="9"/></svg>' +
+        '</div>' +
+        '<div class="stat-info">' +
+          '<div class="stat-label">Otvorené smeny</div>' +
+          '<div class="stat-value">' + t.openShifts + '</div>' +
+          '<div class="stat-change ' + (t.openShifts > 0 ? 'neutral' : 'up') + '">' +
+            (t.openShifts > 0 ? 'Treba zatvoriť ručne' : 'Všetko v poriadku') +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+
+    '<div class="panel doch-panel">' +
+      '<div class="panel-title">' +
+        '<svg viewBox="0 0 24 24" aria-hidden="true" style="width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>' +
+        ' Prehlěad za obdobie' +
+      '</div>' +
+      '<div id="dBodyWrap" class="table-scroll-wrap">' +
+        '<table class="data-table doch-table">' +
+          '<thead><tr>' +
+            '<th class="data-th">Meno</th>' +
+            '<th class="data-th">Pozícia</th>' +
+            '<th class="data-th">Sadzba</th>' +
+            '<th class="data-th">Hodín</th>' +
+            '<th class="data-th">Otv. smeny</th>' +
+            '<th class="data-th">Mzda</th>' +
+            '<th class="data-th"></th>' +
+          '</tr></thead>' +
+          '<tbody id="dBody"></tbody>' +
+        '</table>' +
+      '</div>' +
+    '</div>' +
+
+    '<div id="dDetail" class="doch-detail-host"></div>';
+
+  _container.innerHTML = html;
 
   _container.querySelector('#dRefresh').addEventListener('click', () => {
-    _from = _container.querySelector('#dFrom').value;
-    _to = _container.querySelector('#dTo').value;
+    _from = _container.querySelector('#dFrom').value || _from;
+    _to = _container.querySelector('#dTo').value || _to;
+    _expanded = null;
     loadSummary();
   });
 
+  _container.querySelectorAll('.doch-preset').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const preset = btn.getAttribute('data-preset');
+      if (preset === 'month') {
+        const d = new Date();
+        const first = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+        _from = first.toISOString().slice(0, 10);
+        _to = todayIso();
+      } else {
+        _from = todayMinusDays(parseInt(preset, 10));
+        _to = todayIso();
+      }
+      _expanded = null;
+      loadSummary();
+    });
+  });
+
+  renderBody();
+}
+
+function renderBody() {
   const body = _container.querySelector('#dBody');
-  if (!_summary.rows.length) {
-    body.innerHTML = '<tr><td colspan="7" class="muted">Ziadne data</td></tr>';
+  const rows = _summary.rows || [];
+  if (!rows.length) {
+    body.innerHTML = '<tr><td class="data-td" colspan="7">' +
+      '<div class="empty-hint">Žiadne dáta za toto obdobie. Zamestnanci s nastaveným dochádzka PIN-om sa objavia po prvom Príchode.</div>' +
+      '</td></tr>';
     return;
   }
-  body.innerHTML = _summary.rows.map((r) => (
-    '<tr data-staff="' + r.staffId + '">' +
-      '<td>' + escapeHtml(r.name) + '</td>' +
-      '<td>' + escapeHtml(r.position || '') + '</td>' +
-      '<td>' + (r.hourlyRate != null ? fmtEur(r.hourlyRate) + '/h' : '<span class="muted">—</span>') + '</td>' +
-      '<td>' + fmtMinutes(r.minutes) + '</td>' +
-      '<td>' + (r.openShifts > 0 ? '<span class="badge warn">' + r.openShifts + '</span>' : '0') + '</td>' +
-      '<td>' + fmtEur(r.wage) + '</td>' +
-      '<td><button class="admin-btn-mini" data-toggle="' + r.staffId + '">Detail</button></td>' +
-    '</tr>'
-  )).join('');
+  body.innerHTML = rows.map((r) => {
+    const isOpen = _expanded === r.staffId;
+    const wageCell = r.hourlyRate != null
+      ? fmtEur(r.wage)
+      : '<span class="text-muted">—</span>';
+    const rateCell = r.hourlyRate != null
+      ? fmtEur(r.hourlyRate) + '/h'
+      : '<span class="text-muted">nie je</span>';
+    const openCell = r.openShifts > 0
+      ? '<span class="badge badge-warning">' + r.openShifts + '</span>'
+      : '<span class="text-muted">0</span>';
+    return '<tr class="data-row" data-staff="' + r.staffId + '">' +
+      '<td class="data-td"><strong>' + escapeHtml(r.name) + '</strong></td>' +
+      '<td class="data-td">' + (r.position
+        ? escapeHtml(r.position)
+        : '<span class="text-muted">—</span>') + '</td>' +
+      '<td class="data-td">' + rateCell + '</td>' +
+      '<td class="data-td"><strong>' + escapeHtml(fmtMinutes(r.minutes)) + '</strong></td>' +
+      '<td class="data-td">' + openCell + '</td>' +
+      '<td class="data-td num">' + wageCell + '</td>' +
+      '<td class="data-td">' +
+        '<button class="btn-edit doch-detail-btn" data-toggle="' + r.staffId + '">' +
+          (isOpen ? 'Skryť' : 'Detail') +
+        '</button>' +
+      '</td>' +
+    '</tr>';
+  }).join('');
 
   body.querySelectorAll('button[data-toggle]').forEach((b) => {
     b.addEventListener('click', () => toggleDetail(parseInt(b.getAttribute('data-toggle'), 10)));
@@ -81,53 +239,141 @@ function render() {
 }
 
 async function toggleDetail(staffId) {
+  const detail = _container.querySelector('#dDetail');
   if (_expanded === staffId) {
     _expanded = null;
-    _container.querySelector('#dDetail').innerHTML = '';
+    detail.innerHTML = '';
+    renderBody();
     return;
   }
   _expanded = staffId;
-  const detail = _container.querySelector('#dDetail');
-  detail.innerHTML = '<div class="muted">Nacitavam…</div>';
-  const data = await loadHistory(staffId);
-  const evRows = data.events.map((e) => (
-    '<tr>' +
-      '<td>' + new Date(e.at).toLocaleString('sk-SK') + '</td>' +
-      '<td>' + (e.type === 'clock_in' ? 'Prichod' : 'Odchod') + '</td>' +
-      '<td>' + escapeHtml(e.source || '') + '</td>' +
-      '<td>' + escapeHtml(e.note || '') + '</td>' +
-      '<td><button class="admin-btn-mini danger" data-del="' + e.id + '">×</button></td>' +
+  renderBody();
+
+  detail.innerHTML = '<div class="panel doch-detail-panel">' +
+    '<div class="loading-hint">Načítavam históriu…</div></div>';
+
+  let data;
+  try {
+    data = await loadHistory(staffId);
+  } catch (err) {
+    detail.innerHTML = '<div class="panel doch-detail-panel"><div class="empty-hint">' +
+      escapeHtml(err.message || 'Chyba načítania') + '</div></div>';
+    return;
+  }
+
+  const events = (data.events || []).slice().reverse(); // newest first
+  const evRows = events.map((e) => (
+    '<tr class="data-row">' +
+      '<td class="data-td">' + escapeHtml(formatLocalDateTime(e.at)) + '</td>' +
+      '<td class="data-td">' + (e.type === 'clock_in'
+        ? '<span class="badge badge-success">Príchod</span>'
+        : '<span class="badge badge-info">Odchod</span>') + '</td>' +
+      '<td class="data-td">' + (e.source === 'manual'
+        ? '<span class="badge badge-warning">manuálne</span>'
+        : '<span class="text-muted">PIN</span>') + '</td>' +
+      '<td class="data-td">' + (e.note ? escapeHtml(e.note) : '<span class="text-muted">—</span>') + '</td>' +
+      '<td class="data-td">' +
+        '<button class="btn-toggle-status doch-event-del" data-del="' + e.id + '" title="Vymazať záznam">✕</button>' +
+      '</td>' +
     '</tr>'
   )).join('');
 
+  const summary = data.summary || {};
+  const staffMeta = data.staff || {};
+  const summaryLine = (summary.openShifts > 0)
+    ? '<span class="badge badge-warning">' + summary.openShifts + ' otvorená smena</span> '
+    : '';
+
   detail.innerHTML =
-    '<h3>Detail — ' + escapeHtml(data.staff && data.staff.name || '') + '</h3>' +
-    '<form id="dManualForm" class="admin-toolbar">' +
-      '<label>Typ <select id="mType"><option value="clock_in">Prichod</option><option value="clock_out">Odchod</option></select></label>' +
-      '<label>Cas <input type="datetime-local" id="mAt" required></label>' +
-      '<label>Poznamka <input type="text" id="mNote" maxlength="200"></label>' +
-      '<button class="admin-btn" type="submit">Pridat zaznam</button>' +
-    '</form>' +
-    '<table class="admin-table"><thead><tr><th>Cas</th><th>Typ</th><th>Zdroj</th><th>Poznamka</th><th></th></tr></thead><tbody>' +
-    (evRows || '<tr><td colspan="5" class="muted">Bez zaznamov</td></tr>') +
-    '</tbody></table>';
+    '<div class="panel doch-detail-panel">' +
+      '<div class="panel-title">' +
+        '<svg viewBox="0 0 24 24" aria-hidden="true" style="width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="8" r="4"/><path d="M3 21a9 9 0 0118 0"/></svg>' +
+        ' Detail — ' + escapeHtml(staffMeta.name || '') +
+      '</div>' +
+
+      '<div class="doch-detail-summary">' +
+        summaryLine +
+        '<span class="text-muted">Hodín:</span> <strong>' + escapeHtml(fmtMinutes(summary.minutes)) + '</strong>' +
+        '<span class="dot-sep">·</span>' +
+        '<span class="text-muted">Mzda:</span> <strong>' + escapeHtml(fmtEur(summary.wage)) + '</strong>' +
+        (staffMeta.position ? ('<span class="dot-sep">·</span>' +
+          '<span class="text-muted">Pozícia:</span> <strong>' + escapeHtml(staffMeta.position) + '</strong>') : '') +
+      '</div>' +
+
+      '<form class="doch-manual-form" id="dManualForm">' +
+        '<label class="doch-toolbar-label">Typ' +
+          '<select id="mType" class="doch-input">' +
+            '<option value="clock_in">Príchod</option>' +
+            '<option value="clock_out">Odchod</option>' +
+          '</select>' +
+        '</label>' +
+        '<label class="doch-toolbar-label">Čas' +
+          '<input type="datetime-local" id="mAt" class="doch-input" value="' + nowForDateTimeLocal() + '" required>' +
+        '</label>' +
+        '<label class="doch-toolbar-label" style="flex:1;min-width:200px">Poznámka' +
+          '<input type="text" id="mNote" class="doch-input" maxlength="200" placeholder="napr. zabudol kliknúť">' +
+        '</label>' +
+        '<button class="btn-save doch-manual-submit" type="submit">Pridať záznam</button>' +
+      '</form>' +
+
+      '<div class="table-scroll-wrap">' +
+        '<table class="data-table">' +
+          '<thead><tr>' +
+            '<th class="data-th">Čas</th>' +
+            '<th class="data-th">Typ</th>' +
+            '<th class="data-th">Zdroj</th>' +
+            '<th class="data-th">Poznámka</th>' +
+            '<th class="data-th"></th>' +
+          '</tr></thead>' +
+          '<tbody>' +
+            (evRows || '<tr><td class="data-td" colspan="5"><div class="empty-hint">Bez záznamov za toto obdobie.</div></td></tr>') +
+          '</tbody>' +
+        '</table>' +
+      '</div>' +
+    '</div>';
 
   detail.querySelector('#dManualForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const at = detail.querySelector('#mAt').value;
     const type = detail.querySelector('#mType').value;
-    const note = detail.querySelector('#mNote').value;
-    await api.post('/attendance/events', { staffId, type, at: new Date(at).toISOString(), note });
-    await loadSummary();
-    await toggleDetail(staffId); // close
-    await toggleDetail(staffId); // re-open with new data
-  });
-  detail.querySelectorAll('button[data-del]').forEach((b) => {
-    b.addEventListener('click', async () => {
-      if (!confirm('Vymazat zaznam?')) return;
-      await api.del('/attendance/events/' + b.getAttribute('data-del'));
+    const note = detail.querySelector('#mNote').value.trim();
+    if (!at) return;
+    try {
+      await api.post('/attendance/events', {
+        staffId,
+        type,
+        at: new Date(at).toISOString(),
+        note,
+      });
+      showToast('Záznam pridaný', true);
       await loadSummary();
-      await toggleDetail(staffId); await toggleDetail(staffId);
+      // re-open the same staff with fresh data
+      _expanded = null;
+      await toggleDetail(staffId);
+    } catch (err) {
+      showToast(err.message || 'Záznam sa nepodarilo pridať', 'error');
+    }
+  });
+
+  detail.querySelectorAll('button[data-del]').forEach((b) => {
+    b.addEventListener('click', () => {
+      const id = b.getAttribute('data-del');
+      showConfirm(
+        'Vymazať záznam?',
+        'Toto natrvalo odstráni záznam dochádzky. Mzdový prepočet sa obnoví.',
+        async () => {
+          try {
+            await api.del('/attendance/events/' + id);
+            showToast('Záznam vymazaný', true);
+            await loadSummary();
+            _expanded = null;
+            await toggleDetail(staffId);
+          } catch (err) {
+            showToast(err.message || 'Nepodarilo sa vymazať', 'error');
+          }
+        },
+        { type: 'danger', confirmText: 'Vymazať' },
+      );
     });
   });
 }
@@ -140,4 +386,5 @@ export function init(container) {
 export function destroy() {
   _container = null;
   _expanded = null;
+  _summary = { rows: [] };
 }
