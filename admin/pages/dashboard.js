@@ -403,6 +403,20 @@ async function loadUzavierka() {
   if (!_container) return;
   var uzPanel = _container.querySelector('#uzavierkaPanel');
   if (uzPanel) showLoading(uzPanel, 'Načítavam uzávierku…');
+  // Safety net: if api.get hangs (wifi drop, dead proxy, the request
+  // never settling for any reason), force the spinner off after 12s and
+  // surface a hint instead of leaving "Načítavam uzávierku…" stuck on
+  // the dashboard forever. The actual try/catch below races this — it
+  // wins on a normal response and the timer is cleared in finally.
+  var stuck = setTimeout(function () {
+    if (!_container) return;
+    if (uzPanel) hideLoading(uzPanel);
+    var elP = _container.querySelector('#uzPayments');
+    if (elP && elP.classList.contains('loading-placeholder')) {
+      elP.classList.remove('loading-placeholder');
+      elP.textContent = 'Uzávierka sa nepodarila načítať. Skús obnoviť stránku.';
+    }
+  }, 12000);
   try {
     var today = ymdLocal(new Date());
     var data = await api.get('/reports/z-report?date=' + encodeURIComponent(today));
@@ -430,8 +444,15 @@ async function loadUzavierka() {
         elShisha.style.display = 'none';
       }
     }
+    // Drop the loading-placeholder class once we have rendered real
+    // payment-method content so the safety-net timer cannot revert the
+    // panel to the "nepodarilo sa načítať" message after the fact.
+    var elPok = _container.querySelector('#uzPayments');
+    if (elPok) elPok.classList.remove('loading-placeholder');
   } catch (err) {
     if (uzPanel) hideLoading(uzPanel);
     showToast(err.message || 'Chyba načítania uzávierky', 'error');
+  } finally {
+    clearTimeout(stuck);
   }
 }
