@@ -13,20 +13,30 @@ function roundMoney(value) {
 }
 
 // GET /api/reports/summary?from=2024-01-01&to=2024-12-31
-// Default: single calendar day (today UTC) so "dashboard today" is not merged with yesterday.
+// Default: single calendar day (today, Bratislava) so "dashboard today" is
+// not merged with yesterday. All date/hour aggregates and boundary
+// comparisons use Europe/Bratislava — payments.created_at is stored UTC,
+// but the cashier reads the dashboard in local time. Without the TZ shift
+// hour bins were UTC (pas-time displays 16:00 instead of 18:00 in summer).
+const TZ = 'Europe/Bratislava';
+
 router.get('/summary', mgr, async (req, res) => {
   const to = req.query.to || new Date().toISOString().split('T')[0];
   const from = req.query.from || to;
 
-  const fromDate = new Date(from);
-  const toDate = new Date(to + 'T23:59:59');
+  // SQL-side boundaries: the user types YYYY-MM-DD in local time, so 'from'
+  // means "00:00 Bratislava on that day" and 'to' means "23:59:59
+  // Bratislava on that day". Postgres handles DST correctly via AT TIME
+  // ZONE, so this works across summer/winter switches.
+  const fromBoundary = sql`(${from + ' 00:00:00'})::timestamp AT TIME ZONE ${TZ}`;
+  const toBoundary   = sql`(${to + ' 23:59:59'})::timestamp AT TIME ZONE ${TZ}`;
 
   // Total revenue
   const [revenue] = await db.select({
     total: sql`COALESCE(SUM(${payments.amount}::numeric), 0)`,
     count: sql`COUNT(*)`,
   }).from(payments).where(
-    and(gte(payments.createdAt, fromDate), sql`${payments.createdAt} <= ${toDate}`)
+    sql`${payments.createdAt} >= ${fromBoundary} AND ${payments.createdAt} <= ${toBoundary}`
   );
 
   // Orders count
@@ -35,7 +45,7 @@ router.get('/summary', mgr, async (req, res) => {
     open: sql`COUNT(*) FILTER (WHERE ${orders.status} = 'open')`,
     closed: sql`COUNT(*) FILTER (WHERE ${orders.status} = 'closed')`,
   }).from(orders).where(
-    and(gte(orders.createdAt, fromDate), sql`${orders.createdAt} <= ${toDate}`)
+    sql`${orders.createdAt} >= ${fromBoundary} AND ${orders.createdAt} <= ${toBoundary}`
   );
 
   // Payment methods
@@ -44,7 +54,7 @@ router.get('/summary', mgr, async (req, res) => {
     total: sql`SUM(${payments.amount}::numeric)`,
     count: sql`COUNT(*)`,
   }).from(payments).where(
-    and(gte(payments.createdAt, fromDate), sql`${payments.createdAt} <= ${toDate}`)
+    sql`${payments.createdAt} >= ${fromBoundary} AND ${payments.createdAt} <= ${toBoundary}`
   ).groupBy(payments.method);
 
   // Top items
@@ -57,7 +67,7 @@ router.get('/summary', mgr, async (req, res) => {
   .from(orderItems)
   .innerJoin(menuItems, eq(orderItems.menuItemId, menuItems.id))
   .innerJoin(orders, eq(orderItems.orderId, orders.id))
-  .where(and(gte(orders.createdAt, fromDate), sql`${orders.createdAt} <= ${toDate}`))
+  .where(sql`${orders.createdAt} >= ${fromBoundary} AND ${orders.createdAt} <= ${toBoundary}`)
   .groupBy(menuItems.name, menuItems.emoji)
   .orderBy(desc(sql`SUM(${orderItems.qty})`))
   .limit(10);
@@ -68,36 +78,37 @@ router.get('/summary', mgr, async (req, res) => {
     count: sql`COUNT(*)`,
     revenue: sql`COALESCE(SUM(${shishaSales.price}::numeric), 0)`,
   }).from(shishaSales).where(
-    and(gte(shishaSales.soldAt, fromDate), sql`${shishaSales.soldAt} <= ${toDate}`)
+    sql`${shishaSales.soldAt} >= ${fromBoundary} AND ${shishaSales.soldAt} <= ${toBoundary}`
   );
   const shishaCount = parseInt(shisha.count) || 0;
   const shishaRevenue = parseFloat(shisha.revenue) || 0;
   const fiscalTotal = parseFloat(revenue.total) || 0;
 
-  // Per-day breakdown for the Trzby tab (chronological, last day at the
-  // bottom). Uses payments to mirror the headline `revenue.total` number.
+  // Per-day breakdown for the Trzby tab (chronological). Bins payments by
+  // their LOCAL Bratislava date so a 01:30-local payment lands in the same
+  // day the bartender thinks of, not the next UTC day.
   const dailyRows = await db.execute(sql`
     SELECT
-      to_char(p.created_at::date, 'YYYY-MM-DD') AS date,
+      to_char((p.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ})::date, 'YYYY-MM-DD') AS date,
       COUNT(DISTINCT p.order_id)::int AS orders,
       COALESCE(SUM(p.amount::numeric), 0)::float AS revenue
     FROM payments p
-    WHERE p.created_at >= ${fromDate} AND p.created_at <= ${toDate}
-    GROUP BY p.created_at::date
-    ORDER BY p.created_at::date
+    WHERE p.created_at >= ${fromBoundary} AND p.created_at <= ${toBoundary}
+    GROUP BY (p.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ})::date
+    ORDER BY (p.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ})::date
   `);
 
-  // Per-hour-of-day breakdown for the Hodiny tab. Aggregates across all
-  // dates in the period so peak service hours stand out.
+  // Per-hour-of-day breakdown for the Hodiny tab. Hours are LOCAL Bratislava
+  // hours so 18:00 means 18:00 in the bar, not 16:00 UTC.
   const hourlyRows = await db.execute(sql`
     SELECT
-      EXTRACT(HOUR FROM p.created_at)::int AS hour,
+      EXTRACT(HOUR FROM (p.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ}))::int AS hour,
       COUNT(DISTINCT p.order_id)::int AS orders,
       COALESCE(SUM(p.amount::numeric), 0)::float AS revenue
     FROM payments p
-    WHERE p.created_at >= ${fromDate} AND p.created_at <= ${toDate}
-    GROUP BY EXTRACT(HOUR FROM p.created_at)
-    ORDER BY EXTRACT(HOUR FROM p.created_at)
+    WHERE p.created_at >= ${fromBoundary} AND p.created_at <= ${toBoundary}
+    GROUP BY EXTRACT(HOUR FROM (p.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ}))
+    ORDER BY EXTRACT(HOUR FROM (p.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ}))
   `);
 
   // Per-staff breakdown for the Zamestnanci tab. Joins payments → orders →
@@ -111,7 +122,7 @@ router.get('/summary', mgr, async (req, res) => {
     FROM payments p
     INNER JOIN orders o ON o.id = p.order_id
     INNER JOIN staff s ON s.id = o.staff_id
-    WHERE p.created_at >= ${fromDate} AND p.created_at <= ${toDate}
+    WHERE p.created_at >= ${fromBoundary} AND p.created_at <= ${toBoundary}
     GROUP BY s.id, s.name
     ORDER BY revenue DESC
   `);
