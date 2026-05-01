@@ -247,6 +247,40 @@ adminRouter.get('/summary', mgr, asyncRoute(async (req, res) => {
   res.json({ from: parsed.data.from, to: parsed.data.to, rows });
 }));
 
+adminRouter.get('/active', mgr, asyncRoute(async (req, res) => {
+  // Find each active staff's most-recent attendance event in one query.
+  // Then keep only the ones whose latest event is clock_in.
+  // Tie-break by id DESC: two events written in the same millisecond
+  // (rapid double-tap on the PIN pad, or batched test inserts) share a
+  // NOW() timestamp, so without a secondary sort `DISTINCT ON` would
+  // pick non-deterministically.
+  const latest = await db.execute(sql`
+    SELECT DISTINCT ON (e.staff_id)
+      e.staff_id   AS staff_id,
+      e.type       AS type,
+      e.at         AS at,
+      s.name       AS name,
+      s.position   AS position
+    FROM attendance_events e
+    INNER JOIN staff s ON s.id = e.staff_id AND s.active = true
+    ORDER BY e.staff_id, e.at DESC, e.id DESC
+  `);
+  const now = Date.now();
+  const active = latest.rows
+    .filter((r) => r.type === 'clock_in')
+    .map((r) => {
+      const at = new Date(r.at);
+      return {
+        staffId: r.staff_id,
+        name: r.name,
+        position: r.position || '',
+        clockedInAt: at.toISOString(),
+        minutes: Math.max(0, Math.round((now - at.getTime()) / 60000)),
+      };
+    });
+  res.json({ active });
+}));
+
 adminRouter.post('/events', mgr, validate(manualEventSchema), asyncRoute(async (req, res) => {
   const [event] = await db.insert(attendanceEvents).values({
     staffId: req.body.staffId,

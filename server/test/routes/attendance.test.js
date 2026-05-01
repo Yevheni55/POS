@@ -223,4 +223,36 @@ describe('attendance admin routes (manazer/admin only)', () => {
     const left = await testDb.select().from(attendanceEvents).where(eq(attendanceEvents.id, ev.id));
     assert.equal(left.length, 0);
   });
+
+  it('GET /api/attendance/active returns clocked-in staff with todayMinutes', async () => {
+    const s = await makeStaffWithAttendancePin('4321');
+    await testDb.insert(attendanceEvents).values({
+      staffId: s.id, type: 'clock_in', source: 'pin',
+    });
+    // Backdate to make todayMinutes nonzero.
+    await testDb.execute(sql`UPDATE attendance_events SET at = NOW() - INTERVAL '90 minutes' WHERE staff_id = ${s.id}`);
+
+    const res = await request
+      .get('/api/attendance/active')
+      .set('Authorization', `Bearer ${tokens.admin()}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.active.length, 1);
+    const row = res.body.active[0];
+    assert.equal(row.staffId, s.id);
+    assert.ok(row.minutes >= 88);  // give a 2-minute test-execution slop
+    assert.ok(row.clockedInAt);
+  });
+
+  it('GET /api/attendance/active excludes staff who already clocked out', async () => {
+    const s = await makeStaffWithAttendancePin('4321');
+    await testDb.insert(attendanceEvents).values([
+      { staffId: s.id, type: 'clock_in',  source: 'pin' },
+      { staffId: s.id, type: 'clock_out', source: 'pin' },
+    ]);
+    const res = await request
+      .get('/api/attendance/active')
+      .set('Authorization', `Bearer ${tokens.admin()}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.active.length, 0);
+  });
 });
