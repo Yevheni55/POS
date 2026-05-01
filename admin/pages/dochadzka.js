@@ -262,26 +262,45 @@ async function toggleDetail(staffId) {
   }
 
   const events = (data.events || []).slice().reverse(); // newest first
-  const evRows = events.map((e) => (
-    '<tr class="data-row">' +
-      '<td class="data-td">' + escapeHtml(formatLocalDateTime(e.at)) + '</td>' +
-      '<td class="data-td">' + (e.type === 'clock_in'
-        ? '<span class="badge badge-success">Príchod</span>'
-        : '<span class="badge badge-info">Odchod</span>') + '</td>' +
-      '<td class="data-td">' + (e.source === 'manual'
-        ? '<span class="badge badge-warning">manuálne</span>'
-        : '<span class="text-muted">PIN</span>') + '</td>' +
-      '<td class="data-td">' + (e.note ? escapeHtml(e.note) : '<span class="text-muted">—</span>') + '</td>' +
-      '<td class="data-td">' +
-        '<button class="btn-toggle-status doch-event-del" data-del="' + e.id + '" title="Vymazať záznam">✕</button>' +
-      '</td>' +
-    '</tr>'
-  )).join('');
+  const reasonLabels = {
+    forgot: 'Zabudol kliknúť',
+    wrong_time: 'Nesprávny čas',
+    shift_change: 'Zmena zmeny',
+    pin_failed: 'PIN zlyhal',
+    other: 'Iné',
+  };
+  const evRows = events.map((e) => {
+    let sourceCell;
+    if (e.source === 'auto_close') sourceCell = '<span class="badge badge-warning">auto-zatvorené</span>';
+    else if (e.source === 'manual') sourceCell = '<span class="badge badge-warning">manuálne</span>';
+    else sourceCell = '<span class="text-muted">PIN</span>';
+    const reasonCell = e.reason
+      ? '<span class="text-muted">' + escapeHtml(reasonLabels[e.reason] || e.reason) + '</span>'
+      : '<span class="text-muted">—</span>';
+    return (
+      '<tr class="data-row">' +
+        '<td class="data-td">' + escapeHtml(formatLocalDateTime(e.at)) + '</td>' +
+        '<td class="data-td">' + (e.type === 'clock_in'
+          ? '<span class="badge badge-success">Príchod</span>'
+          : '<span class="badge badge-info">Odchod</span>') + '</td>' +
+        '<td class="data-td">' + sourceCell + '</td>' +
+        '<td class="data-td">' + reasonCell + '</td>' +
+        '<td class="data-td">' + (e.note ? escapeHtml(e.note) : '<span class="text-muted">—</span>') + '</td>' +
+        '<td class="data-td">' +
+          '<button class="btn-toggle-status doch-event-del" data-del="' + e.id + '" title="Vymazať záznam">✕</button>' +
+        '</td>' +
+      '</tr>'
+    );
+  }).join('');
 
   const summary = data.summary || {};
   const staffMeta = data.staff || {};
   const summaryLine = (summary.openShifts > 0)
     ? '<span class="badge badge-warning">' + summary.openShifts + ' otvorená smena</span> '
+    : '';
+  const autoCount = (data.events || []).filter((e) => e.source === 'auto_close').length;
+  const autoLine = autoCount > 0
+    ? '<span class="badge badge-warning">' + autoCount + ' auto-zatvorené</span> '
     : '';
 
   detail.innerHTML =
@@ -293,6 +312,7 @@ async function toggleDetail(staffId) {
 
       '<div class="doch-detail-summary">' +
         summaryLine +
+        autoLine +
         '<span class="text-muted">Hodín:</span> <strong>' + escapeHtml(fmtMinutes(summary.minutes)) + '</strong>' +
         '<span class="dot-sep">·</span>' +
         '<span class="text-muted">Mzda:</span> <strong>' + escapeHtml(fmtEur(summary.wage)) + '</strong>' +
@@ -305,6 +325,16 @@ async function toggleDetail(staffId) {
           '<select id="mType" class="doch-input">' +
             '<option value="clock_in">Príchod</option>' +
             '<option value="clock_out">Odchod</option>' +
+          '</select>' +
+        '</label>' +
+        '<label class="doch-toolbar-label">Dôvod' +
+          '<select id="mReason" class="doch-input" required>' +
+            '<option value="">— vyber —</option>' +
+            '<option value="forgot">Zabudol kliknúť</option>' +
+            '<option value="wrong_time">Nesprávny čas</option>' +
+            '<option value="shift_change">Zmena zmeny</option>' +
+            '<option value="pin_failed">PIN zlyhal</option>' +
+            '<option value="other">Iné</option>' +
           '</select>' +
         '</label>' +
         '<label class="doch-toolbar-label">Čas' +
@@ -322,11 +352,12 @@ async function toggleDetail(staffId) {
             '<th class="data-th">Čas</th>' +
             '<th class="data-th">Typ</th>' +
             '<th class="data-th">Zdroj</th>' +
+            '<th class="data-th">Dôvod</th>' +
             '<th class="data-th">Poznámka</th>' +
             '<th class="data-th"></th>' +
           '</tr></thead>' +
           '<tbody>' +
-            (evRows || '<tr><td class="data-td" colspan="5"><div class="empty-hint">Bez záznamov za toto obdobie.</div></td></tr>') +
+            (evRows || '<tr><td class="data-td" colspan="6"><div class="empty-hint">Bez záznamov za toto obdobie.</div></td></tr>') +
           '</tbody>' +
         '</table>' +
       '</div>' +
@@ -336,18 +367,20 @@ async function toggleDetail(staffId) {
     e.preventDefault();
     const at = detail.querySelector('#mAt').value;
     const type = detail.querySelector('#mType').value;
+    const reason = detail.querySelector('#mReason').value;
     const note = detail.querySelector('#mNote').value.trim();
-    if (!at) return;
+    if (!at || !reason) {
+      showToast('Vyber čas aj dôvod úpravy', 'error');
+      return;
+    }
     try {
       await api.post('/attendance/events', {
-        staffId,
-        type,
+        staffId, type,
         at: new Date(at).toISOString(),
-        note,
+        reason, note,
       });
       showToast('Záznam pridaný', true);
       await loadSummary();
-      // re-open the same staff with fresh data
       _expanded = null;
       await toggleDetail(staffId);
     } catch (err) {
