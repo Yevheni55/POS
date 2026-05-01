@@ -99,4 +99,18 @@ describe('attendance public PIN routes', () => {
     const dup = await request.post('/api/attendance/clock').send({ pin: '4321', type: 'clock_in' });
     assert.equal(dup.status, 409);
   });
+
+  it('POST /api/attendance/identify reports clocked_in when last clock_in was yesterday (midnight rollover)', async () => {
+    const s = await makeStaffWithAttendancePin('4321');
+
+    await testDb.insert(attendanceEvents).values({
+      staffId: s.id, type: 'clock_in', source: 'pin',
+    });
+    // Backdate to yesterday — simulates someone who clocked in before midnight UTC and never clocked out.
+    await testDb.execute(sql`UPDATE attendance_events SET at = NOW() - INTERVAL '1 day' WHERE staff_id = ${s.id}`);
+
+    const res = await request.post('/api/attendance/identify').send({ pin: '4321' });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.currentState, 'clocked_in');
+  });
 });

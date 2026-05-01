@@ -2,7 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { db } from '../db/index.js';
 import { staff, attendanceEvents, authAttempts } from '../db/schema.js';
-import { eq, and, gte, sql, count } from 'drizzle-orm';
+import { eq, and, gte, desc, sql, count } from 'drizzle-orm';
 import { validate } from '../middleware/validate.js';
 import { asyncRoute } from '../lib/async-route.js';
 import { pinSchema, clockSchema } from '../schemas/attendance.js';
@@ -70,17 +70,28 @@ async function findStaffByAttendancePin(pin) {
 }
 
 async function buildStateFor(staffMember) {
-  const since = startOfTodayUtc();
-  const events = await eventsForStaffSince(staffMember.id, since);
-  const shifts = pairEventsToShifts(events);
-  const summary = summarizeHours(shifts);
-  const lastEvent = events[events.length - 1] || null;
-  const currentState = lastEvent && lastEvent.type === 'clock_in' ? 'clocked_in' : 'clocked_out';
-  return { currentState, todayMinutes: summary.minutes, lastEvent };
+  // Today's events feed the visible "Dnes Xh Ym" wage counter.
+  const todayEvents = await eventsForStaffSince(staffMember.id, startOfTodayUtc());
+  const summary = summarizeHours(pairEventsToShifts(todayEvents));
+
+  // currentState must look at ALL history (specifically the latest event)
+  // so a cashier who clocked in before midnight UTC and is still working
+  // sees `clocked_in`, not a fresh `clocked_out` after the date rolled.
+  const [latest] = await db.select().from(attendanceEvents)
+    .where(eq(attendanceEvents.staffId, staffMember.id))
+    .orderBy(desc(attendanceEvents.at))
+    .limit(1);
+
+  const currentState = latest && latest.type === 'clock_in' ? 'clocked_in' : 'clocked_out';
+  return { currentState, todayMinutes: summary.minutes, lastEvent: latest || null };
 }
 
 publicRouter.post('/identify', validate(pinSchema), asyncRoute(async (req, res) => {
   const ip = req.ip || req.connection?.remoteAddress || '';
+  // Public terminal: rate-limit only by IP bucket of unmatched-PIN attempts.
+  // Unlike /verify-manager (which switches to a per-staff bucket once a row
+  // matches), here a successful match exits the gate — there's no value in
+  // per-staff buckets for an unauthenticated kiosk.
   const before = await failuresFor(null, ip);
   if (before >= PIN_MAX_ATTEMPTS) {
     res.set('Retry-After', String(Math.ceil(PIN_WINDOW_MS / 1000)));
@@ -104,6 +115,10 @@ publicRouter.post('/identify', validate(pinSchema), asyncRoute(async (req, res) 
 
 publicRouter.post('/clock', validate(clockSchema), asyncRoute(async (req, res) => {
   const ip = req.ip || req.connection?.remoteAddress || '';
+  // Public terminal: rate-limit only by IP bucket of unmatched-PIN attempts.
+  // Unlike /verify-manager (which switches to a per-staff bucket once a row
+  // matches), here a successful match exits the gate — there's no value in
+  // per-staff buckets for an unauthenticated kiosk.
   const before = await failuresFor(null, ip);
   if (before >= PIN_MAX_ATTEMPTS) {
     res.set('Retry-After', String(Math.ceil(PIN_WINDOW_MS / 1000)));
