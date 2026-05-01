@@ -96,6 +96,20 @@ async function loadMenu(data) {
 // fields (id, name, emoji, price, imageUrl…) so the existing product-card
 // template can render them directly. Failures keep the previous list — the
 // pseudo-tab just stays "stale" until the next 5-minute tick succeeds.
+// SALES_RANK[menuItemId] -> rank index (0 = best seller). Built from
+// TOP_ITEMS so that renderProducts can sort items inside every category
+// by sales without a second network call. Items not in the map sort to
+// the bottom (rank = Infinity) and tie-break by id.
+let SALES_RANK = (function buildRank(items) {
+  var m = {};
+  if (Array.isArray(items)) {
+    for (var i = 0; i < items.length; i++) {
+      if (items[i] && items[i].id != null) m[items[i].id] = i;
+    }
+  }
+  return m;
+})(TOP_ITEMS);
+
 async function loadTopItems(force) {
   // Skip the network call if the cached list is < 24h old. Cashiers using
   // the tab don't need second-by-second freshness; the all-time top
@@ -110,13 +124,20 @@ async function loadTopItems(force) {
     var data = api.getTopItems ? await api.getTopItems() : await api.get('/menu/top');
     if (Array.isArray(data) && data.length) {
       TOP_ITEMS = data;
+      // Rebuild the rank index whenever the ranking changes.
+      SALES_RANK = {};
+      for (var i = 0; i < TOP_ITEMS.length; i++) {
+        if (TOP_ITEMS[i] && TOP_ITEMS[i].id != null) SALES_RANK[TOP_ITEMS[i].id] = i;
+      }
       try {
         localStorage.setItem(TOP_ITEMS_KEY, JSON.stringify(TOP_ITEMS));
         localStorage.setItem(TOP_ITEMS_TS_KEY, String(Date.now()));
       } catch (e) { /* quota / private mode — fine, in-memory still works */ }
     }
-    if (typeof activeCategory !== 'undefined' && activeCategory === '__top__'
-        && typeof renderProducts === 'function' && typeof currentView !== 'undefined'
+    // The active category's product grid needs a re-render either way:
+    // - on __top__ tab: list refreshed
+    // - on any other category: items resorted by the new ranking
+    if (typeof renderProducts === 'function' && typeof currentView !== 'undefined'
         && currentView === 'products') {
       renderProducts();
     }

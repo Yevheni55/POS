@@ -84,13 +84,14 @@ router.get('/', async (req, res) => {
   res.json(menu);
 });
 
-// GET /api/menu/top — top-selling items across ALL TIME, used by the
-// "Najcastejsie" pseudo-category in the cashier UI for one-tap access.
-// Was previously limited to last 14 days, but a quiet bar can have weeks
-// without enough orders to populate this — easier to just show all-time
-// favourites and let the bartenders trust the tab. Refreshed on the
-// client once per 24h, cached in localStorage so a reload never shows it
-// empty.
+// GET /api/menu/top — items ranked by all-time sales, descending.
+// Used for two things in the cashier UI:
+//   1. The "Najcastejsie" pseudo-category takes the first ~12 entries.
+//   2. Inside every category, items are sorted by their rank in this
+//      list so the most-ordered burger / drink / dessert lands at the
+//      top of the grid and the cashier doesn't scroll for it.
+// Returns up to 500 rows so even a 200-item menu can be fully ranked
+// from a single request. Refreshed on the client once per 24h.
 // Empty fallback (fresh install / no orders yet): first 12 active items by id.
 router.get('/top', async (req, res) => {
   const rows = await db.select({
@@ -103,7 +104,7 @@ router.get('/top', async (req, res) => {
   .where(eq(menuItems.active, true))
   .groupBy(menuItems.id)
   .orderBy(sql`SUM(${orderItems.qty}) DESC`)
-  .limit(12);
+  .limit(500);
 
   if (rows.length) {
     return res.json(rows.map(r => ({ ...normalizeMenuItem(r), totalQty: Number(r.totalQty) || 0 })));

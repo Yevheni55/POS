@@ -423,18 +423,35 @@ function setCategory(key){activeCategory=key;searchQuery='';document.getElementB
 function renderProducts(){
   const grid=document.getElementById('productsGrid');
   let items;let itemCats={};
+  // Stable per-render rank lookup. Items the cashier orders most often
+  // bubble to the top of every category grid; items with no recorded
+  // sales sink to the bottom and tie-break by their original menu id.
+  const rankMap = (typeof SALES_RANK === 'object' && SALES_RANK) ? SALES_RANK : {};
+  const rankOf = (it) => {
+    const r = rankMap[it.id];
+    return r === undefined ? Number.POSITIVE_INFINITY : r;
+  };
+  const idOf = (it) => Number(it.id) || 0;
+  const bySales = (a, b) => {
+    const dr = rankOf(a) - rankOf(b);
+    if (dr !== 0) return dr;
+    return idOf(a) - idOf(b);
+  };
   if(searchQuery){
     items=[];
     Object.entries(MENU).forEach(([cat,c])=>{c.items.forEach(i=>{
       if(i.name.toLowerCase().includes(searchQuery)||i.desc.toLowerCase().includes(searchQuery)){items.push(i);itemCats[i.name]=cat}
     })});
+    items.sort(bySales);
   } else if (activeCategory === '__top__') {
     // "Najcastejsie" pseudo-category — TOP_ITEMS already carries the same
     // shape as MENU[*].items, so the existing product-card template Just Works.
+    // Backend now returns up to 500 ranked items so the same payload also
+    // drives in-category sorting; show only the first 12 here.
+    var topList = (typeof TOP_ITEMS !== 'undefined' && Array.isArray(TOP_ITEMS)) ? TOP_ITEMS : [];
+    items = topList.slice(0, 12);
     // Map each row back to its real category so the per-card accent color
     // (CAT_COLORS lookup in the template) still matches its origin tab.
-    var topList = (typeof TOP_ITEMS !== 'undefined' && Array.isArray(TOP_ITEMS)) ? TOP_ITEMS : [];
-    items = topList;
     items.forEach(function(i){
       var realCat = null;
       Object.entries(MENU).forEach(function(entry){
@@ -446,7 +463,8 @@ function renderProducts(){
     });
   } else {
     if (!activeCategory || !MENU[activeCategory]) { grid.innerHTML=''; return; }
-    items=MENU[activeCategory].items;
+    // Take a copy before sorting so we don't mutate the shared MENU array.
+    items=MENU[activeCategory].items.slice().sort(bySales);
     items.forEach(i=>{itemCats[i.name]=activeCategory});
   }
   if(!items.length){grid.innerHTML='<div class="products-empty-state" role="status">' +
