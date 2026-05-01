@@ -1,4 +1,5 @@
 let interval = null;
+let ktoInterval = null;
 let visHandler = null;
 let _container = null;
 
@@ -14,12 +15,24 @@ function refreshDashboardData() {
   loadStats();
   loadBarChart();
   loadUzavierka();
+  loadActiveStaff();
 }
 
 export function init(container) {
   _container = container;
   container.innerHTML = `
     <div class="dashboard-page">
+    <div class="row dashboard-row-single dochadzka-active-row">
+      <div class="col-50">
+        <div class="panel" id="ktoJeVPraciPanel">
+          <div class="panel-title">
+            <svg aria-hidden="true" viewBox="0 0 24 24" class="panel-icon panel-icon-accent"><circle cx="12" cy="8" r="4"/><path d="M3 21a9 9 0 0118 0"/></svg>
+            Kto je v práci
+          </div>
+          <div id="ktoJeVPraciList" class="loading-placeholder">Načítavam…</div>
+        </div>
+      </div>
+    </div>
     <div class="dashboard-section-label">Prehľad dňa</div>
     <!-- STAT CARDS -->
     <div class="stat-grid">
@@ -132,6 +145,7 @@ export function init(container) {
     loadStats();
     loadUzavierka();
   }, 120000);
+  ktoInterval = setInterval(loadActiveStaff, 30000);
 
   visHandler = function() {
     if (document.visibilityState === 'visible') refreshDashboardData();
@@ -159,6 +173,7 @@ export function init(container) {
 
 export function destroy() {
   if (interval) { clearInterval(interval); interval = null; }
+  if (ktoInterval) { clearInterval(ktoInterval); ktoInterval = null; }
   if (visHandler) {
     document.removeEventListener('visibilitychange', visHandler);
     visHandler = null;
@@ -454,5 +469,34 @@ async function loadUzavierka() {
     showToast(err.message || 'Chyba načítania uzávierky', 'error');
   } finally {
     clearTimeout(stuck);
+  }
+}
+
+async function loadActiveStaff() {
+  if (!_container) return;
+  const listEl = _container.querySelector('#ktoJeVPraciList');
+  if (!listEl) return;
+  try {
+    const data = await api.get('/attendance/active');
+    listEl.classList.remove('loading-placeholder');
+    const rows = (data && data.active) || [];
+    if (!rows.length) {
+      listEl.innerHTML = '<div class="text-muted" style="padding:8px 0">Nikto sa zatiaľ neoznačil.</div>';
+      return;
+    }
+    listEl.innerHTML = '<div class="kto-list">' + rows.map((r) => {
+      const h = Math.floor(r.minutes / 60);
+      const m = r.minutes % 60;
+      const since = new Date(r.clockedInAt).toLocaleTimeString('sk-SK', { hour: '2-digit', minute: '2-digit' });
+      return '<div class="kto-row">' +
+        '<div class="kto-name">' + (r.name || '?') + '</div>' +
+        (r.position ? '<div class="kto-pos">' + r.position + '</div>' : '') +
+        '<div class="kto-time">od ' + since + '</div>' +
+        '<div class="kto-mins"><strong>' + h + 'h ' + m + 'm</strong></div>' +
+      '</div>';
+    }).join('') + '</div>';
+  } catch (err) {
+    listEl.classList.remove('loading-placeholder');
+    listEl.innerHTML = '<div class="text-muted">Chyba načítania (' + (err.message || 'unknown') + ')</div>';
   }
 }

@@ -1041,3 +1041,18 @@ textarea.form-input,textarea.form-select,.u-modal-field textarea{height:auto;min
   background:rgba(224,112,112,.12) !important;
   border-color:rgba(224,112,112,.4) !important;
 }
+
+.dochadzka-active-row{margin-bottom:16px}
+.kto-list{display:flex;flex-direction:column;gap:8px}
+.kto-row{
+  display:grid;
+  grid-template-columns:1fr auto auto;
+  gap:12px;align-items:center;
+  padding:8px 12px;border-radius:var(--radius-sm);
+  background:rgba(95,200,130,.06);
+  border:1px solid rgba(95,200,130,.18);
+}
+.kto-name{font-weight:700;color:var(--color-text)}
+.kto-pos{font-size:12px;color:var(--color-text-sec);grid-column:1;margin-top:-2px}
+.kto-time{font-size:12px;color:var(--color-text-sec)}
+.kto-mins{font-family:var(--font-display);font-size:18px;color:var(--color-success)}
