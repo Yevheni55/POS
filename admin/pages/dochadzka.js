@@ -13,6 +13,12 @@ let _from = todayMinusDays(7);
 let _to = todayIso();
 let _summary = { rows: [] };
 let _expanded = null; // staffId currently expanded
+// Staff filter: 'all' = show every staff member, otherwise the staffId
+// (kept as string from the <select>) restricts the table + KPIs to that
+// person only. The /summary endpoint returns every staff regardless, so
+// filtering is purely client-side and a change re-renders without a
+// network round-trip.
+let _staffFilter = 'all';
 
 function todayIso() { return new Date().toISOString().slice(0, 10); }
 function todayMinusDays(n) {
@@ -55,6 +61,15 @@ async function loadSummary() {
     _summary = { rows: [] };
     showToast(err.message || 'Chyba načítania prehlěadu', 'error');
   }
+  // If the previously selected staff is no longer in the result (e.g. user
+  // changed the date range), drop the filter back to 'all' so the dropdown's
+  // visible state matches our stored filter.
+  if (_staffFilter !== 'all') {
+    const stillThere = (_summary.rows || []).some(
+      (r) => String(r.staffId) === String(_staffFilter),
+    );
+    if (!stillThere) _staffFilter = 'all';
+  }
   render();
 }
 
@@ -76,7 +91,21 @@ function totalsFor(rows) {
 function render() {
   if (!_container) return;
 
-  const t = totalsFor(_summary.rows || []);
+  // Apply the staff filter once so KPI cards, body table, and the auto-open
+  // detail all see the same view. _summary still holds every staff (the
+  // server returns the full list), so toggling the dropdown is free.
+  const allRows = _summary.rows || [];
+  const visibleRows = _staffFilter === 'all'
+    ? allRows
+    : allRows.filter((r) => String(r.staffId) === String(_staffFilter));
+
+  const t = totalsFor(visibleRows);
+
+  const staffOptionsHtml = '<option value="all">Všetci zamestnanci</option>' +
+    allRows.map((r) => {
+      const sel = String(r.staffId) === String(_staffFilter) ? ' selected' : '';
+      return '<option value="' + r.staffId + '"' + sel + '>' + escapeHtml(r.name || '?') + '</option>';
+    }).join('');
 
   const html =
     '<div class="doch-toolbar">' +
@@ -86,6 +115,9 @@ function render() {
         '</label>' +
         '<label class="doch-toolbar-label">Do' +
           '<input type="date" id="dTo" class="doch-input" value="' + _to + '">' +
+        '</label>' +
+        '<label class="doch-toolbar-label">Zamestnanec' +
+          '<select id="dStaff" class="doch-input">' + staffOptionsHtml + '</select>' +
         '</label>' +
         '<div class="doch-toolbar-presets">' +
           '<button type="button" class="btn-secondary doch-preset" data-preset="7">7 dní</button>' +
@@ -176,6 +208,14 @@ function render() {
     loadSummary();
   });
 
+  // Staff filter change: re-render only (no network) and clear any open
+  // detail because the previously expanded staff may now be hidden.
+  _container.querySelector('#dStaff').addEventListener('change', (e) => {
+    _staffFilter = e.target.value || 'all';
+    _expanded = null;
+    render();
+  });
+
   _container.querySelectorAll('.doch-preset').forEach((btn) => {
     btn.addEventListener('click', () => {
       const preset = btn.getAttribute('data-preset');
@@ -198,10 +238,18 @@ function render() {
 
 function renderBody() {
   const body = _container.querySelector('#dBody');
-  const rows = _summary.rows || [];
+  const allRows = _summary.rows || [];
+  // Mirror the filter applied in render() so the body table, KPI cards and
+  // dropdown all stay consistent.
+  const rows = _staffFilter === 'all'
+    ? allRows
+    : allRows.filter((r) => String(r.staffId) === String(_staffFilter));
   if (!rows.length) {
+    const msg = _staffFilter === 'all'
+      ? 'Žiadne dáta za toto obdobie. Zamestnanci s nastaveným dochádzka PIN-om sa objavia po prvom Príchode.'
+      : 'Vybraný zamestnanec nemá v tomto období žiadne záznamy.';
     body.innerHTML = '<tr><td class="data-td" colspan="7">' +
-      '<div class="empty-hint">Žiadne dáta za toto obdobie. Zamestnanci s nastaveným dochádzka PIN-om sa objavia po prvom Príchode.</div>' +
+      '<div class="empty-hint">' + escapeHtml(msg) + '</div>' +
       '</td></tr>';
     return;
   }
@@ -420,4 +468,5 @@ export function destroy() {
   _container = null;
   _expanded = null;
   _summary = { rows: [] };
+  _staffFilter = 'all';
 }
