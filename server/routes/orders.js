@@ -321,7 +321,8 @@ router.post('/:id/send', asyncRoute(async (req, res) => {
     })
     .from(orderItems)
     .innerJoin(menuItems, eq(orderItems.menuItemId, menuItems.id))
-    .where(and(eq(orderItems.orderId, orderId), eq(orderItems.sent, false)));
+    .where(and(eq(orderItems.orderId, orderId), eq(orderItems.sent, false)))
+    .orderBy(orderItems.id);
 
     if (unsentItems.length) {
       await tx.update(orderItems).set({ sent: true })
@@ -354,7 +355,8 @@ router.post('/:id/send-and-print', asyncRoute(async (req, res) => {
     })
     .from(orderItems)
     .innerJoin(menuItems, eq(orderItems.menuItemId, menuItems.id))
-    .where(and(eq(orderItems.orderId, orderId), eq(orderItems.sent, false)));
+    .where(and(eq(orderItems.orderId, orderId), eq(orderItems.sent, false)))
+    .orderBy(orderItems.id);
 
     if (!unsentItems.length) return { unsentItems: [], stockResult: { movements: [], alerts: [] } };
 

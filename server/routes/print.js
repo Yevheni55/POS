@@ -268,7 +268,10 @@ function buildKitchenTicket({ dest, tableName, staffName, items, orderNum, time 
     //    2x  Combo BBQ Smash
     //       » Big Mac domaca
     if (sauceAscii && !inlineSauce) {
-      ticket += '   » ' + sauceAscii + '\n';
+      // Pure-ASCII '+' prefix — '»' (0xBB) renders as random glyphs on the
+      // CP437 default code page of generic ESC/POS thermals (saw '¶' on the
+      // bar printer). Stick to <128 bytes for safety.
+      ticket += '   + ' + sauceAscii + '\n';
     }
     // Note (kitchen instruction) — same LARGE+BOLD size as the item itself,
     // prefixed with "!! " so the cook can't miss it. Was a tiny "  >> ..."
