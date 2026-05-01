@@ -164,27 +164,22 @@ function renderHodiny(data) {
   const tbody = $('#table-hodiny tbody');
   if (!tbody) return;
   if (!data.hourly || !data.hourly.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="4" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
     return;
   }
-  if (!tbody) return;
+  // Peak detection still uses the per-hour share of the period's busiest
+  // hour (>= 85% of max orders) so the cashier can spot rush hours, but
+  // the dedicated "Obsadenosť %" column with the progress bar was removed
+  // — the Tržby column carries the same information and the bar was
+  // visually heavy. PEAK badge stays as a compact rush indicator.
   const maxOrders = Math.max(...data.hourly.map(h => h.orders));
   tbody.innerHTML = data.hourly.map(h => {
     const pct = maxOrders > 0 ? Math.round((h.orders / maxOrders) * 100) : 0;
     const isPeak = pct >= 85;
-    let barColor;
-    if (pct >= 80) barColor = 'linear-gradient(90deg,var(--color-accent),var(--color-accent-dim))';
-    else if (pct >= 50) barColor = 'linear-gradient(90deg,rgba(139,124,246,.5),var(--color-accent))';
-    else if (pct >= 30) barColor = 'linear-gradient(90deg,var(--color-success),rgba(139,124,246,.6))';
-    else barColor = 'var(--color-success)';
     return `<tr${isPeak ? ' class="peak-row"' : ''}>
       <td class="num">${h.hour}</td>
       <td class="num">${h.orders}</td>
       <td class="num${isPeak ? ' highlight-cell' : ''}">${fmtEur(h.revenue)}</td>
-      <td>
-        <div class="hour-bar-wrap"><div class="hour-bar-fill" style="width:${pct}%;background:${barColor}"></div></div>
-        ${pct}%
-      </td>
       <td>${isPeak ? '<span class="peak-badge">PEAK</span>' : ''}</td>
     </tr>`;
   }).join('');
@@ -624,12 +619,11 @@ const TEMPLATE = `
             <th>Hodina</th>
             <th>Objednávky</th>
             <th>Tržby</th>
-            <th>Obsadenosť %</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
-          <tr><td colspan="5" class="td-empty">Načítavam…</td></tr>
+          <tr><td colspan="4" class="td-empty">Načítavam…</td></tr>
         </tbody>
       </table>
       </div>
