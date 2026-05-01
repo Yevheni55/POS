@@ -84,8 +84,13 @@ router.get('/', async (req, res) => {
   res.json(menu);
 });
 
-// GET /api/menu/top — top-selling items in the last 14 days, used by the
+// GET /api/menu/top — top-selling items across ALL TIME, used by the
 // "Najcastejsie" pseudo-category in the cashier UI for one-tap access.
+// Was previously limited to last 14 days, but a quiet bar can have weeks
+// without enough orders to populate this — easier to just show all-time
+// favourites and let the bartenders trust the tab. Refreshed on the
+// client once per 24h, cached in localStorage so a reload never shows it
+// empty.
 // Empty fallback (fresh install / no orders yet): first 12 active items by id.
 router.get('/top', async (req, res) => {
   const rows = await db.select({
@@ -95,7 +100,7 @@ router.get('/top', async (req, res) => {
   .from(orderItems)
   .innerJoin(orders, eq(orderItems.orderId, orders.id))
   .innerJoin(menuItems, eq(orderItems.menuItemId, menuItems.id))
-  .where(sql`${orders.createdAt} > NOW() - INTERVAL '14 days' AND ${menuItems.active} = true`)
+  .where(eq(menuItems.active, true))
   .groupBy(menuItems.id)
   .orderBy(sql`SUM(${orderItems.qty}) DESC`)
   .limit(12);

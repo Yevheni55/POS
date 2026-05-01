@@ -25,9 +25,20 @@ let MENU_ITEM_BY_ID = new Map(); // menuItemId -> full item (for companion looku
 let DEST_MAP = {};
 let TABLES = [];
 let ZONES = [];
-// Top-sold items (last 14 days) feeding the "🔥 Najcastejsie" pseudo-category.
-// Refreshed on init + every 5 minutes; see loadTopItems below.
-let TOP_ITEMS = [];
+// Top-sold items (all time) feeding the "🔥 Najcastejsie" pseudo-category.
+// Persisted to localStorage so the tab never starts empty after a page
+// reload (especially on a phone where the network round-trip can take
+// a noticeable second). Refreshed at most once every 24h — see loadTopItems.
+const TOP_ITEMS_KEY = 'pos_topItems_v1';
+const TOP_ITEMS_TS_KEY = 'pos_topItems_ts_v1';
+const TOP_ITEMS_TTL_MS = 24 * 60 * 60 * 1000; // 1 day
+let TOP_ITEMS = (function () {
+  try {
+    var raw = localStorage.getItem(TOP_ITEMS_KEY);
+    var arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch (e) { return []; }
+})();
 
 // Storno basket — pending storno entries the cashier queued for admin to process.
 // Refreshed via loadStornoBasket() on init, every 30s poll, and on
@@ -85,10 +96,25 @@ async function loadMenu(data) {
 // fields (id, name, emoji, price, imageUrl…) so the existing product-card
 // template can render them directly. Failures keep the previous list — the
 // pseudo-tab just stays "stale" until the next 5-minute tick succeeds.
-async function loadTopItems() {
+async function loadTopItems(force) {
+  // Skip the network call if the cached list is < 24h old. Cashiers using
+  // the tab don't need second-by-second freshness; the all-time top
+  // sellers do not change much from minute to minute.
+  if (!force) {
+    try {
+      var ts = parseInt(localStorage.getItem(TOP_ITEMS_TS_KEY) || '0', 10);
+      if (ts && Date.now() - ts < TOP_ITEMS_TTL_MS && TOP_ITEMS.length) return;
+    } catch (e) { /* localStorage unavailable — fall through and fetch */ }
+  }
   try {
     var data = api.getTopItems ? await api.getTopItems() : await api.get('/menu/top');
-    TOP_ITEMS = Array.isArray(data) ? data : [];
+    if (Array.isArray(data) && data.length) {
+      TOP_ITEMS = data;
+      try {
+        localStorage.setItem(TOP_ITEMS_KEY, JSON.stringify(TOP_ITEMS));
+        localStorage.setItem(TOP_ITEMS_TS_KEY, String(Date.now()));
+      } catch (e) { /* quota / private mode — fine, in-memory still works */ }
+    }
     if (typeof activeCategory !== 'undefined' && activeCategory === '__top__'
         && typeof renderProducts === 'function' && typeof currentView !== 'undefined'
         && currentView === 'products') {
@@ -99,9 +125,10 @@ async function loadTopItems() {
   }
 }
 
-// Refresh the "Najcastejsie" feed every 5 minutes so it tracks the day's
-// real ordering pattern without a per-payment hook.
-setInterval(loadTopItems, 5 * 60 * 1000);
+// Re-check the cache once an hour; the function itself short-circuits if
+// the entry is < 24h old, so this is effectively a daily refresh tick
+// that survives long-running kiosk sessions without manual reload.
+setInterval(function () { loadTopItems(false); }, 60 * 60 * 1000);
 
 async function loadTables(data) {
   TABLES = data || await api.get('/tables');
