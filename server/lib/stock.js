@@ -47,7 +47,13 @@ export async function deductStockForSentItems(tx, sentItems, staffId, orderId) {
         alerts.push({ type: 'menuItem', id: mi.id, name: mi.name, currentQty: next, minQty: parseFloat(mi.minStockQty) });
       }
       if (next <= 0) {
-        await tx.update(menuItems).set({ active: false }).where(eq(menuItems.id, mi.id));
+        // We used to flip menu_items.active = false here, which silently hid
+        // the row from the POS the moment the counter hit zero. In a bar/
+        // restaurant context the simple-track stock_qty is rarely kept up to
+        // date, so this caused "items randomly disappear" bug — Cola, Fanta,
+        // Voda and others vanished from the Nealko tab on the kasa. Now we
+        // only emit a depleted alert; the manager hides the item explicitly
+        // from /admin/#menu if needed.
         alerts.push({ type: 'menuItem-depleted', id: mi.id, name: mi.name });
       }
     }
