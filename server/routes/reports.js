@@ -57,20 +57,24 @@ router.get('/summary', mgr, async (req, res) => {
     sql`${payments.createdAt} >= ${fromBoundary} AND ${payments.createdAt} <= ${toBoundary}`
   ).groupBy(payments.method);
 
-  // Top items
+  // All items sold in the period — used by the Reports/Produkty tab which
+  // wants the full list, NOT a top-10 cap. The dashboard widget that
+  // shows "top products today" is responsible for slicing on its end.
+  // Joins menu_categories so each row carries a category label for the UI.
   const topItems = await db.select({
     name: menuItems.name,
     emoji: menuItems.emoji,
+    category: menuCategories.label,
     qty: sql`SUM(${orderItems.qty})`,
     revenue: sql`SUM(${orderItems.qty} * ${menuItems.price}::numeric)`,
   })
   .from(orderItems)
   .innerJoin(menuItems, eq(orderItems.menuItemId, menuItems.id))
+  .innerJoin(menuCategories, eq(menuItems.categoryId, menuCategories.id))
   .innerJoin(orders, eq(orderItems.orderId, orders.id))
-  .where(sql`${orders.createdAt} >= ${fromBoundary} AND ${orders.createdAt} <= ${toBoundary}`)
-  .groupBy(menuItems.name, menuItems.emoji)
-  .orderBy(desc(sql`SUM(${orderItems.qty})`))
-  .limit(10);
+  .where(sql`${orders.createdAt} >= ${fromBoundary} AND ${orders.createdAt} <= ${toBoundary} AND ${orders.status} != 'cancelled'`)
+  .groupBy(menuItems.name, menuItems.emoji, menuCategories.label)
+  .orderBy(desc(sql`SUM(${orderItems.qty})`));
 
   // Shisha — internal off-fiscal counter; rolled into the total so the dashboard
   // and weekly chart show real-world business revenue including shisha.
@@ -263,7 +267,8 @@ router.get('/summary', mgr, async (req, res) => {
     },
     products: topItemsArr.map((it) => ({
       name: it.name,
-      category: '',
+      emoji: it.emoji || '',
+      category: it.category || '',
       qty: it.qty,
       revenue: it.revenue,
     })),

@@ -161,9 +161,10 @@ function renderProdukty(data) {
     if (i === 0) rankStyle = 'color:var(--color-accent);font-weight:700';
     else if (i === 1) rankStyle = 'color:var(--color-text-sec);font-weight:700';
     else if (i === 2) rankStyle = 'color:rgba(205,127,50,.7);font-weight:700';
+    const display = (p.emoji ? p.emoji + ' ' : '') + (p.name || '');
     return `<tr>
       <td class="num" style="${rankStyle}">${i + 1}</td>
-      <td class="td-name">${p.name}</td>
+      <td class="td-name">${display}</td>
       <td>${p.category || ''}</td>
       <td class="num">${p.qty}</td>
       <td class="num highlight-cell">${fmtEur(p.revenue)}</td>

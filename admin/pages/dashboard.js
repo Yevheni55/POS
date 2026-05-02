@@ -243,7 +243,10 @@ async function loadStats() {
       }
 
       // Render top products from summary
-      renderTopProducts(summary.topItems || []);
+      // Dashboard widget is a top-10 view; the full list lives on the
+      // Reports/Produkty tab. The summary endpoint returns the full list
+      // (no LIMIT) so the reports tab can show all sold items.
+      renderTopProducts((summary.topItems || []).slice(0, 10));
       // Render payment methods from summary
       renderPaymentMethods(summary.methods || []);
     }
