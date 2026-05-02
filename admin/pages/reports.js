@@ -1,6 +1,11 @@
 // Reports page module
 let _container = null;
 let _lastZData = null;
+// Produkty tab sorting — clicking any column header re-sorts client-side
+// so the cashier can pick "predalo sa najmenej" or "abecedne" without a
+// new request. Default mirrors the natural rank: qty descending.
+let _productSort = { col: 'qty', dir: 'desc' };
+let _lastProductsData = null;
 
 function $(sel) {
   return _container.querySelector(sel);
@@ -148,13 +153,19 @@ function renderTrzby(data) {
 function renderProdukty(data) {
   const tbody = $('#table-produkty tbody');
   if (!tbody) return;
+  // Cache the dataset so a header-click can re-render without a new request.
+  _lastProductsData = data;
+  updateProductHeaderArrows();
   if (!data.products || !data.products.length) {
     tbody.innerHTML = '<tr><td colspan="6" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
     return;
   }
-  if (!tbody) return;
-  const maxRev = Math.max(...data.products.map(p => p.revenue));
-  tbody.innerHTML = data.products.map((p, i) => {
+  // Take a copy so we don't mutate the cached data on each click.
+  const sorted = (data.products || []).slice().sort(productComparator(_productSort));
+  // The progress bar always uses the period's max revenue as the 100% mark
+  // so two products are visually comparable regardless of current sort.
+  const maxRev = Math.max(...sorted.map(p => p.revenue));
+  tbody.innerHTML = sorted.map((p, i) => {
     const pct = maxRev > 0 ? Math.round((p.revenue / (data.totalRevenue || maxRev)) * 1000) / 10 : 0;
     const barW = maxRev > 0 ? Math.round((p.revenue / maxRev) * 100) : 0;
     let rankStyle = '';
@@ -171,6 +182,66 @@ function renderProdukty(data) {
       <td><div class="progress-wrap"><div class="progress-fill" style="width:${barW}%"></div></div>${pct}%</td>
     </tr>`;
   }).join('');
+}
+
+// Build a stable comparator from the current sort state. Numeric columns
+// (qty, revenue, pct) compare as numbers; text columns (name, category)
+// use locale-aware compare so 'Špargľa' sorts where a Slovak speaker
+// expects. Falls back to qty desc for unknown column ids.
+function productComparator(sort) {
+  const dir = sort && sort.dir === 'asc' ? 1 : -1;
+  const col = sort && sort.col;
+  if (col === 'name') {
+    return (a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'sk') * dir;
+  }
+  if (col === 'category') {
+    return (a, b) => {
+      const c = String(a.category || '').localeCompare(String(b.category || ''), 'sk') * dir;
+      // Tie-break by qty desc so two items in the same category aren't
+      // randomly ordered.
+      if (c !== 0) return c;
+      return ((Number(b.qty) || 0) - (Number(a.qty) || 0));
+    };
+  }
+  if (col === 'revenue' || col === 'pct') {
+    return (a, b) => ((Number(a.revenue) || 0) - (Number(b.revenue) || 0)) * dir;
+  }
+  // default + 'qty'
+  return (a, b) => ((Number(a.qty) || 0) - (Number(b.qty) || 0)) * dir;
+}
+
+// Toggle the chevron next to each sortable header so the user can see at
+// a glance which column drives the current order.
+function updateProductHeaderArrows() {
+  const ths = _container && _container.querySelectorAll('#table-produkty thead th[data-sort-col]');
+  if (!ths) return;
+  ths.forEach((th) => {
+    const arrow = th.querySelector('.sort-arrow');
+    if (!arrow) return;
+    if (th.dataset.sortCol === _productSort.col) {
+      arrow.textContent = _productSort.dir === 'asc' ? '▲' : '▼';
+      th.classList.add('sort-active');
+    } else {
+      arrow.textContent = '';
+      th.classList.remove('sort-active');
+    }
+  });
+}
+
+// Click handler bound once at init: figures out which column was clicked
+// and either flips direction (same col) or sets a sensible default
+// direction (numeric → desc, text → asc).
+function onProductHeaderClick(e) {
+  const th = e.target.closest('#table-produkty thead th[data-sort-col]');
+  if (!th) return;
+  const col = th.dataset.sortCol;
+  if (_productSort.col === col) {
+    _productSort.dir = _productSort.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    _productSort.col = col;
+    _productSort.dir = (col === 'name' || col === 'category') ? 'asc' : 'desc';
+  }
+  if (_lastProductsData) renderProdukty(_lastProductsData);
 }
 
 function renderZamestnanci(data) {
@@ -509,6 +580,12 @@ function bindEvents() {
   // Z-report
   $('#btnGenZReport').addEventListener('click', generateZReport);
   $('#btnPrintZReport').addEventListener('click', printZReport);
+
+  // Produkty tab — clickable column headers re-sort the cached dataset.
+  // Single delegated listener on the table beats binding per-th and
+  // survives if we ever re-render the thead.
+  const produktyTable = $('#table-produkty');
+  if (produktyTable) produktyTable.addEventListener('click', onProductHeaderClick);
 }
 
 // ===== TEMPLATE =====
@@ -624,15 +701,15 @@ const TEMPLATE = `
   <div class="tab-content" id="tab-produkty">
     <div class="panel">
       <div class="table-scroll-wrap">
-      <table class="data-table" id="table-produkty">
+      <table class="data-table sortable-table" id="table-produkty">
         <thead>
           <tr>
             <th>Poradie</th>
-            <th>Produkt</th>
-            <th>Kategória</th>
-            <th>Predaných ks</th>
-            <th>Tržby</th>
-            <th>% z celku</th>
+            <th class="sortable-th" data-sort-col="name">Produkt <span class="sort-arrow"></span></th>
+            <th class="sortable-th" data-sort-col="category">Kategória <span class="sort-arrow"></span></th>
+            <th class="sortable-th sort-active" data-sort-col="qty">Predaných ks <span class="sort-arrow">▼</span></th>
+            <th class="sortable-th" data-sort-col="revenue">Tržby <span class="sort-arrow"></span></th>
+            <th class="sortable-th" data-sort-col="pct">% z celku <span class="sort-arrow"></span></th>
           </tr>
         </thead>
         <tbody>
@@ -829,4 +906,6 @@ export function init(container) {
 export function destroy() {
   _container = null;
   _lastZData = null;
+  _lastProductsData = null;
+  _productSort = { col: 'qty', dir: 'desc' };
 }
