@@ -45,6 +45,52 @@ function formatLocalDateTime(iso) {
   if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleString('sk-SK', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
+function formatLocalDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('sk-SK', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+function formatLocalTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString('sk-SK', { hour: '2-digit', minute: '2-digit' });
+}
+
+// Group raw clock events into shifts. Pairs each clock_in with the next
+// clock_out; an unmatched clock_in becomes an "open" shift (operator forgot
+// to clock out and the cron hasn't run yet). An orphan clock_out (no prior
+// open clock_in inside the window) is shown with a '—' start so the row
+// is still visible — most often it means the matching clock_in is just
+// before the selected period.
+function buildShifts(eventsAsc) {
+  const shifts = [];
+  let pending = null;
+  for (const e of eventsAsc) {
+    if (e.type === 'clock_in') {
+      if (pending) shifts.push({ start: pending, end: null });
+      pending = e;
+    } else if (e.type === 'clock_out') {
+      if (pending) {
+        shifts.push({ start: pending, end: e });
+        pending = null;
+      } else {
+        shifts.push({ start: null, end: e });
+      }
+    }
+  }
+  if (pending) shifts.push({ start: pending, end: null });
+  for (const s of shifts) {
+    if (s.start && s.end) {
+      const ms = new Date(s.end.at).getTime() - new Date(s.start.at).getTime();
+      s.minutes = ms > 0 ? Math.round(ms / 60000) : 0;
+    } else {
+      s.minutes = null;
+    }
+  }
+  return shifts;
+}
 // Build a value compatible with <input type="datetime-local"> (local TZ)
 function nowForDateTimeLocal() {
   const d = new Date();
@@ -351,6 +397,55 @@ async function toggleDetail(staffId) {
     ? '<span class="badge badge-warning">' + autoCount + ' auto-zatvorené</span> '
     : '';
 
+  // Build per-shift rows (newest first). Wage per shift uses the staff's
+  // current hourlyRate from the parent summary; if no rate is set we just
+  // show '—' so the column stays visually consistent.
+  const eventsAsc = (data.events || []).slice();
+  const shifts = buildShifts(eventsAsc);
+  const parentRow = (_summary.rows || []).find((r) => r.staffId === staffId);
+  const rate = parentRow && parentRow.hourlyRate != null ? Number(parentRow.hourlyRate) : null;
+  const completed = shifts.filter((s) => s.start && s.end).length;
+  const open = shifts.filter((s) => s.start && !s.end).length;
+  const shiftRowsHtml = shifts.length === 0
+    ? '<tr><td class="data-td" colspan="6"><div class="empty-hint">Žiadne smeny v tomto období.</div></td></tr>'
+    : shifts.slice().reverse().map((s) => {
+        const refIso = (s.start && s.start.at) || (s.end && s.end.at) || '';
+        const dateCell = escapeHtml(formatLocalDate(refIso));
+        const startCell = s.start
+          ? escapeHtml(formatLocalTime(s.start.at))
+          : '<span class="text-muted">—</span>';
+        const endCell = s.end
+          ? escapeHtml(formatLocalTime(s.end.at))
+          : '<span class="badge badge-warning">otvorená</span>';
+        const durCell = s.minutes != null
+          ? '<strong>' + escapeHtml(fmtMinutes(s.minutes)) + '</strong>'
+          : '<span class="text-muted">—</span>';
+        const wage = (s.minutes != null && rate != null && rate > 0)
+          ? (s.minutes / 60) * rate
+          : null;
+        const wageCell = wage != null
+          ? escapeHtml(fmtEur(wage))
+          : '<span class="text-muted">—</span>';
+        const flags = [];
+        if (s.start && s.start.source === 'manual') flags.push('<span class="badge badge-warning">manuál (in)</span>');
+        if (s.end && s.end.source === 'auto_close') flags.push('<span class="badge badge-warning">auto-zatv</span>');
+        if (s.end && s.end.source === 'manual') flags.push('<span class="badge badge-warning">manuál (out)</span>');
+        return '<tr class="data-row">' +
+          '<td class="data-td">' + dateCell + '</td>' +
+          '<td class="data-td">' + startCell + '</td>' +
+          '<td class="data-td">' + endCell + '</td>' +
+          '<td class="data-td">' + durCell + '</td>' +
+          '<td class="data-td num">' + wageCell + '</td>' +
+          '<td class="data-td">' + (flags.join(' ') || '<span class="text-muted">—</span>') + '</td>' +
+        '</tr>';
+      }).join('');
+  const shiftHeadCounts = (completed > 0 || open > 0)
+    ? ' <span class="text-muted" style="font-weight:500;font-size:12px">(' +
+        completed + ' ' + (completed === 1 ? 'smena' : (completed >= 2 && completed <= 4 ? 'smeny' : 'smien')) +
+        (open > 0 ? ', ' + open + ' otvorená' : '') +
+      ')</span>'
+    : '';
+
   detail.innerHTML =
     '<div class="panel doch-detail-panel">' +
       '<div class="panel-title">' +
@@ -368,6 +463,22 @@ async function toggleDetail(staffId) {
           '<span class="text-muted">Pozícia:</span> <strong>' + escapeHtml(staffMeta.position) + '</strong>') : '') +
       '</div>' +
 
+      '<div class="doch-subhead">Smeny' + shiftHeadCounts + '</div>' +
+      '<div class="table-scroll-wrap" style="margin-bottom:14px">' +
+        '<table class="data-table">' +
+          '<thead><tr>' +
+            '<th class="data-th">Dátum</th>' +
+            '<th class="data-th">Príchod</th>' +
+            '<th class="data-th">Odchod</th>' +
+            '<th class="data-th">Trvanie</th>' +
+            '<th class="data-th">Mzda</th>' +
+            '<th class="data-th">Pozn.</th>' +
+          '</tr></thead>' +
+          '<tbody>' + shiftRowsHtml + '</tbody>' +
+        '</table>' +
+      '</div>' +
+
+      '<div class="doch-subhead">Manuálna úprava</div>' +
       '<form class="doch-manual-form" id="dManualForm">' +
         '<label class="doch-toolbar-label">Typ' +
           '<select id="mType" class="doch-input">' +
@@ -394,6 +505,7 @@ async function toggleDetail(staffId) {
         '<button class="btn-save doch-manual-submit" type="submit">Pridať záznam</button>' +
       '</form>' +
 
+      '<div class="doch-subhead">Záznamy (audit)</div>' +
       '<div class="table-scroll-wrap">' +
         '<table class="data-table">' +
           '<thead><tr>' +

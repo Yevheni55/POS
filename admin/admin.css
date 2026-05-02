@@ -1020,6 +1020,13 @@ textarea.form-input,textarea.form-select,.u-modal-field textarea{height:auto;min
 .doch-detail-summary strong{ color:var(--color-text) }
 .dot-sep{ opacity:.4;margin:0 4px }
 
+.doch-subhead{
+  font-family:var(--font-display);font-weight:700;font-size:13px;
+  text-transform:uppercase;letter-spacing:.6px;
+  color:var(--color-text-dim);
+  margin:14px 0 8px;display:flex;align-items:center;gap:8px;
+}
+
 .doch-manual-form{
   display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;
   padding:12px;margin-bottom:14px;border-radius:var(--radius-sm);
