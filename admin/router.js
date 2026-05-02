@@ -19,6 +19,7 @@ const routes = {
   assets: () => import('./pages/assets.js'),
   'write-offs': () => import('./pages/write-offs.js'),
   shisha: () => import('./pages/shisha.js'),
+  audit: () => import('./pages/audit.js'),
 };
 
 const pageTitles = {
@@ -42,6 +43,7 @@ const pageTitles = {
   assets: 'Majetok',
   'write-offs': 'Odpisy zásob',
   shisha: 'Shisha',
+  audit: 'História objednávok',
 };
 
 let currentPage = null;
