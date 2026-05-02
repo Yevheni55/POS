@@ -382,6 +382,14 @@ textarea.form-input,textarea.form-select,.u-modal-field textarea{height:auto;min
 .zone-btn{padding:var(--space-3) var(--space-4);border-radius:var(--radius-sm);border:1px solid transparent;background:transparent;color:var(--color-text-sec);font-family:var(--font-body);font-size:var(--text-base);font-weight:var(--weight-semibold);cursor:pointer;transition:all var(--transition-fast);min-height:var(--btn-h-md)}
 .zone-btn:hover{color:var(--color-text);background:rgba(255,255,255,.04)}
 .zone-btn.active{color:var(--color-text);background:var(--color-accent-bg);border-color:var(--color-accent-border)}
+.zone-btn-wrap{display:inline-flex;align-items:center;gap:2px}
+.zone-rename-btn{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:24px;height:24px;padding:0;border:none;background:transparent;
+  color:var(--color-text-dim);cursor:pointer;border-radius:4px;
+  transition:color var(--transition-fast),background var(--transition-fast);
+}
+.zone-rename-btn:hover{color:var(--color-text);background:rgba(255,255,255,.06)}
 .toolbar-btn{padding:var(--space-2) var(--space-4);border-radius:var(--radius-sm);border:1px solid var(--color-border);background:rgba(255,255,255,.02);color:var(--color-text-sec);font-family:var(--font-body);font-size:var(--text-base);font-weight:var(--weight-semibold);cursor:pointer;transition:all var(--transition-fast);display:flex;align-items:center;gap:5px;min-height:var(--btn-h-sm)}
 .toolbar-btn:hover{background:rgba(255,255,255,.06);color:var(--color-text)}
 .toolbar-btn.primary{border-color:rgba(139,124,246,.2);background:linear-gradient(135deg,#8B7CF6,#8B7CF6);color:#fff}

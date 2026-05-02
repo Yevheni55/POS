@@ -29,13 +29,26 @@ async function loadTables() {
   const canvas = $('#floorCanvas');
   if (canvas) showLoading(canvas, 'Nacitavam stoly...');
   try {
-    const tables = await api.get('/tables');
+    // Fetch tables and zone labels in parallel — zones is tiny so no
+    // perf concern; doing it together keeps the floor layout and the
+    // zone tabs consistent on the same render.
+    const [tables, zonesData] = await Promise.all([
+      api.get('/tables'),
+      api.get('/zones').catch(() => []),
+    ]);
     if (canvas) hideLoading(canvas);
     TABLES = tables;
+    // Build a slug -> label map from the zones endpoint, then fold in any
+    // legacy zones that exist on tables.zone but not yet in the zones
+    // table (auto-seed should have caught them, but defend anyway).
+    const labelMap = new Map();
+    (zonesData || []).forEach((z) => labelMap.set(z.slug, z.label));
     const zoneSet = new Map();
-    TABLES.forEach(t => {
+    (zonesData || []).forEach((z) => zoneSet.set(z.slug, { id: z.slug, label: z.label }));
+    TABLES.forEach((t) => {
       if (t.zone && !zoneSet.has(t.zone)) {
-        zoneSet.set(t.zone, { id: t.zone, label: t.zone.charAt(0).toUpperCase() + t.zone.slice(1) });
+        const lbl = labelMap.get(t.zone) || (t.zone.charAt(0).toUpperCase() + t.zone.slice(1));
+        zoneSet.set(t.zone, { id: t.zone, label: lbl });
       }
     });
     if (zoneSet.size > 0) {
@@ -75,17 +88,54 @@ function saveState() {
 function renderZoneBtns() {
   const allZones = [{ id: 'all', label: 'Vsetky' }, ...ZONES];
   const el = $('#zoneBtns');
-  if (el) {
-    el.innerHTML = allZones.map(z =>
-      `<button class="zone-btn ${z.id === activeZone ? 'active' : ''}" data-zone="${z.id}">${z.label}</button>`
-    ).join('');
-  }
+  if (!el) return;
+  // 'Vsetky' has no slug to rename — only real zones get the pencil.
+  el.innerHTML = allZones.map((z) => {
+    const active = z.id === activeZone ? ' active' : '';
+    if (z.id === 'all') {
+      return '<button class="zone-btn' + active + '" data-zone="' + z.id + '">' + z.label + '</button>';
+    }
+    return '<span class="zone-btn-wrap">' +
+      '<button class="zone-btn' + active + '" data-zone="' + z.id + '">' + z.label + '</button>' +
+      '<button class="zone-rename-btn" data-rename-zone="' + z.id + '" title="Premenovať zónu" aria-label="Premenovať zónu ' + z.label + '">' +
+        '<svg viewBox="0 0 16 16" aria-hidden="true" width="12" height="12">' +
+          '<path d="M11.5 1.5l3 3-9 9H2.5v-3l9-9z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>' +
+        '</svg>' +
+      '</button>' +
+    '</span>';
+  }).join('');
 }
 
 function setZone(id) {
   activeZone = id;
   renderZoneBtns();
   renderFloor();
+}
+
+async function renameZone(slug) {
+  const cur = ZONES.find((z) => z.id === slug);
+  if (!cur) return;
+  // Lightweight inline prompt — the admin Tables page already uses
+  // window.prompt for similar one-shot renames (table names) so this
+  // matches the existing UX without dragging a modal into the bundle.
+  const next = window.prompt('Nový názov zóny "' + cur.label + '":', cur.label);
+  if (next == null) return;
+  const trimmed = String(next).trim();
+  if (!trimmed || trimmed === cur.label) return;
+  if (trimmed.length > 50) {
+    showToast('Názov zóny môže mať najviac 50 znakov', 'error');
+    return;
+  }
+  try {
+    await api.patch('/zones/' + encodeURIComponent(slug), { label: trimmed });
+    cur.label = trimmed;
+    renderZoneBtns();
+    populateZoneSelects();
+    renderFloor();
+    showToast('Zóna premenovaná', true);
+  } catch (err) {
+    showToast(err.message || 'Premenovanie zlyhalo', 'error');
+  }
 }
 
 function populateZoneSelects() {
@@ -517,6 +567,14 @@ export function init(container) {
 
   // Wire up event listeners via delegation and direct binding
   $('#zoneBtns').addEventListener('click', function (e) {
+    // Pencil takes priority — if the user clicked the rename icon we
+    // shouldn't switch the active zone too.
+    const renameBtn = e.target.closest('.zone-rename-btn');
+    if (renameBtn) {
+      e.stopPropagation();
+      renameZone(renameBtn.dataset.renameZone);
+      return;
+    }
     const btn = e.target.closest('.zone-btn');
     if (btn) setZone(btn.dataset.zone);
   });

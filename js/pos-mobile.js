@@ -40,7 +40,11 @@ function renderMobTables() {
   const container = document.getElementById('mobTablesList');
   if (!container) return;
   const zones = [...new Set(TABLES.map(t => t.zone))];
-  const zoneLabels = { interior: 'Interier', bar: 'Bar', terasa: 'Terasa' };
+  // Reuse the label map populated by loadTables() (server-side editable).
+  // Falls back to the legacy hardcoded trio when /zones is unreachable.
+  const zoneLabels = (window.ZONE_LABELS && typeof window.ZONE_LABELS === 'object')
+    ? window.ZONE_LABELS
+    : { interior: 'Interier', bar: 'Bar', terasa: 'Terasa' };
   const statusLabels = { free: 'Volny', occupied: 'Obsadeny', reserved: 'Rezervovany' };
 
   container.innerHTML = zones.map(zone => {

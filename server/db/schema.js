@@ -56,6 +56,16 @@ export const tables = pgTable('tables', {
   status: varchar('status', { length: 20 }).notNull().default('free'),
 });
 
+// User-editable zone labels. The slug stays the primary identifier (and
+// remains on tables.zone) so existing data needs no migration; the label
+// is what's shown in every UI. Auto-seeded from distinct tables.zone
+// values on first request when the table is empty.
+export const zones = pgTable('zones', {
+  slug: varchar('slug', { length: 50 }).primaryKey(),
+  label: varchar('label', { length: 50 }).notNull(),
+  sortOrder: integer('sort_order').notNull().default(0),
+});
+
 export const menuCategories = pgTable('menu_categories', {
   id: serial('id').primaryKey(),
   slug: varchar('slug', { length: 50 }).notNull().unique(),

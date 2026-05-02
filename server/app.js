@@ -10,6 +10,7 @@ import authRoutes from './routes/auth.js';
 import healthRoutes from './routes/health.js';
 import menuRoutes from './routes/menu.js';
 import tablesRoutes from './routes/tables.js';
+import zonesRoutes from './routes/zones.js';
 import ordersRoutes from './routes/orders.js';
 import staffRoutes from './routes/staff.js';
 import paymentsRoutes from './routes/payments.js';
@@ -113,6 +114,7 @@ app.use('/api', idempotency);
 // Protected routes
 app.use('/api/menu', auth, menuRoutes);
 app.use('/api/tables', auth, tablesRoutes);
+app.use('/api/zones', auth, zonesRoutes);
 app.use('/api/orders', auth, ordersRoutes);
 app.use('/api/staff', auth, staffRoutes);
 app.use('/api/payments', auth, paymentsRoutes);

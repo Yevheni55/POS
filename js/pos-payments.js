@@ -293,6 +293,9 @@ async function autoSendPendingItemsBeforePayment() {
   await loadTableOrder(selectedTableId, true);
   renderOrder();
   if (isMobile()) renderMobOrder();
+  // After every successful send, refresh the sales-rank in the background
+  // so the per-category sort reflects today's bestsellers — not yesterday's.
+  if (typeof loadTopItems === 'function') loadTopItems(true);
 
   return { printed: result.items.length };
 }
@@ -481,6 +484,9 @@ async function sendToKitchen() {
     await loadTableOrder(selectedTableId, true);
     renderOrder();
     if (isMobile()) renderMobOrder();
+    // Refresh sales-rank in the background so the next render of the
+    // category grid bubbles today's hot sellers to the top.
+    if (typeof loadTopItems === 'function') loadTopItems(true);
 
     // Build a toast that reflects the REAL print outcome per destination:
     //   - printed online   => "✔ Bon vytlačený: kuchyňa 2 + bar 1"   (success)

@@ -153,16 +153,32 @@ setInterval(function () { loadTopItems(false); }, 60 * 60 * 1000);
 
 async function loadTables(data) {
   TABLES = data || await api.get('/tables');
-  // Derive zones from table data
+  // Pull zone labels from the server. The admin can rename zones — the
+  // cashier should see those names too. Fall back to a Title-Cased slug
+  // when the network call fails so a momentary outage doesn't blank the
+  // floor view.
+  let zoneLabels = { interior: 'Interier', bar: 'Bar', terasa: 'Terasa' };
+  try {
+    const zonesData = await api.get('/zones');
+    if (Array.isArray(zonesData)) {
+      zoneLabels = {};
+      zonesData.forEach((z) => { if (z && z.slug) zoneLabels[z.slug] = z.label || z.slug; });
+    }
+  } catch (e) {
+    // keep defaults — cashier still gets a usable layout
+  }
   const zoneSet = new Map();
-  const zoneLabels = {interior:'Interier', bar:'Bar', terasa:'Terasa'};
-  TABLES.forEach(t => {
+  TABLES.forEach((t) => {
     if (!zoneSet.has(t.zone)) {
-      zoneSet.set(t.zone, { id: t.zone, label: zoneLabels[t.zone] || t.zone });
+      const lbl = zoneLabels[t.zone] || (t.zone ? t.zone.charAt(0).toUpperCase() + t.zone.slice(1) : '');
+      zoneSet.set(t.zone, { id: t.zone, label: lbl });
     }
   });
   ZONES = Array.from(zoneSet.values());
-  TABLES.forEach(t => { if (!tableOrders[t.id]) tableOrders[t.id] = []; });
+  // Expose label map so other surfaces (mobile zone grouping) don't need
+  // their own /zones round-trip.
+  window.ZONE_LABELS = zoneLabels;
+  TABLES.forEach((t) => { if (!tableOrders[t.id]) tableOrders[t.id] = []; });
 }
 
 async function loadAllOrders() {
