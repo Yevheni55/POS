@@ -509,9 +509,39 @@ router.post('/', staff, validate(createPaymentSchema), asyncRoute(async (req, re
   }
 
   const activeCashRegisterCode = await getActiveCashRegisterCode();
+
+  // CRITICAL FIX (atomicity): if a previous attempt for this order ALREADY
+  // got a successful eKasa receipt but the local DB write failed afterwards
+  // (Postgres connection drop, race on order.status, etc), the order is in
+  // a 'fiscalized but unpaid' limbo state — sale fiscal_document exists
+  // with no payment row. Without this check, the client retry would
+  // generate a brand-new salt → new externalId → eKasa accepts a SECOND
+  // receipt → customer is charged once but has two eKasa records.
+  //
+  // Reuse the existing salt so Portos's externalId-based dedup catches the
+  // retry and returns the original receipt; we then resume by writing the
+  // payment row locally.
+  //
+  // We only reuse on SUCCESS resultModes — for validation_error / rejected
+  // a fresh salt is correct because the operator is fixing the input and
+  // wants a new submission.
+  const SUCCESS_MODES = new Set(['online_success', 'offline_accepted', 'reconciled_online_success', 'reconciled_offline_accepted']);
+  let externalIdSalt = null;
+  const existingSaleDoc = await selectSaleFiscalDocumentForOrder(db, orderId);
+  if (existingSaleDoc && SUCCESS_MODES.has(existingSaleDoc.resultMode)) {
+    const existingSalt = parsePaymentExternalIdSalt(existingSaleDoc.externalId);
+    if (existingSalt) {
+      externalIdSalt = existingSalt;
+      console.warn(
+        `[Portos] Reusing externalId salt for order=${orderId} — prior attempt fiscalized successfully but payment row missing. Resuming idempotent retry.`,
+      );
+    }
+  }
   // Fresh salt per payment so externalId is globally unique even if orderId
   // sequence resets (dev DB truncate would otherwise collide with a Portos
   // doc cached under the same `order-N-payment` key from a previous cycle).
+  if (!externalIdSalt) externalIdSalt = generatePaymentExternalIdSalt();
+
   const requestPayload = buildCashRegisterRequestContext({
     orderId,
     items: orderContext.items,
@@ -520,7 +550,7 @@ router.post('/', staff, validate(createPaymentSchema), asyncRoute(async (req, re
     expectedTotal: orderContext.expectedTotal,
     cashRegisterCode: activeCashRegisterCode,
     forceZeroVat: !vatRegistered,
-    externalIdSalt: generatePaymentExternalIdSalt(),
+    externalIdSalt,
   });
 
   let fiscalOutcome;
@@ -642,7 +672,12 @@ router.post('/', staff, validate(createPaymentSchema), asyncRoute(async (req, re
   }
 }));
 
-router.get('/history', asyncRoute(async (req, res) => {
+// SECURITY FIX: was unprotected — any authenticated cisnik could enumerate
+// the entire payment history (sums, methods, table assignments). Now
+// manazer/admin only — the cashier doesn't need to browse other people's
+// historical receipts to do their job; for current-shift questions there
+// are dedicated per-order views.
+router.get('/history', mgr, asyncRoute(async (req, res) => {
   const parseLimit = Number.parseInt(req.query.limit, 10);
   const limit = Number.isFinite(parseLimit) && parseLimit > 0 ? Math.min(parseLimit, 500) : 100;
 
@@ -766,7 +801,10 @@ router.get('/history', asyncRoute(async (req, res) => {
   });
 }));
 
-router.get('/:id/fiscal', asyncRoute(async (req, res) => {
+// SECURITY FIX: was unprotected — exposed full Portos request/response JSON
+// (including OKP, signature material, and the Portos requestId used for
+// reconciliation). Restrict to manazer/admin.
+router.get('/:id/fiscal', mgr, asyncRoute(async (req, res) => {
   const paymentId = Number.parseInt(req.params.id, 10);
   const [payment] = await db.select().from(payments).where(eq(payments.id, paymentId));
   if (!payment) return res.status(404).json({ error: 'Platba nenajdena' });
@@ -1042,16 +1080,39 @@ router.post('/:id/fiscal-storno', mgr, asyncRoute(async (req, res) => {
       && fiscalOutcome.resultMode !== 'reconciled_offline_accepted'
     )
   ) {
-    await upsertFiscalDocument(db, buildFiscalDocumentValues({
+    // CRITICAL FIX: previously persisted a fiscal_document with sourceType='storno'
+    // even on failure modes. The dedup check at line 984 then matched on the
+    // externalId, so any subsequent retry got HTTP 409 ("Storno už bolo
+    // odoslané") even though eKasa never accepted the storno — leaving the
+    // operator stuck with no admin path to clear it.
+    //
+    // Now we ONLY persist on success modes (handled below). Failures are
+    // logged for diagnostics + an audit event so we still know who tried
+    // and when, and the caller can simply retry. validation_error = bad
+    // input (will fail again on retry) so we still log it but the salt
+    // stays stable, so a subsequent fix-and-retry produces the same
+    // externalId — eKasa side dedup handles that idempotently.
+    console.warn(
+      `[Portos] Storno ${fiscalOutcome.resultMode} for payment=${paymentId} order=${payment.orderId} ` +
+      `errorCode=${fiscalOutcome.errorCode ?? '-'} ` +
+      `detail="${fiscalOutcome.errorDetail || ''}"`,
+    );
+    await logEvent(db, {
       orderId: payment.orderId,
-      paymentId,
-      requestPayload,
-      outcome: fiscalOutcome,
-      sourceType: 'storno',
-    }));
+      type: 'fiscal_storno_failed',
+      payload: {
+        paymentId,
+        saleExternalId: saleDoc.externalId,
+        stornoExternalId: requestPayload.request.externalId,
+        resultMode: fiscalOutcome.resultMode,
+        errorCode: fiscalOutcome.errorCode || null,
+        errorDetail: fiscalOutcome.errorDetail || null,
+      },
+      staffId: req.user.id,
+    }).catch((e) => console.error('[Portos] storno-failed audit log error:', e?.message || e));
 
     return res.status(fiscalOutcome.httpStatus || 503).json({
-      error: fiscalOutcome.errorDetail || 'Storno doklad bol odmietnuty alebo zlyhal',
+      error: fiscalOutcome.errorDetail || 'Storno doklad bol odmietnuty alebo zlyhal — skús znova',
       fiscal: {
         status: fiscalOutcome.resultMode,
         externalId: requestPayload.request.externalId,
@@ -1069,12 +1130,17 @@ router.post('/:id/fiscal-storno', mgr, asyncRoute(async (req, res) => {
     sourceType: 'storno',
   }));
 
+  // CRITICAL FIX: previously referenced an undeclared `saleExternalId` which
+  // ReferenceError'd on every successful storno — eKasa storno was already
+  // registered + DB row written, but the cashier saw HTTP 500 and assumed it
+  // failed (then often retried, hitting the dedup 409). Pull the id from the
+  // sale doc that we already loaded above so the audit row is complete.
   await logEvent(db, {
     orderId: payment.orderId,
     type: 'fiscal_storno',
     payload: {
       paymentId,
-      saleExternalId,
+      saleExternalId: saleDoc.externalId,
       stornoExternalId,
       receiptId: fiscalOutcome.receiptId,
     },

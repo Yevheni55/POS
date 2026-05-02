@@ -49,13 +49,47 @@ app.set('trust proxy', 'loopback');
 app.set('trust proxy', Number(process.env.TRUST_PROXY || 0));
 
 // Middleware
-// NOTE: CSP temporarily disabled again — the minimal policy broke stylesheet
-// loading in production. Needs to be re-enabled after a careful audit of
-// every inline handler, CSS background URL, service-worker fetch, and the
-// socket.io handshake. Trust proxy stays (separate concern).
+// CRITICAL FIX: CSP was previously OFF, leaving the kasa wide open to XSS
+// (any unescaped menu/customer string could exfiltrate the JWT and trigger
+// fiscal-storno or refiscalize on the cashier's behalf). The historical
+// reason it was disabled was 'minimal policy broke stylesheet loading' —
+// concretely there are ~52 inline event handlers in pos-enterprise.html and
+// hundreds of style="..." attributes across admin pages, plus socket.io
+// uses ws:// for the LAN deploy and the service worker is same-origin.
+//
+// The policy below:
+//   - blocks loading any 3rd-party JS / CSS / image / font (no CDN attack)
+//   - blocks iframes (frame-ancestors 'none' — clickjacking)
+//   - blocks <object>/<embed>
+//   - allows inline scripts and styles (legacy debt — track removal as a
+//     follow-up; even with 'unsafe-inline' the policy still defeats the
+//     "load attacker.js from external host" XSS vector)
+//   - allows ws:/wss: for socket.io
+//   - allows blob:/data: for image previews and emoji bitmap fallback
+//
+// useDefaults: false — helmet's default policy adds upgrade-insecure-requests
+// which would break LAN access via http:// from a phone on the bar's WiFi.
 app.use(helmet({
-  contentSecurityPolicy: false,
+  contentSecurityPolicy: {
+    useDefaults: false,
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:', 'blob:'],
+      fontSrc: ["'self'", 'data:'],
+      connectSrc: ["'self'", 'ws:', 'wss:'],
+      workerSrc: ["'self'"],
+      frameAncestors: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      objectSrc: ["'none'"],
+    },
+  },
   crossOriginEmbedderPolicy: false,
+  // Allow the kasa to be a PWA installable resource and embed our own
+  // images cross-origin (e.g. the menu photo CDN if we ever add one).
+  crossOriginResourcePolicy: { policy: 'same-site' },
 }));
 app.use(compression());
 app.use(cors({ origin: corsOriginCallback }));
