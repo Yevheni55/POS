@@ -133,6 +133,32 @@ router.get('/summary', mgr, async (req, res) => {
     ORDER BY revenue DESC
   `);
 
+  // Revenue split by printer destination (bar vs kuchyna). Categories carry
+  // a `dest` flag and items inherit it via category_id, so this tells the
+  // owner what slice of trzby came out of the kitchen vs the bar. Excludes
+  // cancelled orders and uses oi.qty * mi.price (gross, before discount —
+  // matches how "Spolu" is computed in the Tržby table).
+  const destRows = await db.execute(sql`
+    SELECT
+      c.dest AS dest,
+      COALESCE(SUM(oi.qty * mi.price::numeric), 0)::float AS revenue,
+      COALESCE(SUM(oi.qty), 0)::int AS items
+    FROM order_items oi
+    INNER JOIN orders o ON o.id = oi.order_id
+    INNER JOIN menu_items mi ON mi.id = oi.menu_item_id
+    INNER JOIN menu_categories c ON c.id = mi.category_id
+    WHERE o.created_at >= ${fromBoundary} AND o.created_at <= ${toBoundary}
+      AND o.status != 'cancelled'
+    GROUP BY c.dest
+  `);
+  const destAcc = { bar: { revenue: 0, items: 0 }, kuchyna: { revenue: 0, items: 0 } };
+  for (const r of destRows.rows) {
+    const dest = String(r.dest || 'bar');
+    if (!destAcc[dest]) destAcc[dest] = { revenue: 0, items: 0 };
+    destAcc[dest].revenue += Number(r.revenue) || 0;
+    destAcc[dest].items += Number(r.items) || 0;
+  }
+
   const dailyArr = dailyRows.rows.map((r) => {
     const orders = Number(r.orders) || 0;
     const revenue = Number(r.revenue) || 0;
@@ -185,6 +211,12 @@ router.get('/summary', mgr, async (req, res) => {
     daily: dailyArr,
     hourly: hourlyArr,
     staff: staffArr,
+    revenueByDest: {
+      bar: roundMoney(destAcc.bar.revenue),
+      kuchyna: roundMoney(destAcc.kuchyna.revenue),
+      itemsBar: destAcc.bar.items,
+      itemsKuchyna: destAcc.kuchyna.items,
+    },
     products: topItemsArr.map((it) => ({
       name: it.name,
       category: '',

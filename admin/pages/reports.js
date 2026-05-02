@@ -40,6 +40,7 @@ async function loadReports() {
     if (activeTabContent) hideLoading(activeTabContent);
     if (data) {
       renderStats(data);
+      renderDestSplit(data);
       renderTrzby(data);
       renderProdukty(data);
       renderZamestnanci(data);
@@ -79,6 +80,39 @@ function renderStats(data) {
   if (data.topRevenue !== undefined && statValues[3]) {
     statValues[3].innerHTML = fmtEur(data.topRevenue);
   }
+}
+
+// Bar vs Kuchyňa revenue split — sits above the daily Trzby table so the
+// owner sees at-a-glance how much was earned by each destination. The
+// percentage is computed against the sum of (bar+kuchyna) only, NOT the
+// fiscal totalRevenue (which includes shisha + item-less payments).
+function renderDestSplit(data) {
+  const host = $('#destSplit');
+  if (!host) return;
+  const r = data.revenueByDest || { bar: 0, kuchyna: 0, itemsBar: 0, itemsKuchyna: 0 };
+  const sum = (Number(r.bar) || 0) + (Number(r.kuchyna) || 0);
+  const pct = (n) => sum > 0 ? Math.round((n / sum) * 100) : 0;
+  host.innerHTML =
+    '<div class="stat-card">' +
+      '<div class="stat-icon mint">' +
+        '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 11h14l-1 9H6z"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>' +
+      '</div>' +
+      '<div class="stat-info">' +
+        '<div class="stat-label">Bar</div>' +
+        '<div class="stat-value">' + fmtEur(r.bar || 0) + '</div>' +
+        '<div class="stat-change neutral">' + (r.itemsBar || 0) + ' ks · ' + pct(r.bar || 0) + '%</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="stat-card">' +
+      '<div class="stat-icon amber">' +
+        '<svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18"/><path d="M9 6V3h6v3"/></svg>' +
+      '</div>' +
+      '<div class="stat-info">' +
+        '<div class="stat-label">Kuchyňa</div>' +
+        '<div class="stat-value">' + fmtEur(r.kuchyna || 0) + '</div>' +
+        '<div class="stat-change neutral">' + (r.itemsKuchyna || 0) + ' ks · ' + pct(r.kuchyna || 0) + '%</div>' +
+      '</div>' +
+    '</div>';
 }
 
 function renderTrzby(data) {
@@ -512,6 +546,7 @@ const TEMPLATE = `
 
   <!-- TAB: TRZBY -->
   <div class="tab-content active" id="tab-trzby">
+    <div class="stat-grid" id="destSplit" style="margin-bottom:18px"></div>
     <div class="panel">
       <div class="table-scroll-wrap">
       <table class="data-table" id="table-trzby">
