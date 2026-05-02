@@ -410,21 +410,47 @@ function bindEvents() {
       $$('.period-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       const dr = $('#dateRange');
+      const ds = $('#dateSingle');
+      // Two pickers are mutually exclusive — only one shows at a time
       dr.classList.toggle('visible', btn.dataset.period === 'custom');
+      ds.classList.toggle('visible', btn.dataset.period === 'single');
 
       const dateFrom = $('#dateFrom');
       const dateTo = $('#dateTo');
-      dateTo.value = todayStr();
+      const dateSingle = $('#dateSingleInput');
 
       if (btn.dataset.period === 'today') {
+        dateTo.value = todayStr();
         dateFrom.value = dateTo.value;
+      } else if (btn.dataset.period === 'single') {
+        // Default the picker to today on first reveal so the user can just
+        // change it; if they previously picked a day, keep that selection.
+        if (!dateSingle.value) dateSingle.value = todayStr();
+        dateFrom.value = dateSingle.value;
+        dateTo.value = dateSingle.value;
       } else if (btn.dataset.period === 'week') {
+        dateTo.value = todayStr();
         dateFrom.value = weekAgoStr();
       } else if (btn.dataset.period === 'month') {
+        dateTo.value = todayStr();
         dateFrom.value = monthStartStr();
       }
       if (btn.dataset.period !== 'custom') loadReports();
     });
+  });
+
+  // Single-day picker — sets both from and to to the chosen date so every
+  // tab (Trzby, Produkty, Zamestnanci, Hodiny, Bar/Kuchyňa split) reflects
+  // exactly that one calendar day.
+  $('#dateSingleInput').addEventListener('change', (e) => {
+    const v = e.target.value;
+    if (!v) return;
+    $('#dateFrom').value = v;
+    $('#dateTo').value = v;
+    loadReports();
+    if (_container.querySelector('.tab-btn[data-tab="cisnicky"]').classList.contains('active')) {
+      loadStaffReport();
+    }
   });
 
   // Custom date change
@@ -469,9 +495,13 @@ const TEMPLATE = `
   <div class="filter-bar">
     <div class="period-btns">
       <button class="period-btn" data-period="today">Dnes</button>
+      <button class="period-btn" data-period="single">Vybra\u0165 de\u0148</button>
       <button class="period-btn active" data-period="week">Tento tyzden</button>
       <button class="period-btn" data-period="month">Tento mesiac</button>
       <button class="period-btn" data-period="custom">Vlastne obdobie</button>
+    </div>
+    <div class="date-single" id="dateSingle">
+      <input type="date" class="date-input" id="dateSingleInput">
     </div>
     <div class="date-range" id="dateRange">
       <input type="date" class="date-input" id="dateFrom">
