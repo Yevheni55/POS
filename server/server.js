@@ -12,6 +12,7 @@ import { db } from './db/index.js';
 import { attendanceEvents } from './db/schema.js';
 import { getActiveCashRegisterCode } from './lib/active-cash-register.js';
 import { findOrphanedClockIns, buildAutoCloseRows } from './lib/attendance-auto-close.js';
+import { runDailyBackupOnce, pruneOldBackups } from './lib/backup.js';
 import { corsOriginCallback } from './lib/cors-origin.js';
 import { getPortosConfig, isPortosEnabled } from './lib/portos.js';
 import { runPortosProfileSync, startPortosProfileSync } from './lib/portos-sync-job.js';
@@ -168,6 +169,23 @@ function scheduleAutoClose() {
       }
     } catch (e) {
       console.error('[attendance] auto-close failed:', e?.message || e);
+    }
+    // Daily DB backup runs in the same 04:00 hook so we have a single
+    // bedtime maintenance window. A failure here MUST NOT skip the next
+    // schedule tick — the kasa runs unattended and we'd otherwise lose
+    // backups silently for days. Logged loudly instead.
+    try {
+      const out = await runDailyBackupOnce();
+      const mb = (out.bytes / (1024 * 1024)).toFixed(2);
+      console.log(`[backup] wrote ${out.path} (${mb} MB) in ${out.durationMs} ms`);
+    } catch (e) {
+      console.error('[backup] daily pg_dump failed:', e?.message || e);
+    }
+    try {
+      const pr = await pruneOldBackups();
+      if (pr.deleted > 0) console.log(`[backup] pruned ${pr.deleted} old snapshot(s)`);
+    } catch (e) {
+      console.error('[backup] prune failed:', e?.message || e);
     }
     const ms = await msUntilNext0400Local();
     setTimeout(loop, ms);

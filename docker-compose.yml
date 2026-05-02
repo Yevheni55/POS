@@ -26,15 +26,25 @@ services:
     environment:
       DATABASE_URL: postgresql://pos:pos@db:5432/pos
       PORT: "3080"
+      # Where the daily 04:00 pg_dump writes. Lives on a named volume so
+      # backups survive container rebuilds; see ./server/lib/backup.js.
+      BACKUP_DIR: /backups
       # Portos na tom istom PC ako Docker: nechaj predvolené. Ak Portos beží na INOM PC, vytvor .env vedľa tohto súboru:
       #   PORTOS_BASE_URL=http://IP_TOHO_PC:3010
       # Premenná sa berie pri `docker compose up` z koreňového .env alebo z prostredia; server/.env ju pre tento kľúč v kontajneri prepíše compose.
       PORTOS_BASE_URL: ${PORTOS_BASE_URL:-http://host.docker.internal:3010}
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      # Daily pg_dump output. Mount into the container at the path
+      # BACKUP_DIR points to. Named volume keeps the files outside the
+      # image and across `compose down/up` cycles; on the host they live
+      # under /var/lib/docker/volumes/ (inspect with `docker volume inspect pos_backups`).
+      - pos_backups:/backups
     depends_on:
       db:
         condition: service_healthy
 
 volumes:
   pg_data:
+  pos_backups:
