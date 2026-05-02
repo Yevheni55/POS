@@ -54,6 +54,30 @@ router.get('/', async (req, res) => {
   res.json(rows);
 });
 
+// POST /api/zones — create (or upsert) a zone label. Called by the admin
+// 'Pridať zónu' modal so the new label survives reloads. The slug is
+// derived on the client (lowercase + non-alphanum to underscore) and is
+// the permanent identifier; only the label changes via PATCH.
+const createSchema = z.object({
+  slug: z.string().trim().min(1).max(50).regex(/^[a-z0-9_]+$/, { message: 'Slug môže obsahovať len malé písmená, čísla a podčiarkovník' }),
+  label: z.string().trim().min(1).max(50),
+  sortOrder: z.number().int().min(0).optional(),
+});
+router.post('/', requireRole('manazer', 'admin'), validate(createSchema), async (req, res) => {
+  const row = {
+    slug: req.body.slug,
+    label: req.body.label,
+    sortOrder: req.body.sortOrder != null ? req.body.sortOrder : 100,
+  };
+  // Upsert so accidentally calling twice with the same slug doesn't 409;
+  // also lets the modal's "save" be idempotent if the user double-clicks.
+  const result = await db.insert(zones).values(row)
+    .onConflictDoUpdate({ target: zones.slug, set: { label: row.label } })
+    .returning();
+  emitEvent(req, 'zone:updated', { slug: result[0].slug, label: result[0].label });
+  res.status(201).json(result[0]);
+});
+
 // PATCH /api/zones/:slug — rename a zone. Only the label changes; the
 // slug is permanent because it's denormalized onto every table row and
 // renaming it would require a multi-table migration.

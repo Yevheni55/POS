@@ -409,7 +409,7 @@ function closeAddZone() {
   if (modal) modal.classList.remove('show');
 }
 
-function saveNewZone() {
+async function saveNewZone() {
   var zoneModal = $('#addZoneModal');
   if (zoneModal && !validateForm(zoneModal)) return;
 
@@ -418,6 +418,14 @@ function saveNewZone() {
   if (!name) { showToast('Zadajte nazov zony'); return; }
   const id = name.toLowerCase().replace(/[^a-z0-9]/g, '_');
   if (ZONES.find(z => z.id === id)) { showToast('Zona uz existuje'); return; }
+  // Persist before touching local state so a server-side reject (auth,
+  // validation) doesn't leave a ghost zone in the UI.
+  try {
+    await api.post('/zones', { slug: id, label: name, sortOrder: (ZONES.length + 1) * 100 });
+  } catch (err) {
+    showToast(err.message || 'Pridanie zóny zlyhalo', 'error');
+    return;
+  }
   ZONES = [...ZONES, { id, label: name }];
   closeAddZone();
   saveState();
