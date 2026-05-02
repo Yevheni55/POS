@@ -63,7 +63,7 @@ function showEmptyReports() {
   const zamBody = $('#table-zamestnanci tbody');
   if (zamBody) zamBody.innerHTML = '<tr><td colspan="6" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
   const hodBody = $('#table-hodiny tbody');
-  if (hodBody) hodBody.innerHTML = emptyHtml;
+  if (hodBody) hodBody.innerHTML = '<tr><td colspan="6" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
 }
 
 function renderStats(data) {
@@ -198,25 +198,46 @@ function renderHodiny(data) {
   const tbody = $('#table-hodiny tbody');
   if (!tbody) return;
   if (!data.hourly || !data.hourly.length) {
-    tbody.innerHTML = '<tr><td colspan="4" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
+    const tfootEmpty = $('#table-hodiny tfoot');
+    if (tfootEmpty) tfootEmpty.innerHTML = '';
     return;
   }
   // Peak detection still uses the per-hour share of the period's busiest
-  // hour (>= 85% of max orders) so the cashier can spot rush hours, but
-  // the dedicated "Obsadenosť %" column with the progress bar was removed
-  // — the Tržby column carries the same information and the bar was
-  // visually heavy. PEAK badge stays as a compact rush indicator.
+  // hour (>= 85% of max orders) so the cashier can spot rush hours.
+  // Bar/Kuchyňa columns are item-based (qty * price) — the 'Spolu' column
+  // shows the payment-based total, so Bar+Kuchyňa may not sum exactly to
+  // Spolu when discounts or partial-pay scenarios are involved.
   const maxOrders = Math.max(...data.hourly.map(h => h.orders));
+  let totBar = 0, totKuch = 0, totSpolu = 0, totObj = 0;
   tbody.innerHTML = data.hourly.map(h => {
     const pct = maxOrders > 0 ? Math.round((h.orders / maxOrders) * 100) : 0;
     const isPeak = pct >= 85;
+    const bar = Number(h.barRevenue) || 0;
+    const kuch = Number(h.kuchynaRevenue) || 0;
+    totBar += bar; totKuch += kuch;
+    totSpolu += Number(h.revenue) || 0;
+    totObj += Number(h.orders) || 0;
     return `<tr${isPeak ? ' class="peak-row"' : ''}>
       <td class="num">${h.hour}</td>
       <td class="num">${h.orders}</td>
+      <td class="num">${bar > 0 ? fmtEur(bar) : '<span class="color-dim">—</span>'}</td>
+      <td class="num">${kuch > 0 ? fmtEur(kuch) : '<span class="color-dim">—</span>'}</td>
       <td class="num${isPeak ? ' highlight-cell' : ''}">${fmtEur(h.revenue)}</td>
       <td>${isPeak ? '<span class="peak-badge">PEAK</span>' : ''}</td>
     </tr>`;
   }).join('');
+  const tfoot = $('#table-hodiny tfoot');
+  if (tfoot) {
+    tfoot.innerHTML = `<tr>
+      <td>Spolu</td>
+      <td class="num">${totObj}</td>
+      <td class="num">${fmtEur(totBar)}</td>
+      <td class="num">${fmtEur(totKuch)}</td>
+      <td class="num color-accent">${fmtEur(totSpolu)}</td>
+      <td></td>
+    </tr>`;
+  }
 }
 
 // ===== STAFF REPORT (CISNICKY TAB) =====
@@ -682,14 +703,17 @@ const TEMPLATE = `
         <thead>
           <tr>
             <th>Hodina</th>
-            <th>Objednávky</th>
-            <th>Tržby</th>
+            <th>Obj.</th>
+            <th>Bar</th>
+            <th>Kuchyňa</th>
+            <th>Spolu</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
-          <tr><td colspan="4" class="td-empty">Načítavam…</td></tr>
+          <tr><td colspan="6" class="td-empty">Načítavam…</td></tr>
         </tbody>
+        <tfoot></tfoot>
       </table>
       </div>
     </div>

@@ -117,6 +117,33 @@ router.get('/summary', mgr, async (req, res) => {
     ORDER BY 1
   `);
 
+  // Per-hour split by dest (bar vs kuchyna). Item-level so a single order
+  // with both food and drinks lands in both buckets correctly. Uses the
+  // order's created_at hour (when the cashier rang it up) — note this can
+  // differ slightly from payment-time if a tab was paid much later, but
+  // for the hourly view 'when was it sold' is what the owner expects.
+  const hourlyDestRows = await db.execute(sql`
+    SELECT
+      EXTRACT(HOUR FROM (o.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ}))::int AS hour,
+      c.dest AS dest,
+      COALESCE(SUM(oi.qty * mi.price::numeric), 0)::float AS revenue
+    FROM order_items oi
+    INNER JOIN orders o ON o.id = oi.order_id
+    INNER JOIN menu_items mi ON mi.id = oi.menu_item_id
+    INNER JOIN menu_categories c ON c.id = mi.category_id
+    WHERE o.created_at >= ${fromBoundary} AND o.created_at <= ${toBoundary}
+      AND o.status != 'cancelled'
+    GROUP BY 1, 2
+  `);
+  const hourlyDestMap = {};
+  for (const r of hourlyDestRows.rows) {
+    const h = Number(r.hour) || 0;
+    if (!hourlyDestMap[h]) hourlyDestMap[h] = { bar: 0, kuchyna: 0 };
+    const dest = String(r.dest || 'bar');
+    if (dest === 'kuchyna') hourlyDestMap[h].kuchyna += Number(r.revenue) || 0;
+    else hourlyDestMap[h].bar += Number(r.revenue) || 0;
+  }
+
   // Per-staff breakdown for the Zamestnanci tab. Joins payments → orders →
   // staff so each cashier's revenue is attributable from their own sales.
   const staffRows = await db.execute(sql`
@@ -170,11 +197,28 @@ router.get('/summary', mgr, async (req, res) => {
       peakHours: '',
     };
   });
-  const hourlyArr = hourlyRows.rows.map((r) => ({
-    hour: String(r.hour).padStart(2, '0') + ':00',
-    orders: Number(r.orders) || 0,
-    revenue: Number(r.revenue) || 0,
-  }));
+  // Union the hour buckets from both queries so an hour that had only
+  // open-tab items (no payment yet) still shows up in the table — and an
+  // hour that had a delayed payment from the previous hour still appears.
+  const paymentHourMap = {};
+  const hourSet = new Set();
+  for (const r of hourlyRows.rows) {
+    const h = Number(r.hour) || 0;
+    hourSet.add(h);
+    paymentHourMap[h] = { orders: Number(r.orders) || 0, revenue: Number(r.revenue) || 0 };
+  }
+  for (const k of Object.keys(hourlyDestMap)) hourSet.add(Number(k));
+  const hourlyArr = Array.from(hourSet).sort((a, b) => a - b).map((h) => {
+    const p = paymentHourMap[h] || { orders: 0, revenue: 0 };
+    const d = hourlyDestMap[h] || { bar: 0, kuchyna: 0 };
+    return {
+      hour: String(h).padStart(2, '0') + ':00',
+      orders: p.orders,
+      revenue: p.revenue,
+      barRevenue: roundMoney(d.bar),
+      kuchynaRevenue: roundMoney(d.kuchyna),
+    };
+  });
   const staffArr = staffRows.rows.map((r) => {
     const orders = Number(r.orders) || 0;
     const revenue = Number(r.revenue) || 0;
