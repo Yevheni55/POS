@@ -20,6 +20,7 @@ const routes = {
   'write-offs': () => import('./pages/write-offs.js'),
   shisha: () => import('./pages/shisha.js'),
   audit: () => import('./pages/audit.js'),
+  cashflow: () => import('./pages/cashflow.js'),
 };
 
 const pageTitles = {
@@ -44,6 +45,7 @@ const pageTitles = {
   'write-offs': 'Odpisy zásob',
   shisha: 'Shisha',
   audit: 'História objednávok',
+  cashflow: 'Cashflow',
 };
 
 let currentPage = null;
