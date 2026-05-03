@@ -255,10 +255,20 @@ function renderRecipeForm(item) {
       html += '<div style="flex:1;min-width:0;padding-left:4px">';
       html += '<div style="font-size:var(--text-md);font-weight:var(--weight-bold);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(line.ingredientName || '') + '</div>';
       html += '</div>';
-      // Quantity — big and prominent
-      html += '<div style="font-family:var(--font-display);font-size:var(--text-2xl);font-weight:var(--weight-bold);color:rgba(' + uc + ',1);letter-spacing:var(--tracking-tight);min-width:60px;text-align:right">'
-        + Number(line.qtyPerUnit).toLocaleString('sk-SK', { minimumFractionDigits: 1, maximumFractionDigits: 3 })
-        + '</div>';
+      // Quantity — editable inline. Was static text before; users were
+      // clicking the number expecting to change it, hitting "Ulozit
+      // recept", and seeing nothing happen because the value wasn't
+      // bound to anything. data-qty-idx → bindEditorEvents wires a
+      // change handler that mutates currentRecipe[idx] + auto-saves
+      // on blur, so the saved state actually matches what the user typed.
+      html += '<input type="number" step="0.001" min="0.001"'
+        + ' data-qty-idx="' + idx + '"'
+        + ' value="' + Number(line.qtyPerUnit) + '"'
+        + ' style="font-family:var(--font-display);font-size:var(--text-xl);font-weight:var(--weight-bold);'
+        +        'color:rgba(' + uc + ',1);letter-spacing:var(--tracking-tight);'
+        +        'width:90px;text-align:right;'
+        +        'background:rgba(' + uc + ',.05);border:1px solid rgba(' + uc + ',.2);'
+        +        'border-radius:var(--radius-xs);padding:6px 8px;outline:none">';
       // Unit badge
       html += '<div style="'
         + 'font-size:var(--text-xs);font-weight:var(--weight-bold);text-transform:uppercase;letter-spacing:.5px;'
@@ -350,6 +360,36 @@ function bindEditorEvents(item) {
         currentRecipe = snapshot;
         renderEditor();
       }
+    });
+  });
+
+  // Recipe: edit qty inline. On blur (or Enter) we persist the new value;
+  // the autosave is silent because every keystroke would be too chatty.
+  $$('[data-qty-idx]').forEach(function(input) {
+    input.addEventListener('focus', function() { input.dataset.prevValue = input.value; });
+    var commit = async function() {
+      var idx = Number(input.dataset.qtyIdx);
+      var v = parseFloat(input.value);
+      if (!Number.isFinite(v) || v <= 0) {
+        showToast('Mnozstvo musi byt > 0', 'error');
+        input.value = input.dataset.prevValue || '';
+        input.focus();
+        return;
+      }
+      var prev = Number(currentRecipe[idx] && currentRecipe[idx].qtyPerUnit);
+      if (v === prev) return; // no-op
+      currentRecipe[idx].qtyPerUnit = v;
+      try {
+        await saveRecipeLines(item.id, { silent: true, skipReload: true });
+        showToast('Mnozstvo upravene a recept ulozeny', true);
+      } catch (err) {
+        currentRecipe[idx].qtyPerUnit = prev;
+        input.value = prev;
+      }
+    };
+    input.addEventListener('change', commit);
+    input.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
     });
   });
 
