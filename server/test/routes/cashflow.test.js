@@ -107,4 +107,16 @@ describe('GET /api/cashflow', () => {
     assert.equal(res.status, 200);
     assert.ok(res.body.entries.every((e) => e.type === 'expense'));
   });
+
+  it('rejects malformed date with 400 (instead of 500 from cast error)', async () => {
+    const res = await request
+      .get(`/api/cashflow?from=2026-13-99&to=2026-05-31`)
+      .set('Authorization', `Bearer ${tokens.manazer()}`);
+    assert.equal(res.status, 400);
+  });
+
+  it('returns 401 when unauthenticated', async () => {
+    const res = await request.get('/api/cashflow?from=2026-05-01&to=2026-05-31');
+    assert.equal(res.status, 401);
+  });
 });

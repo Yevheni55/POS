@@ -13,6 +13,21 @@ const mgr = requireRole('manazer', 'admin');
 
 const TZ = 'Europe/Bratislava';
 
+// Tight YYYY-MM-DD guard for from/to. Without it an unvalidated query
+// param hits the `::timestamp` cast inside the sql template tag and
+// throws a 500 with a Postgres stack — clients should get a 400 instead.
+// Same guard is also wanted in audit.js / reports.js, tracked separately.
+//
+// Format check + round-trip via Date so a syntactically-valid but
+// semantically-bogus value like 2026-13-99 is rejected too: parsing
+// it as UTC and slicing the ISO back must yield the original string.
+const ISO_DATE_RE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+function isValidIsoDate(s) {
+  if (typeof s !== 'string' || !ISO_DATE_RE.test(s)) return false;
+  const d = new Date(s + 'T00:00:00Z');
+  return Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === s;
+}
+
 router.post('/', mgr, validate(createCashflowSchema), asyncRoute(async (req, res) => {
   const [row] = await db.insert(cashflowEntries).values({
     type: req.body.type,
@@ -29,6 +44,9 @@ router.post('/', mgr, validate(createCashflowSchema), asyncRoute(async (req, res
 router.get('/', mgr, asyncRoute(async (req, res) => {
   const to = req.query.to || new Date().toISOString().slice(0, 10);
   const from = req.query.from || to;
+  if (!isValidIsoDate(from) || !isValidIsoDate(to)) {
+    return res.status(400).json({ error: 'Neplatný formát dátumu (očakávame YYYY-MM-DD)' });
+  }
   const fromBoundary = sql`(${from + ' 00:00:00'})::timestamp AT TIME ZONE ${TZ}`;
   const toBoundary   = sql`(${to + ' 23:59:59'})::timestamp AT TIME ZONE ${TZ}`;
 
