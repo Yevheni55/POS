@@ -8,9 +8,15 @@ import { tokens } from '../helpers/auth.js';
 
 const request = supertest(app);
 
+// Module-level lifecycle. Multiple `describe` blocks in one file all share
+// the same Drizzle pool — putting `after(closeDb)` inside any one block
+// would close the pool before later blocks ran, cancelling their setup
+// with "Cannot use a pool after calling end on the pool". This pattern
+// is documented in server/test/routes/attendance.test.js.
+after(closeDb);
+
 describe('POST /api/cashflow', () => {
   before(async () => { await truncateAll(); await seed(); });
-  after(closeDb);
   beforeEach(async () => { await truncateAll(); await seed(); });
 
   it('creates an expense entry as manazer', async () => {
@@ -75,7 +81,6 @@ describe('POST /api/cashflow', () => {
 
 describe('GET /api/cashflow', () => {
   before(async () => { await truncateAll(); await seed(); });
-  after(closeDb);
 
   it('lists entries newest first, filtered by from/to', async () => {
     const adminToken = tokens.manazer();
