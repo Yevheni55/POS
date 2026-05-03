@@ -23,6 +23,26 @@ export const shishaSales = pgTable('shisha_sales', {
   price: numeric('price', { precision: 8, scale: 2 }).notNull().default('17.00'),
 });
 
+// Manual cashflow ledger — owner-recorded incomes and expenses that aren't
+// already captured by the automated POS payment / shisha sale flows.
+// Categories are validated against a frontend constant list but stored as
+// free-text so adding a new bucket later doesn't need a migration.
+export const cashflowEntries = pgTable('cashflow_entries', {
+  id: serial('id').primaryKey(),
+  type: varchar('type', { length: 20 }).notNull(), // 'income' | 'expense'
+  category: varchar('category', { length: 50 }).notNull(),
+  amount: numeric('amount', { precision: 10, scale: 2 }).notNull(),
+  occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+  method: varchar('method', { length: 20 }).notNull().default('cash'),
+  note: varchar('note', { length: 500 }).notNull().default(''),
+  staffId: integer('staff_id').references(() => staff.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  index('cashflow_occurred_idx').on(t.occurredAt),
+  index('cashflow_type_occurred_idx').on(t.type, t.occurredAt),
+]);
+
 // Storno basket — bucket pre stornované sent položky. Cashier `−` na
 // poslanej položke → zápis sem (žiaden stock change). Admin v Storno
 // stránke spracuje (resolve) → vtedy sa spustí stock revert / write-off
