@@ -286,27 +286,79 @@ function addToOrder(name, emoji, price) {
   _addToOrderCore(name, emoji, price);
 }
 
-// For combos: push a 0-price "Omáčka (combo)" line whose note carries the sauces
-// the waiter picked, and tie it to the combo via _companionOf so qty changes /
-// storno on the combo cascade onto this line too.
+// For combos: push 0-price annotation rows for the sauces the waiter picked,
+// tied to the combo via _companionOf so qty changes / storno cascade.
+//
+// Each picked sauce uses the SPECIFIC sauce menu item id (Omáčka Big Mac
+// domáca 50ml, Tatárka, Chilli-mayo, Kečup, BBQ) instead of the generic
+// 'Omáčka (combo)' placeholder. That's important because menu items 82/83/84
+// have track_mode='recipe' with a per-50ml ingredient breakdown — using
+// the real menu_item_id lets the existing deductStockForSentItems flow
+// auto-deduct sauce ingredients on every combo sale, not just standalone
+// sauce sales. Items without a recipe (Kečup, BBQ) still annotate the
+// kitchen ticket but won't trigger ingredient deduction.
+//
+// Fallback: empty sauce note (= "Bez omáčky") still creates the legacy
+// 'Omáčka (combo)' row so the kitchen sees an explicit "no sauce" line.
 function _addSauceAnnotationForCombo(primaryCombo, sauceNote) {
   if (!primaryCombo) return;
   if (typeof MENU_ID_MAP === 'undefined' || typeof MENU_ITEM_BY_ID === 'undefined') return;
-  var annotationMenuId = MENU_ID_MAP.get('Omáčka (combo)');
-  if (!annotationMenuId) return;
-  var annotationMenu = MENU_ITEM_BY_ID.get(annotationMenuId);
-  if (!annotationMenu) return;
+
+  var SAUCE_TO_MENU = {
+    'Big Mac domáca':  'Omáčka Big Mac domáca 50ml',
+    'Chilli-mayo':     'Omáčka chilli-mayo 50ml',
+    'Tatárka domáca':  'Omáčka tatárka domáca 50ml',
+    'Kečup':           'Omáčka kečup 50ml',
+    'BBQ':             'Omáčka BBQ 50ml',
+  };
+
+  var pushed = 0;
   var order = getOrder();
-  order.push({
-    name: annotationMenu.name,
-    emoji: annotationMenu.emoji,
-    price: 0,
-    qty: primaryCombo.qty,
-    note: sauceNote,
-    menuItemId: annotationMenuId,
-    id: _getNextLocalOrderItemId(),
-    _companionOf: primaryCombo.id,
-  });
+  if (sauceNote) {
+    var picks = String(sauceNote).split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+    for (var i = 0; i < picks.length; i++) {
+      var menuName = SAUCE_TO_MENU[picks[i]];
+      if (!menuName) continue;
+      var sauceMenuId = MENU_ID_MAP.get(menuName);
+      if (!sauceMenuId) continue;
+      var sauceMenu = MENU_ITEM_BY_ID.get(sauceMenuId);
+      if (!sauceMenu) continue;
+      order.push({
+        name: sauceMenu.name,
+        emoji: sauceMenu.emoji,
+        price: 0,                       // free as part of combo
+        qty: primaryCombo.qty,
+        note: 'k combu',
+        menuItemId: sauceMenuId,
+        id: _getNextLocalOrderItemId(),
+        _companionOf: primaryCombo.id,
+      });
+      pushed += 1;
+    }
+  }
+
+  // No sauce picked OR none of the picks mapped to a known menu item — fall
+  // back to the generic "Omáčka (combo)" placeholder so the kitchen sees
+  // SOMETHING (so a missing-sauce isn't accidentally invisible).
+  if (pushed === 0) {
+    var annotationMenuId = MENU_ID_MAP.get('Omáčka (combo)');
+    if (annotationMenuId) {
+      var annotationMenu = MENU_ITEM_BY_ID.get(annotationMenuId);
+      if (annotationMenu) {
+        order.push({
+          name: annotationMenu.name,
+          emoji: annotationMenu.emoji,
+          price: 0,
+          qty: primaryCombo.qty,
+          note: sauceNote || 'bez omáčky',
+          menuItemId: annotationMenuId,
+          id: _getNextLocalOrderItemId(),
+          _companionOf: primaryCombo.id,
+        });
+      }
+    }
+  }
+
   setOrder(order);
   _scheduleRender();
 }
