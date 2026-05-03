@@ -80,7 +80,11 @@ app.use(helmet({
       fontSrc: ["'self'", 'data:'],
       connectSrc: ["'self'", 'ws:', 'wss:'],
       workerSrc: ["'self'"],
-      frameAncestors: ["'none'"],
+      // 'self' (not 'none') — POS opens the admin panel as an iframe
+      // overlay (`js/pos-init.js:389`), so we must allow same-origin
+      // framing. External clickjacking still blocked because no other
+      // origin is in this list.
+      frameAncestors: ["'self'"],
       baseUri: ["'self'"],
       formAction: ["'self'"],
       objectSrc: ["'none'"],
