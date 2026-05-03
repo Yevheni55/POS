@@ -970,6 +970,24 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
     display:flex;align-items:center;justify-content:center;cursor:pointer;
     -webkit-tap-highlight-color:transparent;touch-action:manipulation;
   }
+  /* Admin panel shortcut on mobile — same touch-target size as logout
+     so the header doesn't go ragged. Accent color (purple) keeps it
+     visually distinct from the red logout. */
+  .mob-admin-btn{
+    min-width:44px;min-height:44px;width:44px;height:44px;border-radius:10px;
+    border:1px solid var(--color-accent-border,rgba(139,124,246,.18));
+    background:var(--color-accent-bg,rgba(139,124,246,.08));
+    color:var(--color-accent,rgba(139,124,246,.95));
+    display:flex;align-items:center;justify-content:center;cursor:pointer;
+    text-decoration:none;
+    -webkit-tap-highlight-color:transparent;touch-action:manipulation;
+    transition:background .15s,border-color .15s;
+  }
+  .mob-admin-btn:hover,.mob-admin-btn:active{
+    background:var(--color-accent-bg,rgba(139,124,246,.16));
+    border-color:var(--color-accent-glow,rgba(139,124,246,.4));
+  }
+  .mob-admin-btn[hidden]{display:none}
 
   /* Tab content area — min-height:0 so nested flex scroll works on iOS */
   .mob-content{flex:1;min-height:0;overflow:hidden;position:relative}

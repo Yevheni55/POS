@@ -134,6 +134,16 @@
     </div>
     <div class="mob-header-right">
       <span class="mob-header-clock" id="mobClock">00:00</span>
+      <!-- Admin shortcut for owner/manager — opens admin panel as a
+           full page on mobile (iframe overlay isn't great on phones).
+           Hidden by default; pos-mobile.js shows it only for users
+           with role admin/manazer. target=_blank so the cashier doesn't
+           lose their open POS session when navigating. -->
+      <a class="mob-admin-btn" id="mobAdminBtn" href="/admin/" target="_blank" rel="noopener" aria-label="Admin panel" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true" width="18" height="18">
+          <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+        </svg>
+      </a>
       <button class="mob-logout-btn" onclick="showLogoutModal()" aria-label="Odhlasenie">&times;</button>
     </div>
   </div>

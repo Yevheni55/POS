@@ -403,6 +403,12 @@ function initMobile() {
   const user = api.getUser();
   const mobUser = document.getElementById('mobUserName');
   if (mobUser && user) mobUser.textContent = user.name;
+  // Show the admin shortcut only for users who can actually use the
+  // admin panel — cisnik would just hit a 'Pristup odmietnuty' wall.
+  const mobAdmin = document.getElementById('mobAdminBtn');
+  if (mobAdmin && user && (user.role === 'admin' || user.role === 'manazer')) {
+    mobAdmin.hidden = false;
+  }
   updateMobClock();
   setInterval(updateMobClock, 30000);
   updateMobBadge();
