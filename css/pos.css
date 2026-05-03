@@ -1198,8 +1198,17 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
     border-bottom:1px solid rgba(139,124,246,.04);
   }
   .mob-order-item.sent{background:rgba(92,196,158,.06);border-left:3px solid rgba(92,196,158,.3)}
-  .mob-oi-row1{display:flex;align-items:flex-start;gap:10px;width:100%}
+  .mob-oi-row1{display:flex;align-items:flex-start;gap:8px;width:100%}
+  /* Right-side button cluster (↗ + ×) sits compact in row 1 — both
+     actions always available regardless of sent state, mirroring the
+     desktop's swipe-reveal panel. */
+  .mob-oi-row1 .mob-oi-move{margin-left:0;width:36px;height:36px;min-width:36px;min-height:36px;font-size:14px}
+  .mob-oi-row1 .mob-oi-del{margin-left:0;width:36px;height:36px;min-width:36px;min-height:36px}
   .mob-oi-row2{display:flex;align-items:center;gap:10px;width:100%;padding-left:46px;min-height:44px}
+  /* On sent rows, row 2 has only the read-only price — no qty controls
+     to fan out. Empty row 2 just leaves vertical air; with the qty
+     readonly it's a single short line, fine on phone widths. */
+  .mob-order-item.sent .mob-oi-row2{min-height:24px}
   .mob-oi-del{
     width:36px;height:36px;border-radius:8px;border:none;
     background:rgba(224,112,112,.08);color:rgba(224,112,112,.7);font-size:18px;font-weight:700;
@@ -1322,7 +1331,9 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
   .mob-pay-drawer.open{max-height:200px}
   .mob-pay-drawer-inner{padding-top:10px;display:flex;flex-direction:column;gap:8px}
   .mob-pay-row{display:flex;gap:8px}
-  .mob-pay-secondary{display:flex}
+  /* Two side-by-side secondary actions: Zľava + Rozdeliť účet */
+  .mob-pay-secondary{display:flex;gap:8px}
+  .mob-pay-secondary > .mob-btn-secondary{flex:1}
   .mob-btn-pay{
     flex:1;padding:var(--space-4);border:none;border-radius:var(--radius-sm);
     font-family:var(--font-body);font-size:var(--text-xl);font-weight:var(--weight-extrabold);

@@ -289,15 +289,20 @@ function renderMobOrder() {
       </button>`;
     }).join('');
   } else {
-    // Cashier-friendly 2-row card layout:
-    //   Row 1: emoji  |  full item name (no clamp, wraps freely)  |  ×
-    //   Row 2: − qty +                       price             ↗
-    // Sent rows skip the qty controls / move / × — those items can't be
-    // mutated from this list (storno is the only path), so row 2 is just
-    // the readable 'qty x price'.
+    // Cashier-friendly 2-row card. Row 1 = emoji + full name + the two
+    // always-visible action buttons (↗ move, × delete). Row 2 = qty
+    // controls + price (unsent) or read-only 'Nx · price' (sent).
+    //
+    // EVERY item — sent or unsent — gets ↗ and × so the cashier has
+    // parity with desktop's swipe-reveal panel. removeItem() handles
+    // both: simple remove for unsent, queue-into-storno for sent.
+    // Note tap (.mob-oi-info) also works regardless of sent state.
     container.innerHTML = order.map(o => {
       const esc = o.name.replace(/'/g, "\\'");
       const isSent = o.sent;
+      const noteBlock = o.note
+        ? `<div class="mob-oi-note">${escHtml(o.note)}</div>`
+        : `<div class="mob-oi-add-note">${isSent ? '✎ poznamka' : '+ poznamka'}</div>`;
       const row2 = isSent
         ? `<div class="mob-oi-qty-readonly">${o.qty}x &middot; ${fmt(o.price * o.qty)}</div>`
         : `
@@ -307,22 +312,13 @@ function renderMobOrder() {
             <button type="button" onclick="mobChangeQty('${esc}',1,${o.id})" aria-label="Zvýšiť">+</button>
           </div>
           <div class="mob-oi-price">${fmt(o.price * o.qty)}</div>
-          <button type="button" class="mob-oi-move" onclick="enterMoveMode(${o.id})" aria-label="Presunut polozku">&#8599;</button>
         `;
-      // Row 1's note tap opens the note editor (kept the previous behavior
-      // — info area is the click target, not the whole row, so qty/del
-      // taps below don't accidentally open it).
-      const row1Del = isSent
-        ? ''
-        : `<button type="button" class="mob-oi-del" onclick="removeItem('${esc}');renderMobOrder();updateMobBadge()" aria-label="Odstranit polozku">&times;</button>`;
-      const noteBlock = o.note
-        ? `<div class="mob-oi-note">${escHtml(o.note)}</div>`
-        : (isSent ? '' : `<div class="mob-oi-add-note">+ poznamka</div>`);
       return `<div class="mob-order-item${isSent ? ' sent' : ''}">
         <div class="mob-oi-row1">
           <span class="mob-oi-emoji">${escHtml(o.emoji)}</span>
-          <div class="mob-oi-info"${isSent ? '' : ` onclick="openNoteModal('${esc}', ${o.id});"`}><div class="mob-oi-name">${escHtml(o.name)}</div>${noteBlock}</div>
-          ${row1Del}
+          <div class="mob-oi-info" onclick="openNoteModal('${esc}', ${o.id});"><div class="mob-oi-name">${escHtml(o.name)}</div>${noteBlock}</div>
+          <button type="button" class="mob-oi-move" onclick="event.stopPropagation();enterMoveMode(${o.id})" aria-label="Presunut polozku" title="Presunut">&#8599;</button>
+          <button type="button" class="mob-oi-del" onclick="event.stopPropagation();removeItem('${esc}');renderMobOrder();updateMobBadge()" aria-label="${isSent ? 'Storno polozky' : 'Odstranit polozku'}" title="${isSent ? 'Storno' : 'Odstranit'}">${isSent ? '⌫' : '×'}</button>
         </div>
         <div class="mob-oi-row2">${row2}</div>
       </div>`;
