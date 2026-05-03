@@ -20,6 +20,13 @@ services:
     build: .
     restart: unless-stopped
     ports:
+      # Bind on standard HTTP/HTTPS ports too — admin owner types just
+      # http://100.95.64.38 in the browser without remembering :3080.
+      # POS is a PWA installed via manifest start_url that already pins
+      # the port, so it kept working; admin is opened ad-hoc in a tab.
+      # Verified nothing else listens on :80 / :443 on the kasa.
+      - "80:3080"
+      - "443:3443"
       - "3080:3080"
       - "3443:3443"
     env_file: ./server/.env
