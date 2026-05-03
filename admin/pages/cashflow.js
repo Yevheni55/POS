@@ -152,6 +152,108 @@ function renderBody() {
   }).join('');
 }
 
+function nowForDateTimeLocal() {
+  const d = new Date();
+  const off = d.getTimezoneOffset();
+  return new Date(d.getTime() - off * 60000).toISOString().slice(0, 16);
+}
+
+function openEntryModal(mode, presetType, existing) {
+  // mode: 'create' | 'edit'. existing only when 'edit'.
+  const initialType = (existing && existing.type) || presetType || 'expense';
+  const isEdit = mode === 'edit' && existing;
+  const occurredLocal = isEdit
+    ? new Date(existing.occurredAt).toISOString().slice(0, 16)
+    : nowForDateTimeLocal();
+
+  const html =
+    '<div class="u-overlay show" id="cfModal">' +
+      '<div class="u-modal" role="dialog" aria-modal="true">' +
+        '<div class="u-modal-title">' + (isEdit ? 'Upraviť záznam' : (initialType === 'income' ? 'Nový príjem' : 'Nový výdavok')) + '</div>' +
+        '<form class="doch-manual-form" id="cfForm" style="border:none;padding:0;background:none">' +
+          '<label class="doch-toolbar-label">Typ' +
+            '<select id="cfMType" class="doch-input">' +
+              '<option value="income"'  + (initialType === 'income'  ? ' selected' : '') + '>Príjem</option>' +
+              '<option value="expense"' + (initialType === 'expense' ? ' selected' : '') + '>Výdavok</option>' +
+            '</select>' +
+          '</label>' +
+          '<label class="doch-toolbar-label">Kategória' +
+            '<select id="cfMCat" class="doch-input" required></select>' +
+          '</label>' +
+          '<label class="doch-toolbar-label">Suma €' +
+            '<input type="number" id="cfMAmount" class="doch-input" min="0.01" step="0.01" required value="' + (isEdit ? Number(existing.amount).toFixed(2) : '') + '">' +
+          '</label>' +
+          '<label class="doch-toolbar-label">Dátum' +
+            '<input type="datetime-local" id="cfMAt" class="doch-input" required value="' + occurredLocal + '">' +
+          '</label>' +
+          '<label class="doch-toolbar-label">Spôsob' +
+            '<select id="cfMMethod" class="doch-input">' +
+              ['cash','card','transfer','other'].map((m) => {
+                const lbl = { cash: 'Hotovosť', card: 'Karta', transfer: 'Prevod', other: 'Iné' }[m];
+                const sel = (isEdit ? existing.method : 'cash') === m ? ' selected' : '';
+                return '<option value="' + m + '"' + sel + '>' + lbl + '</option>';
+              }).join('') +
+            '</select>' +
+          '</label>' +
+          '<label class="doch-toolbar-label" style="flex:1 1 100%">Poznámka' +
+            '<input type="text" id="cfMNote" class="doch-input" maxlength="500" value="' + escapeHtml(isEdit ? existing.note || '' : '') + '">' +
+          '</label>' +
+        '</form>' +
+        '<div class="u-modal-btns">' +
+          '<button class="u-btn u-btn-ghost" id="cfMCancel">Zrušiť</button>' +
+          '<button class="u-btn u-btn-ice" id="cfMSave">' + (isEdit ? 'Uložiť' : 'Pridať') + '</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  const wrap = document.createElement('div');
+  wrap.innerHTML = html;
+  document.body.appendChild(wrap.firstElementChild);
+
+  const modal = document.getElementById('cfModal');
+  const typeSel = modal.querySelector('#cfMType');
+  const catSel = modal.querySelector('#cfMCat');
+
+  function refillCategories() {
+    const list = typeSel.value === 'income' ? INCOME_CATS : EXPENSE_CATS;
+    const cur = isEdit && existing.category;
+    catSel.innerHTML = list.map((c) => '<option value="' + c.slug + '"' + (c.slug === cur ? ' selected' : '') + '>' + c.label + '</option>').join('');
+  }
+  refillCategories();
+  typeSel.addEventListener('change', refillCategories);
+
+  function close() { modal.remove(); }
+  modal.querySelector('#cfMCancel').addEventListener('click', close);
+  modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+
+  modal.querySelector('#cfMSave').addEventListener('click', async () => {
+    const body = {
+      type: typeSel.value,
+      category: catSel.value,
+      amount: Number(modal.querySelector('#cfMAmount').value),
+      occurredAt: new Date(modal.querySelector('#cfMAt').value).toISOString(),
+      method: modal.querySelector('#cfMMethod').value,
+      note: modal.querySelector('#cfMNote').value.trim(),
+    };
+    if (!Number.isFinite(body.amount) || body.amount <= 0) {
+      showToast('Suma musí byť väčšia ako 0', 'error');
+      return;
+    }
+    try {
+      if (isEdit) {
+        await api.patch('/cashflow/' + existing.id, body);
+        showToast('Záznam upravený', true);
+      } else {
+        await api.post('/cashflow', body);
+        showToast('Záznam pridaný', true);
+      }
+      close();
+      await loadAll();
+    } catch (err) {
+      showToast(err.message || 'Uloženie zlyhalo', 'error');
+    }
+  });
+}
+
 function bind() {
   _container.querySelectorAll('.doch-preset').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -164,7 +266,15 @@ function bind() {
   _container.querySelector('#cfFrom').addEventListener('change', (e) => { _from = e.target.value || _from; loadAll(); });
   _container.querySelector('#cfTo').addEventListener('change',   (e) => { _to   = e.target.value || _to;   loadAll(); });
   _container.querySelector('#cfType').addEventListener('change', (e) => { _typeFilter = e.target.value || ''; loadAll(); });
-  // Add buttons + edit/delete handlers wired in Task 7.
+  _container.querySelector('#cfAddIncome').addEventListener('click', () => openEntryModal('create', 'income'));
+  _container.querySelector('#cfAddExpense').addEventListener('click', () => openEntryModal('create', 'expense'));
+  _container.querySelectorAll('button[data-edit]').forEach((b) => {
+    b.addEventListener('click', () => {
+      const id = parseInt(b.getAttribute('data-edit'), 10);
+      const entry = _entries.find((e) => e.id === id);
+      if (entry) openEntryModal('edit', null, entry);
+    });
+  });
 }
 
 export function init(container) {
