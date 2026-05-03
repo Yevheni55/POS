@@ -423,26 +423,19 @@ function setCategory(key){activeCategory=key;searchQuery='';document.getElementB
 function renderProducts(){
   const grid=document.getElementById('productsGrid');
   let items;let itemCats={};
-  // Stable per-render rank lookup. Items the cashier orders most often
-  // bubble to the top of every category grid; items with no recorded
-  // sales sink to the bottom and tie-break by their original menu id.
-  const rankMap = (typeof SALES_RANK === 'object' && SALES_RANK) ? SALES_RANK : {};
-  const rankOf = (it) => {
-    const r = rankMap[it.id];
-    return r === undefined ? Number.POSITIVE_INFINITY : r;
-  };
-  const idOf = (it) => Number(it.id) || 0;
-  const bySales = (a, b) => {
-    const dr = rankOf(a) - rankOf(b);
-    if (dr !== 0) return dr;
-    return idOf(a) - idOf(b);
-  };
+  // Logical sort — defined in pos-state.js. Strips volume suffix to a
+  // family key and orders alphabetically, then by volume ascending. So
+  // 'Urpiner 10° 0,3 l' lands right next to 'Urpiner 10° 0,5 l' instead
+  // of being scattered by sales rank. Used in search results and every
+  // real category; the '__top__' pseudo-category keeps its sales order.
+  const cmpItems = (typeof compareByMenuLogic === 'function') ? compareByMenuLogic
+    : ((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0));
   if(searchQuery){
     items=[];
     Object.entries(MENU).forEach(([cat,c])=>{c.items.forEach(i=>{
       if(i.name.toLowerCase().includes(searchQuery)||i.desc.toLowerCase().includes(searchQuery)){items.push(i);itemCats[i.name]=cat}
     })});
-    items.sort(bySales);
+    items.sort(cmpItems);
   } else if (activeCategory === '__top__') {
     // "Najcastejsie" pseudo-category — TOP_ITEMS already carries the same
     // shape as MENU[*].items, so the existing product-card template Just Works.
@@ -464,7 +457,7 @@ function renderProducts(){
   } else {
     if (!activeCategory || !MENU[activeCategory]) { grid.innerHTML=''; return; }
     // Take a copy before sorting so we don't mutate the shared MENU array.
-    items=MENU[activeCategory].items.slice().sort(bySales);
+    items=MENU[activeCategory].items.slice().sort(cmpItems);
     items.forEach(i=>{itemCats[i.name]=activeCategory});
   }
   if(!items.length){grid.innerHTML='<div class="products-empty-state" role="status">' +

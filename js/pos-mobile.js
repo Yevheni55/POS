@@ -120,15 +120,12 @@ function renderMobMenu() {
     return `<button type="button" class="mob-cat${cur ? ' active' : ''}" onclick="setMobCat('${key}')"${cur ? ' aria-current="true"' : ''}>${cat.icon} ${cat.label}</button>`;
   }).join('');
 
-  // Products. Sort within every category (and search results) by all-time
-  // sales rank so the most-ordered items always sit at the top of the grid.
-  const rankMap = (typeof SALES_RANK === 'object' && SALES_RANK) ? SALES_RANK : {};
-  const bySales = (a, b) => {
-    const ra = rankMap[a.id]; const rb = rankMap[b.id];
-    const dr = (ra === undefined ? Infinity : ra) - (rb === undefined ? Infinity : rb);
-    if (dr !== 0) return dr;
-    return (Number(a.id) || 0) - (Number(b.id) || 0);
-  };
+  // Products. Logical sort (compareByMenuLogic from pos-state.js):
+  // family alphabetical, then volume ascending. Mirrors the desktop grid
+  // — beer 0,3 l next to 0,5 l of the same family instead of scattered
+  // by sales rank.
+  const cmpItems = (typeof compareByMenuLogic === 'function') ? compareByMenuLogic
+    : ((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0));
 
   const grid = document.getElementById('mobProducts');
   if (!grid) return;
@@ -140,13 +137,15 @@ function renderMobMenu() {
         if (i.name.toLowerCase().includes(mobSearchQuery) || i.desc.toLowerCase().includes(mobSearchQuery)) items.push(i);
       });
     });
-    items.sort(bySales);
+    items.sort(cmpItems);
   } else if (mobActiveCategory === '__top__') {
-    // Mirror desktop: Najcastejsie tab uses the first 12 of TOP_ITEMS.
+    // Mirror desktop: Najcastejsie tab uses the first 12 of TOP_ITEMS,
+    // which the backend already returns in sales-rank order — that's the
+    // whole point of that pseudo-tab, so we DON'T re-sort it here.
     var topList = (typeof TOP_ITEMS !== 'undefined' && Array.isArray(TOP_ITEMS)) ? TOP_ITEMS : [];
     items = topList.slice(0, 12);
   } else if (mobActiveCategory && MENU[mobActiveCategory]) {
-    items = MENU[mobActiveCategory].items.slice().sort(bySales);
+    items = MENU[mobActiveCategory].items.slice().sort(cmpItems);
   } else {
     items = [];
   }

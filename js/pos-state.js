@@ -96,10 +96,57 @@ async function loadMenu(data) {
 // fields (id, name, emoji, price, imageUrl…) so the existing product-card
 // template can render them directly. Failures keep the previous list — the
 // pseudo-tab just stays "stale" until the next 5-minute tick succeeds.
+// ---- Logical menu sort (used in EVERY category view + search) ----
+// Cashier asked for predictable adjacency — small/large beer of the same
+// family next to each other instead of bestsellers scattered. Sort key:
+//   1. Family (name with volume suffix stripped, Slovak locale alpha)
+//   2. Volume in ml ascending (so 0,3 l before 0,5 l within a family)
+//   3. Id (stable tiebreaker)
+// The 'Najcastejsie' pseudo-tab keeps using TOP_ITEMS directly, which
+// is already sales-rank ordered, so the bestseller view is unchanged.
+function parseVolumeMl(name) {
+  const s = String(name || '');
+  let m = s.match(/(\d+)[,.](\d+)\s*l\b/i);
+  if (m) {
+    const whole = parseInt(m[1], 10);
+    const frac = m[2];
+    return Math.round((whole + parseInt(frac, 10) / Math.pow(10, frac.length)) * 1000);
+  }
+  m = s.match(/\b(\d+)\s*l\b/i);
+  if (m) return parseInt(m[1], 10) * 1000;
+  m = s.match(/\b(\d+)\s*g\b/i);
+  if (m) return parseInt(m[1], 10);
+  m = s.match(/\b(\d+)\s*ml\b/i);
+  if (m) return parseInt(m[1], 10);
+  return null;
+}
+function familyName(name) {
+  return String(name || '')
+    .replace(/\d+[,.]?\d*\s*l\b/gi, '')
+    .replace(/\d+\s*ml\b/gi, '')
+    .replace(/\d+\s*g\b/gi, '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+function compareByMenuLogic(a, b) {
+  const fa = familyName(a && a.name);
+  const fb = familyName(b && b.name);
+  const cf = fa.localeCompare(fb, 'sk');
+  if (cf !== 0) return cf;
+  const va = parseVolumeMl(a && a.name);
+  const vb = parseVolumeMl(b && b.name);
+  if (va != null && vb != null && va !== vb) return va - vb;
+  if (va != null && vb == null) return -1;
+  if (va == null && vb != null) return 1;
+  return (Number(a && a.id) || 0) - (Number(b && b.id) || 0);
+}
+
 // SALES_RANK[menuItemId] -> rank index (0 = best seller). Built from
-// TOP_ITEMS so that renderProducts can sort items inside every category
-// by sales without a second network call. Items not in the map sort to
-// the bottom (rank = Infinity) and tie-break by id.
+// TOP_ITEMS so the 'Najcastejsie' pseudo-tab can render bestsellers
+// directly. NO LONGER drives in-category sort — that's compareByMenuLogic.
+// Kept for backwards compatibility and for future "highlight bestseller"
+// badges if we want them.
 let SALES_RANK = (function buildRank(items) {
   var m = {};
   if (Array.isArray(items)) {
