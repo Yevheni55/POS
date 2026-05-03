@@ -436,7 +436,11 @@ function openMobileAdmin(e) {
       // No active session in this tab — short-circuit to login with
       // redirect so the round-trip is one click instead of two.
       e.preventDefault();
-      window.open('/login.html?redirect=/admin/', '_blank', 'noopener');
+      // Intentionally NOT 'noopener' — the new tab needs window.opener
+      // so the admin's 'Späť na POS' can call window.close() and bring
+      // the cashier back to the original POS tab. Same-origin opens
+      // only — no tabnap risk.
+      window.open('/login.html?redirect=/admin/', '_blank');
     }
   } catch (err) {
     // Storage disabled (private mode, quota) — let the default href

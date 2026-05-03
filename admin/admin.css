@@ -1083,3 +1083,232 @@ textarea.form-input,textarea.form-select,.u-modal-field textarea{height:auto;min
 .kto-pos{font-size:12px;color:var(--color-text-sec);grid-column:1;margin-top:-2px}
 .kto-time{font-size:12px;color:var(--color-text-sec)}
 .kto-mins{font-family:var(--font-display);font-size:18px;color:var(--color-success)}
+
+/* ============================================================
+ * MOBILE ADMIN UI — phone-first improvements (≤768 / ≤480 / ≤380)
+ * Layered on top of the existing tablet/phone media queries above.
+ * Goals:
+ *   1. Big enough touch targets (≥44px) on everything tappable
+ *   2. Filter toolbars (Dochadzka, Audit, Reports) wrap cleanly
+ *   3. Every data table scrolls horizontally inside its panel
+ *      instead of pushing the whole layout off-screen
+ *   4. Modals + forms feel native on a phone
+ * ============================================================ */
+@media (max-width: 768px) {
+  /* Sidebar items — make the existing horizontal-scroll nav feel
+     less cramped: real spacing, slightly larger fonts on the items
+     that don't have icons (admin/audit). Also pad-left so the first
+     item isn't flush against the screen edge. */
+  .sidebar .nav { padding: 6px 4px; gap: 2px; }
+  .sidebar .nav-item {
+    padding: 10px 12px;
+    min-height: 44px;
+    font-size: 12.5px;
+    border-radius: 10px;
+  }
+  .sidebar .nav-item.back {
+    background: rgba(139,124,246,.08);
+    color: var(--color-accent);
+    border: 1px solid rgba(139,124,246,.18);
+  }
+  /* Header user pill — make the avatar circle a touchable size and
+     the name truncate gracefully on narrow screens. */
+  .header { gap: 8px; flex-wrap: wrap; align-items: center; }
+  .header-title {
+    font-size: clamp(1rem, 4.5vw, 1.4rem);
+    flex: 1; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .header-right { gap: 6px; flex-wrap: nowrap; }
+  .header-user { padding: 4px 10px 4px 4px; gap: 6px; }
+  .header-user span:last-child { max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Every data-table inside a .panel + .table-scroll-wrap should
+     scroll horizontally on phones — most admin tables have 5-8
+     columns that don't fit a 360px screen. Existing wrap handles
+     this, but some pages skip it; force the panel to clip. */
+  .panel { overflow-x: hidden; }
+  .table-scroll-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    /* Visual cue that there's more to the right */
+    background:
+      linear-gradient(to right, var(--color-bg-surface,#15131f), var(--color-bg-surface,#15131f) 30%) left center / 30px 100% no-repeat,
+      linear-gradient(to left, var(--color-bg-surface,#15131f), var(--color-bg-surface,#15131f) 30%) right center / 30px 100% no-repeat,
+      linear-gradient(to right, rgba(0,0,0,.18), rgba(0,0,0,0)) left center / 12px 100% no-repeat,
+      linear-gradient(to left, rgba(0,0,0,.18), rgba(0,0,0,0)) right center / 12px 100% no-repeat;
+    background-attachment: local, local, scroll, scroll;
+  }
+  .data-table { min-width: 560px; }
+  .data-table th, .data-table td { padding: 10px 8px; }
+  .data-table th { font-size: 10.5px; letter-spacing: .4px; }
+  .data-table td { font-size: 12.5px; }
+
+  /* Filter toolbars used by Dochadzka, Audit, and Reports — stack
+     dates on top, then filters, presets last, with a wrapping action
+     row so 'Obnovit' / 'Refresh' is always reachable without scroll. */
+  .doch-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .doch-toolbar-dates {
+    flex-wrap: wrap;
+    gap: 8px;
+    width: 100%;
+  }
+  .doch-toolbar-label {
+    flex: 1 1 calc(50% - 4px);
+    min-width: 130px;
+  }
+  .doch-toolbar-presets {
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .doch-preset {
+    flex: 1 1 calc(50% - 3px);
+    min-height: 40px !important;
+  }
+  .doch-input {
+    min-height: 44px;
+    font-size: 16px; /* 16px+ prevents iOS zoom-on-focus */
+  }
+  .doch-manual-form {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .doch-manual-form .doch-toolbar-label {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  /* Reports period picker — same treatment so 'Vybrať deň' / Custom
+     dates don't squash into a single line. */
+  .filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .period-btns {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .period-btn {
+    flex: 1 1 calc(50% - 2px);
+    min-height: 42px;
+    text-align: center;
+  }
+  .date-range, .date-single {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .date-input {
+    height: 44px;
+    flex: 1 1 calc(50% - 4px);
+    min-width: 0;
+    font-size: 16px;
+  }
+  .filter-bar-actions {
+    flex-wrap: wrap;
+    gap: 6px;
+    width: 100%;
+  }
+  .filter-select { min-height: 42px; flex: 1 1 auto; }
+  .btn-export, .btn-add {
+    min-height: 44px;
+    padding: 10px 16px;
+    flex: 1 1 auto;
+  }
+
+  /* Tabs row in Reports — horizontal scroll instead of cramming */
+  .tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity;
+    flex-wrap: nowrap;
+    margin: -4px -8px 12px;
+    padding: 0 8px;
+  }
+  .tab-btn {
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+    min-height: 40px;
+    padding: 8px 14px;
+    font-size: 13px;
+  }
+
+  /* All buttons everywhere — make sure tappable area is at least
+     44x44 unless explicitly smaller (icon-only buttons size already). */
+  .btn-add, .btn-edit, .btn-save, .btn-secondary, .btn-outline-accent,
+  .u-btn, .u-btn-ice, .u-btn-ghost {
+    min-height: 44px;
+  }
+
+  /* Modals stretch to fit phone screens cleanly. */
+  .u-modal {
+    width: calc(100vw - 24px) !important;
+    max-width: 480px;
+    max-height: calc(100dvh - 32px);
+    margin: 16px auto;
+    overflow-y: auto;
+  }
+  .u-modal-title { font-size: 16px; }
+  .u-modal-btns { flex-direction: column-reverse; gap: 8px; }
+  .u-modal-btns .u-btn { width: 100%; }
+
+  /* Detail panels (Dochadzka per-staff, Reports per-day) — give the
+     summary line room to breathe on a narrow viewport. */
+  .doch-detail-summary {
+    font-size: 12px;
+    gap: 6px;
+  }
+  .doch-detail-summary .dot-sep { display: none; }
+  .doch-subhead { font-size: 12px; margin-top: 12px; }
+}
+
+/* Extra-small phones (≤480) — denser layouts where space is at a
+   premium, and bigger headings get a tighter scale. */
+@media (max-width: 480px) {
+  .sidebar .nav { padding: 6px 2px; }
+  .sidebar .nav-item { padding: 8px 10px; font-size: 11.5px; }
+  .sidebar .nav-item svg { width: 14px; height: 14px; margin-right: 4px; }
+
+  /* Stat cards inside Reports / Dashboard — single column, lighter
+     padding, no gradient bleed. */
+  .stat-card { padding: 12px; }
+  .stat-icon { width: 36px; height: 36px; padding: 7px; }
+  .stat-value { font-size: 1.25rem; }
+  .stat-label { font-size: 10.5px; letter-spacing: .3px; }
+  .stat-change { font-size: 10.5px; }
+
+  /* Tables get a touch denser, but keep cells thumb-tappable. */
+  .data-table th, .data-table td { padding: 8px 6px; }
+  .data-table { min-width: 480px; }
+
+  /* Filter toolbar inputs full-width when only one fits per row. */
+  .doch-toolbar-label { flex: 1 1 100%; }
+  .period-btn { flex: 1 1 100%; }
+  .date-input { flex: 1 1 100%; }
+
+  /* Hide visual accent flourishes that eat space on small screens. */
+  .panel-title svg { width: 16px !important; height: 16px !important; }
+  .panel-subtitle { font-size: 12px; }
+}
+
+/* Touch-friendly form controls everywhere on touch devices, even on
+   tablets where the OS sometimes shrinks them. */
+@media (hover: none) and (pointer: coarse) {
+  .form-input, .form-select, .data-input,
+  .doch-input, .date-input, .filter-select {
+    min-height: 44px;
+    font-size: 16px;
+  }
+  /* Prevent iOS zoom-on-focus by ensuring all text inputs ≥16px. */
+  input[type="text"], input[type="number"], input[type="email"],
+  input[type="tel"], input[type="search"], input[type="password"],
+  input[type="date"], input[type="datetime-local"], input[type="time"],
+  textarea, select {
+    font-size: 16px;
+  }
+}

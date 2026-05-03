@@ -243,11 +243,22 @@ function showToast(msg,type){
 
 function goBackToPOS(e){
   if(e)e.preventDefault();
+  // Three cases:
+  //  1. Iframe overlay (desktop POS) — postMessage to the parent so
+  //     the overlay closes and POS stays alive on the same page.
+  //  2. New tab opened from POS via target=_blank (mobile shortcut)
+  //     — window.opener is set; close THIS tab so the cashier lands
+  //     back on the original POS tab without losing state.
+  //  3. Direct navigation (typed /admin/ in address bar) — full page
+  //     navigate to /pos-enterprise.html.
   if(window.parent!==window){
     window.parent.postMessage('closePosAdmin','*');
-  } else {
-    window.location.href='/pos-enterprise.html';
+    return;
   }
+  if(window.opener && !window.opener.closed){
+    try{ window.close(); return; }catch(_){/* fall through */}
+  }
+  window.location.href='/pos-enterprise.html';
 }
 document.getElementById('backToPOS').addEventListener('click',goBackToPOS);
 document.getElementById('headerBackToPOS').addEventListener('click',goBackToPOS);
