@@ -488,3 +488,28 @@ export const attendanceEvents = pgTable('attendance_events', {
   index('attendance_events_staff_at_idx').on(t.staffId, t.at),
   index('attendance_events_at_idx').on(t.at),
 ]);
+
+// Per-shift payout marker. The clock_out event id uniquely identifies a
+// shift (each clock_in is paired with exactly one clock_out at display
+// time), so we hang the "this shift is paid" record off it. UNIQUE on
+// clock_out_event_id stops a single shift from being double-paid.
+//
+// Each row also carries cashflow_entry_id — when the admin marks a
+// shift as paid the route auto-creates a matching cashflow expense
+// (category=salary) so payroll out-of-pocket shows up in cashflow
+// reports. Deleting the payout cascades the cashflow row out via the
+// route handler (NOT via FK ON DELETE — Drizzle's ref doesn't set
+// that and we want explicit transactional control).
+export const attendancePayouts = pgTable('attendance_payouts', {
+  id: serial('id').primaryKey(),
+  staffId: integer('staff_id').notNull().references(() => staff.id),
+  clockOutEventId: integer('clock_out_event_id').notNull().references(() => attendanceEvents.id, { onDelete: 'cascade' }).unique(),
+  amount: numeric('amount', { precision: 10, scale: 2 }).notNull(),
+  paidAt: timestamp('paid_at', { withTimezone: true }).notNull().defaultNow(),
+  paidByStaffId: integer('paid_by_staff_id').references(() => staff.id),
+  cashflowEntryId: integer('cashflow_entry_id').references(() => cashflowEntries.id),
+  note: varchar('note', { length: 200 }).notNull().default(''),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  index('attendance_payouts_staff_idx').on(t.staffId, t.paidAt),
+]);

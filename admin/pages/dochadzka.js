@@ -407,7 +407,7 @@ async function toggleDetail(staffId) {
   const completed = shifts.filter((s) => s.start && s.end).length;
   const open = shifts.filter((s) => s.start && !s.end).length;
   const shiftRowsHtml = shifts.length === 0
-    ? '<tr><td class="data-td" colspan="6"><div class="empty-hint">Žiadne smeny v tomto období.</div></td></tr>'
+    ? '<tr><td class="data-td" colspan="7"><div class="empty-hint">Žiadne smeny v tomto období.</div></td></tr>'
     : shifts.slice().reverse().map((s) => {
         const refIso = (s.start && s.start.at) || (s.end && s.end.at) || '';
         const dateCell = escapeHtml(formatLocalDate(refIso));
@@ -430,12 +430,31 @@ async function toggleDetail(staffId) {
         if (s.start && s.start.source === 'manual') flags.push('<span class="badge badge-warning">manuál (in)</span>');
         if (s.end && s.end.source === 'auto_close') flags.push('<span class="badge badge-warning">auto-zatv</span>');
         if (s.end && s.end.source === 'manual') flags.push('<span class="badge badge-warning">manuál (out)</span>');
+        // Paid pill or "Označiť ako vyplatené" button. Only for closed
+        // shifts (need a clock_out event id to link to). For open shifts
+        // we just show '—' since the wage isn't final yet anyway.
+        let paidCell;
+        if (s.end && s.end.id) {
+          if (s.end.paid) {
+            const paidDate = formatLocalDate(s.end.paid.paidAt);
+            paidCell = '<button type="button" class="doch-paid-pill" data-unpay="' + s.end.paid.id + '" title="Klik = zrušiť výplatu">' +
+              '<span class="doch-paid-icon">✓</span> Vyplatené ' + escapeHtml(paidDate) +
+            '</button>';
+          } else if (wage != null) {
+            paidCell = '<button type="button" class="doch-pay-btn" data-pay-out="' + s.end.id + '" data-pay-amount="' + wage.toFixed(2) + '">Označiť ako vyplatené</button>';
+          } else {
+            paidCell = '<span class="text-muted">— (bez sadzby)</span>';
+          }
+        } else {
+          paidCell = '<span class="text-muted">—</span>';
+        }
         return '<tr class="data-row">' +
           '<td class="data-td">' + dateCell + '</td>' +
           '<td class="data-td">' + startCell + '</td>' +
           '<td class="data-td">' + endCell + '</td>' +
           '<td class="data-td">' + durCell + '</td>' +
           '<td class="data-td num">' + wageCell + '</td>' +
+          '<td class="data-td">' + paidCell + '</td>' +
           '<td class="data-td">' + (flags.join(' ') || '<span class="text-muted">—</span>') + '</td>' +
         '</tr>';
       }).join('');
@@ -472,6 +491,7 @@ async function toggleDetail(staffId) {
             '<th class="data-th">Odchod</th>' +
             '<th class="data-th">Trvanie</th>' +
             '<th class="data-th">Mzda</th>' +
+            '<th class="data-th">Vyplatené</th>' +
             '<th class="data-th">Pozn.</th>' +
           '</tr></thead>' +
           '<tbody>' + shiftRowsHtml + '</tbody>' +
@@ -566,6 +586,53 @@ async function toggleDetail(staffId) {
           }
         },
         { type: 'danger', confirmText: 'Vymazať' },
+      );
+    });
+  });
+
+  // Mark a shift as paid: confirm dialog shows the amount about to be
+  // moved into cashflow as a salary expense, then POSTs.
+  detail.querySelectorAll('button[data-pay-out]').forEach((b) => {
+    b.addEventListener('click', () => {
+      const clockOutEventId = parseInt(b.getAttribute('data-pay-out'), 10);
+      const amount = Number(b.getAttribute('data-pay-amount'));
+      showConfirm(
+        'Označiť ako vyplatené?',
+        'Vyplata ' + fmtEur(amount) + ' sa zapíše ako výdavok do Cashflow (kategória "Mzdy / odmeny"). Túto akciu vieš vrátiť.',
+        async () => {
+          try {
+            await api.post('/attendance/payouts', { clockOutEventId, amount });
+            showToast('Smena označená ako vyplatená', true);
+            await loadSummary();
+            _expanded = null;
+            await toggleDetail(staffId);
+          } catch (err) {
+            showToast(err.message || 'Označenie zlyhalo', 'error');
+          }
+        },
+        { confirmText: 'Označiť' },
+      );
+    });
+  });
+  // Unpay (click on the green pill) — also removes the linked cashflow row.
+  detail.querySelectorAll('button[data-unpay]').forEach((b) => {
+    b.addEventListener('click', () => {
+      const id = parseInt(b.getAttribute('data-unpay'), 10);
+      showConfirm(
+        'Zrušiť výplatu tejto smeny?',
+        'Súčasne sa odstráni aj zodpovedajúci záznam v Cashflow.',
+        async () => {
+          try {
+            await api.del('/attendance/payouts/' + id);
+            showToast('Výplata zrušená', true);
+            await loadSummary();
+            _expanded = null;
+            await toggleDetail(staffId);
+          } catch (err) {
+            showToast(err.message || 'Zrušenie zlyhalo', 'error');
+          }
+        },
+        { type: 'danger', confirmText: 'Zrušiť' },
       );
     });
   });

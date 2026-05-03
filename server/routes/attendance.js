@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { db } from '../db/index.js';
-import { staff, attendanceEvents, authAttempts } from '../db/schema.js';
+import { staff, attendanceEvents, authAttempts, attendancePayouts, cashflowEntries } from '../db/schema.js';
 import { eq, and, gte, lte, desc, sql, count } from 'drizzle-orm';
 import { validate } from '../middleware/validate.js';
 import { asyncRoute } from '../lib/async-route.js';
@@ -191,17 +191,55 @@ adminRouter.get('/history/:staffId', mgr, asyncRoute(async (req, res) => {
     lte(attendanceEvents.at, toDate),
   )).orderBy(attendanceEvents.at);
 
+  // Enrich each clock_out event with its payout (if any) so the admin
+  // table can render "✓ Vyplatené" badges per shift without a second
+  // round-trip. Joins on clock_out_event_id; a clock_in event simply
+  // returns paid=null since payouts hang off the closing event.
+  const clockOutIds = events.filter((e) => e.type === 'clock_out').map((e) => e.id);
+  let payoutByOutId = new Map();
+  if (clockOutIds.length) {
+    const payouts = await db.select({
+      id: attendancePayouts.id,
+      clockOutEventId: attendancePayouts.clockOutEventId,
+      amount: attendancePayouts.amount,
+      paidAt: attendancePayouts.paidAt,
+      paidByStaffId: attendancePayouts.paidByStaffId,
+      cashflowEntryId: attendancePayouts.cashflowEntryId,
+      note: attendancePayouts.note,
+    }).from(attendancePayouts).where(
+      sql`${attendancePayouts.clockOutEventId} IN (${sql.join(clockOutIds.map((id) => sql`${id}`), sql`, `)})`,
+    );
+    for (const p of payouts) payoutByOutId.set(p.clockOutEventId, p);
+  }
+
+  const eventsWithPayout = events.map((e) => {
+    if (e.type !== 'clock_out') return { ...e, paid: null };
+    const p = payoutByOutId.get(e.id);
+    return {
+      ...e,
+      paid: p ? {
+        id: p.id,
+        amount: Number(p.amount),
+        paidAt: p.paidAt,
+        paidByStaffId: p.paidByStaffId,
+        cashflowEntryId: p.cashflowEntryId,
+        note: p.note,
+      } : null,
+    };
+  });
+
   const shifts = pairEventsToShifts(events);
   const summary = summarizeHours(shifts);
   const [s] = await db.select().from(staff).where(eq(staff.id, staffId));
   res.json({
     staff: s ? { id: s.id, name: s.name, position: s.position || '', hourlyRate: s.hourlyRate } : null,
-    events,
+    events: eventsWithPayout,
     shifts: shifts.map((sh) => ({
       inAt: sh.inEvent ? sh.inEvent.at : null,
       outAt: sh.outEvent ? sh.outEvent.at : null,
       minutes: sh.minutes,
       closed: sh.closed,
+      clockOutEventId: sh.outEvent ? sh.outEvent.id : null,
     })),
     summary: {
       minutes: summary.minutes,
@@ -209,6 +247,89 @@ adminRouter.get('/history/:staffId', mgr, asyncRoute(async (req, res) => {
       wage: computeWage(summary.minutes, s?.hourlyRate),
     },
   });
+}));
+
+// ===================== PAYOUTS =====================
+// Mark a shift as paid: store the amount + auto-create a matching
+// cashflow expense (category=salary) so payroll cash leaving the till
+// shows up in the cashflow report. The two rows are linked by FK so
+// undoing the payout (DELETE) also removes the cashflow expense in the
+// same transaction.
+adminRouter.post('/payouts', mgr, asyncRoute(async (req, res) => {
+  const clockOutEventId = Number.parseInt(req.body && req.body.clockOutEventId, 10);
+  const amount = Number(req.body && req.body.amount);
+  const note = String((req.body && req.body.note) || '').slice(0, 200);
+
+  if (!Number.isFinite(clockOutEventId) || clockOutEventId <= 0) {
+    return res.status(400).json({ error: 'Neplatné clockOutEventId' });
+  }
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return res.status(400).json({ error: 'Suma musí byť kladná' });
+  }
+
+  const [outEvent] = await db.select().from(attendanceEvents).where(eq(attendanceEvents.id, clockOutEventId));
+  if (!outEvent || outEvent.type !== 'clock_out') {
+    return res.status(404).json({ error: 'Smena (clock_out event) nenájdená' });
+  }
+  const [existing] = await db.select().from(attendancePayouts).where(eq(attendancePayouts.clockOutEventId, clockOutEventId));
+  if (existing) {
+    return res.status(409).json({ error: 'Smena už bola označená ako vyplatená', payout: existing });
+  }
+
+  const [staffRow] = await db.select().from(staff).where(eq(staff.id, outEvent.staffId));
+  const staffName = (staffRow && staffRow.name) || 'Zamestnanec';
+  const shiftDate = new Date(outEvent.at).toISOString().slice(0, 10);
+
+  // Single transaction so a failed cashflow insert doesn't leave a
+  // payout pointing at a non-existent expense row.
+  const result = await db.transaction(async (tx) => {
+    const [cashflowRow] = await tx.insert(cashflowEntries).values({
+      type: 'expense',
+      category: 'salary',
+      amount: String(amount),
+      occurredAt: new Date(),
+      method: 'cash',
+      note: note || `Výplata smeny — ${staffName} (${shiftDate})`,
+      staffId: req.user.id,
+    }).returning();
+
+    const [payout] = await tx.insert(attendancePayouts).values({
+      staffId: outEvent.staffId,
+      clockOutEventId,
+      amount: String(amount),
+      paidAt: new Date(),
+      paidByStaffId: req.user.id,
+      cashflowEntryId: cashflowRow.id,
+      note,
+    }).returning();
+
+    return { payout, cashflowRow };
+  });
+
+  res.status(201).json({
+    id: result.payout.id,
+    amount: Number(result.payout.amount),
+    paidAt: result.payout.paidAt,
+    paidByStaffId: result.payout.paidByStaffId,
+    cashflowEntryId: result.payout.cashflowEntryId,
+    clockOutEventId: result.payout.clockOutEventId,
+  });
+}));
+
+adminRouter.delete('/payouts/:id', mgr, asyncRoute(async (req, res) => {
+  const id = Number.parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Neplatné id' });
+  const [payout] = await db.select().from(attendancePayouts).where(eq(attendancePayouts.id, id));
+  if (!payout) return res.status(404).json({ error: 'Výplata nenájdená' });
+
+  await db.transaction(async (tx) => {
+    await tx.delete(attendancePayouts).where(eq(attendancePayouts.id, id));
+    if (payout.cashflowEntryId) {
+      await tx.delete(cashflowEntries).where(eq(cashflowEntries.id, payout.cashflowEntryId));
+    }
+  });
+
+  res.status(204).end();
 }));
 
 adminRouter.get('/summary', mgr, asyncRoute(async (req, res) => {
