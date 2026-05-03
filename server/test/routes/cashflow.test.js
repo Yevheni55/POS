@@ -120,3 +120,67 @@ describe('GET /api/cashflow', () => {
     assert.equal(res.status, 401);
   });
 });
+
+describe('PATCH /api/cashflow/:id', () => {
+  before(async () => { await truncateAll(); await seed(); });
+
+  it('updates note and amount', async () => {
+    const create = await request.post('/api/cashflow')
+      .set('Authorization', `Bearer ${tokens.manazer()}`)
+      .send({ type: 'expense', category: 'rent', amount: 850, occurredAt: '2026-05-03T08:00:00Z' });
+    const id = create.body.id;
+    const patch = await request.patch(`/api/cashflow/${id}`)
+      .set('Authorization', `Bearer ${tokens.manazer()}`)
+      .send({ amount: 900, note: 'Včítane vody' });
+    assert.equal(patch.status, 200);
+    assert.equal(Number(patch.body.amount), 900);
+    assert.equal(patch.body.note, 'Včítane vody');
+    assert.equal(patch.body.category, 'rent'); // unchanged
+  });
+
+  it('returns 404 for unknown id', async () => {
+    const res = await request.patch('/api/cashflow/999999')
+      .set('Authorization', `Bearer ${tokens.manazer()}`)
+      .send({ amount: 10 });
+    assert.equal(res.status, 404);
+  });
+
+  it('rejects empty body with 400', async () => {
+    const create = await request.post('/api/cashflow')
+      .set('Authorization', `Bearer ${tokens.manazer()}`)
+      .send({ type: 'income', category: 'tip', amount: 5, occurredAt: '2026-05-03T22:00:00Z' });
+    const res = await request.patch(`/api/cashflow/${create.body.id}`)
+      .set('Authorization', `Bearer ${tokens.manazer()}`)
+      .send({});
+    assert.equal(res.status, 400);
+  });
+});
+
+describe('DELETE /api/cashflow/:id', () => {
+  before(async () => { await truncateAll(); await seed(); });
+
+  it('deletes an entry as admin', async () => {
+    const create = await request.post('/api/cashflow')
+      .set('Authorization', `Bearer ${tokens.admin()}`)
+      .send({ type: 'expense', category: 'rent', amount: 850, occurredAt: '2026-05-03T08:00:00Z' });
+    const id = create.body.id;
+    const del = await request.delete(`/api/cashflow/${id}`)
+      .set('Authorization', `Bearer ${tokens.admin()}`);
+    assert.equal(del.status, 204);
+    const list = await request.get('/api/cashflow?from=2026-05-01&to=2026-05-31')
+      .set('Authorization', `Bearer ${tokens.admin()}`);
+    assert.ok(list.body.entries.every((e) => e.id !== id));
+  });
+
+  it('returns 404 for unknown id', async () => {
+    const res = await request.delete('/api/cashflow/999999')
+      .set('Authorization', `Bearer ${tokens.admin()}`);
+    assert.equal(res.status, 404);
+  });
+
+  it('rejects cisnik with 403', async () => {
+    const res = await request.delete('/api/cashflow/1')
+      .set('Authorization', `Bearer ${tokens.cisnik()}`);
+    assert.equal(res.status, 403);
+  });
+});

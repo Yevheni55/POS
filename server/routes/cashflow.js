@@ -73,4 +73,30 @@ router.get('/', mgr, asyncRoute(async (req, res) => {
   });
 }));
 
+router.patch('/:id', mgr, validate(updateCashflowSchema), asyncRoute(async (req, res) => {
+  const id = Number.parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Neplatné id' });
+
+  const updates = {};
+  if (req.body.type !== undefined) updates.type = req.body.type;
+  if (req.body.category !== undefined) updates.category = req.body.category;
+  if (req.body.amount !== undefined) updates.amount = String(req.body.amount);
+  if (req.body.occurredAt !== undefined) updates.occurredAt = new Date(req.body.occurredAt);
+  if (req.body.method !== undefined) updates.method = req.body.method;
+  if (req.body.note !== undefined) updates.note = req.body.note;
+  updates.updatedAt = new Date();
+
+  const [row] = await db.update(cashflowEntries).set(updates).where(eq(cashflowEntries.id, id)).returning();
+  if (!row) return res.status(404).json({ error: 'Záznam nenájdený' });
+  res.json(row);
+}));
+
+router.delete('/:id', mgr, asyncRoute(async (req, res) => {
+  const id = Number.parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Neplatné id' });
+  const result = await db.delete(cashflowEntries).where(eq(cashflowEntries.id, id)).returning();
+  if (!result.length) return res.status(404).json({ error: 'Záznam nenájdený' });
+  res.status(204).end();
+}));
+
 export default router;
