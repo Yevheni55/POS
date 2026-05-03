@@ -484,7 +484,15 @@
       if (posFullscreen.isActive()) {
         localStorage.setItem('pos_fs_restore', '1');
       }
-      window.location.href = 'pos-enterprise.html';
+      // Honour ?redirect=<path> so deep links work (e.g. mobile admin
+      // shortcut opens login.html?redirect=/admin/ in a fresh tab —
+      // after login we land directly on admin, not on pos-enterprise).
+      // Restrict to same-origin paths to defeat open-redirect XSS:
+      // only paths starting with a single slash and not '//' are kept.
+      var params = new URLSearchParams(window.location.search);
+      var target = params.get('redirect') || '';
+      var safe = /^\/[^\/]/.test(target) ? target : null;
+      window.location.href = safe || 'pos-enterprise.html';
     }, 800);
   }
 

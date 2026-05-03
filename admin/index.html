@@ -160,6 +160,32 @@
 <script>
 var ROLE_LABELS={admin:'Admin',manazer:'Manažér',cisnik:'Čašník'};
 
+// Handoff consumer for the mobile admin shortcut. POS stashes token+user
+// into localStorage just-in-time before opening /admin/ in a new tab,
+// because target=_blank doesn't always inherit sessionStorage on iOS
+// Safari / installed PWA. We pull it into THIS tab's sessionStorage and
+// wipe localStorage immediately so the handoff doesn't sit around as a
+// long-lived auth grant.
+(function(){
+  try{
+    if(sessionStorage.getItem('pos_token')) return;
+    var ts=parseInt(localStorage.getItem('pos_token_handoff_ts')||'0',10);
+    if(!ts || (Date.now()-ts)>30000) return; // 30s window only
+    var t=localStorage.getItem('pos_token_handoff');
+    var u=localStorage.getItem('pos_user_handoff');
+    if(t){
+      sessionStorage.setItem('pos_token',t);
+      if(u) sessionStorage.setItem('pos_user',u);
+    }
+  }catch(e){/* storage disabled */}finally{
+    try{
+      localStorage.removeItem('pos_token_handoff');
+      localStorage.removeItem('pos_user_handoff');
+      localStorage.removeItem('pos_token_handoff_ts');
+    }catch(e){}
+  }
+})();
+
 // Auth check (Portos → DB sync spúšťa router.js pred prvým načítaním stránky)
 (function(){
   if(!api.requireAuth()) return;

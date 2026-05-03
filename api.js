@@ -381,7 +381,16 @@ const api = {
 
   requireAuth() {
     if (!this.getToken()) {
-      window.location.href = '/login.html';
+      // Preserve where the user wanted to go so login can deep-link
+      // them back. Same-origin only — encodeURIComponent guards the
+      // path in transit. Skip when we're already on /login* to avoid
+      // a recursion loop.
+      var here = window.location.pathname + window.location.search;
+      if (!/^\/login(\.html)?$/.test(window.location.pathname) && /^\/[^\/]/.test(here)) {
+        window.location.href = '/login.html?redirect=' + encodeURIComponent(here);
+      } else {
+        window.location.href = '/login.html';
+      }
       return false;
     }
     return true;

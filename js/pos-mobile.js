@@ -415,6 +415,36 @@ function initMobile() {
   switchMobTab(mobActiveTab);
 }
 
+// Mobile admin click — sessionStorage doesn't always cross to a fresh
+// target=_blank tab (Safari iOS, some PWA installs). Stash the auth
+// pair into localStorage just-in-time so admin/index.html (and the api
+// helper there) can recover it on the new tab; if that lookup misses
+// too, deep-link through login with ?redirect=/admin/ so login lands
+// us on admin after re-auth instead of back on the cashier view.
+function openMobileAdmin(e) {
+  try {
+    var token = sessionStorage.getItem('pos_token');
+    var user  = sessionStorage.getItem('pos_user');
+    if (token) {
+      // Short-lived handoff key — admin/index.html reads + clears it
+      // immediately on boot so it doesn't sit around as a privilege
+      // store. Falls back to plain ?redirect= flow if disabled.
+      localStorage.setItem('pos_token_handoff', token);
+      if (user) localStorage.setItem('pos_user_handoff', user);
+      localStorage.setItem('pos_token_handoff_ts', String(Date.now()));
+    } else {
+      // No active session in this tab — short-circuit to login with
+      // redirect so the round-trip is one click instead of two.
+      e.preventDefault();
+      window.open('/login.html?redirect=/admin/', '_blank', 'noopener');
+    }
+  } catch (err) {
+    // Storage disabled (private mode, quota) — let the default href
+    // navigate; login fallback in admin/index.html will still trigger.
+  }
+}
+window.openMobileAdmin = openMobileAdmin;
+
 // Patch renderOrder to also update mobile
 const _baseRenderOrder = renderOrder;
 renderOrder = function() {
