@@ -15,13 +15,19 @@ const baseFields = {
 
 export const createCashflowSchema = z.object(baseFields);
 
+// `note` is redefined here (NOT reusing baseFields.note) because the
+// create-side baseFields.note has `.default('')` — that default fires on
+// PATCH `{}` too, producing `{ note: '' }` and slipping through the
+// "at-least-one-field" guard below. The update path wants truly-absent
+// fields to STAY absent so the refine + the route's "spread only the
+// present keys" pattern (PATCH /api/cashflow/:id) work correctly.
 export const updateCashflowSchema = z.object({
   type: baseFields.type.optional(),
   category: baseFields.category.optional(),
   amount: baseFields.amount.optional(),
   occurredAt: baseFields.occurredAt.optional(),
   method: baseFields.method.optional(),
-  note: baseFields.note,
+  note: z.string().max(500).optional(),
 }).refine((obj) => Object.keys(obj).length > 0, {
   message: 'Aspoň jedno pole musí byť uvedené',
 });
