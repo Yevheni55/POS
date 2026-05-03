@@ -184,3 +184,32 @@ describe('DELETE /api/cashflow/:id', () => {
     assert.equal(res.status, 403);
   });
 });
+
+describe('GET /api/cashflow/summary', () => {
+  before(async () => { await truncateAll(); await seed(); });
+
+  it('combines manual entries + POS payments + shisha into a totals payload', async () => {
+    const adminToken = tokens.manazer();
+    await request.post('/api/cashflow').set('Authorization', `Bearer ${adminToken}`)
+      .send({ type: 'expense', category: 'rent', amount: 850, occurredAt: '2026-05-03T08:00:00Z' });
+    await request.post('/api/cashflow').set('Authorization', `Bearer ${adminToken}`)
+      .send({ type: 'expense', category: 'utilities', amount: 120, occurredAt: '2026-05-03T08:00:00Z' });
+    await request.post('/api/cashflow').set('Authorization', `Bearer ${adminToken}`)
+      .send({ type: 'income', category: 'tip', amount: 25, occurredAt: '2026-05-03T22:00:00Z' });
+
+    const res = await request
+      .get('/api/cashflow/summary?from=2026-05-01&to=2026-05-31')
+      .set('Authorization', `Bearer ${adminToken}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.period.from, '2026-05-01');
+    assert.equal(Number(res.body.manual.income), 25);
+    assert.equal(Number(res.body.manual.expense), 970);
+    assert.ok('posRevenue' in res.body);
+    assert.ok('shishaRevenue' in res.body);
+    assert.ok('netCashflow' in res.body);
+    assert.ok(Array.isArray(res.body.byCategory.expense));
+    assert.ok(Array.isArray(res.body.byCategory.income));
+    const rentRow = res.body.byCategory.expense.find((c) => c.category === 'rent');
+    assert.equal(Number(rentRow.total), 850);
+  });
+});

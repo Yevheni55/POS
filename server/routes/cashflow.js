@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { and, desc, eq, gte, lte, sql } from 'drizzle-orm';
 
 import { db } from '../db/index.js';
-import { cashflowEntries } from '../db/schema.js';
+import { cashflowEntries, payments, shishaSales } from '../db/schema.js';
 import { requireRole } from '../middleware/requireRole.js';
 import { validate } from '../middleware/validate.js';
 import { asyncRoute } from '../lib/async-route.js';
@@ -97,6 +97,81 @@ router.delete('/:id', mgr, asyncRoute(async (req, res) => {
   const result = await db.delete(cashflowEntries).where(eq(cashflowEntries.id, id)).returning();
   if (!result.length) return res.status(404).json({ error: 'Záznam nenájdený' });
   res.status(204).end();
+}));
+
+// Summary endpoint — combines manual cashflow with already-tracked POS
+// revenue (payments table) and shisha (shishaSales). Same TZ + date guard
+// as the list endpoint so behavior is consistent.
+router.get('/summary', mgr, asyncRoute(async (req, res) => {
+  const to = req.query.to || new Date().toISOString().slice(0, 10);
+  const from = req.query.from || to;
+  if (!isValidIsoDate(from) || !isValidIsoDate(to)) {
+    return res.status(400).json({ error: 'Neplatný formát dátumu (očakávame YYYY-MM-DD)' });
+  }
+  const fromBoundary = sql`(${from + ' 00:00:00'})::timestamp AT TIME ZONE ${TZ}`;
+  const toBoundary   = sql`(${to + ' 23:59:59'})::timestamp AT TIME ZONE ${TZ}`;
+
+  const [manualAgg] = await db.select({
+    incomeTotal:  sql`COALESCE(SUM(${cashflowEntries.amount}::numeric) FILTER (WHERE ${cashflowEntries.type} = 'income'), 0)`,
+    expenseTotal: sql`COALESCE(SUM(${cashflowEntries.amount}::numeric) FILTER (WHERE ${cashflowEntries.type} = 'expense'), 0)`,
+    incomeCount:  sql`COUNT(*) FILTER (WHERE ${cashflowEntries.type} = 'income')`,
+    expenseCount: sql`COUNT(*) FILTER (WHERE ${cashflowEntries.type} = 'expense')`,
+  }).from(cashflowEntries).where(
+    and(gte(cashflowEntries.occurredAt, fromBoundary), lte(cashflowEntries.occurredAt, toBoundary)),
+  );
+
+  const byCategoryRows = await db.select({
+    type: cashflowEntries.type,
+    category: cashflowEntries.category,
+    total: sql`COALESCE(SUM(${cashflowEntries.amount}::numeric), 0)`,
+    count: sql`COUNT(*)`,
+  }).from(cashflowEntries).where(
+    and(gte(cashflowEntries.occurredAt, fromBoundary), lte(cashflowEntries.occurredAt, toBoundary)),
+  ).groupBy(cashflowEntries.type, cashflowEntries.category);
+
+  const [posAgg] = await db.select({
+    total: sql`COALESCE(SUM(${payments.amount}::numeric), 0)`,
+  }).from(payments).where(
+    sql`${payments.createdAt} >= ${fromBoundary} AND ${payments.createdAt} <= ${toBoundary}`,
+  );
+
+  const [shishaAgg] = await db.select({
+    total: sql`COALESCE(SUM(${shishaSales.price}::numeric), 0)`,
+  }).from(shishaSales).where(
+    sql`${shishaSales.soldAt} >= ${fromBoundary} AND ${shishaSales.soldAt} <= ${toBoundary}`,
+  );
+
+  const manualIncome  = Number(manualAgg.incomeTotal)  || 0;
+  const manualExpense = Number(manualAgg.expenseTotal) || 0;
+  const posRevenue    = Number(posAgg.total)           || 0;
+  const shishaRevenue = Number(shishaAgg.total)        || 0;
+
+  const byCategory = { income: [], expense: [] };
+  for (const r of byCategoryRows) {
+    byCategory[r.type].push({
+      category: r.category,
+      total: Number(r.total) || 0,
+      count: Number(r.count) || 0,
+    });
+  }
+  byCategory.income.sort((a, b) => b.total - a.total);
+  byCategory.expense.sort((a, b) => b.total - a.total);
+
+  res.json({
+    period: { from, to },
+    manual: {
+      income: manualIncome,
+      expense: manualExpense,
+      incomeCount:  Number(manualAgg.incomeCount)  || 0,
+      expenseCount: Number(manualAgg.expenseCount) || 0,
+    },
+    posRevenue,
+    shishaRevenue,
+    totalIncome:  manualIncome + posRevenue + shishaRevenue,
+    totalExpense: manualExpense,
+    netCashflow:  manualIncome + posRevenue + shishaRevenue - manualExpense,
+    byCategory,
+  });
 }));
 
 export default router;
