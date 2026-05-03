@@ -279,6 +279,12 @@ function addToOrder(name, emoji, price) {
       combo._noMerge = true;
       var sauceNote = sauces.length ? sauces.join(' + ') : 'bez omáčky';
       _addSauceAnnotationForCombo(combo, sauceNote);
+      // Combo also includes malé hranolky + burger as 0-price companions,
+      // so their recipes auto-deduct raw stock (zemiaky for fries, žemľa
+      // + mäso + cheddar + … for the burger). Drink companion not added —
+      // operator picks the actual bottle separately at checkout.
+      _addBurgerCompanionForCombo(combo, name);
+      _addFriesCompanionForCombo(combo);
     });
     return;
   }
@@ -361,6 +367,58 @@ function _addSauceAnnotationForCombo(primaryCombo, sauceNote) {
 
   setOrder(order);
   _scheduleRender();
+}
+
+// Combo includes the underlying burger as a 0-price companion line so
+// the burger's recipe auto-deducts raw stock (žemľa, mäso, cheddar, sos).
+// Strips the 'Combo ' prefix and appends ' burger' to find the menu item:
+//   'Combo Big Mac Smash'        → 'Big Mac Smash burger'
+//   'Combo Chipotle Smash'       → 'Chipotle Smash burger'
+//   'Combo BBQ Smash'            → 'BBQ Smash burger'
+//   'Combo Vegetarian Halloumi'  → 'Vegetarian Halloumi burger'
+function _addBurgerCompanionForCombo(primaryCombo, comboName) {
+  if (!primaryCombo || !comboName) return;
+  if (typeof MENU_ID_MAP === 'undefined' || typeof MENU_ITEM_BY_ID === 'undefined') return;
+  var burgerName = String(comboName).replace(/^combo\s+/i, '') + ' burger';
+  var burgerId = MENU_ID_MAP.get(burgerName);
+  if (!burgerId) return; // burger menu item not found — silently skip (combo recipe may handle later)
+  var burger = MENU_ITEM_BY_ID.get(burgerId);
+  if (!burger) return;
+  var order = getOrder();
+  order.push({
+    name: burger.name,
+    emoji: burger.emoji,
+    price: 0,
+    qty: primaryCombo.qty,
+    note: 'k combu',
+    menuItemId: burgerId,
+    id: _getNextLocalOrderItemId(),
+    _companionOf: primaryCombo.id,
+  });
+  setOrder(order);
+}
+
+// Combo always includes 'Hranolky malé 130g' as a 0-price companion. The
+// fries menu item has track_mode='recipe' (deducts ~195g raw zemiakov).
+function _addFriesCompanionForCombo(primaryCombo) {
+  if (!primaryCombo) return;
+  if (typeof MENU_ID_MAP === 'undefined' || typeof MENU_ITEM_BY_ID === 'undefined') return;
+  var friesId = MENU_ID_MAP.get('Hranolky malé 130g');
+  if (!friesId) return;
+  var fries = MENU_ITEM_BY_ID.get(friesId);
+  if (!fries) return;
+  var order = getOrder();
+  order.push({
+    name: fries.name,
+    emoji: fries.emoji,
+    price: 0,
+    qty: primaryCombo.qty,
+    note: 'k combu',
+    menuItemId: friesId,
+    id: _getNextLocalOrderItemId(),
+    _companionOf: primaryCombo.id,
+  });
+  setOrder(order);
 }
 
 function _addToOrderCore(name, emoji, price, forceNewRow) {
