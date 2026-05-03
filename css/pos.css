@@ -1186,25 +1186,36 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
     line-height:1.35;
   }
 
-  /* Order item — delete moved to left, away from + */
+  /* Order item — 2-row card layout. Row 1 = emoji + full name + delete.
+     Row 2 = qty controls + price + move. Designed for thumb tapping
+     during service: delete (×) sits TOP-RIGHT, far from the (+) which is
+     bottom-left, so a fat-finger swap can't fire by accident. Name has
+     NO line-clamp — it wraps freely to as many lines as needed so the
+     waiter sees the full product (e.g. 'Limonáda Kiwi & Limetka 0,5 l'
+     instead of '… 0,5 …'). */
   .mob-order-item{
-    display:flex;align-items:center;gap:8px;padding:10px 12px;
+    display:flex;flex-direction:column;gap:8px;padding:10px 12px;
     border-bottom:1px solid rgba(139,124,246,.04);
   }
   .mob-order-item.sent{background:rgba(92,196,158,.06);border-left:3px solid rgba(92,196,158,.3)}
+  .mob-oi-row1{display:flex;align-items:flex-start;gap:10px;width:100%}
+  .mob-oi-row2{display:flex;align-items:center;gap:10px;width:100%;padding-left:46px;min-height:44px}
   .mob-oi-del{
-    width:32px;height:32px;border-radius:8px;border:none;
-    background:rgba(224,112,112,.08);color:rgba(224,112,112,.5);font-size:14px;font-weight:700;
+    width:36px;height:36px;border-radius:8px;border:none;
+    background:rgba(224,112,112,.08);color:rgba(224,112,112,.7);font-size:18px;font-weight:700;
     cursor:pointer;display:flex;align-items:center;justify-content:center;
-    flex-shrink:0;-webkit-tap-highlight-color:transparent;order:-1;
+    flex-shrink:0;-webkit-tap-highlight-color:transparent;
   }
   .mob-oi-del:active{background:rgba(224,112,112,.25);color:#fff;transform:scale(.9)}
-  .mob-oi-emoji{font-size:20px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:10px;background:rgba(139,124,246,.05);flex-shrink:0}
-  .mob-oi-info{flex:1;min-width:0}
-  .mob-oi-info{cursor:pointer;-webkit-tap-highlight-color:transparent}
-  .mob-oi-name{font-size:13px;font-weight:700;line-height:1.2;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-  .mob-oi-note{font-size:10px;color:var(--color-accent-dim);font-style:italic}
-  .mob-oi-add-note{font-size:10px;color:var(--color-text-dim);margin-top:1px}
+  .mob-oi-emoji{font-size:22px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:10px;background:rgba(139,124,246,.05);flex-shrink:0}
+  .mob-oi-info{flex:1;min-width:0;cursor:pointer;-webkit-tap-highlight-color:transparent;padding-top:2px}
+  /* Full name visible — no clamp, wraps freely. word-break: break-word
+     prevents super-long single tokens (rare) from overflowing. */
+  .mob-oi-name{font-size:15px;font-weight:700;line-height:1.3;color:var(--color-text);word-break:break-word;hyphens:auto}
+  .mob-oi-note{font-size:11px;color:var(--color-accent-dim);font-style:italic;margin-top:2px;word-break:break-word}
+  .mob-oi-add-note{font-size:11px;color:var(--color-text-dim);margin-top:2px}
+  /* Sent items: read-only 'Nx · price' instead of qty controls. */
+  .mob-oi-qty-readonly{font-family:var(--font-display);font-weight:700;font-size:14px;color:var(--color-text-sec)}
   .mob-oi-qty{display:flex;align-items:center;gap:2px}
   .mob-oi-qty button{
     width:40px;height:40px;border-radius:10px;border:1px solid rgba(139,124,246,.12);
@@ -1213,8 +1224,11 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
     -webkit-tap-highlight-color:transparent;
   }
   .mob-oi-qty button:active{background:rgba(139,124,246,.2);transform:scale(.9)}
-  .mob-oi-qty span{font-family:var(--font-display);font-size:16px;font-weight:700;min-width:24px;text-align:center}
-  .mob-oi-price{font-family:var(--font-display);font-weight:700;font-size:13px;color:var(--color-accent);min-width:44px;text-align:right}
+  .mob-oi-qty span{font-family:var(--font-display);font-size:16px;font-weight:700;min-width:28px;text-align:center}
+  /* Price on row 2 stretches with margin-left:auto so it sits on the
+     right of the row, between the qty controls (left) and the move
+     icon (far right). 16px gives it weight without dominating. */
+  .mob-oi-price{font-family:var(--font-display);font-weight:700;font-size:16px;color:var(--color-accent);margin-left:auto;text-align:right;font-variant-numeric:tabular-nums}
   .mob-oi-move{
     min-width:44px;min-height:44px;width:44px;height:44px;flex-shrink:0;
     border-radius:10px;border:1px solid rgba(139,124,246,.12);

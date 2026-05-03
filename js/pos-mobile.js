@@ -274,30 +274,57 @@ function renderMobOrder() {
   if (!order.length) {
     container.innerHTML = `<div class="mob-order-empty"><div class="mob-order-empty-icon">&#128203;</div><div class="mob-order-empty-text">Prazdna objednavka</div></div>`;
   } else if (moveMode) {
+    // Move mode: 2-row card. Row 1 = emoji + check + full name. Row 2 = qty x price.
     container.innerHTML = '<div class="mob-move-hint">Presunout vybrane polozky a potom vyberte cielovy ucet alebo stol.</div>' + order.map(o => {
       var selected = moveSelectedItems.indexOf(o.id) >= 0;
       return `<button type="button" class="mob-order-item mob-order-item-pick${o.sent ? ' sent' : ''}${selected ? ' move-selected' : ''}" onclick="toggleMoveSelection(${o.id})" aria-pressed="${selected ? 'true' : 'false'}">
-        <span class="mob-move-check" aria-hidden="true">${selected ? '&#10003;' : ''}</span>
-        <span class="mob-oi-emoji">${escHtml(o.emoji)}</span>
-        <div class="mob-oi-info"><div class="mob-oi-name">${escHtml(o.name)}</div>${o.note ? `<div class="mob-oi-note">${escHtml(o.note)}</div>` : `<div class="mob-oi-add-note">bez poznamky</div>`}</div>
-        <div class="mob-oi-price">${o.qty}x &middot; ${fmt(o.price * o.qty)}</div>
+        <div class="mob-oi-row1">
+          <span class="mob-move-check" aria-hidden="true">${selected ? '&#10003;' : ''}</span>
+          <span class="mob-oi-emoji">${escHtml(o.emoji)}</span>
+          <div class="mob-oi-info"><div class="mob-oi-name">${escHtml(o.name)}</div>${o.note ? `<div class="mob-oi-note">${escHtml(o.note)}</div>` : ''}</div>
+        </div>
+        <div class="mob-oi-row2">
+          <div class="mob-oi-qty-readonly">${o.qty}x &middot; ${fmt(o.price * o.qty)}</div>
+        </div>
       </button>`;
     }).join('');
   } else {
+    // Cashier-friendly 2-row card layout:
+    //   Row 1: emoji  |  full item name (no clamp, wraps freely)  |  ×
+    //   Row 2: − qty +                       price             ↗
+    // Sent rows skip the qty controls / move / × — those items can't be
+    // mutated from this list (storno is the only path), so row 2 is just
+    // the readable 'qty x price'.
     container.innerHTML = order.map(o => {
       const esc = o.name.replace(/'/g, "\\'");
       const isSent = o.sent;
+      const row2 = isSent
+        ? `<div class="mob-oi-qty-readonly">${o.qty}x &middot; ${fmt(o.price * o.qty)}</div>`
+        : `
+          <div class="mob-oi-qty">
+            <button type="button" onclick="mobChangeQty('${esc}',-1,${o.id})" aria-label="Znížiť">&minus;</button>
+            <span aria-live="polite">${o.qty}</span>
+            <button type="button" onclick="mobChangeQty('${esc}',1,${o.id})" aria-label="Zvýšiť">+</button>
+          </div>
+          <div class="mob-oi-price">${fmt(o.price * o.qty)}</div>
+          <button type="button" class="mob-oi-move" onclick="enterMoveMode(${o.id})" aria-label="Presunut polozku">&#8599;</button>
+        `;
+      // Row 1's note tap opens the note editor (kept the previous behavior
+      // — info area is the click target, not the whole row, so qty/del
+      // taps below don't accidentally open it).
+      const row1Del = isSent
+        ? ''
+        : `<button type="button" class="mob-oi-del" onclick="removeItem('${esc}');renderMobOrder();updateMobBadge()" aria-label="Odstranit polozku">&times;</button>`;
+      const noteBlock = o.note
+        ? `<div class="mob-oi-note">${escHtml(o.note)}</div>`
+        : (isSent ? '' : `<div class="mob-oi-add-note">+ poznamka</div>`);
       return `<div class="mob-order-item${isSent ? ' sent' : ''}">
-        <span class="mob-oi-emoji">${escHtml(o.emoji)}</span>
-        <div class="mob-oi-info" onclick="openNoteModal('${esc}', ${o.id});"><div class="mob-oi-name">${escHtml(o.name)}</div>${o.note ? `<div class="mob-oi-note">${escHtml(o.note)}</div>` : `<div class="mob-oi-add-note">+ poznamka</div>`}</div>
-        <div class="mob-oi-qty">
-          <button onclick="mobChangeQty('${esc}',-1,${o.id})">&minus;</button>
-          <span>${o.qty}</span>
-          <button onclick="mobChangeQty('${esc}',1,${o.id})">+</button>
+        <div class="mob-oi-row1">
+          <span class="mob-oi-emoji">${escHtml(o.emoji)}</span>
+          <div class="mob-oi-info"${isSent ? '' : ` onclick="openNoteModal('${esc}', ${o.id});"`}><div class="mob-oi-name">${escHtml(o.name)}</div>${noteBlock}</div>
+          ${row1Del}
         </div>
-        <div class="mob-oi-price">${fmt(o.price * o.qty)}</div>
-        <button type="button" class="mob-oi-move" onclick="enterMoveMode(${o.id})" aria-label="Presunut polozku">&#8599;</button>
-        <button class="mob-oi-del" onclick="removeItem('${esc}');renderMobOrder();updateMobBadge()" aria-label="Odstranit polozku">&times;</button>
+        <div class="mob-oi-row2">${row2}</div>
       </div>`;
     }).join('');
   }
