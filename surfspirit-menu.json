@@ -1,0 +1,630 @@
+{
+  "menu": [
+    {
+      "slug": "capovane",
+      "label": "Capovane",
+      "icon": "🍺",
+      "sort": "0",
+      "items": [
+        {
+          "name": "Kofola 0,3 l",
+          "emoji": "🥤",
+          "price": "1.90",
+          "desc": "0,3 l točená"
+        },
+        {
+          "name": "Kofola 0,5 l",
+          "emoji": "🥤",
+          "price": "2.50",
+          "desc": "0,5 l točená"
+        },
+        {
+          "name": "Prosecco 0,1 l",
+          "emoji": "🍾",
+          "price": "2.50",
+          "desc": "0,1 l Prosecco"
+        },
+        {
+          "name": "Sóda 0,1 l",
+          "emoji": "🧋",
+          "price": "0.40",
+          "desc": "0,1 l sifón"
+        },
+        {
+          "name": "Urpiner 10° 0,3 l",
+          "emoji": "🍺",
+          "price": "1.80",
+          "desc": "0,3 l točené"
+        },
+        {
+          "name": "Urpiner 10° 0,5 l",
+          "emoji": "🍺",
+          "price": "2.70",
+          "desc": "0,5 l točené"
+        },
+        {
+          "name": "Urpiner 12° 0,3 l",
+          "emoji": "🍺",
+          "price": "1.90",
+          "desc": "0,3 l točené"
+        },
+        {
+          "name": "Urpiner 12° 0,5 l",
+          "emoji": "🍺",
+          "price": "2.90",
+          "desc": "0,5 l točené"
+        },
+        {
+          "name": "Urpiner Nealko 0,3 l",
+          "emoji": "🍺",
+          "price": "1.90",
+          "desc": "0,3 l nealko"
+        },
+        {
+          "name": "Urpiner Nealko 0,5 l",
+          "emoji": "🍺",
+          "price": "2.90",
+          "desc": "0,5 l nealko"
+        },
+        {
+          "name": "Urpiner Radler 0,3 l",
+          "emoji": "🍋",
+          "price": "1.90",
+          "desc": "0,3 l ovocný radler"
+        },
+        {
+          "name": "Urpiner Radler 0,5 l",
+          "emoji": "🍋",
+          "price": "2.90",
+          "desc": "0,5 l ovocný radler"
+        }
+      ]
+    },
+    {
+      "slug": "nealko",
+      "label": "Nealko",
+      "icon": "🥤",
+      "sort": "B02",
+      "items": [
+        {
+          "name": "Coca-Cola 0,5 l",
+          "emoji": "🥤",
+          "price": "2.50",
+          "desc": ""
+        },
+        {
+          "name": "Coca-Cola Zero 0,5 l",
+          "emoji": "🥤",
+          "price": "2.50",
+          "desc": ""
+        },
+        {
+          "name": "Džús 0,2 l",
+          "emoji": "🧃",
+          "price": "2.20",
+          "desc": ""
+        },
+        {
+          "name": "Fanta 0,5 l",
+          "emoji": "🥤",
+          "price": "2.50",
+          "desc": ""
+        },
+        {
+          "name": "Kinley Tonic 0,5 l",
+          "emoji": "🫧",
+          "price": "2.50",
+          "desc": ""
+        },
+        {
+          "name": "San Pellegrino 0,33 l",
+          "emoji": "💎",
+          "price": "2.80",
+          "desc": ""
+        },
+        {
+          "name": "Sprite 0,5 l",
+          "emoji": "🥤",
+          "price": "2.50",
+          "desc": ""
+        },
+        {
+          "name": "Voda minerálna Romerquelle 0,5 l",
+          "emoji": "💧",
+          "price": "2.50",
+          "desc": ""
+        },
+        {
+          "name": "Ľadový čaj Fuzetea 0,5 l",
+          "emoji": "🧊",
+          "price": "2.50",
+          "desc": ""
+        }
+      ]
+    },
+    {
+      "slug": "limonady",
+      "label": "Limonády",
+      "icon": "🍋",
+      "sort": "B03",
+      "items": [
+        {
+          "name": "Limonáda Kiwi & Limetka 0,5 l",
+          "emoji": "🥝",
+          "price": "3.90",
+          "desc": ""
+        },
+        {
+          "name": "Limonáda Malina & Ruža 0,5 l",
+          "emoji": "🌹",
+          "price": "3.90",
+          "desc": ""
+        },
+        {
+          "name": "Sóda s limetkovou šťavou 0,5 l",
+          "emoji": "🫧",
+          "price": "3.00",
+          "desc": ""
+        },
+        {
+          "name": "Tropická limonáda 0,5 l",
+          "emoji": "🏝️",
+          "price": "3.90",
+          "desc": ""
+        }
+      ]
+    },
+    {
+      "slug": "smoothies",
+      "label": "Smoothies",
+      "icon": "🥤",
+      "sort": "B04",
+      "items": [
+        {
+          "name": "Detox",
+          "emoji": "🫐",
+          "price": "4.90",
+          "desc": ""
+        },
+        {
+          "name": "Green Energy",
+          "emoji": "🥬",
+          "price": "4.90",
+          "desc": ""
+        },
+        {
+          "name": "Tropický Fresh",
+          "emoji": "🥭",
+          "price": "4.90",
+          "desc": ""
+        }
+      ]
+    },
+    {
+      "slug": "alko",
+      "label": "Alko",
+      "icon": "🥃",
+      "sort": "B05",
+      "items": [
+        {
+          "name": "Becherovka 0,04 l",
+          "emoji": "🥃",
+          "price": "3.40",
+          "desc": ""
+        },
+        {
+          "name": "Borovička Spišská 0,04 l",
+          "emoji": "🥃",
+          "price": "3.30",
+          "desc": ""
+        },
+        {
+          "name": "Chivas Regal 0,04 l",
+          "emoji": "🥃",
+          "price": "5.30",
+          "desc": ""
+        },
+        {
+          "name": "Fernet Citrus / Stock 0,04 l",
+          "emoji": "🥃",
+          "price": "3.40",
+          "desc": ""
+        },
+        {
+          "name": "Gin Beefeater 0,04 l",
+          "emoji": "🥃",
+          "price": "3.80",
+          "desc": ""
+        },
+        {
+          "name": "Hruškovica Jelínek 42 0,04 l",
+          "emoji": "🥃",
+          "price": "3.70",
+          "desc": ""
+        },
+        {
+          "name": "Jack Daniel's 0,04 l",
+          "emoji": "🥃",
+          "price": "3.00",
+          "desc": ""
+        },
+        {
+          "name": "Jameson 0,04 l",
+          "emoji": "🥃",
+          "price": "3.30",
+          "desc": ""
+        },
+        {
+          "name": "Jägermeister 0,04 l",
+          "emoji": "🥃",
+          "price": "3.40",
+          "desc": ""
+        },
+        {
+          "name": "Marhuľovica 45 0,04 l",
+          "emoji": "🥃",
+          "price": "3.70",
+          "desc": ""
+        },
+        {
+          "name": "Rum Božkov Republica 0,04 l",
+          "emoji": "🥃",
+          "price": "4.00",
+          "desc": ""
+        },
+        {
+          "name": "Rum Plantation Grande Reserve 0,04 l",
+          "emoji": "🥃",
+          "price": "5.50",
+          "desc": ""
+        },
+        {
+          "name": "Slivovica Bošácka 52 0,04 l",
+          "emoji": "🥃",
+          "price": "3.90",
+          "desc": ""
+        },
+        {
+          "name": "Tullamore Dew 0,04 l",
+          "emoji": "🥃",
+          "price": "3.20",
+          "desc": ""
+        },
+        {
+          "name": "Vodka Finlandia 0,04 l",
+          "emoji": "🥃",
+          "price": "3.50",
+          "desc": ""
+        },
+        {
+          "name": "Víno biele 0,1 l",
+          "emoji": "🍷",
+          "price": "2.50",
+          "desc": ""
+        }
+      ]
+    },
+    {
+      "slug": "drinky",
+      "label": "Drinky",
+      "icon": "🍹",
+      "sort": "B06",
+      "items": [
+        {
+          "name": "Aperol Spritz 0,25 l",
+          "emoji": "🍊",
+          "price": "6.20",
+          "desc": ""
+        },
+        {
+          "name": "Cuba Libre 0,25 l",
+          "emoji": "🍹",
+          "price": "5.20",
+          "desc": ""
+        },
+        {
+          "name": "Fiero Tonic 0,25 l",
+          "emoji": "🍹",
+          "price": "5.50",
+          "desc": ""
+        },
+        {
+          "name": "Gin Tonic / Gin Tonic Pink 0,25 l",
+          "emoji": "🍸",
+          "price": "6.30",
+          "desc": ""
+        },
+        {
+          "name": "Hugo Spritz 0,25 l",
+          "emoji": "🌿",
+          "price": "6.20",
+          "desc": ""
+        },
+        {
+          "name": "Limoncello Spritz 0,25 l",
+          "emoji": "🍋",
+          "price": "5.50",
+          "desc": ""
+        },
+        {
+          "name": "Mojito 0,25 l",
+          "emoji": "🍃",
+          "price": "5.90",
+          "desc": ""
+        },
+        {
+          "name": "Moscow Mule 0,25 l",
+          "emoji": "🍹",
+          "price": "6.20",
+          "desc": ""
+        },
+        {
+          "name": "Skinny Bitch 0,25 l",
+          "emoji": "🍸",
+          "price": "5.50",
+          "desc": ""
+        }
+      ]
+    },
+    {
+      "slug": "kava-caj",
+      "label": "Káva a čaj",
+      "icon": "☕",
+      "sort": "B07",
+      "items": [
+        {
+          "name": "Cappuccino",
+          "emoji": "☕",
+          "price": "3.50",
+          "desc": ""
+        },
+        {
+          "name": "Dvojité espresso (Doppio)",
+          "emoji": "☕",
+          "price": "3.50",
+          "desc": ""
+        },
+        {
+          "name": "Espresso / Lungo",
+          "emoji": "☕",
+          "price": "2.00",
+          "desc": ""
+        },
+        {
+          "name": "Espresso Tonic 0,25 l",
+          "emoji": "🥤",
+          "price": "3.50",
+          "desc": ""
+        },
+        {
+          "name": "Flat White",
+          "emoji": "☕",
+          "price": "4.00",
+          "desc": ""
+        },
+        {
+          "name": "Latte / Iced Latte",
+          "emoji": "☕",
+          "price": "4.00",
+          "desc": ""
+        },
+        {
+          "name": "Čaj sypaný 0,25 l",
+          "emoji": "🍵",
+          "price": "3.00",
+          "desc": ""
+        }
+      ]
+    },
+    {
+      "slug": "pochutiny",
+      "label": "Pochutiny",
+      "icon": "🍿",
+      "sort": "B08",
+      "items": [
+        {
+          "name": "Chipsy Slovakia",
+          "emoji": "🍟",
+          "price": "2.50",
+          "desc": ""
+        },
+        {
+          "name": "Dru tyčinky slané",
+          "emoji": "🥨",
+          "price": "1.50",
+          "desc": ""
+        },
+        {
+          "name": "Nanuky Algida",
+          "emoji": "🍦",
+          "price": "3.80",
+          "desc": ""
+        },
+        {
+          "name": "Tyčinky veľké slané",
+          "emoji": "🥨",
+          "price": "2.00",
+          "desc": ""
+        }
+      ]
+    },
+    {
+      "slug": "croissanty",
+      "label": "Croissanty",
+      "icon": "🥐",
+      "sort": "B09",
+      "items": [
+        {
+          "name": "Croissant Nutella",
+          "emoji": "🥐",
+          "price": "3.50",
+          "desc": ""
+        },
+        {
+          "name": "Croissant Šunka & Syr",
+          "emoji": "🥐",
+          "price": "4.50",
+          "desc": ""
+        }
+      ]
+    },
+    {
+      "slug": "burgre",
+      "label": "Burgre",
+      "icon": "🍔",
+      "sort": "K01",
+      "items": [
+        {
+          "name": "BBQ Smash burger",
+          "emoji": "🍔",
+          "price": "9.90",
+          "desc": ""
+        },
+        {
+          "name": "Big Mac Smash burger",
+          "emoji": "🍔",
+          "price": "9.90",
+          "desc": ""
+        },
+        {
+          "name": "Chipotle Smash burger",
+          "emoji": "🍔",
+          "price": "9.90",
+          "desc": ""
+        },
+        {
+          "name": "Combo BBQ Smash",
+          "emoji": "🍔",
+          "price": "13.00",
+          "desc": ""
+        },
+        {
+          "name": "Combo Big Mac Smash",
+          "emoji": "🍔",
+          "price": "13.00",
+          "desc": ""
+        },
+        {
+          "name": "Combo Chipotle Smash",
+          "emoji": "🍔",
+          "price": "13.00",
+          "desc": ""
+        },
+        {
+          "name": "Combo Vegetarian Halloumi",
+          "emoji": "🧀",
+          "price": "13.00",
+          "desc": ""
+        },
+        {
+          "name": "Vegetarian Halloumi burger",
+          "emoji": "🧀",
+          "price": "9.90",
+          "desc": ""
+        }
+      ]
+    },
+    {
+      "slug": "prilohy",
+      "label": "Prílohy",
+      "icon": "🍟",
+      "sort": "K02",
+      "items": [
+        {
+          "name": "Hranolky malé 130g",
+          "emoji": "🍟",
+          "price": "2.60",
+          "desc": ""
+        },
+        {
+          "name": "Hranolky veľké 200g",
+          "emoji": "🍟",
+          "price": "3.60",
+          "desc": ""
+        },
+        {
+          "name": "Kuracie hranolky",
+          "emoji": "🍗",
+          "price": "7.80",
+          "desc": ""
+        },
+        {
+          "name": "Omáčka BBQ 50ml",
+          "emoji": "🥫",
+          "price": "1.50",
+          "desc": ""
+        },
+        {
+          "name": "Omáčka Big Mac domáca 50ml",
+          "emoji": "🥫",
+          "price": "1.50",
+          "desc": ""
+        },
+        {
+          "name": "Omáčka chilli-mayo 50ml",
+          "emoji": "🥫",
+          "price": "1.50",
+          "desc": ""
+        },
+        {
+          "name": "Omáčka kečup 50ml",
+          "emoji": "🥫",
+          "price": "1.50",
+          "desc": ""
+        },
+        {
+          "name": "Omáčka tatárka domáca 50ml",
+          "emoji": "🥫",
+          "price": "1.50",
+          "desc": ""
+        },
+        {
+          "name": "Surferské hranolky 200g",
+          "emoji": "🍟",
+          "price": "7.80",
+          "desc": ""
+        }
+      ]
+    },
+    {
+      "slug": "salaty",
+      "label": "Šaláty",
+      "icon": "🥗",
+      "sort": "K03",
+      "items": [
+        {
+          "name": "Kurací šalát",
+          "emoji": "🥗",
+          "price": "7.50",
+          "desc": ""
+        },
+        {
+          "name": "Vegetarian Halloumi (šalát)",
+          "emoji": "🥗",
+          "price": "7.50",
+          "desc": ""
+        }
+      ]
+    },
+    {
+      "slug": "extra-prilohy",
+      "label": "Extra prílohy",
+      "icon": "🥓",
+      "sort": "K04",
+      "items": [
+        {
+          "name": "Slanina, cheddar, chorizo",
+          "emoji": "🥓",
+          "price": "1.50",
+          "desc": ""
+        },
+        {
+          "name": "Smashed hovädzie s cheddarom",
+          "emoji": "🥩",
+          "price": "4.00",
+          "desc": ""
+        }
+      ]
+    }
+  ]
+}
