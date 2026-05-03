@@ -4,9 +4,15 @@ let ingredientsList = [];
 let selectedItemId = null;
 let currentRecipe = [];
 let activeFilter = 'all';
+let searchQuery = '';
 let recipeSummary = {}; // menuItemId -> ingredient count
 let _container = null;
 let _escHandler = null;
+
+// Slovak diacritic-fold for search ('cesnak' matches 'česnak'; 'maso' matches 'mäso').
+function _foldDia(s) {
+  return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
 
 function $(sel) { return _container.querySelector(sel); }
 function $$(sel) { return _container.querySelectorAll(sel); }
@@ -80,26 +86,80 @@ async function loadRecipeForItem(itemId) {
 }
 
 // === Filtering ===
+// Apply mode tab + search query together. Search is diacritic-insensitive
+// and matches name OR category label so 'burger' or 'burgre' both find
+// the burger SKUs.
 function getFilteredItems() {
-  if (activeFilter === 'all') return menuItems;
-  return menuItems.filter(function(m) { return m.trackMode === activeFilter; });
+  var q = _foldDia(searchQuery);
+  return menuItems.filter(function(m) {
+    if (activeFilter !== 'all' && m.trackMode !== activeFilter) return false;
+    if (!q) return true;
+    var hay = _foldDia(m.name) + ' ' + _foldDia(m.categoryLabel || '');
+    return hay.indexOf(q) !== -1;
+  });
+}
+
+// Counts shown in the filter tabs so the user sees at a glance how many
+// items are in each mode (helps spot 'X items still without a recipe').
+function getModeCounts() {
+  var counts = { all: menuItems.length, recipe: 0, simple: 0, none: 0 };
+  for (var i = 0; i < menuItems.length; i++) {
+    var m = menuItems[i].trackMode || 'none';
+    if (counts[m] != null) counts[m] += 1;
+  }
+  return counts;
+}
+
+function _renderFilterTabs() {
+  var tabsEl = $('#recipeFilterTabs');
+  if (!tabsEl) return;
+  var c = getModeCounts();
+  var tabs = [
+    { f: 'all',    label: 'Všetky',  badge: c.all },
+    { f: 'recipe', label: 'Recept',  badge: c.recipe },
+    { f: 'simple', label: 'Simple',  badge: c.simple },
+    { f: 'none',   label: 'Bez',     badge: c.none },
+  ];
+  tabsEl.innerHTML = tabs.map(function(t) {
+    var active = t.f === activeFilter ? ' active' : '';
+    return '<button class="zone-btn recipe-filter-btn' + active + '" data-filter="' + t.f + '" type="button">'
+      + escHtml(t.label)
+      + ' <span style="font-size:10px;opacity:.7;margin-left:4px">' + t.badge + '</span>'
+      + '</button>';
+  }).join('');
+  // Re-bind clicks (innerHTML wipes listeners).
+  tabsEl.querySelectorAll('.recipe-filter-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() { setFilter(btn.dataset.filter); });
+  });
 }
 
 // === Render left panel: menu item list ===
 function renderItemList() {
+  _renderFilterTabs();
   var listEl = $('#itemList');
   if (!listEl) return;
 
   var filtered = getFilteredItems();
 
+  // Update the result count line under the search input.
+  var countEl = $('#recipeResultCount');
+  if (countEl) {
+    if (searchQuery) {
+      countEl.textContent = filtered.length + ' / ' + menuItems.length + ' (vyh\u013Ead\u00E1vanie)';
+    } else {
+      countEl.textContent = filtered.length + ' polo\u017Eiek';
+    }
+  }
+
   if (!filtered.length) {
-    var msg = activeFilter === 'all'
-      ? 'Ziadne polozky v menu'
-      : 'Ziadne polozky s modom "' + activeFilter + '"';
+    var msg;
+    if (searchQuery) msg = '\u017Diadne v\u00FDsledky pre \u201E' + searchQuery + '"';
+    else if (activeFilter === 'all') msg = 'Ziadne polozky v menu';
+    else msg = 'Ziadne polozky s modom "' + activeFilter + '"';
     listEl.innerHTML = '<div class="empty-state" style="padding:32px 16px">'
-      + '<div class="empty-state-icon">\uD83D\uDCE6</div>'
-      + '<div class="empty-state-title">Prazdne</div>'
-      + '<div class="empty-state-text">' + msg + '</div></div>';
+      + '<div class="empty-state-icon">\uD83D\uDD0D</div>'
+      + '<div class="empty-state-title">Pr\u00E1zdne</div>'
+      + '<div class="empty-state-text">' + escHtml(msg) + '</div></div>';
     return;
   }
 
@@ -563,13 +623,25 @@ export function init(container) {
 
   container.innerHTML = ''
     + '<div class="cat-panel">'
-    + '<div class="cat-panel-header">Polozky menu</div>'
-    + '<div style="padding:8px 8px 0;display:flex;gap:4px;flex-wrap:wrap">'
-    + '<button class="zone-btn active recipe-filter-btn" data-filter="all" type="button">Vsetky</button>'
-    + '<button class="zone-btn recipe-filter-btn" data-filter="recipe" type="button">Recept</button>'
-    + '<button class="zone-btn recipe-filter-btn" data-filter="simple" type="button">Simple</button>'
-    + '<button class="zone-btn recipe-filter-btn" data-filter="none" type="button">None</button>'
+    + '<div class="cat-panel-header">Polo\u017Eky menu</div>'
+    // Search input \u2014 diacritic-insensitive substring match across name + category.
+    + '<div style="padding:8px 10px 0;position:relative">'
+    + '<input type="search" id="recipeSearch" class="form-input"'
+    + ' placeholder="H\u013Eada\u0165 surovinu, jedlo, kateg\u00F3riu\u2026" autocomplete="off"'
+    + ' style="padding-left:32px;font-size:13px;height:34px">'
+    + '<svg viewBox="0 0 24 24" aria-hidden="true"'
+    + ' style="position:absolute;left:18px;top:50%;transform:translateY(-50%);width:14px;height:14px;'
+    +        'stroke:var(--color-text-dim);fill:none;stroke-width:2;stroke-linecap:round;pointer-events:none">'
+    + '<circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="22" y2="22"/></svg>'
+    + '<button id="recipeSearchClear" type="button" aria-label="Vy\u010Disti\u0165"'
+    + ' style="position:absolute;right:18px;top:50%;transform:translateY(-50%);width:22px;height:22px;'
+    +        'border:none;background:rgba(255,255,255,.06);border-radius:50%;color:var(--color-text-sec);'
+    +        'cursor:pointer;display:none;align-items:center;justify-content:center;font-size:12px">\u00D7</button>'
     + '</div>'
+    // Filter tabs (counts injected by _renderFilterTabs).
+    + '<div id="recipeFilterTabs" style="padding:8px 10px 4px;display:flex;gap:4px;flex-wrap:wrap"></div>'
+    // Result count line.
+    + '<div id="recipeResultCount" style="padding:0 12px 6px;font-size:11px;color:var(--color-text-dim);font-weight:600;letter-spacing:.4px;text-transform:uppercase">\u2026</div>'
     + '<div class="cat-list" id="itemList">'
     + '<div class="skeleton-row"></div>'
     + '<div class="skeleton-row"></div>'
@@ -585,12 +657,40 @@ export function init(container) {
     + '</div>'
     + '</div>';
 
-  // Bind filter tab events
-  $$('.recipe-filter-btn').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      setFilter(btn.dataset.filter);
+  // Search input \u2014 debounced re-render so heavy menus (200+ items) stay snappy.
+  var searchInput = $('#recipeSearch');
+  var clearBtn = $('#recipeSearchClear');
+  var _searchT = null;
+  function _applySearch() {
+    if (clearBtn) clearBtn.style.display = searchQuery ? 'flex' : 'none';
+    renderItemList();
+  }
+  if (searchInput) {
+    searchInput.addEventListener('input', function(e) {
+      clearTimeout(_searchT);
+      _searchT = setTimeout(function() {
+        searchQuery = (e.target.value || '').trim();
+        _applySearch();
+      }, 120);
     });
-  });
+    searchInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape' && searchQuery) {
+        e.preventDefault();
+        searchInput.value = '';
+        searchQuery = '';
+        _applySearch();
+      }
+    });
+  }
+  if (clearBtn) {
+    clearBtn.addEventListener('click', function() {
+      searchInput.value = '';
+      searchQuery = '';
+      searchInput.focus();
+      _applySearch();
+    });
+  }
+  // Filter-tab clicks are wired inside _renderFilterTabs (called by renderItemList).
 
   // Escape key handler
   _escHandler = function(e) {
