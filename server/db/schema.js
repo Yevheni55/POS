@@ -32,11 +32,23 @@ export const cashflowEntries = pgTable('cashflow_entries', {
   type: varchar('type', { length: 20 }).notNull(), // 'income' | 'expense'
   category: varchar('category', { length: 50 }).notNull(),
   amount: numeric('amount', { precision: 10, scale: 2 }).notNull(),
+  // Caller-supplied timestamp (no defaultNow): admin records WHEN the
+  // expense / income actually happened, which often differs from when
+  // they entered it into the system. The PATCH route layer enforces a
+  // valid ISO datetime via zod.
   occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
   method: varchar('method', { length: 20 }).notNull().default('cash'),
   note: varchar('note', { length: 500 }).notNull().default(''),
+  // Nullable: cashflow rows can be system-imported (e.g. one-shot CSV
+  // backfill) where there's no specific staff member to attribute the
+  // entry to. Manual entries always carry the actor's id.
   staffId: integer('staff_id').references(() => staff.id),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  // IMPORTANT: defaultNow() only fires on INSERT. Postgres has no
+  // ON UPDATE equivalent, so every UPDATE that touches a row in this
+  // table MUST explicitly pass `updatedAt: new Date()` in the SET clause
+  // (see PATCH /api/cashflow/:id in routes/cashflow.js). If you add a
+  // new mutating path, do the same.
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [
   index('cashflow_occurred_idx').on(t.occurredAt),
