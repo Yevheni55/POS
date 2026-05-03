@@ -38,6 +38,11 @@ let _to = todayIso();
 let _typeFilter = '';
 let _summary = null;
 let _entries = [];
+// Cached list of saved suppliers — loaded once on init() and reused by
+// the modal dropdown so the admin doesn't see a loading flicker every
+// time they click "+ Výdavok". Stale-tolerant; suppliers rarely change
+// during a single session.
+let _suppliers = [];
 
 function todayIso() { return new Date().toISOString().slice(0, 10); }
 function todayMinusDaysIso(n) {
@@ -119,7 +124,7 @@ function render() {
     '<div class="panel doch-panel">' +
       '<div class="panel-title">Manuálne záznamy (' + _entries.length + ')</div>' +
       '<div class="table-scroll-wrap"><table class="data-table">' +
-        '<thead><tr><th class="data-th">Dátum</th><th class="data-th">Typ</th><th class="data-th">Kategória</th><th class="data-th">Suma</th><th class="data-th">Spôsob</th><th class="data-th">Poznámka</th><th class="data-th"></th></tr></thead>' +
+        '<thead><tr><th class="data-th">Dátum</th><th class="data-th">Typ</th><th class="data-th">Kategória</th><th class="data-th">Dodávateľ</th><th class="data-th">Suma</th><th class="data-th">Spôsob</th><th class="data-th">Poznámka</th><th class="data-th"></th></tr></thead>' +
         '<tbody id="cfBody"></tbody>' +
       '</table></div>' +
     '</div>' +
@@ -137,7 +142,7 @@ function render() {
 function renderBody() {
   const tbody = _container.querySelector('#cfBody');
   if (!_entries.length) {
-    tbody.innerHTML = '<tr><td class="data-td" colspan="7"><div class="empty-hint">Žiadne manuálne záznamy v tomto období.</div></td></tr>';
+    tbody.innerHTML = '<tr><td class="data-td" colspan="8"><div class="empty-hint">Žiadne manuálne záznamy v tomto období.</div></td></tr>';
     return;
   }
   tbody.innerHTML = _entries.map((e) => {
@@ -145,10 +150,14 @@ function renderBody() {
       ? '<span class="badge badge-success">Príjem</span>'
       : '<span class="badge badge-danger">Výdavok</span>';
     const methodLabel = { cash: 'Hotovosť', card: 'Karta', transfer: 'Prevod', other: 'Iné' }[e.method] || e.method;
+    const supplierCell = e.supplierName
+      ? escapeHtml(e.supplierName)
+      : '<span class="text-muted">—</span>';
     return '<tr class="data-row">' +
       '<td class="data-td">' + escapeHtml(fmtLocalDateTime(e.occurredAt)) + '</td>' +
       '<td class="data-td">' + typeBadge + '</td>' +
       '<td class="data-td">' + escapeHtml(CAT_LABEL[e.category] || e.category) + '</td>' +
+      '<td class="data-td">' + supplierCell + '</td>' +
       '<td class="data-td num"><strong>' + escapeHtml(fmtEur(e.amount)) + '</strong></td>' +
       '<td class="data-td">' + escapeHtml(methodLabel) + '</td>' +
       '<td class="data-td">' + (e.note ? escapeHtml(e.note) : '<span class="text-muted">—</span>') + '</td>' +
@@ -209,6 +218,18 @@ function openEntryModal(mode, presetType, existing) {
           '<label class="doch-toolbar-label">Kategória' +
             '<select id="cfMCat" class="doch-input" required></select>' +
           '</label>' +
+          // Supplier picker — shown only for supplier-related categories
+          // (expense=supplier, income=refund). Empty option = no link.
+          // Wrapper has flex:1 1 100% so it spans the whole row when visible.
+          '<label class="doch-toolbar-label" id="cfMSupplierWrap" style="flex:1 1 100%;display:none">Dodávateľ' +
+            '<select id="cfMSupplier" class="doch-input">' +
+              '<option value="">— žiadny —</option>' +
+              _suppliers.map((sup) => {
+                const sel = isEdit && existing && existing.supplierId === sup.id ? ' selected' : '';
+                return '<option value="' + sup.id + '"' + sel + '>' + escapeHtml(sup.name) + '</option>';
+              }).join('') +
+            '</select>' +
+          '</label>' +
           '<label class="doch-toolbar-label">Suma €' +
             '<input type="number" id="cfMAmount" class="doch-input" min="0.01" step="0.01" required value="' + (isEdit ? Number(existing.amount).toFixed(2) : '') + '">' +
           '</label>' +
@@ -242,19 +263,41 @@ function openEntryModal(mode, presetType, existing) {
   const typeSel = modal.querySelector('#cfMType');
   const catSel = modal.querySelector('#cfMCat');
 
+  const supplierWrap = modal.querySelector('#cfMSupplierWrap');
+  const supplierSel = modal.querySelector('#cfMSupplier');
+
+  // Show the supplier picker only when it makes sense — paying a supplier
+  // (expense=supplier) or recording a refund FROM a supplier (income=refund).
+  // Other categories (rent, tip, …) hide it to keep the modal compact.
+  function shouldShowSupplier(t, c) {
+    return (t === 'expense' && c === 'supplier') || (t === 'income' && c === 'refund');
+  }
+  function refreshSupplierVisibility() {
+    const visible = shouldShowSupplier(typeSel.value, catSel.value) && _suppliers.length > 0;
+    supplierWrap.style.display = visible ? '' : 'none';
+    if (!visible) supplierSel.value = ''; // clear linked supplier when hidden
+  }
+
   function refillCategories() {
     const list = typeSel.value === 'income' ? INCOME_CATS : EXPENSE_CATS;
     const cur = isEdit && existing.category;
     catSel.innerHTML = list.map((c) => '<option value="' + c.slug + '"' + (c.slug === cur ? ' selected' : '') + '>' + c.label + '</option>').join('');
+    refreshSupplierVisibility();
   }
   refillCategories();
   typeSel.addEventListener('change', refillCategories);
+  catSel.addEventListener('change', refreshSupplierVisibility);
 
   function close() { modal.remove(); }
   modal.querySelector('#cfMCancel').addEventListener('click', close);
   modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
 
   modal.querySelector('#cfMSave').addEventListener('click', async () => {
+    // supplierId: send the picked id, or null when picker hidden / "— žiadny —"
+    // selected (string '' becomes null after the conversion). PATCH treats
+    // null as "clear the link"; POST ignores null.
+    const rawSup = supplierSel.value;
+    const supplierId = rawSup ? parseInt(rawSup, 10) : null;
     const body = {
       type: typeSel.value,
       category: catSel.value,
@@ -262,6 +305,7 @@ function openEntryModal(mode, presetType, existing) {
       occurredAt: new Date(modal.querySelector('#cfMAt').value).toISOString(),
       method: modal.querySelector('#cfMMethod').value,
       note: modal.querySelector('#cfMNote').value.trim(),
+      supplierId,
     };
     if (!Number.isFinite(body.amount) || body.amount <= 0) {
       showToast('Suma musí byť väčšia ako 0', 'error');
@@ -328,8 +372,20 @@ function bind() {
   });
 }
 
-export function init(container) {
+async function loadSuppliers() {
+  try {
+    const list = await api.get('/inventory/suppliers');
+    _suppliers = (Array.isArray(list) ? list : []).filter((s) => s && s.active !== false);
+  } catch {
+    _suppliers = [];
+  }
+}
+
+export async function init(container) {
   _container = container;
+  // Suppliers in parallel with the first cashflow load so the admin can
+  // open the modal even before the entries table has populated.
+  loadSuppliers();
   loadAll();
 }
 
@@ -338,4 +394,5 @@ export function destroy() {
   _summary = null;
   _entries = [];
   _typeFilter = '';
+  _suppliers = [];
 }

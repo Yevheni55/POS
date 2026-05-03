@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { and, desc, eq, gte, lte, sql } from 'drizzle-orm';
 
 import { db } from '../db/index.js';
-import { cashflowEntries, payments, shishaSales } from '../db/schema.js';
+import { cashflowEntries, payments, shishaSales, suppliers } from '../db/schema.js';
 import { requireRole } from '../middleware/requireRole.js';
 import { validate } from '../middleware/validate.js';
 import { asyncRoute } from '../lib/async-route.js';
@@ -37,6 +37,7 @@ router.post('/', mgr, validate(createCashflowSchema), asyncRoute(async (req, res
     method: req.body.method,
     note: req.body.note || '',
     staffId: req.user.id,
+    supplierId: req.body.supplierId || null,
   }).returning();
   res.status(201).json(row);
 }));
@@ -61,7 +62,27 @@ router.get('/', mgr, asyncRoute(async (req, res) => {
     conds.push(eq(cashflowEntries.category, String(req.query.category)));
   }
 
-  const rows = await db.select().from(cashflowEntries)
+  // Left-join suppliers so the admin table can show the supplier name
+  // alongside each row without a separate /api/inventory/suppliers fetch
+  // per row. Selects every cashflow column explicitly because mixing
+  // table-spread and aliased columns in Drizzle's select object isn't
+  // supported the same way as raw SQL.
+  const rows = await db.select({
+    id: cashflowEntries.id,
+    type: cashflowEntries.type,
+    category: cashflowEntries.category,
+    amount: cashflowEntries.amount,
+    occurredAt: cashflowEntries.occurredAt,
+    method: cashflowEntries.method,
+    note: cashflowEntries.note,
+    staffId: cashflowEntries.staffId,
+    supplierId: cashflowEntries.supplierId,
+    supplierName: suppliers.name,
+    createdAt: cashflowEntries.createdAt,
+    updatedAt: cashflowEntries.updatedAt,
+  })
+    .from(cashflowEntries)
+    .leftJoin(suppliers, eq(suppliers.id, cashflowEntries.supplierId))
     .where(and(...conds))
     .orderBy(desc(cashflowEntries.occurredAt), desc(cashflowEntries.id))
     .limit(1000);
@@ -84,6 +105,9 @@ router.patch('/:id', mgr, validate(updateCashflowSchema), asyncRoute(async (req,
   if (req.body.occurredAt !== undefined) updates.occurredAt = new Date(req.body.occurredAt);
   if (req.body.method !== undefined) updates.method = req.body.method;
   if (req.body.note !== undefined) updates.note = req.body.note;
+  // supplierId can be explicitly set to null to clear the link, so check
+  // 'in' rather than '!== undefined' (zod nullable() lets `null` through).
+  if ('supplierId' in req.body) updates.supplierId = req.body.supplierId == null ? null : req.body.supplierId;
   updates.updatedAt = new Date();
 
   const [row] = await db.update(cashflowEntries).set(updates).where(eq(cashflowEntries.id, id)).returning();

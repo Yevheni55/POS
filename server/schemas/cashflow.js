@@ -11,6 +11,10 @@ const baseFields = {
   occurredAt: z.string().datetime(),
   method: z.enum(['cash', 'card', 'transfer', 'other']).default('cash'),
   note: z.string().max(500).optional().default(''),
+  // Optional FK to suppliers.id. Nullable so PATCH can clear an existing
+  // link by sending `supplierId: null`. z.coerce so query strings on
+  // frontend pickers (where ids are stringified in selects) parse cleanly.
+  supplierId: z.coerce.number().int().positive().nullable().optional(),
 };
 
 export const createCashflowSchema = z.object(baseFields);
@@ -28,6 +32,7 @@ export const updateCashflowSchema = z.object({
   occurredAt: baseFields.occurredAt.optional(),
   method: baseFields.method.optional(),
   note: z.string().max(500).optional(),
+  supplierId: baseFields.supplierId,
 }).refine((obj) => Object.keys(obj).length > 0, {
   message: 'Aspoň jedno pole musí byť uvedené',
 });

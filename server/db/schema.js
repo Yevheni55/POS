@@ -43,6 +43,11 @@ export const cashflowEntries = pgTable('cashflow_entries', {
   // backfill) where there's no specific staff member to attribute the
   // entry to. Manual entries always carry the actor's id.
   staffId: integer('staff_id').references(() => staff.id),
+  // Optional supplier link — admin can pick from the saved suppliers list
+  // when an expense is in category=supplier (or income=refund). Null when
+  // the entry isn't supplier-related, or when the supplier isn't in the
+  // address book. Display layer joins suppliers.name on read.
+  supplierId: integer('supplier_id').references(() => suppliers.id),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   // IMPORTANT: defaultNow() only fires on INSERT. Postgres has no
   // ON UPDATE equivalent, so every UPDATE that touches a row in this
