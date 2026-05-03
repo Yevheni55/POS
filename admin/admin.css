@@ -272,17 +272,44 @@ body{font-family:var(--font-body);color:var(--color-text);background:var(--color
   transform:scale(.92) translateY(10px);
   transition:transform .3s cubic-bezier(.34,1.56,.64,1);
   box-shadow:0 24px 80px rgba(0,0,0,.5);
+  /* Cap modal height + flex-column so a long body (e.g. PO detail with
+     21 line items) doesn't push the close button off-screen. The body
+     row gets the scroll; title and footer buttons stay sticky. */
+  max-height:calc(100vh - 40px);
+  max-height:calc(100dvh - 40px);
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
 }
 .u-overlay.show .u-modal{transform:scale(1) translateY(0)}
-.u-modal-icon{font-size:48px;margin-bottom:14px;display:block}
-.u-modal-title{font-family:var(--font-display);font-size:var(--text-4xl);font-weight:var(--weight-bold);margin-bottom:6px}
-.u-modal-text{font-size:var(--text-md);color:var(--color-text-sec);margin-bottom:24px;line-height:var(--leading-relaxed)}
-.u-modal-body{text-align:left;margin-bottom:24px;display:flex;flex-direction:column;gap:14px}
+.u-modal-icon{font-size:48px;margin-bottom:14px;display:block;flex-shrink:0}
+.u-modal-title{font-family:var(--font-display);font-size:var(--text-4xl);font-weight:var(--weight-bold);margin-bottom:6px;flex-shrink:0}
+.u-modal-text{font-size:var(--text-md);color:var(--color-text-sec);margin-bottom:24px;line-height:var(--leading-relaxed);flex-shrink:0}
+/* Body becomes the scrolling region. min-height:0 is required inside a
+   flex parent for overflow-y:auto to actually clip; without it the
+   child's intrinsic height wins and the modal grows past the viewport. */
+.u-modal-body{
+  text-align:left;margin-bottom:24px;display:flex;flex-direction:column;gap:14px;
+  flex:1 1 auto;min-height:0;overflow-y:auto;
+  /* Light scrollbar styling so it doesn't visually fight the dark UI. */
+  scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.12) transparent;
+  /* Small inner padding so scroll content doesn't touch the right edge. */
+  padding-right:4px;margin-right:-4px;
+}
+.u-modal-body::-webkit-scrollbar{width:6px}
+.u-modal-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:8px}
+.u-modal-body::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.2)}
+/* Modals that DON'T use the explicit .u-modal-body wrapper (some
+   confirm/info dialogs put their content directly inside .u-modal):
+   make the modal itself scroll. The body-rule above takes precedence
+   when present because it's a child of the now-flex-column .u-modal. */
+.u-modal:not(:has(.u-modal-body)){overflow-y:auto}
 .u-modal-field label{display:block;font-size:var(--text-xs);font-weight:var(--weight-bold);color:var(--color-text-sec);margin-bottom:6px;text-transform:uppercase;letter-spacing:var(--tracking-wider)}
 /* .u-modal-field input/select/textarea inherit from shared .form-input/.form-select rules above */
 .u-modal-row{display:flex;gap:12px}
 .u-modal-row .u-modal-field{flex:1}
-.u-modal-btns{display:flex;gap:10px}
+/* Buttons stay anchored at bottom — never get scrolled out of view. */
+.u-modal-btns{display:flex;gap:10px;flex-shrink:0}
 .u-btn{
   flex:1;padding:var(--space-3) var(--space-6);border:none;border-radius:var(--radius-sm);
   font-family:var(--font-body);font-weight:var(--weight-bold);font-size:var(--text-md);
