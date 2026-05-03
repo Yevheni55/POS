@@ -122,9 +122,15 @@ function render() {
         '<thead><tr><th class="data-th">Dátum</th><th class="data-th">Typ</th><th class="data-th">Kategória</th><th class="data-th">Suma</th><th class="data-th">Spôsob</th><th class="data-th">Poznámka</th><th class="data-th"></th></tr></thead>' +
         '<tbody id="cfBody"></tbody>' +
       '</table></div>' +
+    '</div>' +
+
+    '<div class="panel doch-panel">' +
+      '<div class="panel-title">Rozpis kategórií</div>' +
+      '<div id="cfBreakdown" style="display:grid;grid-template-columns:1fr 1fr;gap:18px"></div>' +
     '</div>';
 
   renderBody();
+  renderBreakdown();
   bind();
 }
 
@@ -150,6 +156,29 @@ function renderBody() {
         '<button class="btn-toggle-status doch-event-del" data-del="' + e.id + '" title="Vymazať">✕</button></td>' +
     '</tr>';
   }).join('');
+}
+
+function renderBreakdown() {
+  const host = _container.querySelector('#cfBreakdown');
+  if (!host || !_summary) return;
+  const block = (title, rows, color) => {
+    if (!rows || !rows.length) return '<div><div class="doch-subhead">' + title + '</div><div class="empty-hint">Žiadne záznamy.</div></div>';
+    const total = rows.reduce((s, r) => s + Number(r.total || 0), 0);
+    return '<div><div class="doch-subhead">' + title + ' — spolu ' + fmtEur(total) + '</div>' +
+      rows.map((r) => {
+        const pct = total > 0 ? Math.round((r.total / total) * 100) : 0;
+        return '<div style="display:grid;grid-template-columns:1fr auto;gap:6px;align-items:center;margin-bottom:6px;font-size:13px">' +
+          '<div>' + escapeHtml(CAT_LABEL[r.category] || r.category) + ' <span class="text-muted">(' + r.count + ')</span></div>' +
+          '<div style="text-align:right;font-variant-numeric:tabular-nums"><strong>' + escapeHtml(fmtEur(r.total)) + '</strong> <span class="text-muted">' + pct + '%</span></div>' +
+          '<div style="grid-column:1 / span 2;height:6px;border-radius:3px;background:rgba(255,255,255,.04);overflow:hidden">' +
+            '<div style="width:' + pct + '%;height:100%;background:' + color + '"></div>' +
+          '</div>' +
+        '</div>';
+      }).join('') + '</div>';
+  };
+  host.innerHTML =
+    block('Príjmy',  _summary.byCategory.income,  'var(--color-success)') +
+    block('Výdavky', _summary.byCategory.expense, 'var(--color-danger)');
 }
 
 function nowForDateTimeLocal() {
@@ -273,6 +302,28 @@ function bind() {
       const id = parseInt(b.getAttribute('data-edit'), 10);
       const entry = _entries.find((e) => e.id === id);
       if (entry) openEntryModal('edit', null, entry);
+    });
+  });
+
+  _container.querySelectorAll('button[data-del]').forEach((b) => {
+    b.addEventListener('click', () => {
+      const id = parseInt(b.getAttribute('data-del'), 10);
+      const entry = _entries.find((e) => e.id === id);
+      if (!entry) return;
+      showConfirm(
+        'Vymazať záznam?',
+        'Toto natrvalo zmaže záznam ' + (CAT_LABEL[entry.category] || entry.category) + ' za ' + fmtEur(entry.amount) + '. Súčty sa prepočítajú.',
+        async () => {
+          try {
+            await api.del('/cashflow/' + id);
+            showToast('Záznam vymazaný', true);
+            await loadAll();
+          } catch (err) {
+            showToast(err.message || 'Mazanie zlyhalo', 'error');
+          }
+        },
+        { type: 'danger', confirmText: 'Vymazať' },
+      );
     });
   });
 }

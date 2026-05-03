@@ -1312,3 +1312,8 @@ textarea.form-input,textarea.form-select,.u-modal-field textarea{height:auto;min
     font-size: 16px;
   }
 }
+
+/* Cashflow breakdown — stack the two columns on phones */
+@media (max-width: 768px) {
+  #cfBreakdown { grid-template-columns: 1fr !important; }
+}
