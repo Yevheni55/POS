@@ -87,9 +87,24 @@ app.use(helmet({
     },
   },
   crossOriginEmbedderPolicy: false,
-  // Allow the kasa to be a PWA installable resource and embed our own
-  // images cross-origin (e.g. the menu photo CDN if we ever add one).
-  crossOriginResourcePolicy: { policy: 'same-site' },
+  // CRITICAL: cashier kasa is served over plain HTTP on a Tailscale IP.
+  // HSTS would cache a 'force HTTPS' policy in the browser for 1 year,
+  // and because the kasa only has a self-signed cert, every subsequent
+  // admin visit (typed manually in the address bar without :3080) would
+  // auto-upgrade to https://100.95.64.38, hit the self-signed cert, and
+  // show 'refused' / 'connection refused'. The PWA already had a stored
+  // cert exception so it kept working; admin (no PWA install) did not.
+  // Disable HSTS until we serve a real cert via Tailscale Funnel or a
+  // proper LAN CA.
+  hsts: false,
+  // Helmet 7 default for CORP is 'same-origin'. With the new :80 / :443
+  // bindings the SW + manifest + assets effectively span ports during
+  // normal use (PWA installed at :3443 still cached, admin opened ad-hoc
+  // at :80). Loosen to 'cross-origin' so images / fonts load freely.
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  // COOP same-origin can break popups / cross-port shares; not worth the
+  // friction on a small single-tenant kasa.
+  crossOriginOpenerPolicy: false,
 }));
 app.use(compression());
 app.use(cors({ origin: corsOriginCallback }));
