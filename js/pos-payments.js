@@ -177,8 +177,19 @@ async function printKitchenAndBarTickets(items, orderId) {
   if (!items || !items.length) return { printed: 0 };
 
   var context = getPrintContext();
-  var foodItems = items.filter(function (i) { return getItemDest(i.name) === 'kuchyna'; });
-  var drinkItems = items.filter(function (i) { return getItemDest(i.name) !== 'kuchyna'; });
+  // Čísla zákazníka (kategória 🔢 Čísla) idú IBA na kuchynský bon —
+  // kuchyňa hľadá zákazníka pri vydaní jedla, bar nie. Bar dostane iba
+  // skutočné nápoje, číslo si bar nevypisuje.
+  var numberItems = items.filter(function (i) { return isTicketNumberItem(i.name); });
+  var realItems = items.filter(function (i) { return !isTicketNumberItem(i.name); });
+  var foodItems = realItems.filter(function (i) { return getItemDest(i.name) === 'kuchyna'; });
+  var drinkItems = realItems.filter(function (i) { return getItemDest(i.name) !== 'kuchyna'; });
+  // Číslo pridaj IBA na začiatok kuchynského bonu, a IBA ak kuchyňa má
+  // čo robiť. Inak by sa vytlačil prázdny bon iba s "🔢 14" — papier
+  // navyše a kuchyňa by sa pýtala čo s ním.
+  if (numberItems.length && foodItems.length) {
+    foodItems = numberItems.concat(foodItems);
+  }
   var tasks = [];
 
   if (foodItems.length) {
@@ -228,8 +239,16 @@ async function printStornoKitchenAndBarTickets(items, orderId) {
   if (!items || !items.length) return { printed: 0 };
 
   var context = getPrintContext();
-  var foodItems = items.filter(function (i) { return getItemDest(i.name) === 'kuchyna'; });
-  var drinkItems = items.filter(function (i) { return getItemDest(i.name) !== 'kuchyna'; });
+  // Storno: rovnaká logika ako pri normálnom odoslaní — číslo iba na
+  // kuchynský storno-bon, bar nedostane (nepotrebuje vedieť ku komu).
+  // Číslo v storne dáva zmysel iba ak je tam aj reálna jedlá položka.
+  var numberItems = items.filter(function (i) { return isTicketNumberItem(i.name); });
+  var realItems = items.filter(function (i) { return !isTicketNumberItem(i.name); });
+  var foodItems = realItems.filter(function (i) { return getItemDest(i.name) === 'kuchyna'; });
+  var drinkItems = realItems.filter(function (i) { return getItemDest(i.name) !== 'kuchyna'; });
+  if (numberItems.length && foodItems.length) {
+    foodItems = numberItems.concat(foodItems);
+  }
   var prints = [];
 
   if (foodItems.length) {
@@ -322,6 +341,133 @@ function initiatePayment(method) {
   document.getElementById('modalAmount').textContent = fmt(total);
   document.getElementById('modalMethod').textContent = 'Sposob: ' + labels[method];
   document.getElementById('paymentModal').classList.add('show');
+  _setupCashHelper(method, total);
+}
+
+// Cash helper \u2014 vlastn\u00FD numpad pre hotovostn\u00FA platbu. Input je READONLY
+// (caret-color:transparent) tak\u017Ee \u017Eiadna nat\u00EDvna kl\u00E1vesnica nevysko\u010D\u00ED na
+// touchscreen kase. Oper\u00E1tor pou\u017E\u00EDva quick-pick chipsy (naj\u010Dastej\u0161ie sumy)
+// alebo n\u00E1\u0161 numpad (1-9, ., 0, \u232B). V\u00FDmenok sa r\u00E1t\u00E1 v re\u00E1lnom \u010Dase, ostane
+// v\u017Edy vidite\u013En\u00FD pod numpadom \u2014 kl\u00E1vesnica u\u017E nezakr\u00FDva ni\u010D.
+function _setupCashHelper(method, total) {
+  var helper = document.getElementById('cashHelper');
+  if (!helper) return;
+  if (method !== 'hotovost') {
+    helper.classList.add('pos-hidden');
+    return;
+  }
+  helper.classList.remove('pos-hidden');
+  var input = document.getElementById('cashGivenInput');
+  var qbtns = document.getElementById('cashQuickBtns');
+  var numpad = document.getElementById('cashNumpad');
+  var changeAmt = document.getElementById('cashChangeAmount');
+  if (!input || !qbtns || !numpad || !changeAmt) return;
+
+  // Reset stav (modal sa m\u00F4\u017Ee otv\u00E1ra\u0165 opakovane na rovnakej obrazovke).
+  input.value = '';
+  changeAmt.textContent = '\u2014';
+  changeAmt.style.color = 'var(--color-text-sec)';
+
+  // Quick-pick presety: presn\u00E1 suma + najbli\u017E\u0161ie 5/10/20/50/100 \u20AC. Pokr\u00FDva
+  // 95 % platieb \u2014 oper\u00E1tor nemus\u00ED klika\u0165 na numpade.
+  var presets = [];
+  presets.push({ v: total, label: 'Presne' });
+  [5, 10, 20, 50, 100].forEach(function (denom) {
+    var v = Math.ceil(total / denom) * denom;
+    if (v > total && !presets.some(function (p) { return Math.abs(p.v - v) < 0.005; })) {
+      presets.push({ v: v, label: fmt(v) });
+    }
+  });
+  presets = presets.slice(0, 5);
+
+  qbtns.innerHTML = presets.map(function (p) {
+    return '<button type="button" class="u-btn u-btn-ghost cash-preset-btn" data-cash="' + p.v.toFixed(2)
+      + '" style="flex:0 1 auto;padding:8px 14px;font-size:13px;min-width:70px">' + p.label + '</button>';
+  }).join('');
+  Array.prototype.forEach.call(qbtns.querySelectorAll('button'), function (b) {
+    b.addEventListener('click', function () {
+      input.value = b.dataset.cash.replace('.', ',');
+      _updateCashChange(total);
+    });
+  });
+
+  // Vlastn\u00FD numpad 3\u00D74. Posledn\u00FD riadok: \u232B (backspace) | 0 | C (clear all).
+  // Backspace zma\u017Ee posledn\u00FA \u010D\u00EDslicu, clear vynuluje na pr\u00E1zdny stav.
+  var keys = [
+    { k: '1' }, { k: '2' }, { k: '3' },
+    { k: '4' }, { k: '5' }, { k: '6' },
+    { k: '7' }, { k: '8' }, { k: '9' },
+    { k: '\u232B', special: 'back' }, { k: '0' }, { k: 'C', special: 'clear' },
+  ];
+  numpad.innerHTML = keys.map(function (kk) {
+    var bg = kk.special ? 'rgba(245,158,11,.10)' : 'rgba(255,255,255,.06)';
+    var color = kk.special ? '#f59e0b' : 'var(--color-text)';
+    var border = kk.special ? '1px solid rgba(245,158,11,.30)' : '1px solid var(--color-border)';
+    return '<button type="button" class="cash-numpad-btn"'
+      + ' data-key="' + kk.k + '"'
+      + (kk.special ? ' data-special="' + kk.special + '"' : '')
+      + ' style="padding:14px 8px;font-size:20px;font-weight:600;border-radius:6px;'
+      +        'background:' + bg + ';border:' + border + ';color:' + color + ';'
+      +        'cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent">'
+      + kk.k + '</button>';
+  }).join('');
+  Array.prototype.forEach.call(numpad.querySelectorAll('.cash-numpad-btn'), function (b) {
+    b.addEventListener('click', function () {
+      _onNumpadKey(b.dataset.key, b.dataset.special, total);
+    });
+  });
+}
+
+// Append digit / handle special keys. Internal value sa dr\u017E\u00ED v Slovak
+// form\u00E1te s \u010Diarkou ("12,50"); pri parse v _updateCashChange ju zmen\u00EDme
+// na bodku. Limit na 8 znakov (= max 99999,99 \u20AC) aby sa input nepretiekol.
+function _onNumpadKey(key, special, total) {
+  var input = document.getElementById('cashGivenInput');
+  if (!input) return;
+  var v = String(input.value || '');
+
+  if (special === 'back') {
+    v = v.slice(0, -1);
+  } else if (special === 'clear') {
+    v = '';
+  } else if (key === ',' || key === '.') {
+    if (v.indexOf(',') === -1) {
+      v = (v.length === 0 ? '0' : v) + ',';
+    }
+  } else {
+    // Zabr\u00E1\u0148 viac ako 2 desatinn\u00FDm miestam (e.g., '12,505' nedovol\u00EDme).
+    var commaIdx = v.indexOf(',');
+    if (commaIdx !== -1 && v.length - commaIdx > 2) return;
+    if (v.length < 8) v = v + key;
+  }
+  input.value = v;
+  _updateCashChange(total);
+}
+
+function _updateCashChange(total) {
+  var input = document.getElementById('cashGivenInput');
+  var changeAmt = document.getElementById('cashChangeAmount');
+  if (!input || !changeAmt) return;
+  var raw = String(input.value || '').replace(',', '.');
+  var given = parseFloat(raw);
+  if (!Number.isFinite(given) || given <= 0) {
+    changeAmt.textContent = '\u2014';
+    changeAmt.style.color = 'var(--color-text-sec)';
+    return;
+  }
+  var change = Math.round((given - total) * 100) / 100;
+  if (change < 0) {
+    // Z\u00E1kazn\u00EDk dal menej ako je celkov\u00E1 suma \u2014 varovanie, oper\u00E1tor p\u00FDta
+    // dorovnanie alebo doklepe \u010Fal\u0161ie bankovky.
+    changeAmt.textContent = 'Ch\u00FDba ' + fmt(-change);
+    changeAmt.style.color = 'var(--color-danger, #ef4444)';
+  } else if (change === 0) {
+    changeAmt.textContent = '0,00 \u20AC';
+    changeAmt.style.color = 'var(--color-text-sec)';
+  } else {
+    changeAmt.textContent = fmt(change);
+    changeAmt.style.color = 'var(--color-success, #22c55e)';
+  }
 }
 
 function closeModal() {

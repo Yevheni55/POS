@@ -278,13 +278,14 @@ function addToOrder(name, emoji, price) {
       if (!combo) return;
       combo._noMerge = true;
       var sauceNote = sauces.length ? sauces.join(' + ') : 'bez omáčky';
+      // Combo má vlastný recept (= burger + male hranolky + boková omáčka
+      // skonsolidované) → odpis surovín ide cez recept comba pri sale.
+      // JS companion-logika (burger / fries / sauce s konkrétnym
+      // menu_item_id) je preto vypnutá — inak by sa tie isté suroviny
+      // odpísali dvakrát. Sauce annotation ostáva ako "Omáčka (combo)"
+      // placeholder s notou kvôli kuchyňa-tiketu (placeholder nemá
+      // recept → žiadna deduplikácia).
       _addSauceAnnotationForCombo(combo, sauceNote);
-      // Combo also includes malé hranolky + burger as 0-price companions,
-      // so their recipes auto-deduct raw stock (zemiaky for fries, žemľa
-      // + mäso + cheddar + … for the burger). Drink companion not added —
-      // operator picks the actual bottle separately at checkout.
-      _addBurgerCompanionForCombo(combo, name);
-      _addFriesCompanionForCombo(combo);
     });
     return;
   }
@@ -292,133 +293,41 @@ function addToOrder(name, emoji, price) {
   _addToOrderCore(name, emoji, price);
 }
 
-// For combos: push 0-price annotation rows for the sauces the waiter picked,
-// tied to the combo via _companionOf so qty changes / storno cascade.
+// For combos: push 0-price annotation row using the generic 'Omáčka
+// (combo)' placeholder so the kitchen sees which sauce(s) the waiter
+// picked. The placeholder has no recipe — combo's own recipe already
+// deducts the side sauce ingredients (per Combo X recipe in DB), so
+// using the placeholder avoids double-deduction.
 //
-// Each picked sauce uses the SPECIFIC sauce menu item id (Omáčka Big Mac
-// domáca 50ml, Tatárka, Chilli-mayo, Kečup, BBQ) instead of the generic
-// 'Omáčka (combo)' placeholder. That's important because menu items 82/83/84
-// have track_mode='recipe' with a per-50ml ingredient breakdown — using
-// the real menu_item_id lets the existing deductStockForSentItems flow
-// auto-deduct sauce ingredients on every combo sale, not just standalone
-// sauce sales. Items without a recipe (Kečup, BBQ) still annotate the
-// kitchen ticket but won't trigger ingredient deduction.
-//
-// Fallback: empty sauce note (= "Bez omáčky") still creates the legacy
-// 'Omáčka (combo)' row so the kitchen sees an explicit "no sauce" line.
+// Note: tracking the EXACT sauce the customer picked vs. the combo's
+// "default" side sauce is a known approximation. If a customer asks for
+// Tatárka instead of Big Mac sauce on a Big Mac combo, the kitchen sees
+// it correctly but inventory still draws Big Mac sauce ingredients.
+// Acceptable for now; if it matters later, switch combo recipes back to
+// "burger + fries only" and re-enable per-sauce companion lines.
 function _addSauceAnnotationForCombo(primaryCombo, sauceNote) {
   if (!primaryCombo) return;
   if (typeof MENU_ID_MAP === 'undefined' || typeof MENU_ITEM_BY_ID === 'undefined') return;
 
-  var SAUCE_TO_MENU = {
-    'Big Mac domáca':  'Omáčka Big Mac domáca 50ml',
-    'Chilli-mayo':     'Omáčka chilli-mayo 50ml',
-    'Tatárka domáca':  'Omáčka tatárka domáca 50ml',
-    'Kečup':           'Omáčka kečup 50ml',
-    'BBQ':             'Omáčka BBQ 50ml',
-  };
+  var annotationMenuId = MENU_ID_MAP.get('Omáčka (combo)');
+  if (!annotationMenuId) return;
+  var annotationMenu = MENU_ITEM_BY_ID.get(annotationMenuId);
+  if (!annotationMenu) return;
 
-  var pushed = 0;
   var order = getOrder();
-  if (sauceNote) {
-    var picks = String(sauceNote).split(',').map(function (s) { return s.trim(); }).filter(Boolean);
-    for (var i = 0; i < picks.length; i++) {
-      var menuName = SAUCE_TO_MENU[picks[i]];
-      if (!menuName) continue;
-      var sauceMenuId = MENU_ID_MAP.get(menuName);
-      if (!sauceMenuId) continue;
-      var sauceMenu = MENU_ITEM_BY_ID.get(sauceMenuId);
-      if (!sauceMenu) continue;
-      order.push({
-        name: sauceMenu.name,
-        emoji: sauceMenu.emoji,
-        price: 0,                       // free as part of combo
-        qty: primaryCombo.qty,
-        note: 'k combu',
-        menuItemId: sauceMenuId,
-        id: _getNextLocalOrderItemId(),
-        _companionOf: primaryCombo.id,
-      });
-      pushed += 1;
-    }
-  }
-
-  // No sauce picked OR none of the picks mapped to a known menu item — fall
-  // back to the generic "Omáčka (combo)" placeholder so the kitchen sees
-  // SOMETHING (so a missing-sauce isn't accidentally invisible).
-  if (pushed === 0) {
-    var annotationMenuId = MENU_ID_MAP.get('Omáčka (combo)');
-    if (annotationMenuId) {
-      var annotationMenu = MENU_ITEM_BY_ID.get(annotationMenuId);
-      if (annotationMenu) {
-        order.push({
-          name: annotationMenu.name,
-          emoji: annotationMenu.emoji,
-          price: 0,
-          qty: primaryCombo.qty,
-          note: sauceNote || 'bez omáčky',
-          menuItemId: annotationMenuId,
-          id: _getNextLocalOrderItemId(),
-          _companionOf: primaryCombo.id,
-        });
-      }
-    }
-  }
+  order.push({
+    name: annotationMenu.name,
+    emoji: annotationMenu.emoji,
+    price: 0,
+    qty: primaryCombo.qty,
+    note: sauceNote || 'bez omáčky',
+    menuItemId: annotationMenuId,
+    id: _getNextLocalOrderItemId(),
+    _companionOf: primaryCombo.id,
+  });
 
   setOrder(order);
   _scheduleRender();
-}
-
-// Combo includes the underlying burger as a 0-price companion line so
-// the burger's recipe auto-deducts raw stock (žemľa, mäso, cheddar, sos).
-// Strips the 'Combo ' prefix and appends ' burger' to find the menu item:
-//   'Combo Big Mac Smash'        → 'Big Mac Smash burger'
-//   'Combo Chipotle Smash'       → 'Chipotle Smash burger'
-//   'Combo BBQ Smash'            → 'BBQ Smash burger'
-//   'Combo Vegetarian Halloumi'  → 'Vegetarian Halloumi burger'
-function _addBurgerCompanionForCombo(primaryCombo, comboName) {
-  if (!primaryCombo || !comboName) return;
-  if (typeof MENU_ID_MAP === 'undefined' || typeof MENU_ITEM_BY_ID === 'undefined') return;
-  var burgerName = String(comboName).replace(/^combo\s+/i, '') + ' burger';
-  var burgerId = MENU_ID_MAP.get(burgerName);
-  if (!burgerId) return; // burger menu item not found — silently skip (combo recipe may handle later)
-  var burger = MENU_ITEM_BY_ID.get(burgerId);
-  if (!burger) return;
-  var order = getOrder();
-  order.push({
-    name: burger.name,
-    emoji: burger.emoji,
-    price: 0,
-    qty: primaryCombo.qty,
-    note: 'k combu',
-    menuItemId: burgerId,
-    id: _getNextLocalOrderItemId(),
-    _companionOf: primaryCombo.id,
-  });
-  setOrder(order);
-}
-
-// Combo always includes 'Hranolky malé 130g' as a 0-price companion. The
-// fries menu item has track_mode='recipe' (deducts ~195g raw zemiakov).
-function _addFriesCompanionForCombo(primaryCombo) {
-  if (!primaryCombo) return;
-  if (typeof MENU_ID_MAP === 'undefined' || typeof MENU_ITEM_BY_ID === 'undefined') return;
-  var friesId = MENU_ID_MAP.get('Hranolky malé 130g');
-  if (!friesId) return;
-  var fries = MENU_ITEM_BY_ID.get(friesId);
-  if (!fries) return;
-  var order = getOrder();
-  order.push({
-    name: fries.name,
-    emoji: fries.emoji,
-    price: 0,
-    qty: primaryCombo.qty,
-    note: 'k combu',
-    menuItemId: friesId,
-    id: _getNextLocalOrderItemId(),
-    _companionOf: primaryCombo.id,
-  });
-  setOrder(order);
 }
 
 function _addToOrderCore(name, emoji, price, forceNewRow) {
@@ -1154,17 +1063,43 @@ function closeSplitModal(){
 }
 
 // === Inline Move Mode (Tap-to-Move) ===
+// moveSelectedItems je teraz pole objektov {id, qty}. qty=null znamená
+// "celé množstvo", číslo < pôvodné qty znamená čiastočný presun (server
+// rozdelí riadok na zdroji a vytvorí nový na destinácii).
 var moveSelectedItems = [];
 var moveMode = false;
 var moveSourceTableId = null;
 var moveSourceOrderId = null;
 
+function _findItemById(itemId) {
+  var order = getOrder();
+  for (var i = 0; i < order.length; i++) {
+    if (order[i].id === itemId) return order[i];
+  }
+  return null;
+}
+
 function enterMoveMode(preselectedItemId) {
   moveMode = true;
-  moveSelectedItems = preselectedItemId ? [preselectedItemId] : [];
+  moveSelectedItems = [];
   moveSourceOrderId = currentOrderId;
   moveSourceTableId = selectedTableId;
   document.querySelector('.order-panel').classList.add('move-mode');
+  if (preselectedItemId != null) {
+    // Ak má item qty>1, neselectujeme rovno všetko — najprv sa
+    // operátora opýtame koľko chce presunúť cez qty picker.
+    var item = _findItemById(preselectedItemId);
+    if (item && Number(item.qty) > 1) {
+      _showMoveQtyPicker(item, function (chosenQty) {
+        if (chosenQty != null) {
+          moveSelectedItems.push({ id: item.id, qty: chosenQty });
+        }
+        renderOrder(); if (isMobile()) renderMobOrder();
+      });
+      return;
+    }
+    moveSelectedItems.push({ id: preselectedItemId, qty: null });
+  }
   renderOrder(); if(isMobile()) renderMobOrder();
 }
 
@@ -1178,11 +1113,109 @@ function exitMoveMode() {
   renderOrder(); if(isMobile()) renderMobOrder();
 }
 
+function _findSelectedIdx(itemId) {
+  for (var i = 0; i < moveSelectedItems.length; i++) {
+    if (moveSelectedItems[i].id === itemId) return i;
+  }
+  return -1;
+}
+
 function toggleMoveSelection(itemId) {
-  var idx = moveSelectedItems.indexOf(itemId);
-  if (idx >= 0) moveSelectedItems.splice(idx, 1);
-  else moveSelectedItems.push(itemId);
-  renderOrder(); if(isMobile()) renderMobOrder();
+  var idx = _findSelectedIdx(itemId);
+  if (idx >= 0) {
+    moveSelectedItems.splice(idx, 1);
+    renderOrder(); if (isMobile()) renderMobOrder();
+    return;
+  }
+  // Nový select — ak má item qty>1, otvor picker; inak pridaj rovno.
+  var item = _findItemById(itemId);
+  if (item && Number(item.qty) > 1) {
+    _showMoveQtyPicker(item, function (chosenQty) {
+      if (chosenQty != null) {
+        moveSelectedItems.push({ id: itemId, qty: chosenQty });
+      }
+      renderOrder(); if (isMobile()) renderMobOrder();
+    });
+    return;
+  }
+  moveSelectedItems.push({ id: itemId, qty: null });
+  renderOrder(); if (isMobile()) renderMobOrder();
+}
+
+// Helper pre render-side: vráti zvolenú qty pre daný item (alebo null
+// pre celé). Použité v renderOrder kvôli zobrazeniu badge "2/5" pri
+// items čo sú čiastočne vybrané.
+function _moveSelectionQtyFor(itemId) {
+  var idx = _findSelectedIdx(itemId);
+  if (idx < 0) return null;
+  return moveSelectedItems[idx].qty;
+}
+
+// Quick qty-picker overlay. Operátor klikne na chip s číslom (1..max-1)
+// alebo "Všetko". Callback dostane zvolené qty (alebo null pri zrušení).
+function _showMoveQtyPicker(item, callback) {
+  var existing = document.getElementById('moveQtyPicker');
+  if (existing) existing.parentNode.removeChild(existing);
+
+  var maxQty = Number(item.qty) || 1;
+  var chipsHtml = '';
+  for (var i = 1; i < maxQty; i++) {
+    chipsHtml += '<button class="mq-chip" data-qty="' + i + '" type="button">' + i + '</button>';
+  }
+  chipsHtml += '<button class="mq-chip mq-chip-all" data-qty="' + maxQty + '" type="button">Všetko (' + maxQty + ')</button>';
+
+  var overlay = document.createElement('div');
+  overlay.id = 'moveQtyPicker';
+  overlay.className = 'u-overlay show';
+  overlay.style.zIndex = '10000';
+  overlay.innerHTML =
+    '<div class="u-modal" role="dialog" aria-modal="true" style="max-width:380px">' +
+      '<span class="u-modal-icon">↗</span>' +
+      '<div class="u-modal-title">Koľko presunúť?</div>' +
+      '<div class="u-modal-amount" style="font-size:16px;color:var(--color-text-sec)">' +
+        (item.emoji || '') + ' ' + (item.name || '') +
+      '</div>' +
+      '<div class="u-modal-body" style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding:14px 0">' +
+        chipsHtml +
+      '</div>' +
+      '<div class="u-modal-btns">' +
+        '<button class="u-btn u-btn-ghost" id="mqCancel" type="button">Zrušiť</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+
+  // Štýl pre chipy — inline lebo nemáme pre toto class v CSS.
+  var chips = overlay.querySelectorAll('.mq-chip');
+  Array.prototype.forEach.call(chips, function (c) {
+    c.style.cssText = 'min-width:64px;padding:14px 18px;font-size:18px;font-weight:700;'
+      + 'border-radius:8px;border:1px solid var(--color-border);background:rgba(255,255,255,.06);'
+      + 'color:var(--color-text);cursor:pointer';
+    if (c.classList.contains('mq-chip-all')) {
+      c.style.borderColor = 'var(--color-accent, #22c55e)';
+      c.style.color = 'var(--color-accent, #22c55e)';
+    }
+    c.addEventListener('click', function () {
+      var q = parseInt(c.dataset.qty, 10);
+      _closeMoveQtyPicker();
+      callback(q);
+    });
+  });
+  overlay.querySelector('#mqCancel').addEventListener('click', function () {
+    _closeMoveQtyPicker();
+    callback(null);
+  });
+  // Klik na overlay (mimo modalu) zruší.
+  overlay.addEventListener('click', function (e) {
+    if (e.target === overlay) {
+      _closeMoveQtyPicker();
+      callback(null);
+    }
+  });
+}
+
+function _closeMoveQtyPicker() {
+  var el = document.getElementById('moveQtyPicker');
+  if (el && el.parentNode) el.parentNode.removeChild(el);
 }
 
 // Move selected items to a target account tab (inline, no modal)
@@ -1190,8 +1223,14 @@ async function moveToTab(targetOrderId) {
   if (!moveSelectedItems.length) { showToast('Vyberte polozky'); return; }
   try {
     var count = moveSelectedItems.length;
+    // Server akceptuje itemQtys s {itemId, qty}. Ak qty=null (celé), tak
+    // server fallne na pôvodné item.qty. Server tiež prijíma legacy itemIds
+    // ale my pošleme nový formát aby fungoval čiastočný presun.
+    var itemQtys = moveSelectedItems
+      .filter(function (s) { return s && (s.qty == null || s.qty > 0); })
+      .map(function (s) { return { itemId: s.id, qty: s.qty }; });
     await api.post('/orders/' + moveSourceOrderId + '/move-items', {
-      itemIds: moveSelectedItems, targetTableId: selectedTableId, targetOrderId: targetOrderId
+      itemQtys: itemQtys, targetTableId: selectedTableId, targetOrderId: targetOrderId
     });
     // Clear move state without rendering (avoid flicker before data refresh)
     moveMode = false;
@@ -1241,8 +1280,11 @@ async function handleMoveToTable(targetTableId) {
   if (!moveSelectedItems.length) { showToast('Vyberte polozky'); return; }
   try {
     var count = moveSelectedItems.length;
+    var itemQtys = moveSelectedItems
+      .filter(function (s) { return s && (s.qty == null || s.qty > 0); })
+      .map(function (s) { return { itemId: s.id, qty: s.qty }; });
     await api.post('/orders/' + moveSourceOrderId + '/move-items', {
-      itemIds: moveSelectedItems, targetTableId: targetTableId
+      itemQtys: itemQtys, targetTableId: targetTableId
     });
     var targetTable = TABLES.find(function(t) { return t.id === targetTableId; });
     showToast(count + ' pol. \u2192 ' + (targetTable ? targetTable.name : 'stol'), true);

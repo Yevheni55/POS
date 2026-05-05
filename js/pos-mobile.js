@@ -276,12 +276,19 @@ function renderMobOrder() {
   } else if (moveMode) {
     // Move mode: 2-row card. Row 1 = emoji + check + full name. Row 2 = qty x price.
     container.innerHTML = '<div class="mob-move-hint">Presunout vybrane polozky a potom vyberte cielovy ucet alebo stol.</div>' + order.map(o => {
-      var selected = moveSelectedItems.indexOf(o.id) >= 0;
+      var selectedIdx = _findSelectedIdx(o.id);
+      var selected = selectedIdx >= 0;
+      var selectedQty = _moveSelectionQtyFor(o.id);
+      // Pri čiastočnom presune zobrazí badge "qty/total" — operátor hneď
+      // vidí že nevyberá celé množstvo.
+      var partialBadge = (selected && selectedQty != null && selectedQty < o.qty)
+        ? `<span style="margin-left:6px;font-size:11px;padding:2px 6px;border-radius:6px;background:rgba(245,158,11,.18);color:#f59e0b;font-weight:700">${selectedQty}/${o.qty}</span>`
+        : '';
       return `<button type="button" class="mob-order-item mob-order-item-pick${o.sent ? ' sent' : ''}${selected ? ' move-selected' : ''}" onclick="toggleMoveSelection(${o.id})" aria-pressed="${selected ? 'true' : 'false'}">
         <div class="mob-oi-row1">
           <span class="mob-move-check" aria-hidden="true">${selected ? '&#10003;' : ''}</span>
           <span class="mob-oi-emoji">${escHtml(o.emoji)}</span>
-          <div class="mob-oi-info"><div class="mob-oi-name">${escHtml(o.name)}</div>${o.note ? `<div class="mob-oi-note">${escHtml(o.note)}</div>` : ''}</div>
+          <div class="mob-oi-info"><div class="mob-oi-name">${escHtml(o.name)}${partialBadge}</div>${o.note ? `<div class="mob-oi-note">${escHtml(o.note)}</div>` : ''}</div>
         </div>
         <div class="mob-oi-row2">
           <div class="mob-oi-qty-readonly">${o.qty}x &middot; ${fmt(o.price * o.qty)}</div>

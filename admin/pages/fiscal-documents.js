@@ -132,6 +132,13 @@ function renderDetail() {
   const stornoBtn = selectedDocument.stornoEligible
     ? '<button class="btn-save btn-sm" id="btnFiscalDocStorno" style="background:var(--color-danger, #c44)">Odoslať STORNO</button>'
     : '';
+  // "Zmenit sposob platby" — viditeľné iba ak je doklad eligible na storno
+  // (úspešný sale doc bez existujúceho storno) a má naviazanú platbu.
+  // Po klikuotvorí dropdown s 'hotovost' / 'karta' a zavolá change-method
+  // endpoint ktorý automaticky urobí storno + nový doklad s novou metódou.
+  const changeMethodBtn = (selectedDocument.stornoEligible && selectedDocument.paymentId && selectedDocument.paymentMethod)
+    ? '<button class="btn-save btn-sm" id="btnFiscalChangeMethod" style="background:var(--accent-amber, #d97706)">Zmeniť spôsob platby</button>'
+    : '';
 
   el.innerHTML = `
     <div class="section" style="margin:0">
@@ -149,7 +156,7 @@ function renderDetail() {
         <div class="form-group"><label>Stav</label><div>${escapeHtml(selectedDocument.resultMode)}</div></div>
         <div class="form-group"><label>Storno</label><div>${selectedDocument.stornoDone ? 'Už odoslané' : (selectedDocument.stornoEligible ? 'Možné' : 'Nie')}</div></div>
       </div>
-      <div class="flex-row gap-2 mt-3">${copyBtn}${stornoBtn}</div>
+      <div class="flex-row gap-2 mt-3">${copyBtn}${stornoBtn}${changeMethodBtn}</div>
     </div>
   `;
 }
@@ -197,6 +204,32 @@ async function printCopy() {
   }
 }
 
+function confirmChangeMethod() {
+  if (!selectedDocument || !selectedDocument.stornoEligible || !selectedDocument.paymentId) return;
+  // Súčasná metóda = label v detaile. Ponúkneme tú druhú možnosť (jediný
+  // valid prepínač pre operátora — nemá zmysel meniť hotovost na hotovost).
+  const current = String(selectedDocument.paymentMethod || '').toLowerCase();
+  const target = (current === 'hotovost' || current === 'cash') ? 'karta' : 'hotovost';
+  const labelMap = { hotovost: 'Hotovosť', karta: 'Karta' };
+  const newLabel = labelMap[target] || target;
+  const oldLabel = labelMap[current] || current;
+
+  showConfirm(
+    'Zmena spôsobu platby',
+    `Pôvodný doklad (${oldLabel}) sa vystorno na Portos a vytlačí sa nový doklad s metódou ${newLabel}. Pokračovať?`,
+    async function () {
+      try {
+        const result = await api.post('/payments/' + selectedDocument.paymentId + '/change-method', { newMethod: target });
+        showToast('Metóda zmenená: ' + oldLabel + ' → ' + newLabel + (result.newSaleFiscal && result.newSaleFiscal.receiptId ? ' (' + result.newSaleFiscal.receiptId + ')' : ''), true);
+        await loadDetail(selectedDocument.id);
+      } catch (error) {
+        showToast(error.message || 'Chyba zmeny metódy', 'error');
+      }
+    },
+    { type: 'warning', confirmText: 'Storno + nový doklad' }
+  );
+}
+
 function confirmStorno() {
   if (!selectedDocument || !selectedDocument.stornoEligible) return;
   showConfirm(
@@ -234,6 +267,11 @@ function onClick(event) {
 
   if (event.target.id === 'btnFiscalDocStorno' || event.target.closest('#btnFiscalDocStorno')) {
     confirmStorno();
+    return;
+  }
+
+  if (event.target.id === 'btnFiscalChangeMethod' || event.target.closest('#btnFiscalChangeMethod')) {
+    confirmChangeMethod();
   }
 }
 

@@ -138,6 +138,32 @@ router.get('/recipes/summary', asyncRoute(async (req, res) => {
   res.json(rows.map((r) => ({ menuItemId: r.menuItemId, count: Number(r.count) })));
 }));
 
+// Sales counts per menu_item — používa sa v Recepty UI aby zobrazilo
+// "predáva sa, ale ešte nemá recept" v poradí od najpredávanejšej.
+// Default obdobie = od začiatku sezóny (25.04 aktuálneho roku) ak nie je
+// zadaný `from`. Status='cancelled' filtrujeme; sent=true netreba lebo
+// open-tab items sú legitímne v predaji (UI zobrazuje cumulatívne ks).
+router.get('/menu-items/sales', asyncRoute(async (req, res) => {
+  const from = req.query.from || `${new Date().getFullYear()}-04-25`;
+  const rows = await db.execute(sql`
+    SELECT
+      oi.menu_item_id  AS "menuItemId",
+      SUM(oi.qty)::int AS "soldQty",
+      MAX(o.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Bratislava') AS "lastSoldAt"
+    FROM order_items oi
+    INNER JOIN orders o ON o.id = oi.order_id
+    WHERE o.created_at >= ${from}
+      AND o.status != 'cancelled'
+    GROUP BY oi.menu_item_id
+    ORDER BY SUM(oi.qty) DESC
+  `);
+  res.json(rows.rows.map(r => ({
+    menuItemId: Number(r.menuItemId),
+    soldQty: Number(r.soldQty) || 0,
+    lastSoldAt: r.lastSoldAt,
+  })));
+}));
+
 router.get('/recipes/:menuItemId', asyncRoute(async (req, res) => {
   const rows = await db.select({
     id: recipes.id, ingredientId: recipes.ingredientId, qtyPerUnit: recipes.qtyPerUnit,

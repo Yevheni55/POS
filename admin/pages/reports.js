@@ -60,11 +60,11 @@ async function loadReports() {
 }
 
 function showEmptyReports() {
-  const emptyHtml = '<tr><td colspan="5" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
+  const emptyHtml = '<tr><td colspan="7" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
   const trzbyBody = $('#table-trzby tbody');
   if (trzbyBody) trzbyBody.innerHTML = emptyHtml;
   const produktyBody = $('#table-produkty tbody');
-  if (produktyBody) produktyBody.innerHTML = '<tr><td colspan="6" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
+  if (produktyBody) produktyBody.innerHTML = '<tr><td colspan="8" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
   const zamBody = $('#table-zamestnanci tbody');
   if (zamBody) zamBody.innerHTML = '<tr><td colspan="6" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
   const hodBody = $('#table-hodiny tbody');
@@ -72,6 +72,9 @@ function showEmptyReports() {
 }
 
 function renderStats(data) {
+  // The 7-card grid is rendered top-to-bottom: 4 sales KPIs, then 3
+  // hospodársky-výsledok cards. Values flow into them by index because the
+  // existing template binds via .stat-value class (no IDs).
   const statValues = $$('.stat-value');
   if (data.totalRevenue !== undefined && statValues[0]) {
     statValues[0].innerHTML = fmtEur(data.totalRevenue);
@@ -84,6 +87,27 @@ function renderStats(data) {
   }
   if (data.topRevenue !== undefined && statValues[3]) {
     statValues[3].innerHTML = fmtEur(data.topRevenue);
+  }
+  // Náklady-na-výrobu (COGS) — sum z receptov × predaj. Položky bez receptu
+  // (väčšina barových bezreceptových drinkov, kombá pred recept-update)
+  // počítame ako 0 €, čo je dohodnuté zjednodušenie. Číslo sa preto chápe
+  // ako "garantované známe COGS", nie horný odhad.
+  if (data.totalCogs !== undefined && statValues[4]) {
+    statValues[4].innerHTML = fmtEur(data.totalCogs);
+  }
+  // Mzdy — z attendance_events (clock_in→clock_out) × hourly_rate.
+  if (data.totalLabor !== undefined && statValues[5]) {
+    statValues[5].innerHTML = fmtEur(data.totalLabor);
+  }
+  // Výsledok = Tržby − Výroba − Mzdy. Farebne zvýrazníme: zelená pre +,
+  // červená pre −, šedá pre 0 — operátor potrebuje na prvý pohľad vidieť
+  // či je deň/mesiac v pluse.
+  if (data.totalProfit !== undefined && statValues[6]) {
+    const v = Number(data.totalProfit) || 0;
+    const color = v > 0 ? 'var(--color-success, #22c55e)'
+                : v < 0 ? 'var(--color-danger, #ef4444)'
+                : 'var(--color-text-sec, #94a3b8)';
+    statValues[6].innerHTML = '<span style="color:' + color + '">' + fmtEur(v) + '</span>';
   }
 }
 
@@ -124,28 +148,44 @@ function renderTrzby(data) {
   const tbody = $('#table-trzby tbody');
   if (!tbody) return;
   if (!data.daily || !data.daily.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
     return;
   }
   if (!tbody) return;
-  tbody.innerHTML = data.daily.map(d =>
-    `<tr>
+  // Per-day rows now also show Výroba (COGS), Mzdy, Výsledok. Profit cell
+  // is colored — green for positive day, red for negative — so the operator
+  // can scan a week and immediately spot bad days. Edge: if revenue=0 but
+  // labor>0 (e.g. paid-shift on a closed day), the row appears with red.
+  tbody.innerHTML = data.daily.map(d => {
+    const profit = Number(d.profit) || 0;
+    const profitColor = profit > 0 ? 'var(--color-success, #22c55e)'
+                      : profit < 0 ? 'var(--color-danger, #ef4444)'
+                      : 'var(--color-text-sec, #94a3b8)';
+    return `<tr>
       <td>${d.date}</td>
       <td class="num">${d.orders}</td>
       <td class="num highlight-cell">${fmtEur(d.revenue)}</td>
+      <td class="num">${fmtEur(d.cogs || 0)}</td>
+      <td class="num">${fmtEur(d.labor || 0)}</td>
+      <td class="num" style="font-weight:700;color:${profitColor}">${fmtEur(profit)}</td>
       <td class="num">${fmtEur(d.avgCheck)}</td>
-      <td>${d.peakHours || ''}</td>
-    </tr>`
-  ).join('');
+    </tr>`;
+  }).join('');
 
   const tfoot = $('#table-trzby tfoot');
   if (tfoot && data.totalRevenue !== undefined) {
+    const tProfit = Number(data.totalProfit) || 0;
+    const tProfitColor = tProfit > 0 ? 'var(--color-success, #22c55e)'
+                      : tProfit < 0 ? 'var(--color-danger, #ef4444)'
+                      : 'var(--color-text-sec, #94a3b8)';
     tfoot.innerHTML = `<tr>
       <td>Spolu</td>
       <td>${data.totalOrders || ''}</td>
       <td class="color-accent">${fmtEur(data.totalRevenue)}</td>
+      <td>${data.totalCogs !== undefined ? fmtEur(data.totalCogs) : ''}</td>
+      <td>${data.totalLabor !== undefined ? fmtEur(data.totalLabor) : ''}</td>
+      <td style="font-weight:700;color:${tProfitColor}">${data.totalProfit !== undefined ? fmtEur(tProfit) : ''}</td>
       <td>${data.avgCheck !== undefined ? fmtEur(data.avgCheck) : ''}</td>
-      <td></td>
     </tr>`;
   }
 }
@@ -157,7 +197,7 @@ function renderProdukty(data) {
   _lastProductsData = data;
   updateProductHeaderArrows();
   if (!data.products || !data.products.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
     return;
   }
   // Take a copy so we don't mutate the cached data on each click.
@@ -173,12 +213,22 @@ function renderProdukty(data) {
     else if (i === 1) rankStyle = 'color:var(--color-text-sec);font-weight:700';
     else if (i === 2) rankStyle = 'color:rgba(205,127,50,.7);font-weight:700';
     const display = (p.emoji ? p.emoji + ' ' : '') + (p.name || '');
+    // Per-product Výroba & Výsledok — položky bez receptu majú cogs=0,
+    // takže ich Výsledok = Tržba (čisté marže). Farba Výsledku zvýrazní
+    // straty (záporná marža = chybný recept alebo nákupná cena).
+    const cogs = Number(p.cogs) || 0;
+    const profit = Number(p.profit) || 0;
+    const profitColor = profit > 0 ? 'var(--color-success, #22c55e)'
+                      : profit < 0 ? 'var(--color-danger, #ef4444)'
+                      : 'var(--color-text-sec, #94a3b8)';
     return `<tr>
       <td class="num" style="${rankStyle}">${i + 1}</td>
       <td class="td-name">${display}</td>
       <td>${p.category || ''}</td>
       <td class="num">${p.qty}</td>
       <td class="num highlight-cell">${fmtEur(p.revenue)}</td>
+      <td class="num">${fmtEur(cogs)}</td>
+      <td class="num" style="font-weight:700;color:${profitColor}">${fmtEur(profit)}</td>
       <td><div class="progress-wrap"><div class="progress-fill" style="width:${barW}%"></div></div>${pct}%</td>
     </tr>`;
   }).join('');
@@ -205,6 +255,12 @@ function productComparator(sort) {
   }
   if (col === 'revenue' || col === 'pct') {
     return (a, b) => ((Number(a.revenue) || 0) - (Number(b.revenue) || 0)) * dir;
+  }
+  if (col === 'cogs') {
+    return (a, b) => ((Number(a.cogs) || 0) - (Number(b.cogs) || 0)) * dir;
+  }
+  if (col === 'profit') {
+    return (a, b) => ((Number(a.profit) || 0) - (Number(b.profit) || 0)) * dir;
   }
   // default + 'qty'
   return (a, b) => ((Number(a.qty) || 0) - (Number(b.qty) || 0)) * dir;
@@ -415,8 +471,33 @@ async function printZReport() {
   const btn = $('#btnPrintZReport');
   if (btn) btnLoading(btn);
   try {
-    await api.post('/print/z-report', { date });
-    showToast('Z-report odoslany na tlaciaren', true);
+    const res = await api.post('/print/z-report', { date });
+    // Backend pri tlači uzávierky automaticky:
+    //  (1) volá Portos /receipts/withdraw (fiškálny paragón výberu)
+    //  (2) vytvorí cashflow_entry pre interný report
+    // Tu kombinujeme oba výsledky do jedného toastu, aby operátor v jednom
+    // toaste videl či sa Portos paragón fakticky vytlačil.
+    var w = res && res.withdrawal;
+    var pw = res && res.portosWithdraw;
+    var amt = w && w.amount != null ? Number(w.amount).toFixed(2).replace('.', ',') + ' €' : '';
+    if (w && w.reason === 'no_cash') {
+      showToast('Z-report vytlačený. Žiadna hotovosť na výber.', true);
+    } else if (pw && pw.ok) {
+      // Najlepší scenár: Portos paragón aj cashflow OK
+      showToast('Z-report vytlačený. Portos výber ' + amt + (pw.receiptId ? ' (' + pw.receiptId + ')' : '') + ' OK.', true);
+    } else if (pw && !pw.ok && pw.skipped) {
+      // Portos vypnutý — len cashflow zapísané
+      showToast('Z-report vytlačený. Cashflow výber ' + amt + ' (Portos je vypnutý).', true);
+    } else if (pw && !pw.ok) {
+      // Portos zlyhal — cashflow OK, ale paragón treba ručne
+      showToast('Z-report OK + cashflow ' + amt + '. ⚠ Portos paragón výberu zlyhal: ' + (pw.error || 'unknown') + ' — vytlač ručne.', 'warning');
+    } else if (w && w.alreadyExists) {
+      showToast('Z-report vytlačený. Výber už evidovaný (' + amt + ').', true);
+    } else if (w && w.created) {
+      showToast('Z-report vytlačený. Cashflow výber ' + amt + '.', true);
+    } else {
+      showToast('Z-report odoslany na tlaciaren', true);
+    }
   } catch (err) {
     showToast('Chyba tlace: ' + err.message, 'error');
   } finally {
@@ -661,6 +742,39 @@ const TEMPLATE = `
         <div class="stat-value">-- &euro;</div>
       </div>
     </div>
+    <!-- Náklady na výrobu — sum recipe_qty × ingredient_cost over predaj.
+         Položky bez receptu = 0 € (po dohode s prevádzkou). -->
+    <div class="stat-card">
+      <div class="stat-icon amber">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 3h18v4H3z"/><path d="M5 7v14h14V7"/><path d="M9 11h6"/><path d="M9 15h6"/></svg>
+      </div>
+      <div class="stat-info">
+        <div class="stat-label">Naklady na vyrobu</div>
+        <div class="stat-value">-- &euro;</div>
+      </div>
+    </div>
+    <!-- Mzdy — clock_in→clock_out × hourly_rate. -->
+    <div class="stat-card">
+      <div class="stat-icon lavender">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      </div>
+      <div class="stat-info">
+        <div class="stat-label">Mzdy</div>
+        <div class="stat-value">-- &euro;</div>
+      </div>
+    </div>
+    <!-- Výsledok = Tržby − Výroba − Mzdy. Hospodársky výsledok pred ostat-
+         nými nákladmi (energie, nájom, prac. ochranné). Zelená/červená farba
+         sa nastavuje v renderStats(). -->
+    <div class="stat-card">
+      <div class="stat-icon mint">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      </div>
+      <div class="stat-info">
+        <div class="stat-label">Vysledok</div>
+        <div class="stat-value">-- &euro;</div>
+      </div>
+    </div>
   </div>
 
   <!-- TABS -->
@@ -682,14 +796,16 @@ const TEMPLATE = `
         <thead>
           <tr>
             <th>Dátum</th>
-            <th>Objednávky</th>
+            <th>Obj.</th>
             <th>Tržby</th>
+            <th>Výroba</th>
+            <th>Mzdy</th>
+            <th>Výsledok</th>
             <th>Priem. účet</th>
-            <th>Najlepšie hodiny</th>
           </tr>
         </thead>
         <tbody>
-          <tr><td colspan="5" class="td-empty">Načítavam…</td></tr>
+          <tr><td colspan="7" class="td-empty">Načítavam…</td></tr>
         </tbody>
         <tfoot></tfoot>
       </table>
@@ -709,11 +825,13 @@ const TEMPLATE = `
             <th class="sortable-th" data-sort-col="category">Kategória <span class="sort-arrow"></span></th>
             <th class="sortable-th sort-active" data-sort-col="qty">Predaných ks <span class="sort-arrow">▼</span></th>
             <th class="sortable-th" data-sort-col="revenue">Tržby <span class="sort-arrow"></span></th>
+            <th class="sortable-th" data-sort-col="cogs">Výroba <span class="sort-arrow"></span></th>
+            <th class="sortable-th" data-sort-col="profit">Výsledok <span class="sort-arrow"></span></th>
             <th class="sortable-th" data-sort-col="pct">% z celku <span class="sort-arrow"></span></th>
           </tr>
         </thead>
         <tbody>
-          <tr><td colspan="6" class="td-empty">Načítavam…</td></tr>
+          <tr><td colspan="8" class="td-empty">Načítavam…</td></tr>
         </tbody>
       </table>
       </div>

@@ -238,6 +238,22 @@
     <div class="u-modal-title" id="modalTitle">Platba</div>
     <div class="u-modal-amount" id="modalAmount"></div>
     <div class="u-modal-method" id="modalMethod"></div>
+    <!-- Cash helper: viditeľný iba pri hotovostnej platbe. Input je READONLY
+         + vlastný numpad — natívna klávesnica už nevyskočí a nezakryje modal
+         s výmenkom. Klasický POS pattern. -->
+    <div id="cashHelper" class="pos-hidden" style="margin-top:14px;padding:12px;background:rgba(255,255,255,.04);border-radius:8px;border:1px solid rgba(255,255,255,.06)">
+      <div style="font-size:13px;color:var(--color-text-sec);margin-bottom:8px;text-align:center">Dostal som od zákazníka:</div>
+      <div id="cashQuickBtns" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;justify-content:center"></div>
+      <input type="text" id="cashGivenInput" readonly placeholder="0,00 €" inputmode="none"
+        style="width:100%;font-size:26px;font-weight:700;text-align:center;padding:10px;border-radius:6px;border:1px solid var(--color-border);background:var(--color-bg-surface);color:var(--color-text);box-sizing:border-box;caret-color:transparent">
+      <!-- Numpad 3×4: digits 1-9, decimal, 0, backspace. Grid sa škáluje
+           na šírku modalu, na desktope aj na touchpad funkcuje rovnako. -->
+      <div id="cashNumpad" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px"></div>
+      <div id="cashChangeBox" style="margin-top:10px;padding:10px;text-align:center;font-size:16px;border-radius:6px;background:rgba(255,255,255,.03)">
+        <span style="color:var(--color-text-sec)">Vydať:</span>
+        <span id="cashChangeAmount" style="font-weight:700;font-size:22px;margin-left:8px">—</span>
+      </div>
+    </div>
     <div class="u-modal-btns">
       <button class="u-btn u-btn-ghost" onclick="closeModal()">Spat<span class="kbd">Esc</span></button>
       <button class="u-btn u-btn-mint" onclick="confirmPayment()">Potvrdit<span class="kbd">Enter</span></button>

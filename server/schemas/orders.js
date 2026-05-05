@@ -42,7 +42,16 @@ export const splitSchema = z.object({
 });
 
 export const moveItemsSchema = z.object({
-  itemIds: z.array(z.coerce.number().int()).min(1),
+  // Backward-compat: itemIds presúva celé položky bez splitu (qty zostáva).
+  // itemQtys umožňuje čiastočný presun — ak qty < pôvodné item.qty, zdroj
+  // si nechá (item.qty - qty) a destinácia dostane novy riadok s 'qty'.
+  // qty môže byť null/undefined → server to interpretuje ako "celé množstvo"
+  // (klient posiela null pri jednoduchom kliknutí na item bez qty pickera).
+  itemIds: z.array(z.coerce.number().int()).optional(),
+  itemQtys: z.array(z.object({
+    itemId: z.coerce.number().int(),
+    qty: z.coerce.number().int().min(1).nullable().optional(),
+  })).optional(),
   targetTableId: z.coerce.number().int().optional(),
   targetOrderId: z.coerce.number().int().optional(),
 });

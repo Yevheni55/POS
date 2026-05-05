@@ -14,6 +14,7 @@ const INCOME_CATS = [
   { slug: 'other_income', label: 'Iný príjem' },
 ];
 const EXPENSE_CATS = [
+  { slug: 'withdrawal_uzavierka', label: 'Výber z pokladne (uzávierka)' },
   { slug: 'rent',          label: 'Nájom' },
   { slug: 'utilities',     label: 'Energie / voda / internet' },
   { slug: 'salary',        label: 'Mzdy / odmeny' },

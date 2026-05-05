@@ -108,6 +108,75 @@ router.get('/summary', mgr, async (req, res) => {
     ORDER BY 1
   `);
 
+  // Per-day náklady na výrobu (COGS) — sums (qty × recipe.qty_per_unit ×
+  // ingredient.cost_per_unit) over each item that has a recipe. Items
+  // without a recipe contribute 0 (per operator decision: combos and
+  // un-tracked items are treated as zero-cost in the dashboard until a
+  // recipe is added). Bucketed by order's LOCAL Bratislava date so a
+  // 01:30-local order lands on the bartender's day, not next UTC day.
+  const cogsRows = await db.execute(sql`
+    SELECT
+      to_char((o.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ})::date, 'YYYY-MM-DD') AS date,
+      COALESCE(SUM(oi.qty * r.qty_per_unit::numeric * i.cost_per_unit::numeric), 0)::float AS cogs
+    FROM order_items oi
+    INNER JOIN orders o ON o.id = oi.order_id
+    INNER JOIN recipes r ON r.menu_item_id = oi.menu_item_id
+    INNER JOIN ingredients i ON i.id = r.ingredient_id
+    WHERE o.created_at >= ${fromBoundary} AND o.created_at <= ${toBoundary}
+      AND o.status != 'cancelled'
+    GROUP BY 1
+    ORDER BY 1
+  `);
+
+  // Per-menu-item COGS — used by the Produkty tab to show "Výroba" per
+  // riadok (cumulative cost over the picked period). Same recipe joins as
+  // the per-day cogsRows query, but grouped by menu_item instead of date.
+  // Items without a recipe don't appear here at all (they're treated as
+  // 0-cost in the frontend join).
+  const cogsByMenuRows = await db.execute(sql`
+    SELECT
+      mi.name AS name,
+      COALESCE(SUM(oi.qty * r.qty_per_unit::numeric * i.cost_per_unit::numeric), 0)::float AS cogs
+    FROM order_items oi
+    INNER JOIN orders o ON o.id = oi.order_id
+    INNER JOIN menu_items mi ON mi.id = oi.menu_item_id
+    INNER JOIN recipes r ON r.menu_item_id = oi.menu_item_id
+    INNER JOIN ingredients i ON i.id = r.ingredient_id
+    WHERE o.created_at >= ${fromBoundary} AND o.created_at <= ${toBoundary}
+      AND o.status != 'cancelled'
+    GROUP BY mi.name
+  `);
+
+  // Per-day náklady na mzdy — pairs each clock_in with the immediately
+  // next event (which should be the matching clock_out) and computes
+  // hours × hourly_rate. Bucketed by clock_in's LOCAL Bratislava date so
+  // a shift that starts before midnight lands on the date the cashier
+  // walked in (not the date they clocked out). Open shifts (no matching
+  // clock_out) and admin staff with NULL hourly_rate contribute 0.
+  const laborRows = await db.execute(sql`
+    WITH paired AS (
+      SELECT
+        ae.staff_id,
+        ae.type,
+        ae.at,
+        LEAD(ae.at)   OVER (PARTITION BY ae.staff_id ORDER BY ae.at) AS next_at,
+        LEAD(ae.type) OVER (PARTITION BY ae.staff_id ORDER BY ae.at) AS next_type
+      FROM attendance_events ae
+    )
+    SELECT
+      to_char((paired.at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ})::date, 'YYYY-MM-DD') AS date,
+      COALESCE(SUM(EXTRACT(EPOCH FROM (paired.next_at - paired.at)) / 3600.0
+        * COALESCE(s.hourly_rate, 0)::numeric), 0)::float AS labor
+    FROM paired
+    INNER JOIN staff s ON s.id = paired.staff_id
+    WHERE paired.type = 'clock_in'
+      AND paired.next_type = 'clock_out'
+      AND paired.at >= ${fromBoundary}
+      AND paired.at <= ${toBoundary}
+    GROUP BY 1
+    ORDER BY 1
+  `);
+
   // Per-hour-of-day breakdown for the Hodiny tab. Hours are LOCAL Bratislava
   // hours so 18:00 means 18:00 in the bar, not 16:00 UTC.
   const hourlyRows = await db.execute(sql`
@@ -190,15 +259,47 @@ router.get('/summary', mgr, async (req, res) => {
     destAcc[dest].items += Number(r.items) || 0;
   }
 
-  const dailyArr = dailyRows.rows.map((r) => {
-    const orders = Number(r.orders) || 0;
-    const revenue = Number(r.revenue) || 0;
+  // Index per-menu-item COGS by name (case-sensitive match) so the
+  // Produkty tab can show Výroba per riadok in renderProdukty().
+  const cogsByMenuName = {};
+  for (const r of cogsByMenuRows.rows) cogsByMenuName[r.name] = Number(r.cogs) || 0;
+
+  // Index per-day náklady (výroba + mzdy) by date so dailyArr can be
+  // enriched in a single pass below. Days that had revenue but no
+  // recipe-tracked items still appear with cogs=0 (the LEFT JOIN pattern
+  // happens implicitly because we only set keys that have data).
+  const cogsByDate = {};
+  for (const r of cogsRows.rows) cogsByDate[r.date] = Number(r.cogs) || 0;
+  const laborByDate = {};
+  for (const r of laborRows.rows) laborByDate[r.date] = Number(r.labor) || 0;
+  // A day might exist in cogs/labor but not in dailyArr (sales-less day
+  // that still had a paid shift, or recipe write-off). Union all keys so
+  // such days still surface with revenue=0.
+  const dailyDateSet = new Set([
+    ...dailyRows.rows.map(r => r.date),
+    ...Object.keys(cogsByDate),
+    ...Object.keys(laborByDate),
+  ]);
+  const revenueByDate = {};
+  const ordersByDate = {};
+  for (const r of dailyRows.rows) {
+    revenueByDate[r.date] = Number(r.revenue) || 0;
+    ordersByDate[r.date] = Number(r.orders) || 0;
+  }
+  const dailyArr = Array.from(dailyDateSet).sort().map((date) => {
+    const orders = ordersByDate[date] || 0;
+    const revenue = revenueByDate[date] || 0;
+    const cogs = roundMoney(cogsByDate[date] || 0);
+    const labor = roundMoney(laborByDate[date] || 0);
     return {
-      date: r.date,
+      date,
       orders,
       revenue,
       avgCheck: orders > 0 ? roundMoney(revenue / orders) : 0,
       peakHours: '',
+      cogs,
+      labor,
+      profit: roundMoney(revenue - cogs - labor),
     };
   });
   // Union the hour buckets from both queries so an hour that had only
@@ -242,6 +343,16 @@ router.get('/summary', mgr, async (req, res) => {
   const topRevenue = staffArr.length ? staffArr[0].revenue : 0;
   const topItemsArr = topItems.map(i => ({ ...i, qty: parseInt(i.qty), revenue: parseFloat(i.revenue) }));
 
+  // Period totals — sum the per-day arrays so the dashboard "Spolu" row
+  // and the new "Výsledok" stat card always agree with the table. Profit
+  // uses fiscal+shisha totalRevenue (matching the existing 'Celkové tržby'
+  // card) MINUS the COGS and labor sums; if the period boundary trims a
+  // shift in the middle (clock_in inside, clock_out outside) that shift
+  // contributes to whichever bucket its clock_in fell in.
+  const totalCogs = roundMoney(dailyArr.reduce((s, d) => s + (d.cogs || 0), 0));
+  const totalLabor = roundMoney(dailyArr.reduce((s, d) => s + (d.labor || 0), 0));
+  const totalProfit = roundMoney(totalRevenue - totalCogs - totalLabor);
+
   res.json({
     period: { from, to },
     // Nested shape (modern callers).
@@ -256,6 +367,9 @@ router.get('/summary', mgr, async (req, res) => {
     totalOrders,
     avgCheck,
     topRevenue,
+    totalCogs,
+    totalLabor,
+    totalProfit,
     daily: dailyArr,
     hourly: hourlyArr,
     staff: staffArr,
@@ -265,13 +379,18 @@ router.get('/summary', mgr, async (req, res) => {
       itemsBar: destAcc.bar.items,
       itemsKuchyna: destAcc.kuchyna.items,
     },
-    products: topItemsArr.map((it) => ({
-      name: it.name,
-      emoji: it.emoji || '',
-      category: it.category || '',
-      qty: it.qty,
-      revenue: it.revenue,
-    })),
+    products: topItemsArr.map((it) => {
+      const cogs = roundMoney(cogsByMenuName[it.name] || 0);
+      return {
+        name: it.name,
+        emoji: it.emoji || '',
+        category: it.category || '',
+        qty: it.qty,
+        revenue: it.revenue,
+        cogs,
+        profit: roundMoney(it.revenue - cogs),
+      };
+    }),
   });
 });
 

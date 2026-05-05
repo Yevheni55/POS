@@ -6,6 +6,7 @@ let currentRecipe = [];
 let activeFilter = 'all';
 let searchQuery = '';
 let recipeSummary = {}; // menuItemId -> ingredient count
+let salesByMenu = {};   // menuItemId -> soldQty (od začiatku sezóny)
 let _container = null;
 let _escHandler = null;
 
@@ -28,6 +29,19 @@ async function loadRecipeSummary() {
   }
 }
 
+// Per-menu predaje od začiatku aktuálnej sezóny (default 25.04). Bez tohto
+// dát sa filter "Bez receptu (predáva sa)" zobrazí prázdny — preto loadujeme
+// vždy paralelne s recipe summary.
+async function loadSalesByMenu() {
+  try {
+    var rows = await api.get('/inventory/menu-items/sales');
+    salesByMenu = {};
+    (rows || []).forEach(function (r) { salesByMenu[r.menuItemId] = r.soldQty; });
+  } catch (_) {
+    salesByMenu = {};
+  }
+}
+
 async function loadMenuItems() {
   var listEl = $('#itemList');
   if (listEl) showLoading(listEl, 'Nacitavam polozky...');
@@ -35,6 +49,7 @@ async function loadMenuItems() {
     const [items] = await Promise.all([
       api.get('/inventory/menu-items'),
       loadRecipeSummary(),
+      loadSalesByMenu(),
     ]);
     menuItems = items;
     if (listEl) hideLoading(listEl);
@@ -89,23 +104,45 @@ async function loadRecipeForItem(itemId) {
 // Apply mode tab + search query together. Search is diacritic-insensitive
 // and matches name OR category label so 'burger' or 'burgre' both find
 // the burger SKUs.
+//
+// Special filter 'sold-no-recipe' = predáva sa od začiatku sezóny ALE
+// nemá recept (track_mode != 'recipe' alebo recipe-tracked s 0 riadkami).
+// Výstup je zoradený zostupne podľa predaných ks — operátor vidí najprv
+// veci, ktoré najviac chýbajú v evidencii.
 function getFilteredItems() {
   var q = _foldDia(searchQuery);
-  return menuItems.filter(function(m) {
-    if (activeFilter !== 'all' && m.trackMode !== activeFilter) return false;
+  var filtered = menuItems.filter(function(m) {
+    if (activeFilter === 'sold-no-recipe') {
+      var sold = salesByMenu[m.id] || 0;
+      if (sold <= 0) return false;
+      var hasRecipe = (m.trackMode === 'recipe') && (recipeSummary[m.id] > 0);
+      if (hasRecipe) return false;
+    } else if (activeFilter !== 'all' && m.trackMode !== activeFilter) {
+      return false;
+    }
     if (!q) return true;
     var hay = _foldDia(m.name) + ' ' + _foldDia(m.categoryLabel || '');
     return hay.indexOf(q) !== -1;
   });
+  if (activeFilter === 'sold-no-recipe') {
+    filtered.sort(function(a, b) {
+      return (salesByMenu[b.id] || 0) - (salesByMenu[a.id] || 0);
+    });
+  }
+  return filtered;
 }
 
 // Counts shown in the filter tabs so the user sees at a glance how many
 // items are in each mode (helps spot 'X items still without a recipe').
 function getModeCounts() {
-  var counts = { all: menuItems.length, recipe: 0, simple: 0, none: 0 };
+  var counts = { all: menuItems.length, recipe: 0, simple: 0, none: 0, soldNoRecipe: 0 };
   for (var i = 0; i < menuItems.length; i++) {
-    var m = menuItems[i].trackMode || 'none';
-    if (counts[m] != null) counts[m] += 1;
+    var m = menuItems[i];
+    var mode = m.trackMode || 'none';
+    if (counts[mode] != null) counts[mode] += 1;
+    var sold = salesByMenu[m.id] || 0;
+    var hasRecipe = (mode === 'recipe') && (recipeSummary[m.id] > 0);
+    if (sold > 0 && !hasRecipe) counts.soldNoRecipe += 1;
   }
   return counts;
 }
@@ -119,6 +156,8 @@ function _renderFilterTabs() {
     { f: 'recipe', label: 'Recept',  badge: c.recipe },
     { f: 'simple', label: 'Simple',  badge: c.simple },
     { f: 'none',   label: 'Bez',     badge: c.none },
+    // Predáva sa, ale ešte nemá recept — žltá, lebo to je TODO list pre operátora.
+    { f: 'sold-no-recipe', label: '⚠ Bez receptu (predáva sa)', badge: c.soldNoRecipe },
   ];
   tabsEl.innerHTML = tabs.map(function(t) {
     var active = t.f === activeFilter ? ' active' : '';
@@ -181,6 +220,7 @@ function renderItemList() {
       + escHtml(cat.label) + '</div>';
     cat.items.forEach(function(item) {
       var count = recipeSummary[item.id] || 0;
+      var sold = salesByMenu[item.id] || 0;
       var badgeClass = 'badge-info';
       var badgeLabel = 'none';
       if (item.trackMode === 'recipe') { badgeClass = 'badge-purple'; badgeLabel = 'recept'; }
@@ -188,12 +228,23 @@ function renderItemList() {
       var ingredientsLabel = count > 0
         ? '<span class="text-muted" style="margin-left:6px;font-size:11px">' + count + ' surov.</span>'
         : '';
+      // "Predalo sa Xx" badge \u2014 \u017Elt\u00FD ak nem\u00E1 recept (oper\u00E1tor vid\u00ED \u010Do
+      // ch\u00FDba v evidencii); \u0161ed\u00FD ak recept existuje (informa\u010Dn\u00FD).
+      var hasRecipe = (item.trackMode === 'recipe') && (count > 0);
+      var soldBadge = '';
+      if (sold > 0) {
+        var soldColor = hasRecipe
+          ? 'background:rgba(255,255,255,.06);color:var(--color-text-dim)'
+          : 'background:rgba(245,158,11,.15);color:#f59e0b;font-weight:700';
+        soldBadge = '<span style="margin-left:6px;font-size:11px;padding:1px 6px;border-radius:4px;'
+          + soldColor + '">' + sold + 'x</span>';
+      }
 
       html += '<button class="cat-item' + (item.id === selectedItemId ? ' active' : '') + '" data-item-id="' + item.id + '" type="button">'
         + '<span class="cat-icon">' + (item.emoji || '\uD83C\uDF7D') + '</span>'
         + '<div class="cat-info">'
         + '<div class="cat-name">' + escHtml(item.name) + '</div>'
-        + '<div class="cat-count"><span class="badge ' + badgeClass + '">' + badgeLabel + '</span>' + ingredientsLabel + '</div>'
+        + '<div class="cat-count"><span class="badge ' + badgeClass + '">' + badgeLabel + '</span>' + ingredientsLabel + soldBadge + '</div>'
         + '</div>'
         + '</button>';
     });
@@ -354,22 +405,24 @@ function renderRecipeForm(item) {
       + '</div>';
   }
 
-  // Add ingredient row
-  html += '<div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:24px;flex-wrap:wrap;padding:14px;background:var(--color-bg-surface);border:1px solid var(--color-border);border-radius:var(--radius-sm)">';
-  html += '<div class="form-group" style="flex:2;min-width:160px;margin-bottom:0">';
-  html += '<label class="form-label" for="fNewIngredient">Pridat surovinu</label>';
-  html += '<select class="form-select" id="fNewIngredient">';
-  html += '<option value="">-- Vyberte --</option>';
-
-  // Filter out ingredients already in recipe
+  // Add ingredient row — search input with diacritic-insensitive
+  // autocomplete dropdown. Skladová evidencia má 150+ surovín, dropdown
+  // je nepoužiteľný; tu môže operátor písať 'cibu' a hneď vidí biele +
+  // červené cibule. Hidden #fNewIngredient drží vybrané ID pre addLineBtn.
+  // Suroviny už použité v aktuálnom recepte sú vylúčené.
   var usedIds = currentRecipe.map(function(r) { return r.ingredientId; });
-  ingredientsList.forEach(function(ing) {
-    if (usedIds.indexOf(ing.id) === -1) {
-      html += '<option value="' + ing.id + '">' + escHtml(ing.name) + ' (' + ing.unit + ')</option>';
-    }
-  });
-
-  html += '</select>';
+  html += '<div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:24px;flex-wrap:wrap;padding:14px;background:var(--color-bg-surface);border:1px solid var(--color-border);border-radius:var(--radius-sm)">';
+  html += '<div class="form-group" style="flex:2;min-width:200px;margin-bottom:0;position:relative">';
+  html += '<label class="form-label" for="fNewIngredientSearch">Pridat surovinu</label>';
+  html += '<input class="form-input" id="fNewIngredientSearch" type="text" autocomplete="off"'
+    + ' placeholder="Piš názov suroviny… (napr. cibu, kač, hov)">';
+  html += '<input type="hidden" id="fNewIngredient" value="">';
+  // Dropdown panel — pozícia absolútna pod input, max-height + scroll;
+  // skrytý kým input nie je focused alebo nemá písmená.
+  html += '<div id="fNewIngredientDropdown" style="display:none;position:absolute;left:0;right:0;top:100%;'
+    + 'z-index:50;max-height:280px;overflow-y:auto;background:var(--color-bg-surface);'
+    + 'border:1px solid var(--color-border);border-top:none;border-radius:0 0 var(--radius-sm) var(--radius-sm);'
+    + 'box-shadow:0 8px 24px rgba(0,0,0,.4)"></div>';
   html += '</div>';
   html += '<div class="form-group" style="flex:1;min-width:100px;margin-bottom:0">';
   html += '<label class="form-label" for="fNewQty">Mnozstvo na 1ks</label>';
@@ -458,6 +511,105 @@ function bindEditorEvents(item) {
   if (addLine) {
     addLine.addEventListener('click', function() {
       addRecipeLine();
+    });
+  }
+
+  // Recipe: ingredient search autocomplete (custom dropdown).
+  // Filtruje ingredientsList diacritic-insensitive. Vylučuje suroviny už
+  // použité v recepte (usedIds). Klávesnica: ↑/↓ zvýrazni, Enter vyberie,
+  // Esc zatvorí. Klik mimo zatvorí. Vybraním sa vyplní hidden #fNewIngredient
+  // a focus prejde na qty input pre rýchle zadanie čísla.
+  var searchInput = $('#fNewIngredientSearch');
+  var hiddenInput = $('#fNewIngredient');
+  var dropdown = $('#fNewIngredientDropdown');
+  if (searchInput && dropdown) {
+    var usedIdsSet = {};
+    currentRecipe.forEach(function(r) { usedIdsSet[r.ingredientId] = true; });
+    var highlighted = -1;
+    var visibleList = [];
+
+    function _renderDropdown(query) {
+      var q = _foldDia(query);
+      visibleList = ingredientsList.filter(function(ing) {
+        if (usedIdsSet[ing.id]) return false;
+        if (!q) return true;
+        return _foldDia(ing.name).indexOf(q) !== -1;
+      });
+      // Top 25 výsledkov stačí — operátor ak nevidí čo chce, doplní viac písmen.
+      visibleList = visibleList.slice(0, 25);
+      if (!visibleList.length) {
+        dropdown.innerHTML = '<div style="padding:14px;color:var(--color-text-dim);font-size:13px">Žiadna surovina nenájdená</div>';
+        dropdown.style.display = 'block';
+        highlighted = -1;
+        return;
+      }
+      dropdown.innerHTML = visibleList.map(function(ing, i) {
+        var hi = i === highlighted;
+        var bg = hi ? 'background:rgba(139,124,246,.18)' : 'background:transparent';
+        return '<div class="ing-row" data-ing-id="' + ing.id + '" data-idx="' + i + '" style="'
+          + 'padding:10px 14px;cursor:pointer;font-size:14px;border-bottom:1px solid rgba(255,255,255,.04);'
+          + bg + '">'
+          + '<span style="font-weight:600">' + escHtml(ing.name) + '</span>'
+          + ' <span style="color:var(--color-text-dim);font-size:12px">(' + escHtml(ing.unit) + ')</span>'
+          + '</div>';
+      }).join('');
+      dropdown.style.display = 'block';
+      // Klik na riadok → pick.
+      dropdown.querySelectorAll('.ing-row').forEach(function(row) {
+        row.addEventListener('mousedown', function(e) { e.preventDefault(); }); // blur defer
+        row.addEventListener('click', function() {
+          _pickIngredient(Number(row.dataset.ingId));
+        });
+      });
+    }
+
+    function _pickIngredient(ingId) {
+      var ing = ingredientsList.find(function(i) { return i.id === ingId; });
+      if (!ing) return;
+      hiddenInput.value = String(ingId);
+      searchInput.value = ing.name + ' (' + ing.unit + ')';
+      dropdown.style.display = 'none';
+      var qtyEl = $('#fNewQty');
+      if (qtyEl) qtyEl.focus();
+    }
+
+    searchInput.addEventListener('focus', function() {
+      _renderDropdown(searchInput.value);
+    });
+    searchInput.addEventListener('input', function() {
+      // Kým operátor píše, hidden ID resetuje — inak by sa mohlo pridať
+      // surovinu ktorá nezodpovedá zobrazenému textu.
+      hiddenInput.value = '';
+      highlighted = -1;
+      _renderDropdown(searchInput.value);
+    });
+    searchInput.addEventListener('keydown', function(e) {
+      if (dropdown.style.display === 'none' || !visibleList.length) return;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        highlighted = Math.min(highlighted + 1, visibleList.length - 1);
+        _renderDropdown(searchInput.value);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        highlighted = Math.max(highlighted - 1, 0);
+        _renderDropdown(searchInput.value);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        var pick = highlighted >= 0 ? visibleList[highlighted] : visibleList[0];
+        if (pick) _pickIngredient(pick.id);
+      } else if (e.key === 'Escape') {
+        dropdown.style.display = 'none';
+      }
+    });
+    // Klik mimo input/dropdown zatvorí.
+    document.addEventListener('mousedown', function _outside(e) {
+      if (!searchInput.parentElement) {
+        document.removeEventListener('mousedown', _outside);
+        return;
+      }
+      if (!searchInput.parentElement.contains(e.target)) {
+        dropdown.style.display = 'none';
+      }
     });
   }
 

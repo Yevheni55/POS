@@ -349,7 +349,16 @@ function openAddTable() {
   const atShape = $('#atShape');
   if (atName) atName.value = 'Stol ' + (TABLES.length + 1);
   if (atSeats) atSeats.value = '4';
-  if (atZone) atZone.value = ZONES[0]?.id || 'interior';
+  // Default zone = aktívna zóna v hornom paneli (ak nie je 'all'). Operátor
+  // typicky stoji na zóne kde chce nový stôl (klikne Zamestnanci → "Pridať
+  // stôl") a očakáva, že stôl spadne tam. Pred fixom sa default vždy
+  // zobral z ZONES[0], takže nový stôl sa dal do Exteriéru / prvej zóny.
+  if (atZone) {
+    var defaultZone = (activeZone && activeZone !== 'all') ? activeZone : (ZONES[0]?.id || 'interior');
+    // Over že hodnota existuje v <select> options (môže to byť stará zóna).
+    var hasOption = Array.prototype.some.call(atZone.options, function (o) { return o.value === defaultZone; });
+    atZone.value = hasOption ? defaultZone : (ZONES[0]?.id || 'interior');
+  }
   if (atShape) atShape.value = 'rect';
   const modal = $('#addTableModal');
   if (modal) modal.classList.add('show');

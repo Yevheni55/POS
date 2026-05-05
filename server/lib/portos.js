@@ -313,6 +313,53 @@ export async function registerCashReceipt(input) {
   return normalizeRegisterResult(response.status, response.data, input);
 }
 
+/**
+ * Vklad hotovosti do pokladne — fiškálny doklad typu "Príjem nehotovostnej operácie".
+ * NineDigit endpoint: POST /api/v1/requests/receipts/deposit
+ * Body shape: { request: { data: { cashRegisterCode, amount } } }
+ *
+ * @param {{cashRegisterCode?: string, amount: number}} options
+ *        amount = pozitívne číslo, max 2 desatinné miesta (€).
+ * @returns {Promise<{ok: boolean, status: number, data: any}>} — surová Portos odpoveď;
+ *          callee si pretypuje podľa potreby (z-report endpoint napr. iba loguje).
+ */
+export async function registerCashDeposit({ cashRegisterCode, amount }) {
+  const code = cashRegisterCode || getPortosConfig().cashRegisterCode;
+  const body = {
+    request: {
+      data: {
+        cashRegisterCode: code,
+        amount: Math.round(Number(amount) * 100) / 100,
+      },
+    },
+  };
+  const response = await portosRequest('POST', '/api/v1/requests/receipts/deposit', { body });
+  return { ok: response.ok, status: response.status, data: response.data };
+}
+
+/**
+ * Výber hotovosti z pokladne — fiškálny doklad typu "Výdaj z pokladne".
+ * Používa sa pri uzávierke (vyber tržby do trezoru) alebo manuálnom výbere.
+ * NineDigit endpoint: POST /api/v1/requests/receipts/withdraw
+ * Body shape: { request: { data: { cashRegisterCode, amount } } }
+ *
+ * @param {{cashRegisterCode?: string, amount: number}} options
+ * @returns {Promise<{ok: boolean, status: number, data: any}>}
+ */
+export async function registerCashWithdrawal({ cashRegisterCode, amount }) {
+  const code = cashRegisterCode || getPortosConfig().cashRegisterCode;
+  const body = {
+    request: {
+      data: {
+        cashRegisterCode: code,
+        amount: Math.round(Number(amount) * 100) / 100,
+      },
+    },
+  };
+  const response = await portosRequest('POST', '/api/v1/requests/receipts/withdraw', { body });
+  return { ok: response.ok, status: response.status, data: response.data };
+}
+
 /** Kód pokladne z uloženého dokladu alebo .env — po zmene firmy v Portos musí sedieť s dokladom. */
 function resolveCashRegisterCodeForReceipt(override) {
   const trimmed = String(override ?? '')

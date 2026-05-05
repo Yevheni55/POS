@@ -516,12 +516,22 @@ router.post('/:id/split', validate(splitSchema), asyncRoute(async (req, res) => 
   res.json({ newOrderIds: result.newOrderIds });
 }));
 
-// POST /api/orders/:id/move-items — move items to another table
+// POST /api/orders/:id/move-items — move items to another table.
+// Two payload variants supported (in priority order):
+//   • itemQtys: [{itemId, qty}]  — partial-move; ak qty < item.qty, riadok
+//     sa rozdelí (zdroj si nechá zvyšok, destinácia dostane new row s qty).
+//   • itemIds: [number]          — legacy/full-move (kompletné riadky).
 router.post('/:id/move-items', validate(moveItemsSchema), asyncRoute(async (req, res) => {
   const sourceOrderId = +req.params.id;
-  const { itemIds, targetTableId, targetOrderId } = req.body;
+  const { itemIds, itemQtys, targetTableId, targetOrderId } = req.body;
 
-  if (!itemIds || !itemIds.length) return res.status(400).json({ error: 'itemIds required' });
+  // Normalizácia: itemQtys má prednosť. Ak chýba, prevedieme itemIds na
+  // ekvivalent {itemId, qty: <pôvodné qty>} (qty=null znamená 'celé').
+  const moveSpec = (itemQtys && itemQtys.length)
+    ? itemQtys
+    : ((itemIds && itemIds.length) ? itemIds.map(id => ({ itemId: id, qty: null })) : []);
+
+  if (!moveSpec.length) return res.status(400).json({ error: 'itemIds or itemQtys required' });
   if (!targetTableId && !targetOrderId) return res.status(400).json({ error: 'targetTableId or targetOrderId required' });
 
   const result = await db.transaction(async (tx) => {
@@ -555,11 +565,38 @@ router.post('/:id/move-items', validate(moveItemsSchema), asyncRoute(async (req,
       }
     }
 
-    // Move items atomically
-    for (const itemId of itemIds) {
-      await tx.update(orderItems)
-        .set({ orderId: destOrderId })
-        .where(and(eq(orderItems.id, itemId), eq(orderItems.orderId, sourceOrderId)));
+    // Move items: pre každý spec si načítaj zdrojový riadok, rozhodni
+    // medzi celkovým presunom (UPDATE orderId) alebo splitom (UPDATE qty
+    // na zdroji + INSERT s tým istým menu_item_id, sent, note do destinácie).
+    const movedItemIds = [];
+    for (const spec of moveSpec) {
+      const [src] = await tx.select().from(orderItems)
+        .where(and(eq(orderItems.id, spec.itemId), eq(orderItems.orderId, sourceOrderId)));
+      if (!src) continue; // riadok medzitým zmazaný / preindexovaný
+      const requestedQty = (spec.qty == null) ? src.qty : Math.min(spec.qty, src.qty);
+      if (requestedQty <= 0) continue;
+
+      if (requestedQty >= src.qty) {
+        // Celý riadok sa presúva — len update orderId.
+        await tx.update(orderItems)
+          .set({ orderId: destOrderId })
+          .where(eq(orderItems.id, src.id));
+        movedItemIds.push(src.id);
+      } else {
+        // Čiastočný presun — split na dva riadky. Zdroj si nechá zvyšok,
+        // destinácia dostane nový riadok s rovnakým menu_item_id/note/sent.
+        await tx.update(orderItems)
+          .set({ qty: src.qty - requestedQty })
+          .where(eq(orderItems.id, src.id));
+        const [newRow] = await tx.insert(orderItems).values({
+          orderId: destOrderId,
+          menuItemId: src.menuItemId,
+          qty: requestedQty,
+          note: src.note,
+          sent: src.sent,
+        }).returning();
+        movedItemIds.push(newRow.id);
+      }
     }
 
     // Check if source order has no items left
@@ -581,7 +618,7 @@ router.post('/:id/move-items', validate(moveItemsSchema), asyncRoute(async (req,
       await tx.update(tables).set({ status: 'occupied' }).where(eq(tables.id, tid));
     }
 
-    return { ok: true, destOrderId, sourceDeleted, sourceTableId: sourceOrder.tableId, targetTableId: tid };
+    return { ok: true, destOrderId, sourceDeleted, sourceTableId: sourceOrder.tableId, targetTableId: tid, movedItemIds };
   });
 
   if (result.error) return res.status(result.status).json({ error: result.error });
@@ -589,11 +626,17 @@ router.post('/:id/move-items', validate(moveItemsSchema), asyncRoute(async (req,
   const auditOrderId = result.sourceDeleted ? result.destOrderId : sourceOrderId;
   logEvent(db, {
     orderId: auditOrderId, type: 'items_moved',
-    payload: { sourceOrderId, itemIds, targetOrderId: result.destOrderId, sourceOrderDeleted: result.sourceDeleted },
+    payload: {
+      sourceOrderId,
+      moveSpec,
+      movedItemIds: result.movedItemIds,
+      targetOrderId: result.destOrderId,
+      sourceOrderDeleted: result.sourceDeleted,
+    },
     staffId: req.user.id,
   }).catch(e => console.error('Audit log error:', e));
   emitEvent(req,'items:moved', { sourceTableId: result.sourceTableId, targetTableId: result.targetTableId });
-  res.json({ movedItems: itemIds, targetOrderId: result.destOrderId });
+  res.json({ movedItems: result.movedItemIds, targetOrderId: result.destOrderId });
 }));
 
 // POST /api/orders/:id/discount — apply discount to order

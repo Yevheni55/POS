@@ -298,19 +298,21 @@ async function init() {
   try {
     var shift = await api.get('/shifts/current');
     if (!shift) {
-      var sm = document.getElementById('shiftModal');
-      if (sm) {
-        sm.classList.add('show');
-        var cashIn = document.getElementById('shiftCashInput');
-        if (cashIn) {
-          cashIn.value = '';
-          setTimeout(function() {
-            try { cashIn.focus(); cashIn.select(); } catch (e) { /* ignore */ }
-          }, 0);
-        }
-      } else {
-        showToast('Chyba: modal zmeny nenajdeny', 'error');
+      // Predtým sme tu otvárali modal, kde čašníčka musela zadať počiatočnú
+      // hotovosť. Operátor to považuje za zbytočné rušenie pri každom
+      // prihlásení — čašníčky aj tak vždy zadajú 0 a kliknú OK. Takže
+      // zmenu otvárame automaticky s openingCash=0. Ak by sme niekedy
+      // chceli ručne zadať počiatočný stav (napr. pri preberaní zmeny
+      // zo soboty na nedeľu), modal stále existuje v HTML — môžeme spustiť
+      // dialóg z admin / settings menu cez openShiftModalManual().
+      try {
+        var newShift = await api.post('/shifts/open', { openingCash: 0 });
+        currentShiftId = newShift.id;
+      } catch (openErr) {
+        showToast(openErr.message || 'Nepodarilo sa otvoriť zmenu', 'error');
+        return;
       }
+      await runPosBootstrap();
       return;
     }
     currentShiftId = shift.id;

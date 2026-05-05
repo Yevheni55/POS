@@ -769,13 +769,17 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
   .floor-title{font-size:30px}
   .floor-stat,.legend-item{font-size:15px}
   .floor-legend{display:flex}
-  .table-chip{width:130px;height:130px;padding:12px;gap:5px}
-  .table-chip.large{width:170px;height:130px}
-  .chip-name{font-size:22px}
-  .chip-badge{font-size:11px;padding:3px 8px}
-  .chip-amount{font-size:17px}
-  .chip-guests{font-size:13px}
-  .chip-time{font-size:13px}
+  /* Stoly na tablete — pôvodne 130×130 bolo veľa, na 10–13" displeji
+     sa zmestilo iba 6–8 stolov bez scrollu. Zmenšujeme na 100×100 (Square)
+     a large na 130×100 — operátor vidí celú zónu naraz, dlhé prsty stále
+     pohodlne klikajú (>= ~40 mm hit target). Fonty primerane redukované. */
+  .table-chip{width:100px;height:100px;padding:8px 6px;gap:3px}
+  .table-chip.large{width:130px;height:100px}
+  .chip-name{font-size:18px}
+  .chip-badge{font-size:9px;padding:2px 6px}
+  .chip-amount{font-size:14px}
+  .chip-guests{font-size:11px}
+  .chip-time{font-size:11px}
   .search-input{font-size:18px;min-height:50px;padding:12px 12px 12px 44px}
   .search-icon{font-size:22px}
   /* Menu products — slightly smaller so more fit per row */

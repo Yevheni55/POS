@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import net from 'net';
 import { db } from '../db/index.js';
-import { printers, printQueue } from '../db/schema.js';
-import { eq, and, lte } from 'drizzle-orm';
+import { printers, printQueue, cashflowEntries } from '../db/schema.js';
+import { eq, and, lte, sql } from 'drizzle-orm';
 import { requireRole } from '../middleware/requireRole.js';
+import { isPortosEnabled, registerCashWithdrawal, PortosTransportError } from '../lib/portos.js';
+import { getActiveCashRegisterCode } from '../lib/active-cash-register.js';
 
 const router = Router();
 const mgr = requireRole('manazer', 'admin');
@@ -12,6 +14,30 @@ const PRINTER_PORT = parseInt(process.env.PRINTER_PORT || '9100');
 
 const RETRY_INTERVAL_MS = 15_000;   // check queue every 15s
 const MAX_RETRY_ATTEMPTS = 50;      // give up after 50 tries (~12 min)
+
+// Lokálny čas v formáte "HH:MM" v Bratislava timezone. Server v Dockeri
+// beží v UTC, takže new Date().getHours() vracia UTC hodinu — letný čas
+// (CEST) bol potom na bonoch o 2h pozadu, zimný čas (CET) o 1h. Intl
+// helper rieši DST automaticky podľa IANA timezone db.
+function localTimeHHMM(date) {
+  return new Intl.DateTimeFormat('sk-SK', {
+    timeZone: 'Europe/Bratislava',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date || new Date());
+}
+function localDateTime(date) {
+  return new Intl.DateTimeFormat('sk-SK', {
+    timeZone: 'Europe/Bratislava',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date || new Date());
+}
 
 // Strip Latin diacritics down to ASCII so thermal printers (default code page
 // CP437) don't render garbage when menu/table/staff names contain Slovak
@@ -339,8 +365,7 @@ function buildReceiptTicket({ tableName, staffName, items, total, method, time, 
 router.post('/kitchen', async (req, res) => {
   try {
     const { dest, tableName, staffName, items, orderNum } = req.body;
-    const now = new Date();
-    const time = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+    const time = localTimeHHMM();
 
     const printerDest = dest === 'KUCHYNA' || dest === 'STORNO KUCHYNA' ? 'kuchyna' : 'bar';
     const printer = await getPrinterForDest(printerDest);
@@ -358,8 +383,7 @@ router.post('/kitchen', async (req, res) => {
 router.post('/receipt', async (req, res) => {
   try {
     const { tableName, staffName, items, total, method, orderNum } = req.body;
-    const now = new Date();
-    const time = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+    const time = localTimeHHMM();
 
     const printer = await getPrinterForDest('uctenka');
     const ticket = buildReceiptTicket({ tableName, staffName, items, total, method, time, orderNum });
@@ -391,7 +415,88 @@ router.post('/z-report', mgr, async (req, res) => {
     const printer = await getPrinterForDest('uctenka');
     const ticket = buildZReportTicket(data);
     const result = await sendOrQueue('z-report', ticket, printer.ip, printer.port);
-    res.json({ ok: true, queued: !!result.queued });
+
+    // Po úspešnom vytlačení uzávierky → automaticky zaeviduj výber hotovosti.
+    // Dvojstupňový proces:
+    //   (a) Portos: POST /api/v1/requests/receipts/withdraw  — fiškálny
+    //       paragón „Výber hotovosti", zníži stav v Portos pokladni
+    //   (b) Cashflow: insert do cashflow_entries — interná evidencia pre
+    //       admin reporty a hospodársky výsledok
+    // Suma = cash z paymentMethods − shisha (shisha je off-fiscal, nikdy nešla
+    // do Portos pokladne, takže sa nemá odkiaľ vyberať). Ak Portos call zlyhá,
+    // cashflow zápis stále prebehne (best-effort) a operátor dostane
+    // varovanie aby paragón vytlačil ručne.
+    let withdrawal = null;
+    let portosWithdraw = null;
+    try {
+      const cashRow = (data.paymentMethods || []).find(pm => {
+        const m = String(pm.method || '').toLowerCase();
+        return m === 'hotovost' || m === 'cash';
+      });
+      const cashAmount = cashRow ? Number(cashRow.total) || 0 : 0;
+      const shishaCash = data.shisha ? Number(data.shisha.revenue) || 0 : 0;
+      const amount = Math.max(0, Math.round((cashAmount - shishaCash) * 100) / 100);
+      if (amount > 0) {
+        // (a) Portos výber paragón. Best-effort — failure neblokuje cashflow.
+        if (isPortosEnabled()) {
+          try {
+            const cashRegisterCode = await getActiveCashRegisterCode();
+            const portosResult = await registerCashWithdrawal({ cashRegisterCode, amount });
+            portosWithdraw = {
+              ok: portosResult.ok,
+              status: portosResult.status,
+              receiptId: portosResult.data?.response?.data?.id || null,
+              error: portosResult.ok ? null : (portosResult.data?.detail || portosResult.data?.title || ('HTTP ' + portosResult.status)),
+            };
+            if (!portosResult.ok) {
+              console.warn(`[Portos] Withdrawal failed: status=${portosResult.status} detail="${portosWithdraw.error}"`);
+            }
+          } catch (portosErr) {
+            const isTransport = portosErr instanceof PortosTransportError;
+            console.warn(`[Portos] Withdrawal ${isTransport ? 'transport' : 'unexpected'} error:`, portosErr.message);
+            portosWithdraw = { ok: false, error: portosErr.message, transportError: isTransport };
+          }
+        } else {
+          portosWithdraw = { ok: false, error: 'Portos disabled', skipped: true };
+        }
+
+        // Idempotency: ten istý kalendárny deň (Bratislava) + kategória
+        // = už existuje výber. Druhé volanie endpointu nepridá duplicit.
+        // Porovnávame cez occurred_at::date v Bratislava timezone.
+        const [existing] = await db.select({ id: cashflowEntries.id })
+          .from(cashflowEntries)
+          .where(and(
+            eq(cashflowEntries.category, 'withdrawal_uzavierka'),
+            sql`(${cashflowEntries.occurredAt} AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Bratislava')::date = ${date}::date`,
+          ))
+          .limit(1);
+        if (!existing) {
+          // occurredAt = 23:59:59 zvoleného dňa v Bratislava → výber sa
+          // vždy zoradí na konci dňa, čo je intuitívne pre Z-report uzávierku.
+          const occurredAt = new Date(date + 'T23:59:59+02:00');
+          const [row] = await db.insert(cashflowEntries).values({
+            type: 'expense',
+            category: 'withdrawal_uzavierka',
+            amount: String(amount),
+            occurredAt,
+            method: 'cash',
+            note: 'Auto výber pri uzávierke ' + date + (shishaCash > 0 ? ' (shisha ' + shishaCash.toFixed(2) + ' € odpočítaná)' : ''),
+            staffId: req.user.id,
+          }).returning({ id: cashflowEntries.id });
+          withdrawal = { created: true, amount, cashflowEntryId: row?.id };
+        } else {
+          withdrawal = { created: false, alreadyExists: true, cashflowEntryId: existing.id, amount };
+        }
+      } else {
+        withdrawal = { created: false, amount: 0, reason: 'no_cash' };
+      }
+    } catch (cfErr) {
+      // Cashflow zápis je best-effort — chyba neblokuje úspešnú tlač Z-reportu.
+      console.error('Z-report cashflow withdrawal error:', cfErr.message);
+      withdrawal = { created: false, error: cfErr.message };
+    }
+
+    res.json({ ok: true, queued: !!result.queued, withdrawal, portosWithdraw });
   } catch (e) {
     console.error('Z-report print error:', e.message);
     res.status(500).json({ error: e.message });
@@ -578,8 +683,7 @@ function buildLockCodeTicket({ code, validUntil, staffName, time }) {
 router.post('/lockcode', async (req, res) => {
   try {
     const { code, validUntil, staffName } = req.body;
-    const now = new Date();
-    const time = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+    const time = localTimeHHMM();
 
     const printer = await getPrinterForDest('uctenka');
     const ticket = buildLockCodeTicket({ code, validUntil, staffName, time });
@@ -607,7 +711,7 @@ router.get('/test', async (req, res) => {
       ticket += CMD.NORMAL_SIZE;
       ticket += CMD.LINE;
       ticket += 'Tlaciaren funguje!\n';
-      ticket += new Date().toLocaleString('sk-SK') + '\n';
+      ticket += localDateTime() + '\n';
       ticket += CMD.FEED;
       ticket += CMD.CUT;
 
@@ -625,7 +729,7 @@ router.get('/test', async (req, res) => {
       ticket += p.name + '\n';
       ticket += p.ip + ':' + p.port + '\n';
       ticket += 'Tlaciaren funguje!\n';
-      ticket += new Date().toLocaleString('sk-SK') + '\n';
+      ticket += localDateTime() + '\n';
       ticket += CMD.FEED;
       ticket += CMD.CUT;
 

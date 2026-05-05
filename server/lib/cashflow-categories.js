@@ -14,6 +14,7 @@ export const INCOME_CATEGORIES = [
 ];
 
 export const EXPENSE_CATEGORIES = [
+  { slug: 'withdrawal_uzavierka', label: 'Výber z pokladne (uzávierka)' },
   { slug: 'rent',          label: 'Nájom' },
   { slug: 'utilities',     label: 'Energie / voda / internet' },
   { slug: 'salary',        label: 'Mzdy / odmeny' },

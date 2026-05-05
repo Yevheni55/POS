@@ -125,6 +125,12 @@ function familyName(name) {
     .replace(/\d+[,.]?\d*\s*l\b/gi, '')
     .replace(/\d+\s*ml\b/gi, '')
     .replace(/\d+\s*g\b/gi, '')
+    // 'Combo X' a 'X burger' patria do tej istej burger-rodiny — operátor
+    // chce vidieť 'Big Mac Smash burger' priamo vedľa 'Combo Big Mac Smash'.
+    // Stripneme oba indikátory aby sa rovnaký koreň mapoval na tú istú
+    // family-key. (Combo X šalátu nie je problém — šaláty sú v inej kategórii.)
+    .replace(/^\s*combo\s+/i, '')
+    .replace(/\s+burger\s*$/i, '')
     .trim()
     .replace(/\s+/g, ' ')
     .toLowerCase();
@@ -132,8 +138,19 @@ function familyName(name) {
 function compareByMenuLogic(a, b) {
   const fa = familyName(a && a.name);
   const fb = familyName(b && b.name);
+  // Pure-numeric názvy (kategória 🔢 Čísla 1..16, alebo prípadne čísla
+  // stolov) sa musia porovnať NUMERICKY, nie ako stringy. Inak by "10"
+  // skončilo medzi "1" a "2", pretože localeCompare berie znak po znaku.
+  const aNum = /^\d+$/.test(fa) ? Number(fa) : null;
+  const bNum = /^\d+$/.test(fb) ? Number(fb) : null;
+  if (aNum != null && bNum != null) return aNum - bNum;
   const cf = fa.localeCompare(fb, 'sk');
   if (cf !== 0) return cf;
+  // V rámci rovnakej rodiny: samotný burger pred combo (cashier-friendly
+  // poradie — najprv jednoduchý produkt, potom kombo s prílohami).
+  const aIsCombo = /^\s*combo\b/i.test(String(a && a.name || ''));
+  const bIsCombo = /^\s*combo\b/i.test(String(b && b.name || ''));
+  if (aIsCombo !== bIsCombo) return aIsCombo ? 1 : -1;
   const va = parseVolumeMl(a && a.name);
   const vb = parseVolumeMl(b && b.name);
   if (va != null && vb != null && va !== vb) return va - vb;
@@ -406,6 +423,17 @@ function getItemDest(itemName) {
     if (data.items.some(i => i.name === itemName)) return DEST_MAP[cat] || 'bar';
   }
   return 'bar';
+}
+
+// Identifikátor zákazníka (kategória 'cisla' = 🔢 1..16). Tieto položky
+// sa pri tlači ticketu MUSIA objaviť na OBOCH staniciach (kuchyňa + bar),
+// inak druhá stanica nevie ku ktorému zákazníkovi patrí objednávka.
+// Používa sa v printKitchenAndBarTickets pri rozdelení items do oboch
+// destinácií.
+function isTicketNumberItem(itemName) {
+  var data = MENU['cisla'];
+  if (!data || !data.items) return false;
+  return data.items.some(function (i) { return i.name === itemName; });
 }
 
 function getUserRole() {

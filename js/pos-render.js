@@ -750,7 +750,14 @@ function renderOrder(){
   else{var sorted=order.slice().sort(function(a,b){return (b.id||0)-(a.id||0)});c.innerHTML=sorted.map(o=>{
     const esc=escAttr(o.name.replace(/'/g,"\\'"));
     const _isSent=o.sent;
-    const _moveSelected=moveMode&&moveSelectedItems.indexOf(o.id)>=0;
+    // Po refaktore moveSelectedItems = [{id, qty}]. Pomocou _moveSelectionQtyFor
+    // zistíme či je item vybraný a aký qty (null = celé). Ak je qty kratšie
+    // ako pôvodné, ukážeme badge "qty/total" aby operátor videl o koľko ide.
+    const _selectedQty=moveMode?_moveSelectionQtyFor(o.id):null;
+    const _moveSelected=moveMode && (_selectedQty!=null || _findSelectedIdx(o.id)>=0);
+    const _movePartialBadge=(moveMode && _selectedQty!=null && _selectedQty<o.qty)
+      ? `<span class="move-partial-badge" style="margin-left:6px;font-size:11px;padding:2px 6px;border-radius:6px;background:rgba(245,158,11,.18);color:#f59e0b;font-weight:700">${_selectedQty}/${o.qty}</span>`
+      : '';
     // Companion rows (auto-mirrored qty, e.g. Záloha fľaša) get a small chain badge
     // so cashiers know "where this row came from" — primary stays unchanged.
     const _isCompanion=!!o._companionOf;
@@ -761,7 +768,7 @@ function renderOrder(){
     if(moveMode){
       return `<div class="order-item-wrap${_moveSelected?' move-selected':''}" data-item-id="${o.id}"${_companionTitleAttr} onclick="toggleMoveSelection(${o.id})">
   <div class="order-item-inner${_isSent?' sent':''}"><div class="move-sel">${_moveSelected?'&#10003;':''}</div><span class="order-item-emoji">${escHtml(o.emoji)}</span>
-  <div class="order-item-info"><div class="order-item-name">${escHtml(o.name)}</div>${o.note?`<div class="order-item-note">${escHtml(o.note)}</div>`:''}</div>
+  <div class="order-item-info"><div class="order-item-name">${escHtml(o.name)}${_movePartialBadge}</div>${o.note?`<div class="order-item-note">${escHtml(o.note)}</div>`:''}</div>
   <span class="order-item-total">${o.qty}x${_companionBadge} &middot; ${fmt(o.price*o.qty)}</span></div>
 </div>`;
     }
