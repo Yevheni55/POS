@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Surf Spirit — Bar & Paddleboards na Draždiaku</title>
 <meta name="description" content="Surf Spirit bar na Draždiaku — burgre, capované drinky, paddleboardy, live hudba. Otvorené sezónne.">
-<meta name="theme-color" content="#0f7579">
+<meta name="theme-color" content="#0c3768">
 <link rel="icon" type="image/svg+xml" href="logo.svg">
 <link rel="apple-touch-icon" href="logo.svg">
 <link rel="manifest" href="manifest.webmanifest">
@@ -24,36 +24,55 @@
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
 
 :root{
-  /* === Original Surf Spirit palette === */
-  --teal-50:  #effcfc;
-  --teal-100: #d6f7f7;
-  --teal-200: #a8eeef;
-  --teal-300: #6ae0e2;
-  --teal-400: #33cdd2;
-  --teal-500: #18b5bc;
-  --teal-600: #0d9499;
-  --teal-700: #0f7579;
-  --teal-800: #0c5a5e;
+  /* ============================================================
+     SURF SPIRIT — water palette (modré farby vody)
+     Modelované podľa skutočnej hladiny Draždiaku: hlboká navy
+     pri dne, jasnejšia jazerná pri brehu, cyan-foam highlights
+     (rovnaké ako gradient v logu), tmavá midnight pre footer.
+     ============================================================ */
+  --blue-50:   #eef5fb;   /* foam */
+  --blue-100:  #d2e6f3;   /* shallow water foam */
+  --blue-200:  #a8cce6;
+  --blue-300:  #6fa9d0;   /* shallow water */
+  --blue-400:  #4585bb;
+  --blue-500:  #1f64a3;   /* lake mid-depth */
+  --blue-600:  #144980;   /* lake deep */
+  --blue-700:  #0c3768;   /* deep water */
+  --blue-800:  #082248;   /* night water */
+  --blue-900:  #04122a;   /* abyss / midnight */
 
-  --sand-50:  #fdf9f3;
-  --sand-100: #f9f0e3;
-  --sand-200: #f0dfc5;
-  --sand-300: #e2c89a;
+  /* Logo cyan — used as wave foam highlights, retains brand */
+  --cyan-200:  #c5f1f2;
+  --cyan-300:  #6ae0e2;
+  --cyan-400:  #33cdd2;
+  --cyan-500:  #18b5bc;
 
+  /* Sand — paper warmth (kept) */
+  --sand-50:   #fdf9f3;
+  --sand-100:  #f9f0e3;
+  --sand-200:  #f0dfc5;
+  --sand-300:  #e2c89a;
+
+  /* Sunset — warm complement for CTAs (sun reflecting on water) */
   --sunset-orange: #ff7b54;
   --sunset-pink:   #ff6b8a;
   --sunset-gold:   #ffc857;
 
-  --ink-900: #0a1320;
-  --ink-800: #14202e;
-  --ink-700: #243341;
-  --ink-500: #5c6478;
-  --ink-400: #8b93a5;
-  --ink-300: #b9c0cd;
-  --ink-200: #dde1e8;
+  /* Ink — neutral text scale on light surfaces */
+  --ink-900: #04122a;
+  --ink-800: #082248;
+  --ink-700: #0c3768;
+  --ink-500: #4a5b75;
+  --ink-400: #7e8ba3;
+  --ink-300: #b1bbcd;
+  --ink-200: #d6dde8;
 
-  --paper:    var(--sand-50);
-  --paper-2:  var(--sand-100);
+  /* Aliases */
+  --primary:   var(--blue-700);
+  --primary-2: var(--blue-600);
+  --primary-3: var(--blue-500);
+  --paper:     var(--sand-50);
+  --paper-2:   var(--sand-100);
 
   /* Type stack */
   --font-display: 'Instrument Serif', 'Times New Roman', Georgia, serif;
@@ -89,16 +108,25 @@ body{
 }
 
 /* === HERO === */
+/* Vrstvený hĺbkový mesh gradient ako prierez vodou:
+   - lake-mid radial vpravo hore (slnečné svetlo dopadajúce na hladinu)
+   - cyan-foam highlight ľavo hore (logo gradient cosin)
+   - sunset-orange teplý záblesk (sun on water)
+   - deep navy základ klesá k abyssu na dolnom okraji */
 .hero{
   position:relative;
   padding: max(env(safe-area-inset-top), 24px) var(--s5) var(--s8);
   min-height:96vh; min-height:96dvh;
   color:var(--sand-50);
   background:
-    radial-gradient(120% 80% at 80% 10%, rgba(106,224,226,.55), transparent 55%),
-    radial-gradient(100% 70% at 10% 30%, rgba(255,123,84,.30), transparent 50%),
-    radial-gradient(140% 100% at 50% 100%, rgba(12,90,94,.85), transparent 70%),
-    linear-gradient(170deg, var(--teal-700) 0%, var(--teal-800) 60%, var(--ink-900) 100%);
+    radial-gradient(120% 80% at 78% 12%, rgba(106,224,226,.45), transparent 55%),
+    radial-gradient(110% 70% at 18% 28%, rgba(255,123,84,.22), transparent 55%),
+    radial-gradient(140% 100% at 50% 100%, rgba(4,18,42,.92), transparent 70%),
+    linear-gradient(168deg,
+      var(--blue-600) 0%,
+      var(--blue-700) 38%,
+      var(--blue-800) 72%,
+      var(--blue-900) 100%);
   display:flex;
   flex-direction:column;
   isolation:isolate;
@@ -172,11 +200,13 @@ body{
   padding-top:var(--s7);
 }
 
-/* Big logo with subtle hover shine */
+/* Big logo with cyan glow halo — ako odraz svetla na vode */
 .hero-logo{
   width:120px; height:120px;
   margin-bottom:var(--s5);
-  filter: drop-shadow(0 8px 24px rgba(106,224,226,.25));
+  filter:
+    drop-shadow(0 8px 28px rgba(106,224,226,.45))
+    drop-shadow(0 2px 8px rgba(4,18,42,.4));
   animation: floatLogo 6s ease-in-out infinite;
 }
 @keyframes floatLogo{
@@ -204,13 +234,19 @@ body{
 }
 .hero-title .surf{
   font-style:italic;
-  color:var(--teal-200);
+  color:var(--cyan-300);
   display:inline-block;
+  text-shadow: 0 0 30px rgba(106,224,226,.3);
 }
 .hero-title .spirit{
   display:block;
   margin-top:-.05em;
-  background:linear-gradient(120deg, var(--sand-50) 0%, var(--sunset-gold) 60%, var(--sunset-orange) 100%);
+  /* západ slnka odrazený na vode — sand → cyan-foam → sunset gold */
+  background:linear-gradient(120deg,
+    var(--sand-50) 0%,
+    var(--cyan-300) 35%,
+    var(--cyan-200) 55%,
+    var(--sunset-gold) 100%);
   background-clip:text;
   -webkit-background-clip:text;
   -webkit-text-fill-color:transparent;
@@ -364,10 +400,10 @@ body{
 .cat-chip .em{opacity:.85; font-size:1em}
 .cat-chip:hover{ background:var(--paper-2); color:var(--ink-900) }
 .cat-chip.active{
-  background:var(--teal-700);
+  background:var(--blue-700);
   color:var(--sand-50);
-  border-color:var(--teal-800);
-  box-shadow: 0 4px 14px rgba(15,117,121,.32);
+  border-color:var(--blue-800);
+  box-shadow: 0 4px 14px rgba(12,55,104,.32);
 }
 
 /* === MENU === */
@@ -470,7 +506,7 @@ body{
   font-size:1.32rem;
   font-weight:400;
   letter-spacing:-.01em;
-  color:var(--teal-700);
+  color:var(--blue-700);
   white-space:nowrap;
   font-feature-settings:"tnum" 1;
 }
@@ -586,8 +622,8 @@ body{
 }
 .event-card:hover{
   transform:translateY(-3px);
-  box-shadow: 0 12px 32px rgba(15,117,121,.1);
-  border-color: rgba(15,117,121,.25);
+  box-shadow: 0 12px 32px rgba(12,55,104,.1);
+  border-color: rgba(12,55,104,.25);
 }
 
 .event-stamp{
@@ -596,7 +632,7 @@ body{
   left:var(--s4);
   width:64px; height:64px;
   border-radius:50%;
-  background: linear-gradient(135deg, var(--teal-500), var(--teal-700));
+  background: linear-gradient(135deg, var(--blue-500), var(--blue-700));
   color:var(--sand-50);
   display:flex;
   flex-direction:column;
@@ -606,7 +642,7 @@ body{
   font-style:italic;
   font-weight:400;
   line-height:1;
-  box-shadow: 0 6px 16px rgba(15,117,121,.32);
+  box-shadow: 0 6px 16px rgba(12,55,104,.32);
 }
 .event-stamp .day{ font-size:1rem }
 .event-stamp .word{
@@ -674,14 +710,14 @@ body{
   text-align:left;
   transition: transform .25s ease, box-shadow .25s ease;
 }
-.info-card:hover{ transform:translateY(-2px); box-shadow:0 10px 28px rgba(15,117,121,.08) }
+.info-card:hover{ transform:translateY(-2px); box-shadow:0 10px 28px rgba(12,55,104,.08) }
 .info-card .icon{
   width:46px; height:46px;
   flex-shrink:0;
   border-radius:14px;
-  background: linear-gradient(135deg, var(--teal-100), var(--teal-300));
+  background: linear-gradient(135deg, var(--blue-100), var(--cyan-300));
   display:flex; align-items:center; justify-content:center;
-  color:var(--teal-700);
+  color:var(--blue-700);
 }
 .info-card .icon svg{ width:22px; height:22px }
 .info-label{
@@ -886,13 +922,16 @@ body{
 <header class="hero">
   <div class="hero-waves" aria-hidden="true">
     <svg class="w1" viewBox="0 0 1440 240" preserveAspectRatio="none">
-      <path d="M0 160 C 240 200, 480 120, 720 150 S 1200 200, 1440 130 L 1440 240 L 0 240 Z" fill="rgba(106,224,226,.4)"/>
+      <!-- foam highlight (cyan from logo) -->
+      <path d="M0 160 C 240 200, 480 120, 720 150 S 1200 200, 1440 130 L 1440 240 L 0 240 Z" fill="rgba(106,224,226,.42)"/>
     </svg>
     <svg class="w2" viewBox="0 0 1440 240" preserveAspectRatio="none">
-      <path d="M0 180 C 280 130, 520 220, 760 180 S 1240 140, 1440 180 L 1440 240 L 0 240 Z" fill="rgba(24,181,188,.5)"/>
+      <!-- shallow water -->
+      <path d="M0 180 C 280 130, 520 220, 760 180 S 1240 140, 1440 180 L 1440 240 L 0 240 Z" fill="rgba(31,100,163,.55)"/>
     </svg>
     <svg class="w3" viewBox="0 0 1440 240" preserveAspectRatio="none">
-      <path d="M0 200 C 200 240, 480 170, 720 210 S 1200 240, 1440 200 L 1440 240 L 0 240 Z" fill="rgba(15,117,121,.6)"/>
+      <!-- deep water -->
+      <path d="M0 200 C 200 240, 480 170, 720 210 S 1200 240, 1440 200 L 1440 240 L 0 240 Z" fill="rgba(12,55,104,.7)"/>
     </svg>
   </div>
 
