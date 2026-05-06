@@ -81,6 +81,116 @@
       ]
     },
     {
+      "slug": "cisla",
+      "label": "Čísla",
+      "icon": "🔢",
+      "sort": "A00",
+      "items": [
+        {
+          "name": "1",
+          "emoji": "🔢",
+          "price": "0.00",
+          "desc": ""
+        },
+        {
+          "name": "10",
+          "emoji": "🔢",
+          "price": "0.00",
+          "desc": ""
+        },
+        {
+          "name": "11",
+          "emoji": "🔢",
+          "price": "0.00",
+          "desc": ""
+        },
+        {
+          "name": "12",
+          "emoji": "🔢",
+          "price": "0.00",
+          "desc": ""
+        },
+        {
+          "name": "13",
+          "emoji": "🔢",
+          "price": "0.00",
+          "desc": ""
+        },
+        {
+          "name": "14",
+          "emoji": "🔢",
+          "price": "0.00",
+          "desc": ""
+        },
+        {
+          "name": "15",
+          "emoji": "🔢",
+          "price": "0.00",
+          "desc": ""
+        },
+        {
+          "name": "16",
+          "emoji": "🔢",
+          "price": "0.00",
+          "desc": ""
+        },
+        {
+          "name": "2",
+          "emoji": "🔢",
+          "price": "0.00",
+          "desc": ""
+        },
+        {
+          "name": "3",
+          "emoji": "🔢",
+          "price": "0.00",
+          "desc": ""
+        },
+        {
+          "name": "4",
+          "emoji": "🔢",
+          "price": "0.00",
+          "desc": ""
+        },
+        {
+          "name": "5",
+          "emoji": "🔢",
+          "price": "0.00",
+          "desc": ""
+        },
+        {
+          "name": "6",
+          "emoji": "🔢",
+          "price": "0.00",
+          "desc": ""
+        },
+        {
+          "name": "7",
+          "emoji": "🔢",
+          "price": "0.00",
+          "desc": ""
+        },
+        {
+          "name": "8",
+          "emoji": "🔢",
+          "price": "0.00",
+          "desc": ""
+        },
+        {
+          "name": "9",
+          "emoji": "🔢",
+          "price": "0.00",
+          "desc": ""
+        },
+        {
+          "name": "Plastovy pohar",
+          "emoji": "🍽",
+          "price": "0.25",
+          "desc": ""
+        }
+      ]
+    },
+    {
       "slug": "nealko",
       "label": "Nealko",
       "icon": "🥤",
@@ -264,6 +374,12 @@
           "name": "Marhuľovica 45 0,04 l",
           "emoji": "🥃",
           "price": "3.70",
+          "desc": ""
+        },
+        {
+          "name": "Martell VS",
+          "emoji": "🥃",
+          "price": "5.60",
           "desc": ""
         },
         {

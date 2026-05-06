@@ -34,6 +34,7 @@ import {
   publicRouter as attendancePublicRouter,
   adminRouter as attendanceAdminRouter,
 } from './routes/attendance.js';
+import publicMenuRouter from './routes/public-menu.js';
 import { idempotency } from './middleware/idempotency.js';
 import { auth } from './middleware/auth.js';
 import { ALLOWED_ORIGINS, corsOriginCallback } from './lib/cors-origin.js';
@@ -162,6 +163,9 @@ app.use('/api/health', healthRoutes);
 // mounted BEFORE the admin router below so /identify and /clock match
 // without going through auth.
 app.use('/api/attendance', attendancePublicRouter);
+// Verejný read-only menu endpoint pre surfspirit.sk webku — bez auth,
+// 30s cache, vracia rovnaký JSON shape ako static surfspirit-menu.json.
+app.use('/api/public', publicMenuRouter);
 
 // Idempotency middleware for write operations
 app.use('/api', idempotency);
