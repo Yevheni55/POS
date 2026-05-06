@@ -1561,14 +1561,37 @@ function setupScrollSpy(){
   if (!sections.length || !chips.length) return;
   const map = new Map();
   chips.forEach(c => map.set(c.dataset.cat, c));
+
+  // Posuň iba horizontálne kontajner s chipsami — NEPOUŽÍVAME
+  // chip.scrollIntoView, lebo iOS Safari (a niektoré Android browsre)
+  // ignorujú block:'nearest' a hýbu aj vertikálne stránkou. To
+  // spôsobovalo "scroll lock" pri prechode cez kategóriu (najmä Nealko)
+  // — observer fires, chip-into-view bumpne dole/hore, používateľ
+  // má pocit že ho stránka neposunie.
+  let lastSlug = null;
+  let pendingFrame = null;
   const setActive = slug => {
+    if (slug === lastSlug) return;
+    lastSlug = slug;
     chips.forEach(c => c.classList.remove('active'));
     const chip = map.get(slug);
-    if (chip){
-      chip.classList.add('active');
-      chip.scrollIntoView({ behavior:'smooth', inline:'center', block:'nearest' });
+    if (!chip) return;
+    chip.classList.add('active');
+
+    // Manuálny horizontálny center scroll — iba na .cat-scroll, žiadny
+    // dopad na vertikálny scroll stránky.
+    const container = chip.parentElement;
+    if (container){
+      if (pendingFrame) cancelAnimationFrame(pendingFrame);
+      pendingFrame = requestAnimationFrame(() => {
+        const cRect = container.getBoundingClientRect();
+        const chipRect = chip.getBoundingClientRect();
+        const target = chip.offsetLeft - (cRect.width - chipRect.width) / 2;
+        container.scrollTo({ left: target, behavior: 'smooth' });
+      });
     }
   };
+
   const io = new IntersectionObserver(entries => {
     const visible = entries.filter(e => e.isIntersecting)
       .sort((a,b) => a.boundingClientRect.top - b.boundingClientRect.top);
