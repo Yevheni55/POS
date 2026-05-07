@@ -363,12 +363,64 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
 .qty-btn:active{background:rgba(139,124,246,.12);color:var(--action-primary)}
 /* (move-item-row, move-check, move-banner removed — replaced by inline move mode) */
 
-/* === INLINE MOVE MODE === */
-.move-mode .order-tabs{background:rgba(92,196,158,.04);border-color:rgba(92,196,158,.15)}
-.move-mode .order-tab:not(.active):not(.order-tab-new):not(.order-tab-merge):not(.order-tab-cancel):not(.move-table-target):not(.move-new-target){border-color:var(--color-success);background:rgba(92,196,158,.08);animation:moveTarget 1.5s ease-in-out infinite;cursor:pointer}
-.move-mode .order-tab:not(.active):not(.order-tab-new):not(.order-tab-merge):not(.order-tab-cancel):not(.move-table-target):not(.move-new-target):hover{background:rgba(92,196,158,.18);transform:scale(1.03)}
-@keyframes moveTarget{0%,100%{box-shadow:0 0 0 0 rgba(92,196,158,.2)}50%{box-shadow:0 0 0 4px rgba(92,196,158,.12)}}
-.move-mode .order-tab.active{opacity:.5;pointer-events:none}
+/* === INLINE MOVE MODE ===
+   POS používa dark theme — slabučké rgba(92,196,158,.08) tinty na
+   tmavom pozadí vyzerajú takmer čierne. Operátor ich nevidí ako
+   "drop targety" a má pocit že tlačidlá sú nefunkčné. Riešenie:
+   vyrazne zosvetliť drop-targety na solid green-tinted fill +
+   čitateľný text, a active SOURCE tab dostane jasné amber
+   "ja som zdroj" označenie namiesto opacity 0.5. */
+.move-mode .order-tabs{
+  background:rgba(92,196,158,.10);
+  border-color:rgba(92,196,158,.4);
+  box-shadow:inset 0 0 0 1.5px rgba(92,196,158,.25);
+  padding:8px;
+}
+.move-mode .order-tab:not(.active):not(.order-tab-new):not(.order-tab-merge):not(.order-tab-cancel):not(.move-table-target):not(.move-new-target){
+  border-color:var(--color-success) !important;
+  background:rgba(92,196,158,.18) !important;
+  color:var(--color-success) !important;
+  animation:moveTarget 1.5s ease-in-out infinite;
+  cursor:pointer;
+}
+.move-mode .order-tab:not(.active):not(.order-tab-new):not(.order-tab-merge):not(.order-tab-cancel):not(.move-table-target):not(.move-new-target) .tab-meta{
+  color:rgba(92,196,158,.85) !important;
+}
+.move-mode .order-tab:not(.active):not(.order-tab-new):not(.order-tab-merge):not(.order-tab-cancel):not(.move-table-target):not(.move-new-target):hover{
+  background:rgba(92,196,158,.32) !important;
+  transform:scale(1.03);
+  border-color:var(--color-success) !important;
+}
+@keyframes moveTarget{
+  0%,100%{box-shadow:0 0 0 0 rgba(92,196,158,.35)}
+  50%    {box-shadow:0 0 0 5px rgba(92,196,158,.15)}
+}
+/* Active tab v move-mode = SOURCE (odkiaľ presúvame). Predtým len
+   opacity:.5 — vyzeralo to mŕtvo/čierno. Teraz: amber outline +
+   "ZDROJ" badge cez ::after. */
+.move-mode .order-tab.active{
+  opacity:1 !important;
+  pointer-events:none;
+  background:rgba(255,184,0,.10) !important;
+  border-color:rgba(255,184,0,.5) !important;
+  color:#ffb800 !important;
+  position:relative;
+}
+.move-mode .order-tab.active::after{
+  content:'ZDROJ';
+  position:absolute;
+  top:-9px;
+  right:-6px;
+  font-size:9px;
+  font-weight:800;
+  letter-spacing:.12em;
+  padding:2px 6px;
+  border-radius:4px;
+  background:#ffb800;
+  color:#0f0d1a;
+  box-shadow:0 2px 6px rgba(255,184,0,.4);
+}
+.move-mode .order-tab.active .tab-meta{ color:rgba(255,184,0,.75) !important }
 
 /* === Move-mode action chips (Novy ucet / Na iny stol / Zrusit) ===
    Predtým 11px tenky dashed border na cream pozadí — operátor ich
