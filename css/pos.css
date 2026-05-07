@@ -369,12 +369,66 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
 .move-mode .order-tab:not(.active):not(.order-tab-new):not(.order-tab-merge):not(.order-tab-cancel):not(.move-table-target):not(.move-new-target):hover{background:rgba(92,196,158,.18);transform:scale(1.03)}
 @keyframes moveTarget{0%,100%{box-shadow:0 0 0 0 rgba(92,196,158,.2)}50%{box-shadow:0 0 0 4px rgba(92,196,158,.12)}}
 .move-mode .order-tab.active{opacity:.5;pointer-events:none}
-.move-new-target{border:1px dashed var(--color-success);background:rgba(92,196,158,.06);color:var(--color-success);font-size:11px;font-weight:600;cursor:pointer;padding:6px 10px;align-items:center;justify-content:center}
-.move-new-target:hover{background:rgba(92,196,158,.14)}
-.move-table-target{border:1px dashed var(--color-accent);background:rgba(139,124,246,.06);color:var(--color-accent);font-size:11px;font-weight:600;cursor:pointer;padding:6px 10px;align-items:center;justify-content:center}
-.move-table-target:hover{background:rgba(139,124,246,.14)}
-.order-tab-cancel{border-color:var(--action-danger-border);color:var(--action-danger);font-size:11px;font-weight:600;padding:6px 10px;align-items:center;justify-content:center}
-.order-tab-cancel:hover{background:rgba(224,112,112,.1)}
+
+/* === Move-mode action chips (Novy ucet / Na iny stol / Zrusit) ===
+   Predtým 11px tenky dashed border na cream pozadí — operátor ich
+   nevidel. Teraz: solid fill, väčšie písmo, výrazný shadow + hover lift.
+   Žiadne dashed (vyzerá to "skicovane / nehotovo" — pre primary action
+   to je nesprávny signál). */
+.move-new-target,
+.move-table-target,
+.order-tab-cancel{
+  font-size:13px !important;
+  font-weight:700 !important;
+  padding:10px 16px !important;
+  border-radius:10px !important;
+  border-width:2px !important;
+  border-style:solid !important;
+  letter-spacing:.01em;
+  cursor:pointer;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  white-space:nowrap;
+  flex-shrink:0;
+  transition:transform .12s ease, box-shadow .15s ease, filter .15s ease;
+  -webkit-tap-highlight-color:transparent;
+}
+.move-new-target{
+  background:var(--color-success);
+  color:#fff;
+  border-color:var(--color-success);
+  box-shadow:0 4px 12px rgba(92,196,158,.35);
+}
+.move-new-target:hover{transform:translateY(-1px);filter:brightness(1.08);box-shadow:0 6px 16px rgba(92,196,158,.45)}
+.move-new-target:active{transform:translateY(1px);box-shadow:0 2px 6px rgba(92,196,158,.4)}
+
+.move-table-target{
+  background:var(--color-accent);
+  color:#fff;
+  border-color:var(--color-accent);
+  box-shadow:0 4px 12px rgba(139,124,246,.35);
+}
+.move-table-target:hover{transform:translateY(-1px);filter:brightness(1.08);box-shadow:0 6px 16px rgba(139,124,246,.45)}
+.move-table-target:active{transform:translateY(1px);box-shadow:0 2px 6px rgba(139,124,246,.4)}
+
+.order-tab-cancel{
+  background:var(--action-danger);
+  color:#fff !important;
+  border-color:var(--action-danger);
+  box-shadow:0 4px 12px rgba(224,112,112,.32);
+}
+.order-tab-cancel:hover{transform:translateY(-1px);filter:brightness(1.08);box-shadow:0 6px 16px rgba(224,112,112,.42)}
+.order-tab-cancel:active{transform:translateY(1px);box-shadow:0 2px 6px rgba(224,112,112,.4)}
+
+/* Order-tabs strip má v move-mode jasný "ja som v inom móde" rám,
+   aby operátor okamžite vedel kde má kliknúť. */
+.move-mode .order-tabs{
+  background:rgba(92,196,158,.10);
+  border-color:rgba(92,196,158,.4);
+  box-shadow:inset 0 0 0 1.5px rgba(92,196,158,.25);
+  padding:8px;
+}
 
 /* Move mode item selection */
 .move-mode .order-item-inner{cursor:pointer;-webkit-tap-highlight-color:transparent}

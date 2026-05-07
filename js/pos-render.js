@@ -46,6 +46,12 @@ function flushOrderBeforeTableLeave() {
 }
 
 async function switchView(v){
+  // Ak sa odchádza zo stola a operátor je v move-mode bez selekcie,
+  // ticho ho ukončíme — inak by zostal v stave kde "klik na stôl"
+  // zobrazí "Nie je co presunut" namiesto otvorenia stola.
+  if (typeof moveMode !== 'undefined' && moveMode && (!moveSelectedItems || !moveSelectedItems.length)) {
+    if (typeof exitMoveMode === 'function') exitMoveMode();
+  }
   // Auto-send to kitchen when leaving table (also flush storno + dirty state)
   if (v === 'tables' && currentView !== 'tables' && hasPendingOrderFlushState()) {
     var flushed = await flushOrderBeforeTableLeave();

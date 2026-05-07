@@ -1218,9 +1218,13 @@ function _closeMoveQtyPicker() {
   if (el && el.parentNode) el.parentNode.removeChild(el);
 }
 
-// Move selected items to a target account tab (inline, no modal)
+// Move selected items to a target account tab (inline, no modal).
+// Ak nie je nič vybraté, ticho vyjdeme z move-mode — UX požiadavka:
+// operátor klikne "Presunúť" a potom si to rozmyslí (klikne stôl,
+// účet alebo "+ Nový účet"); pôvodne to vyhodilo error 'Vyberte polozky',
+// teraz sa to chápe ako "nič netreba presúvať" a kontext sa zruší.
 async function moveToTab(targetOrderId) {
-  if (!moveSelectedItems.length) { showToast('Vyberte polozky'); return; }
+  if (!moveSelectedItems.length) { exitMoveMode(); return; }
   try {
     var count = moveSelectedItems.length;
     // Server akceptuje itemQtys s {itemId, qty}. Ak qty=null (celé), tak
@@ -1245,9 +1249,9 @@ async function moveToTab(targetOrderId) {
   } catch(e) { showToast('Chyba: ' + e.message); }
 }
 
-// Move to a brand new account (inline target)
+// Move to a brand new account (inline target). Empty selection = silent exit.
 async function moveToNewAccountInline() {
-  if (!moveSelectedItems.length) { showToast('Vyberte polozky'); return; }
+  if (!moveSelectedItems.length) { exitMoveMode(); return; }
   try {
     var label = 'Ucet ' + (tableOrdersList.length + 1);
     var newOrder = await api.post('/orders', { tableId: selectedTableId, items: [], label: label });
@@ -1255,9 +1259,9 @@ async function moveToNewAccountInline() {
   } catch(e) { showToast('Chyba: ' + e.message); }
 }
 
-// Table picker for cross-table moves
+// Table picker for cross-table moves. Empty selection = silent exit.
 function showTablePicker() {
-  if (!moveSelectedItems.length) { showToast('Vyberte polozky'); return; }
+  if (!moveSelectedItems.length) { exitMoveMode(); return; }
   var sl = { free: 'Volny', occupied: 'Obsad.', reserved: 'Rez.', dirty: 'Spinavy' };
   var grid = TABLES.filter(function(t) { return t.id !== selectedTableId; }).map(function(t) {
     var st = t.status || 'free';
@@ -1276,8 +1280,18 @@ function closeTablePicker() {
 }
 
 async function handleMoveToTable(targetTableId) {
+  // Empty selection — operátor klikol "Presunúť" omylom alebo si to
+  // rozmyslel a klikol na iný stôl; ticho vyjdi z move-mode a otvor
+  // ten stôl normálne (žiadny error). Bez tohto fixu sa stáva, že
+  // operátor uviazne v move-mode a stránka mu hlási "Nie je co presunut".
+  if (!moveSelectedItems.length) {
+    exitMoveMode();
+    if (typeof selectTable === 'function' && targetTableId !== moveSourceTableId) {
+      selectTable(targetTableId);
+    }
+    return;
+  }
   if (targetTableId === moveSourceTableId) { showToast('Vyberte INY stol'); return; }
-  if (!moveSelectedItems.length) { showToast('Vyberte polozky'); return; }
   try {
     var count = moveSelectedItems.length;
     var itemQtys = moveSelectedItems
