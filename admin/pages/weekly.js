@@ -208,9 +208,10 @@ function render(){
     </div>
 
     <div class="panel">
-      <div class="panel-title">Hodinová tabuľka</div>
-      <div style="font-size:var(--text-sm);color:var(--color-text-sec);margin-top:-8px;margin-bottom:14px">presné čísla pre každú hodinu</div>
-      ${renderHourTable(d.byHour || [])}
+      <div class="panel-title">Detail dňa</div>
+      <div style="font-size:var(--text-sm);color:var(--color-text-sec);margin-top:-8px;margin-bottom:14px">klikni na deň → uvidíš plnú hodinovú štatistiku s reálnym počasím tej hodiny</div>
+      ${renderDayTabs(d.dailyHours || [])}
+      <div id="dayDetail" style="margin-top:14px"></div>
     </div>
   `;
 
@@ -222,6 +223,130 @@ function render(){
     _to = lastSundayStr();
     load();
   });
+
+  // Day-tab kliky — prepínajú detailnú hodinovú tabuľku v paneli „Detail dňa"
+  Array.from(document.querySelectorAll('.weekly-day-tab')).forEach(btn => {
+    btn.addEventListener('click', () => {
+      Array.from(document.querySelectorAll('.weekly-day-tab')).forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderDayDetail(btn.dataset.date);
+    });
+  });
+
+  // Auto-select today (or first day with data) — render hneď default
+  const days = (d.dailyHours || []);
+  if (days.length){
+    const todayIso = new Date().toISOString().split('T')[0];
+    const initial = days.find(x => x.date === todayIso) || days[days.length - 1];
+    const initBtn = document.querySelector('.weekly-day-tab[data-date="' + initial.date + '"]');
+    if (initBtn) initBtn.classList.add('active');
+    renderDayDetail(initial.date);
+  } else {
+    document.getElementById('dayDetail').innerHTML = '<div class="td-empty" style="padding:30px;text-align:center;color:var(--color-text-dim)">Žiadne dni s dátami v tomto týždni</div>';
+  }
+}
+
+// === DAY TABS — list of clickable day chips, one per day in period ===
+function renderDayTabs(dailyHours){
+  if (!dailyHours.length){
+    return '<div style="font-size:var(--text-sm);color:var(--color-text-dim);padding:14px 0">Žiadne dni s dátami</div>';
+  }
+  return `<div class="weekly-day-tabs">
+    ${dailyHours.map(day => {
+      const hasData = day.totalRevenue > 0;
+      const dowLabel = DOW_LABEL[day.weekday] || '?';
+      const dateD = new Date(day.date + 'T12:00:00');
+      const dnum = dateD.getDate() + '.' + (dateD.getMonth() + 1) + '.';
+      return `<button class="weekly-day-tab${hasData ? '' : ' empty'}" data-date="${day.date}" type="button">
+        <div class="dt-dow">${dowLabel}</div>
+        <div class="dt-date">${dnum}</div>
+        <div class="dt-rev">${hasData ? fmtEur(day.totalRevenue) : '—'}</div>
+      </button>`;
+    }).join('')}
+  </div>`;
+}
+
+function renderDayDetail(dateIso){
+  const day = (_data.dailyHours || []).find(d => d.date === dateIso);
+  const host = document.getElementById('dayDetail');
+  if (!day){
+    host.innerHTML = '<div class="td-empty" style="padding:30px;text-align:center;color:var(--color-text-dim)">Žiadne dáta pre tento deň</div>';
+    return;
+  }
+  const dateD = new Date(dateIso + 'T12:00:00');
+  const dowFull = ['Nedeľa','Pondelok','Utorok','Streda','Štvrtok','Piatok','Sobota'][dateD.getDay()];
+  const fullDate = dateD.getDate() + '. ' + ['januára','februára','marca','apríla','mája','júna','júla','augusta','septembra','októbra','novembra','decembra'][dateD.getMonth()] + ' ' + dateD.getFullYear();
+
+  // Zostaviť per-hour weather mapu pre TENTO deň (žiaden priemer)
+  const weatherForDay = (_data.weather || []).filter(o => o.date === dateIso);
+  const wMap = new Map();
+  for (const o of weatherForDay) wMap.set(o.hour, o);
+
+  const filtered = (day.hours || []).filter(h => h.totalRevenue > 0 || h.cookMinutes > 0);
+  if (!filtered.length){
+    host.innerHTML = `<div style="font-size:var(--text-md);color:var(--color-text);margin-bottom:8px">${dowFull} · ${fullDate}</div>
+      <div class="td-empty" style="padding:30px;text-align:center;color:var(--color-text-dim)">V tento deň nebola žiadna aktivita.</div>`;
+    return;
+  }
+
+  const dayProfitColor = (day.kitchenProfit || 0) >= 0 ? 'var(--color-success)' : 'var(--color-danger)';
+
+  host.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:10px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,.05)">
+      <div>
+        <div style="font-family:var(--font-display);font-size:var(--text-2xl);font-weight:var(--weight-bold);color:var(--color-text)">${dowFull}</div>
+        <div style="font-size:var(--text-sm);color:var(--color-text-sec);margin-top:2px">${fullDate}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:var(--text-xs);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-sec)">Tržby dňa</div>
+        <div style="font-family:var(--font-display);font-size:var(--text-3xl);font-weight:var(--weight-bold);color:var(--color-text)">${fmtEur(day.totalRevenue)}</div>
+        <div style="font-size:var(--text-xs);color:var(--color-text-sec);margin-top:2px">
+          kuchyňa ${fmtEur(day.kitchenRevenue)} · zisk kuchyne <strong style="color:${dayProfitColor}">${(day.kitchenProfit||0) >= 0 ? '+' : ''}${fmtEur(day.kitchenProfit||0)}</strong>
+        </div>
+      </div>
+    </div>
+    <div class="table-scroll-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Hodina</th>
+          <th class="text-right">Obj.</th>
+          <th class="text-right">Bar</th>
+          <th class="text-right">Kuch. tržby</th>
+          <th class="text-right">Suroviny</th>
+          <th class="text-right">Mzdy</th>
+          <th class="text-right">Zisk kuchyne</th>
+          <th class="text-center">Počasie</th>
+          <th class="text-right">Teplota</th>
+          <th class="text-right">Vietor</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${filtered.map(h => {
+          const w = wMap.get(h.hour);
+          const wInfo = w && w.weatherCode !== null && w.weatherCode !== undefined ? weatherInfo(w.weatherCode) : null;
+          const netProfit = h.kitchenNetProfit || 0;
+          const profitColor = netProfit >= 0 ? 'var(--color-success)' : 'var(--color-danger)';
+          return `<tr>
+            <td class="num">${String(h.hour).padStart(2,'0')}:00</td>
+            <td class="num text-right">${fmtInt(h.orders)}</td>
+            <td class="num text-right">${h.barRevenue > 0 ? fmtEur(h.barRevenue) : '<span style="color:var(--color-text-dim)">—</span>'}</td>
+            <td class="num text-right">${h.kitchenRevenue > 0 ? fmtEur(h.kitchenRevenue) : '<span style="color:var(--color-text-dim)">—</span>'}</td>
+            <td class="num text-right" style="color:var(--color-text-sec)">${h.kitchenCogs > 0 ? fmtEur(h.kitchenCogs) : '<span style="color:var(--color-text-dim)">—</span>'}</td>
+            <td class="num text-right" style="color:var(--color-text-sec)">${h.kitchenWage > 0 ? fmtEur(h.kitchenWage) : '<span style="color:var(--color-text-dim)">—</span>'}</td>
+            <td class="num text-right" style="color:${h.kitchenRevenue > 0 ? profitColor : 'var(--color-text-dim)'};font-weight:${h.kitchenRevenue > 0 ? 'var(--weight-bold)' : 'normal'}">${h.kitchenRevenue > 0 ? (netProfit >= 0 ? '+' : '') + fmtEur(netProfit) : '—'}</td>
+            <td class="text-center" title="${wInfo ? escapeHtml(wInfo.label) : ''}">${wInfo ? wInfo.emoji : '<span style="color:var(--color-text-dim)">—</span>'}</td>
+            <td class="num text-right">${w && w.temperatureC !== null ? Number(w.temperatureC).toFixed(1) + ' °C' : '<span style="color:var(--color-text-dim)">—</span>'}</td>
+            <td class="num text-right">${w && w.windSpeedKmh !== null ? Math.round(Number(w.windSpeedKmh)) + ' km/h' : '<span style="color:var(--color-text-dim)">—</span>'}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+    </div>
+    <div style="margin-top:10px;font-size:var(--text-xs);color:var(--color-text-dim)">
+      Počasie pre presnú hodinu z Open-Meteo (Draždiak GPS 48,1014°N, 17,1136°E).
+    </div>
+  `;
 }
 
 function fmtPct(n){ return (Number(n) || 0).toFixed(1) + ' %'; }
@@ -534,6 +659,62 @@ const PAGE_CSS = `
   .hm-cell.tier-2{ background: rgba(139,124,246,.40); color: var(--color-text) }
   .hm-cell.tier-3{ background: rgba(139,124,246,.65); color: #fff; font-weight: var(--weight-bold) }
   .hm-cell.tier-4{ background: var(--color-accent); color: #fff; font-weight: var(--weight-bold) }
+
+  /* Day tabs — kliknuteľné chips per deň v týždni */
+  .weekly-day-tabs{
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: 8px;
+  }
+  .weekly-day-tab{
+    background: var(--color-bg-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: 12px 10px;
+    text-align: left;
+    cursor: pointer;
+    transition: background var(--transition-fast),
+                border-color var(--transition-fast),
+                transform var(--transition-fast);
+    font-family: inherit;
+    color: var(--color-text);
+  }
+  .weekly-day-tab:hover{
+    background: var(--color-bg-hover);
+    border-color: var(--color-border-hover);
+    transform: translateY(-1px);
+  }
+  .weekly-day-tab.empty{
+    opacity: .55;
+  }
+  .weekly-day-tab.active{
+    background: var(--color-accent-bg-hover);
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+  }
+  .weekly-day-tab .dt-dow{
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+    color: var(--color-text-sec);
+  }
+  .weekly-day-tab.active .dt-dow{ color: var(--color-accent) }
+  .weekly-day-tab .dt-date{
+    font-size: var(--text-md);
+    font-weight: var(--weight-bold);
+    margin-top: 2px;
+    font-family: var(--font-display);
+  }
+  .weekly-day-tab .dt-rev{
+    font-size: var(--text-sm);
+    color: var(--color-text);
+    font-family: var(--font-display);
+    font-weight: var(--weight-semibold);
+    margin-top: 6px;
+    font-variant-numeric: tabular-nums;
+  }
+  .weekly-day-tab.empty .dt-rev{ color: var(--color-text-dim) }
 
   /* Motion-safe — DESIGN-CODE.md § 9.2 */
   @media (prefers-reduced-motion: reduce){

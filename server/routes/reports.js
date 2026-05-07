@@ -773,11 +773,146 @@ router.get('/weekly', mgr, async (req, res) => {
   const totalKitchenProfit = totalKitchen - totalKitchenCogs;
   const totalKitchenNetProfit = totalKitchenProfit - totalKitchenWage;
 
+  // Per-day-per-hour breakdown — expandujeme cellMap do dayMap, kde
+  // každý deň má svoj 24-hodinový strip s reálnymi sales + cook minutes
+  // (NIE priemer cez všetky dni — operátor klikne deň a uvidí presne
+  // čo sa v ten deň dialo).
+  const dayMap = new Map(); // date -> { date, weekday, hours: Map(hour -> {...}) }
+  for (const cell of cellMap.values()){
+    if (!dayMap.has(cell.date)){
+      const d = new Date(cell.date + 'T12:00:00');
+      const isoDow = d.getDay() === 0 ? 7 : d.getDay(); // Po=1..Ne=7
+      dayMap.set(cell.date, {
+        date: cell.date,
+        weekday: isoDow,
+        hours: new Map(),
+        kitchenRevenue: 0, kitchenCogs: 0,
+        barRevenue: 0,
+        orders: 0,
+      });
+    }
+    const day = dayMap.get(cell.date);
+    let hourCell = day.hours.get(cell.hour);
+    if (!hourCell){
+      hourCell = {
+        hour: cell.hour,
+        kitchenRevenue: 0, kitchenCogs: 0,
+        barRevenue: 0,
+        kitchenItems: 0, barItems: 0,
+        orders: 0,
+        cookMinutes: 0,
+        activeCooks: 0,
+      };
+      day.hours.set(cell.hour, hourCell);
+    }
+    hourCell.kitchenRevenue += cell.kitchenRevenue;
+    hourCell.kitchenCogs    += cell.kitchenCogs;
+    hourCell.barRevenue     += cell.barRevenue;
+    hourCell.kitchenItems   += cell.kitchenItems;
+    hourCell.barItems       += cell.barItems;
+    hourCell.orders         += cell.orders;
+    day.kitchenRevenue += cell.kitchenRevenue;
+    day.kitchenCogs    += cell.kitchenCogs;
+    day.barRevenue     += cell.barRevenue;
+    day.orders         += cell.orders;
+  }
+
+  // Allokuj cook minutes per (date, hour) — re-iterate shifty s denným bucketom.
+  for (const sh of usedShifts){
+    const start = new Date(sh.inAt);
+    const end = new Date(sh.outAt);
+    if (end <= start) continue;
+    let cur = new Date(start);
+    while (cur < end){
+      const local = new Date(cur.toLocaleString('en-US', { timeZone: 'Europe/Bratislava' }));
+      const hour = local.getHours();
+      const dateStr = local.getFullYear() + '-'
+        + String(local.getMonth() + 1).padStart(2, '0') + '-'
+        + String(local.getDate()).padStart(2, '0');
+      const localNextHour = new Date(local);
+      localNextHour.setHours(hour + 1, 0, 0, 0);
+      const offsetMs = (new Date(local.toLocaleString('en-US', { timeZone: 'UTC' })).getTime()
+                       - local.getTime());
+      const nextBoundaryUtc = new Date(localNextHour.getTime() + offsetMs);
+      const sliceEnd = nextBoundaryUtc > end ? end : nextBoundaryUtc;
+      const minutes = (sliceEnd - cur) / 60000;
+      if (minutes > 0 && hour >= 0 && hour < 24){
+        // Ensure dayMap has this date even if no sales
+        if (!dayMap.has(dateStr)){
+          const d = new Date(dateStr + 'T12:00:00');
+          const isoDow = d.getDay() === 0 ? 7 : d.getDay();
+          dayMap.set(dateStr, {
+            date: dateStr, weekday: isoDow,
+            hours: new Map(),
+            kitchenRevenue: 0, kitchenCogs: 0, barRevenue: 0, orders: 0,
+          });
+        }
+        const day = dayMap.get(dateStr);
+        let hourCell = day.hours.get(hour);
+        if (!hourCell){
+          hourCell = {
+            hour, kitchenRevenue: 0, kitchenCogs: 0, barRevenue: 0,
+            kitchenItems: 0, barItems: 0, orders: 0, cookMinutes: 0, activeCooks: 0,
+          };
+          day.hours.set(hour, hourCell);
+        }
+        hourCell.cookMinutes += minutes;
+      }
+      cur = sliceEnd;
+      if (sliceEnd >= end) break;
+    }
+  }
+
+  // Avg hourly rate (rovnaké ako pre byHour) na výpočet wage per hour
+  const totalRateHours = cookList.reduce((s, c) => s + (c.minutes/60) * c.hourlyRate, 0);
+  const totalHours = cookList.reduce((s, c) => s + (c.minutes/60), 0);
+  const avgRate = totalHours > 0 ? totalRateHours / totalHours : 0;
+
+  const dailyHours = Array.from(dayMap.values())
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map(day => {
+      const hours = Array.from(day.hours.values())
+        .sort((a, b) => a.hour - b.hour)
+        .map(h => {
+          const cookHours = h.cookMinutes / 60;
+          const wage = cookHours * avgRate;
+          const profit = h.kitchenRevenue - h.kitchenCogs;
+          const net = profit - wage;
+          return {
+            hour: h.hour,
+            kitchenRevenue: roundMoney(h.kitchenRevenue),
+            kitchenCogs: roundMoney(h.kitchenCogs),
+            kitchenWage: roundMoney(wage),
+            kitchenProfit: roundMoney(profit),
+            kitchenNetProfit: roundMoney(net),
+            barRevenue: roundMoney(h.barRevenue),
+            totalRevenue: roundMoney(h.kitchenRevenue + h.barRevenue),
+            kitchenItems: h.kitchenItems,
+            barItems: h.barItems,
+            orders: h.orders,
+            cookMinutes: Math.round(h.cookMinutes),
+            cookHours: Math.round(cookHours * 100) / 100,
+          };
+        });
+      return {
+        date: day.date,
+        weekday: day.weekday,
+        kitchenRevenue: roundMoney(day.kitchenRevenue),
+        kitchenCogs: roundMoney(day.kitchenCogs),
+        kitchenProfit: roundMoney(day.kitchenRevenue - day.kitchenCogs),
+        barRevenue: roundMoney(day.barRevenue),
+        totalRevenue: roundMoney(day.kitchenRevenue + day.barRevenue),
+        orders: day.orders,
+        hours,
+      };
+    });
+
   res.json({
     period: { from, to },
     byHour: byHourFinal,
     heatmap,
     cooks: cookList,
+    dailyHours,
     noKitchenStaff,
     totals: {
       kitchenRevenue: roundMoney(totalKitchen),
