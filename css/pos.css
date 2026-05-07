@@ -514,7 +514,26 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
 .tp-chip.s-free .tp-name{color:var(--color-success)}
 
 /* Move footer button */
-.btn-move{background:transparent;color:var(--text-muted);border:1px solid var(--border-default);font-size:var(--text-xs);font-weight:var(--weight-semibold);padding:var(--space-2) var(--space-3);min-height:var(--btn-h-xs);transition:background var(--transition-fast),color var(--transition-fast),border-color var(--transition-fast)}.btn-move:hover{background:rgba(255,255,255,.04);color:var(--text-secondary);border-color:var(--color-border-hover)}
+/* Presun (move) button — green tint matches inline move-mode aesthetic.
+   Predtým transparent na tmavom = neviditeľné (action-row tlačidlá: Presun,
+   Rozdelit, Zlava boli "čierne" za sebou, operátor ich nevidel). Teraz
+   každé má svoju farebnú identitu zhodnú s následným modalom/módom. */
+.btn-move{
+  background:rgba(92,196,158,.12);
+  color:var(--color-success);
+  border:1px solid rgba(92,196,158,.4);
+  font-size:var(--text-xs);
+  font-weight:var(--weight-semibold);
+  padding:var(--space-2) var(--space-3);
+  min-height:var(--btn-h-xs);
+  transition:background var(--transition-fast),color var(--transition-fast),border-color var(--transition-fast),transform var(--transition-fast);
+}
+.btn-move:hover{
+  background:rgba(92,196,158,.22);
+  border-color:var(--color-success);
+  transform:translateY(-1px);
+}
+.btn-move:active{transform:translateY(1px)}
 
 /* Account Picker */
 .ap-overlay{
@@ -638,8 +657,42 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
 .btn-pay{background:linear-gradient(135deg,var(--action-primary),var(--action-primary-dim));color:var(--surface-app);font-size:var(--text-lg);padding:var(--space-3);border-radius:var(--radius-sm);min-height:var(--btn-h-md);font-weight:var(--weight-extrabold);transition:opacity var(--transition-fast),transform var(--transition-fast),box-shadow var(--transition-fast)}
 .btn-pay:hover{opacity:.95;transform:translateY(-1px);box-shadow:0 4px 16px rgba(139,124,246,.2)}
 .extra-row{display:flex;gap:6px;border-top:1px solid var(--border-default);padding-top:4px;margin-top:2px}
-.btn-split{background:transparent;color:var(--text-muted);border:1px solid var(--border-default);font-size:var(--text-xs);font-weight:var(--weight-semibold);padding:var(--space-2) var(--space-3);min-height:var(--btn-h-xs);transition:background var(--transition-fast),color var(--transition-fast),border-color var(--transition-fast)}.btn-split:hover{background:rgba(255,255,255,.04);color:var(--text-secondary);border-color:var(--color-border-hover)}
-.btn-discount{background:transparent;color:var(--text-muted);border:1px solid var(--border-default);font-size:var(--text-xs);font-weight:var(--weight-semibold);padding:var(--space-2) var(--space-3);min-height:var(--btn-h-xs);transition:background var(--transition-fast),border-color var(--transition-fast)}.btn-discount:hover{background:rgba(255,255,255,.04);color:var(--text-secondary);border-color:var(--color-border-hover)}
+/* Rozdelit (split bill) — purple/accent identifies split mode + matches
+   accent across UI (active tab color). */
+.btn-split{
+  background:rgba(139,124,246,.12);
+  color:var(--color-accent);
+  border:1px solid rgba(139,124,246,.4);
+  font-size:var(--text-xs);
+  font-weight:var(--weight-semibold);
+  padding:var(--space-2) var(--space-3);
+  min-height:var(--btn-h-xs);
+  transition:background var(--transition-fast),color var(--transition-fast),border-color var(--transition-fast),transform var(--transition-fast);
+}
+.btn-split:hover{
+  background:rgba(139,124,246,.22);
+  border-color:var(--color-accent);
+  transform:translateY(-1px);
+}
+.btn-split:active{transform:translateY(1px)}
+
+/* Zlava (discount) — amber/sun identity, signaluje "promócia / akcia" */
+.btn-discount{
+  background:rgba(255,184,0,.12);
+  color:#ffb800;
+  border:1px solid rgba(255,184,0,.4);
+  font-size:var(--text-xs);
+  font-weight:var(--weight-semibold);
+  padding:var(--space-2) var(--space-3);
+  min-height:var(--btn-h-xs);
+  transition:background var(--transition-fast),border-color var(--transition-fast),transform var(--transition-fast);
+}
+.btn-discount:hover{
+  background:rgba(255,184,0,.22);
+  border-color:#ffb800;
+  transform:translateY(-1px);
+}
+.btn-discount:active{transform:translateY(1px)}
 .discount-line{display:flex;justify-content:space-between;align-items:baseline;padding:2px 0;font-size:12px;color:var(--color-accent);font-weight:600}
 .discount-line .discount-label{display:flex;align-items:center;gap:6px}
 .discount-line .discount-remove{background:none;border:none;color:var(--color-danger);font-size:14px;cursor:pointer;padding:0 4px;opacity:.6;transition:opacity .2s}
