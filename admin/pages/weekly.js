@@ -167,9 +167,9 @@ function render(){
           <svg aria-hidden="true" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
         </div>
         <div class="stat-info">
-          <div class="stat-label">Efektivita kuchár</div>
-          <div class="stat-value">${fmtEur(totals.avgKitchenEfficiency || 0)}</div>
-          <div class="stat-change neutral">€ kuchyne / hod práce</div>
+          <div class="stat-label">Zisk kuchyne</div>
+          <div class="stat-value" style="color:${(totals.kitchenNetProfit||0) >= 0 ? 'var(--color-success)' : 'var(--color-danger)'}">${(totals.kitchenNetProfit||0) >= 0 ? '+' : ''}${fmtEur(totals.kitchenNetProfit || 0)}</div>
+          <div class="stat-change neutral">tržby ${fmtEur(totals.kitchenRevenue||0)} − suroviny ${fmtEur(totals.kitchenCogs||0)} − mzdy ${fmtEur(totals.kitchenWage||0)} · marža ${(totals.kitchenNetMarginPct||0).toFixed(1)} %</div>
         </div>
       </div>
     </div>
@@ -202,8 +202,8 @@ function render(){
     </div>
 
     <div class="panel" style="margin-bottom:16px">
-      <div class="panel-title">Efektivita kuchára</div>
-      <div style="font-size:var(--text-sm);color:var(--color-text-sec);margin-top:-8px;margin-bottom:14px">koľko € v kuchyni vyprodukoval každý kuchár za hodinu</div>
+      <div class="panel-title">Zisk kuchyne podľa kuchára</div>
+      <div style="font-size:var(--text-sm);color:var(--color-text-sec);margin-top:-8px;margin-bottom:14px">tržby − suroviny − mzda = čistý zisk z kuchyne pripočítaný kuchárovi</div>
       ${renderCookTable(d.cooks || [])}
     </div>
 
@@ -298,22 +298,32 @@ function renderCookTable(cooks){
           <th>Meno</th>
           <th>Pozícia</th>
           <th class="text-right">Hodiny</th>
-          <th class="text-right">Mzda</th>
           <th class="text-right">Tržby kuchyne</th>
-          <th class="text-right">€/hod efektivita</th>
+          <th class="text-right">Suroviny</th>
+          <th class="text-right">Mzda</th>
+          <th class="text-right">Čistý zisk</th>
+          <th class="text-right">Marža</th>
         </tr>
       </thead>
       <tbody>
-        ${cooks.map(c => `<tr>
-          <td class="td-name">${escapeHtml(c.name)}</td>
-          <td>${escapeHtml(c.position) || '<span style="color:var(--color-text-dim)">—</span>'}</td>
-          <td class="num text-right">${fmtHours(c.minutes)}</td>
-          <td class="num text-right">${fmtEur(c.wage)}</td>
-          <td class="num text-right">${fmtEur(c.kitchenRevenue)}</td>
-          <td class="num text-right highlight-cell">${fmtEur(c.efficiency)}</td>
-        </tr>`).join('')}
+        ${cooks.map(c => {
+          const profitColor = c.netProfit >= 0 ? 'var(--color-success)' : 'var(--color-danger)';
+          return `<tr>
+            <td class="td-name">${escapeHtml(c.name)}</td>
+            <td>${escapeHtml(c.position) || '<span style="color:var(--color-text-dim)">—</span>'}</td>
+            <td class="num text-right">${fmtHours(c.minutes)}</td>
+            <td class="num text-right">${fmtEur(c.kitchenRevenue)}</td>
+            <td class="num text-right" style="color:var(--color-text-sec)">${fmtEur(c.kitchenCogs)}</td>
+            <td class="num text-right" style="color:var(--color-text-sec)">${fmtEur(c.wage)}</td>
+            <td class="num text-right" style="color:${profitColor};font-weight:var(--weight-bold)">${c.netProfit >= 0 ? '+' : ''}${fmtEur(c.netProfit)}</td>
+            <td class="num text-right" style="color:${profitColor}">${(c.netMarginPct || 0).toFixed(1)} %</td>
+          </tr>`;
+        }).join('')}
       </tbody>
     </table>
+    </div>
+    <div style="margin-top:10px;font-size:var(--text-xs);color:var(--color-text-dim)">
+      Atribúcia: tržby + náklady na suroviny v kuchyni sa rozdelia medzi aktívnych kuchárov pomerom ich minút v každej hodine.
     </div>
   `;
 }
@@ -371,10 +381,10 @@ function renderHourTable(byHour){
           <th>Hodina</th>
           <th class="text-right">Obj.</th>
           <th class="text-right">Bar</th>
-          <th class="text-right">Kuchyňa</th>
-          <th class="text-right">Spolu</th>
-          <th class="text-right">Hodiny v kuchyni</th>
-          <th class="text-right">€/hod efektivita</th>
+          <th class="text-right">Kuch. tržby</th>
+          <th class="text-right">Suroviny</th>
+          <th class="text-right">Mzdy</th>
+          <th class="text-right">Zisk kuchyne</th>
           <th class="text-center">Počasie</th>
           <th class="text-right">Teplota</th>
           <th class="text-right">Vietor</th>
@@ -387,14 +397,16 @@ function renderHourTable(byHour){
           const avgWind = w ? avg(w.winds) : null;
           const code = w ? mode(w.codes) : null;
           const wInfo = code !== null ? weatherInfo(code) : null;
+          const netProfit = h.kitchenNetProfit || 0;
+          const profitColor = netProfit >= 0 ? 'var(--color-success)' : 'var(--color-danger)';
           return `<tr>
             <td class="num">${String(h.hour).padStart(2,'0')}:00</td>
             <td class="num text-right">${fmtInt(h.orders)}</td>
             <td class="num text-right">${h.barRevenue > 0 ? fmtEur(h.barRevenue) : '<span style="color:var(--color-text-dim)">—</span>'}</td>
             <td class="num text-right">${h.kitchenRevenue > 0 ? fmtEur(h.kitchenRevenue) : '<span style="color:var(--color-text-dim)">—</span>'}</td>
-            <td class="num text-right highlight-cell">${fmtEur(h.totalRevenue)}</td>
-            <td class="num text-right">${h.cookMinutes > 0 ? fmtHours(h.cookMinutes) : '<span style="color:var(--color-text-dim)">—</span>'}</td>
-            <td class="num text-right">${h.kitchenEfficiency > 0 ? fmtEur(h.kitchenEfficiency) : '<span style="color:var(--color-text-dim)">—</span>'}</td>
+            <td class="num text-right" style="color:var(--color-text-sec)">${h.kitchenCogs > 0 ? fmtEur(h.kitchenCogs) : '<span style="color:var(--color-text-dim)">—</span>'}</td>
+            <td class="num text-right" style="color:var(--color-text-sec)">${h.kitchenWage > 0 ? fmtEur(h.kitchenWage) : '<span style="color:var(--color-text-dim)">—</span>'}</td>
+            <td class="num text-right" style="color:${h.kitchenRevenue > 0 ? profitColor : 'var(--color-text-dim)'};font-weight:${h.kitchenRevenue > 0 ? 'var(--weight-bold)' : 'normal'}">${h.kitchenRevenue > 0 ? (netProfit >= 0 ? '+' : '') + fmtEur(netProfit) : '—'}</td>
             <td class="text-center" title="${wInfo ? escapeHtml(wInfo.label) : ''}">${wInfo ? wInfo.emoji : '<span style="color:var(--color-text-dim)">—</span>'}</td>
             <td class="num text-right">${avgTemp !== null ? avgTemp.toFixed(1) + ' °C' : '<span style="color:var(--color-text-dim)">—</span>'}</td>
             <td class="num text-right">${avgWind !== null ? avgWind.toFixed(0) + ' km/h' : '<span style="color:var(--color-text-dim)">—</span>'}</td>

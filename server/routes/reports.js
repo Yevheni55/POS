@@ -463,19 +463,28 @@ router.get('/weekly', mgr, async (req, res) => {
   const toBoundary   = sql`(${to + ' 23:59:59'})::timestamp AT TIME ZONE ${TZ}`;
 
   // Hour × weekday × dest aggregation. dest='kuchyna' alebo 'bar'.
+  // Pridávame aj cogs (food cost cez recepty × ingredient cost) aby
+  // sme mohli počítať zisk kuchyne, nie len tržby.
   const cellsRows = await db.execute(sql`
+    WITH unit_cogs AS (
+      SELECT r.menu_item_id, SUM(r.qty_per_unit::numeric * i.cost_per_unit::numeric) AS uc
+      FROM recipes r INNER JOIN ingredients i ON i.id = r.ingredient_id
+      GROUP BY r.menu_item_id
+    )
     SELECT
       EXTRACT(HOUR FROM (o.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ}))::int AS hour,
       EXTRACT(ISODOW FROM (o.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ}))::int AS weekday,
       to_char((o.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ})::date, 'YYYY-MM-DD') AS date,
       c.dest AS dest,
       COALESCE(SUM(oi.qty * mi.price::numeric), 0)::float AS revenue,
+      COALESCE(SUM(oi.qty * COALESCE(uc.uc, 0)), 0)::float AS cogs,
       COUNT(DISTINCT o.id)::int AS orders,
       COALESCE(SUM(oi.qty), 0)::int AS items
     FROM order_items oi
     INNER JOIN orders o ON o.id = oi.order_id
     INNER JOIN menu_items mi ON mi.id = oi.menu_item_id
     INNER JOIN menu_categories c ON c.id = mi.category_id
+    LEFT JOIN unit_cogs uc ON uc.menu_item_id = mi.id
     WHERE o.created_at >= ${fromBoundary} AND o.created_at <= ${toBoundary}
       AND o.status != 'cancelled'
     GROUP BY 1, 2, 3, 4
@@ -518,10 +527,9 @@ router.get('/weekly', mgr, async (req, res) => {
         date: r.date,
         hour: Number(r.hour),
         weekday: Number(r.weekday), // ISO 1=Po..7=Ne
-        kitchenRevenue: 0,
-        barRevenue: 0,
-        kitchenItems: 0,
-        barItems: 0,
+        kitchenRevenue: 0, kitchenCogs: 0,
+        barRevenue: 0, barCogs: 0,
+        kitchenItems: 0, barItems: 0,
         orders: 0,
       };
       cellMap.set(key, cell);
@@ -529,10 +537,12 @@ router.get('/weekly', mgr, async (req, res) => {
     const dest = String(r.dest || 'bar');
     if (dest === 'kuchyna'){
       cell.kitchenRevenue += Number(r.revenue) || 0;
-      cell.kitchenItems += Number(r.items) || 0;
+      cell.kitchenCogs    += Number(r.cogs) || 0;
+      cell.kitchenItems   += Number(r.items) || 0;
     } else {
       cell.barRevenue += Number(r.revenue) || 0;
-      cell.barItems += Number(r.items) || 0;
+      cell.barCogs    += Number(r.cogs) || 0;
+      cell.barItems   += Number(r.items) || 0;
     }
     cell.orders += Number(r.orders) || 0;
   }
@@ -540,7 +550,8 @@ router.get('/weekly', mgr, async (req, res) => {
   // Per-hour-of-day aggregates (24 buckets across whole period)
   const byHour = Array.from({length:24}, (_, i) => ({
     hour: i,
-    kitchenRevenue: 0, barRevenue: 0,
+    kitchenRevenue: 0, kitchenCogs: 0,
+    barRevenue: 0, barCogs: 0,
     kitchenItems: 0, barItems: 0,
     orders: 0,
     cookMinutes: 0,
@@ -560,10 +571,12 @@ router.get('/weekly', mgr, async (req, res) => {
     hm.barRevenue += cell.barRevenue;
     hm.orders += cell.orders;
     byHour[cell.hour].kitchenRevenue += cell.kitchenRevenue;
-    byHour[cell.hour].barRevenue += cell.barRevenue;
-    byHour[cell.hour].kitchenItems += cell.kitchenItems;
-    byHour[cell.hour].barItems += cell.barItems;
-    byHour[cell.hour].orders += cell.orders;
+    byHour[cell.hour].kitchenCogs    += cell.kitchenCogs;
+    byHour[cell.hour].barRevenue     += cell.barRevenue;
+    byHour[cell.hour].barCogs        += cell.barCogs;
+    byHour[cell.hour].kitchenItems   += cell.kitchenItems;
+    byHour[cell.hour].barItems       += cell.barItems;
+    byHour[cell.hour].orders         += cell.orders;
   }
 
   // Cook detection — keyword match na position. Ak žiadny cook,
@@ -615,30 +628,35 @@ router.get('/weekly', mgr, async (req, res) => {
   // attributed (proportionally if multiple cooks active in same hour).
   // Simplifying: split kitchenRevenue v každej hodine medzi aktívnych
   // cookov rovnakou váhou (% ich minút v tej hodine).
-  const cookStats = new Map(); // staffId -> { name, position, hourlyRate, minutes, kitchenRevenue }
+  // Per-cook stats. Atribúcie:
+  //   minutes        — celkové odpracované minúty
+  //   kitchenRevenue — proporčný podiel revenue podľa minút v každej hod
+  //   kitchenCogs    — proporčný podiel COGS rovnakým princípom
+  //   wage           — minutes × hourlyRate
+  //   kitchenProfit  = kitchenRevenue − kitchenCogs (pred mzdou)
+  //   netProfit      = kitchenProfit − wage (po mzde — koľko pre šéfa)
+  const cookStats = new Map();
   for (const sh of usedShifts){
     const id = sh.staffId;
     if (!cookStats.has(id)){
       cookStats.set(id, {
-        staffId: id,
-        name: sh.name,
-        position: sh.position,
+        staffId: id, name: sh.name, position: sh.position,
         hourlyRate: sh.hourlyRate,
         minutes: 0,
         kitchenRevenue: 0,
+        kitchenCogs: 0,
       });
     }
-    const stat = cookStats.get(id);
-    // Total minutes
-    stat.minutes += (new Date(sh.outAt) - new Date(sh.inAt)) / 60000;
+    cookStats.get(id).minutes += (new Date(sh.outAt) - new Date(sh.inAt)) / 60000;
   }
 
-  // Per-hour kitchen revenue allocation — pre každú hodinu zisti aktívnych
-  // cookov a rozdeľ kitchen revenue proporčne ich minútam.
+  // Per-hour proporčné rozdelenie kitchen revenue + cogs medzi aktívnymi
+  // cookmi v tej hodine. Cook ktorý pracoval 60 min v hodine kde bol
+  // sám dostane 100 % daného hour-revenue. Dvaja po 30/30 → každý 50 %.
   for (let h = 0; h < 24; h++){
-    const kitchenRev = byHour[h].kitchenRevenue;
-    if (kitchenRev <= 0) continue;
-    // Spočítaj per-cook minúty v tejto hodine
+    const kitchenRev  = byHour[h].kitchenRevenue;
+    const kitchenCogs = byHour[h].kitchenCogs;
+    if (kitchenRev <= 0 && kitchenCogs <= 0) continue;
     const minutesPerCook = new Map();
     let totalMin = 0;
     for (const sh of usedShifts){
@@ -656,9 +674,7 @@ router.get('/weekly', mgr, async (req, res) => {
         const nextBoundaryUtc = new Date(localNextHour.getTime() + offsetMs);
         const sliceEnd = nextBoundaryUtc > end ? end : nextBoundaryUtc;
         const minutes = (sliceEnd - cur) / 60000;
-        if (hour === h){
-          cookH += minutes;
-        }
+        if (hour === h) cookH += minutes;
         cur = sliceEnd;
         if (sliceEnd >= end) break;
       }
@@ -670,35 +686,73 @@ router.get('/weekly', mgr, async (req, res) => {
     if (totalMin > 0){
       byHour[h].activeCooks = minutesPerCook.size;
       for (const [id, min] of minutesPerCook){
-        const allocation = (min / totalMin) * kitchenRev;
+        const share = min / totalMin;
         const stat = cookStats.get(id);
-        if (stat) stat.kitchenRevenue += allocation;
+        if (stat){
+          stat.kitchenRevenue += share * kitchenRev;
+          stat.kitchenCogs    += share * kitchenCogs;
+        }
       }
     }
   }
 
-  // Round + finalize
-  const cookList = Array.from(cookStats.values()).map(c => ({
-    ...c,
-    hours: Math.round((c.minutes / 60) * 100) / 100,
-    kitchenRevenue: roundMoney(c.kitchenRevenue),
-    efficiency: c.minutes > 0 ? roundMoney(c.kitchenRevenue / (c.minutes / 60)) : 0,
-    wage: roundMoney((c.minutes / 60) * c.hourlyRate),
-  })).sort((a, b) => b.efficiency - a.efficiency);
+  // Finalize per-cook s metrikami zisku.
+  const cookList = Array.from(cookStats.values()).map(c => {
+    const hours = c.minutes / 60;
+    const wage = hours * c.hourlyRate;
+    const kitchenProfit = c.kitchenRevenue - c.kitchenCogs;
+    const netProfit = kitchenProfit - wage;
+    return {
+      staffId: c.staffId,
+      name: c.name,
+      position: c.position,
+      hourlyRate: c.hourlyRate,
+      minutes: c.minutes,
+      hours: Math.round(hours * 100) / 100,
+      kitchenRevenue: roundMoney(c.kitchenRevenue),
+      kitchenCogs: roundMoney(c.kitchenCogs),
+      kitchenProfit: roundMoney(kitchenProfit),
+      wage: roundMoney(wage),
+      netProfit: roundMoney(netProfit),
+      // Marža z kuchyne (% z tržby ostáva po surovinách + mzde)
+      netMarginPct: c.kitchenRevenue > 0 ? Math.round((netProfit / c.kitchenRevenue) * 1000) / 10 : 0,
+    };
+  }).sort((a, b) => b.netProfit - a.netProfit);
 
-  const byHourFinal = byHour.map(h => ({
-    hour: h.hour,
-    kitchenRevenue: roundMoney(h.kitchenRevenue),
-    barRevenue: roundMoney(h.barRevenue),
-    totalRevenue: roundMoney(h.kitchenRevenue + h.barRevenue),
-    kitchenItems: h.kitchenItems,
-    barItems: h.barItems,
-    orders: h.orders,
-    cookMinutes: Math.round(h.cookMinutes),
-    cookHours: Math.round((h.cookMinutes / 60) * 100) / 100,
-    activeCooks: h.activeCooks,
-    kitchenEfficiency: h.cookMinutes > 0 ? roundMoney(h.kitchenRevenue / (h.cookMinutes / 60)) : 0,
-  }));
+  const byHourFinal = byHour.map(h => {
+    const cookHours = h.cookMinutes / 60;
+    // Cook wage allocation per hour = cook minutes × avg hourly rate of all
+    // active cooks (priemerná mzda na cook-hodinu — predpokladá rovnaké rate
+    // pre všetkých aktívnych v tej hodine; mierne zjednodušenie).
+    let wageThisHour = 0;
+    if (cookHours > 0){
+      // Use weighted avg hourly rate from cookList (those active in any hour)
+      const totalRateHours = cookList.reduce((s, c) => s + (c.minutes/60) * c.hourlyRate, 0);
+      const totalHours = cookList.reduce((s, c) => s + (c.minutes/60), 0);
+      const avgRate = totalHours > 0 ? totalRateHours / totalHours : 0;
+      wageThisHour = cookHours * avgRate;
+    }
+    const kitchenProfit = h.kitchenRevenue - h.kitchenCogs;
+    const netProfit = kitchenProfit - wageThisHour;
+    return {
+      hour: h.hour,
+      kitchenRevenue: roundMoney(h.kitchenRevenue),
+      kitchenCogs: roundMoney(h.kitchenCogs),
+      kitchenProfit: roundMoney(kitchenProfit),
+      kitchenWage: roundMoney(wageThisHour),
+      kitchenNetProfit: roundMoney(netProfit),
+      barRevenue: roundMoney(h.barRevenue),
+      totalRevenue: roundMoney(h.kitchenRevenue + h.barRevenue),
+      kitchenItems: h.kitchenItems,
+      barItems: h.barItems,
+      orders: h.orders,
+      cookMinutes: Math.round(h.cookMinutes),
+      cookHours: Math.round(cookHours * 100) / 100,
+      activeCooks: h.activeCooks,
+      // Stary alias pre spätnú kompatibilitu UI ak by ho použila stará verzia
+      kitchenEfficiency: roundMoney(netProfit),
+    };
+  });
 
   const heatmap = Array.from(heatmapMap.values()).map(c => ({
     weekday: c.weekday,
@@ -714,9 +768,10 @@ router.get('/weekly', mgr, async (req, res) => {
   const totalBar = byHourFinal.reduce((s, h) => s + h.barRevenue, 0);
   const totalCookMinutes = byHourFinal.reduce((s, h) => s + h.cookMinutes, 0);
   const totalCookHours = Math.round((totalCookMinutes / 60) * 100) / 100;
-  const avgKitchenEfficiency = totalCookMinutes > 0
-    ? roundMoney(totalKitchen / (totalCookMinutes / 60))
-    : 0;
+  const totalKitchenCogs = byHourFinal.reduce((s, h) => s + h.kitchenCogs, 0);
+  const totalKitchenWage = byHourFinal.reduce((s, h) => s + h.kitchenWage, 0);
+  const totalKitchenProfit = totalKitchen - totalKitchenCogs;
+  const totalKitchenNetProfit = totalKitchenProfit - totalKitchenWage;
 
   res.json({
     period: { from, to },
@@ -726,9 +781,15 @@ router.get('/weekly', mgr, async (req, res) => {
     noKitchenStaff,
     totals: {
       kitchenRevenue: roundMoney(totalKitchen),
+      kitchenCogs: roundMoney(totalKitchenCogs),
+      kitchenProfit: roundMoney(totalKitchenProfit),
+      kitchenWage: roundMoney(totalKitchenWage),
+      kitchenNetProfit: roundMoney(totalKitchenNetProfit),
+      kitchenNetMarginPct: totalKitchen > 0
+        ? Math.round((totalKitchenNetProfit / totalKitchen) * 1000) / 10
+        : 0,
       barRevenue: roundMoney(totalBar),
       cookHours: totalCookHours,
-      avgKitchenEfficiency,
     },
   });
 });
