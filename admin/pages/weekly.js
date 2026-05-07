@@ -277,7 +277,7 @@ function renderDayDetail(dateIso){
   const dowFull = ['Nedeľa','Pondelok','Utorok','Streda','Štvrtok','Piatok','Sobota'][dateD.getDay()];
   const fullDate = dateD.getDate() + '. ' + ['januára','februára','marca','apríla','mája','júna','júla','augusta','septembra','októbra','novembra','decembra'][dateD.getMonth()] + ' ' + dateD.getFullYear();
 
-  // Zostaviť per-hour weather mapu pre TENTO deň (žiaden priemer)
+  // Per-hour weather mapa pre TENTO deň
   const weatherForDay = (_data.weather || []).filter(o => o.date === dateIso);
   const wMap = new Map();
   for (const o of weatherForDay) wMap.set(o.hour, o);
@@ -289,24 +289,108 @@ function renderDayDetail(dateIso){
     return;
   }
 
-  const dayProfitColor = (day.kitchenProfit || 0) >= 0 ? 'var(--color-success)' : 'var(--color-danger)';
+  // Day-level aggregates
+  const dayCookMinutes = filtered.reduce((s, h) => s + (h.cookMinutes || 0), 0);
+  const dayKitchenWage = filtered.reduce((s, h) => s + (h.kitchenWage || 0), 0);
+  const dayKitchenNetProfit = filtered.reduce((s, h) => s + (h.kitchenNetProfit || 0), 0);
+  const dayOrders = filtered.reduce((s, h) => s + (h.orders || 0), 0);
+  const dayItemsKitchen = filtered.reduce((s, h) => s + (h.kitchenItems || 0), 0);
+  const dayMargin = day.kitchenRevenue > 0 ? (dayKitchenNetProfit / day.kitchenRevenue * 100) : 0;
+  const peakHour = filtered.reduce((best, h) => h.totalRevenue > (best?.totalRevenue || 0) ? h : best, null);
+  const profitColor = dayKitchenNetProfit >= 0 ? 'var(--color-success)' : 'var(--color-danger)';
+
+  // Day-level weather summary — peak temp, mode condition
+  const tempVals = weatherForDay.map(o => o.temperatureC).filter(v => v !== null);
+  const windVals = weatherForDay.map(o => o.windSpeedKmh).filter(v => v !== null);
+  const peakTemp = tempVals.length ? Math.max(...tempVals) : null;
+  const minTemp = tempVals.length ? Math.min(...tempVals) : null;
+  const avgWind = windVals.length ? windVals.reduce((a,b) => a+b, 0) / windVals.length : null;
+  const codeCounts = new Map();
+  for (const o of weatherForDay){
+    if (o.weatherCode === null || o.weatherCode === undefined) continue;
+    codeCounts.set(o.weatherCode, (codeCounts.get(o.weatherCode) || 0) + 1);
+  }
+  let modeCode = null, bestN = 0;
+  for (const [k, n] of codeCounts) if (n > bestN) { modeCode = k; bestN = n; }
+  const dayWeather = modeCode !== null ? weatherInfo(modeCode) : null;
 
   host.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:10px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,.05)">
+    <!-- Day header — meno dňa + dátum + denný weather summary chip -->
+    <div class="weekly-day-header">
       <div>
-        <div style="font-family:var(--font-display);font-size:var(--text-2xl);font-weight:var(--weight-bold);color:var(--color-text)">${dowFull}</div>
-        <div style="font-size:var(--text-sm);color:var(--color-text-sec);margin-top:2px">${fullDate}</div>
+        <div class="weekly-day-name">${dowFull}</div>
+        <div class="weekly-day-date">${fullDate}</div>
       </div>
-      <div style="text-align:right">
-        <div style="font-size:var(--text-xs);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-sec)">Tržby dňa</div>
-        <div style="font-family:var(--font-display);font-size:var(--text-3xl);font-weight:var(--weight-bold);color:var(--color-text)">${fmtEur(day.totalRevenue)}</div>
-        <div style="font-size:var(--text-xs);color:var(--color-text-sec);margin-top:2px">
-          kuchyňa ${fmtEur(day.kitchenRevenue)} · zisk kuchyne <strong style="color:${dayProfitColor}">${(day.kitchenProfit||0) >= 0 ? '+' : ''}${fmtEur(day.kitchenProfit||0)}</strong>
+      ${dayWeather ? `
+        <div class="weekly-day-weather" title="Prevažujúce počasie + extrémy dňa">
+          <div class="dw-emoji">${dayWeather.emoji}</div>
+          <div class="dw-meta">
+            <div class="dw-label">${escapeHtml(dayWeather.label)}</div>
+            ${(peakTemp !== null && minTemp !== null) ? `<div class="dw-temps">${minTemp.toFixed(1)} – ${peakTemp.toFixed(1)} °C${avgWind !== null ? ' · vietor ' + avgWind.toFixed(0) + ' km/h' : ''}</div>` : ''}
+          </div>
+        </div>
+      ` : ''}
+    </div>
+
+    <!-- 4 day stat cards — rovnaký tier ako týždeň, len per-day hodnoty -->
+    <div class="stat-grid" style="margin-bottom:16px">
+      <div class="stat-card">
+        <div class="stat-icon ice">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        </div>
+        <div class="stat-info">
+          <div class="stat-label">Tržby dňa</div>
+          <div class="stat-value">${fmtEur(day.totalRevenue)}</div>
+          <div class="stat-change neutral">${fmtInt(dayOrders)} obj.${peakHour ? ' · peak ' + String(peakHour.hour).padStart(2,'0') + ':00' : ''}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon mint">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18"/><path d="M9 6V3h6v3"/></svg>
+        </div>
+        <div class="stat-info">
+          <div class="stat-label">Tržby kuchyne</div>
+          <div class="stat-value">${fmtEur(day.kitchenRevenue)}</div>
+          <div class="stat-change neutral">${fmtInt(dayItemsKitchen)} ks · suroviny ${fmtEur(day.kitchenCogs)}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon lavender">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </div>
+        <div class="stat-info">
+          <div class="stat-label">Hodiny v kuchyni</div>
+          <div class="stat-value">${fmtHours(dayCookMinutes)}</div>
+          <div class="stat-change neutral">mzda ${fmtEur(dayKitchenWage)}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon amber">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        </div>
+        <div class="stat-info">
+          <div class="stat-label">Zisk kuchyne</div>
+          <div class="stat-value" style="color:${profitColor}">${dayKitchenNetProfit >= 0 ? '+' : ''}${fmtEur(dayKitchenNetProfit)}</div>
+          <div class="stat-change neutral">marža ${dayMargin.toFixed(1)} %</div>
         </div>
       </div>
     </div>
+
+    <!-- Hodinová tabuľka — vyrovnané stĺpce cez colgroup pre konzistentné šírky -->
     <div class="table-scroll-wrap">
-    <table class="data-table">
+    <table class="data-table weekly-day-table">
+      <colgroup>
+        <col style="width:60px">
+        <col style="width:55px">
+        <col style="width:90px">
+        <col style="width:100px">
+        <col style="width:90px">
+        <col style="width:75px">
+        <col style="width:110px">
+        <col style="width:60px">
+        <col style="width:75px">
+        <col style="width:75px">
+      </colgroup>
       <thead>
         <tr>
           <th>Hodina</th>
@@ -326,25 +410,40 @@ function renderDayDetail(dateIso){
           const w = wMap.get(h.hour);
           const wInfo = w && w.weatherCode !== null && w.weatherCode !== undefined ? weatherInfo(w.weatherCode) : null;
           const netProfit = h.kitchenNetProfit || 0;
-          const profitColor = netProfit >= 0 ? 'var(--color-success)' : 'var(--color-danger)';
+          const rowProfitColor = netProfit >= 0 ? 'var(--color-success)' : 'var(--color-danger)';
           return `<tr>
             <td class="num">${String(h.hour).padStart(2,'0')}:00</td>
             <td class="num text-right">${fmtInt(h.orders)}</td>
-            <td class="num text-right">${h.barRevenue > 0 ? fmtEur(h.barRevenue) : '<span style="color:var(--color-text-dim)">—</span>'}</td>
-            <td class="num text-right">${h.kitchenRevenue > 0 ? fmtEur(h.kitchenRevenue) : '<span style="color:var(--color-text-dim)">—</span>'}</td>
-            <td class="num text-right" style="color:var(--color-text-sec)">${h.kitchenCogs > 0 ? fmtEur(h.kitchenCogs) : '<span style="color:var(--color-text-dim)">—</span>'}</td>
-            <td class="num text-right" style="color:var(--color-text-sec)">${h.kitchenWage > 0 ? fmtEur(h.kitchenWage) : '<span style="color:var(--color-text-dim)">—</span>'}</td>
-            <td class="num text-right" style="color:${h.kitchenRevenue > 0 ? profitColor : 'var(--color-text-dim)'};font-weight:${h.kitchenRevenue > 0 ? 'var(--weight-bold)' : 'normal'}">${h.kitchenRevenue > 0 ? (netProfit >= 0 ? '+' : '') + fmtEur(netProfit) : '—'}</td>
-            <td class="text-center" title="${wInfo ? escapeHtml(wInfo.label) : ''}">${wInfo ? wInfo.emoji : '<span style="color:var(--color-text-dim)">—</span>'}</td>
-            <td class="num text-right">${w && w.temperatureC !== null ? Number(w.temperatureC).toFixed(1) + ' °C' : '<span style="color:var(--color-text-dim)">—</span>'}</td>
-            <td class="num text-right">${w && w.windSpeedKmh !== null ? Math.round(Number(w.windSpeedKmh)) + ' km/h' : '<span style="color:var(--color-text-dim)">—</span>'}</td>
+            <td class="num text-right">${h.barRevenue > 0 ? fmtEur(h.barRevenue) : '<span class="td-dim">—</span>'}</td>
+            <td class="num text-right">${h.kitchenRevenue > 0 ? fmtEur(h.kitchenRevenue) : '<span class="td-dim">—</span>'}</td>
+            <td class="num text-right td-sec">${h.kitchenCogs > 0 ? fmtEur(h.kitchenCogs) : '<span class="td-dim">—</span>'}</td>
+            <td class="num text-right td-sec">${h.kitchenWage > 0 ? fmtEur(h.kitchenWage) : '<span class="td-dim">—</span>'}</td>
+            <td class="num text-right" style="color:${h.kitchenRevenue > 0 ? rowProfitColor : 'var(--color-text-dim)'};font-weight:${h.kitchenRevenue > 0 ? 'var(--weight-bold)' : 'normal'}">${h.kitchenRevenue > 0 ? (netProfit >= 0 ? '+' : '') + fmtEur(netProfit) : '—'}</td>
+            <td class="text-center" title="${wInfo ? escapeHtml(wInfo.label) : ''}">${wInfo ? wInfo.emoji : '<span class="td-dim">—</span>'}</td>
+            <td class="num text-right">${w && w.temperatureC !== null ? Number(w.temperatureC).toFixed(1) + ' °C' : '<span class="td-dim">—</span>'}</td>
+            <td class="num text-right">${w && w.windSpeedKmh !== null ? Math.round(Number(w.windSpeedKmh)) + ' km/h' : '<span class="td-dim">—</span>'}</td>
           </tr>`;
         }).join('')}
       </tbody>
+      <tfoot>
+        <tr>
+          <td>Spolu</td>
+          <td class="num text-right">${fmtInt(dayOrders)}</td>
+          <td class="num text-right">${fmtEur(day.barRevenue)}</td>
+          <td class="num text-right">${fmtEur(day.kitchenRevenue)}</td>
+          <td class="num text-right td-sec">${fmtEur(day.kitchenCogs)}</td>
+          <td class="num text-right td-sec">${fmtEur(dayKitchenWage)}</td>
+          <td class="num text-right" style="color:${profitColor}">${dayKitchenNetProfit >= 0 ? '+' : ''}${fmtEur(dayKitchenNetProfit)}</td>
+          <td class="text-center"></td>
+          <td class="num text-right">${peakTemp !== null ? peakTemp.toFixed(1) + ' °C' : '—'}</td>
+          <td class="num text-right">${avgWind !== null ? avgWind.toFixed(0) + ' km/h' : '—'}</td>
+        </tr>
+      </tfoot>
     </table>
     </div>
     <div style="margin-top:10px;font-size:var(--text-xs);color:var(--color-text-dim)">
-      Počasie pre presnú hodinu z Open-Meteo (Draždiak GPS 48,1014°N, 17,1136°E).
+      Počasie pre presnú hodinu z Open-Meteo (Draždiak 48,1014°N, 17,1136°E).
+      Footer riadok ukazuje sumár za celý deň + extrémne hodnoty počasia (max teplota, priemer vetra).
     </div>
   `;
 }
@@ -715,6 +814,78 @@ const PAGE_CSS = `
     font-variant-numeric: tabular-nums;
   }
   .weekly-day-tab.empty .dt-rev{ color: var(--color-text-dim) }
+
+  /* Day-detail header — meno dňa + dátum vľavo, weather chip vpravo */
+  .weekly-day-header{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .weekly-day-name{
+    font-family: var(--font-display);
+    font-size: var(--text-lg);
+    font-weight: var(--weight-bold);
+    color: var(--color-text);
+    letter-spacing: var(--tracking-tight);
+  }
+  .weekly-day-date{
+    font-size: var(--text-sm);
+    color: var(--color-text-sec);
+    margin-top: 2px;
+    font-variant-numeric: tabular-nums;
+  }
+  .weekly-day-weather{
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    background: var(--color-bg-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+  }
+  .weekly-day-weather .dw-emoji{
+    font-size: 28px;
+    line-height: 1;
+  }
+  .weekly-day-weather .dw-meta{
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .weekly-day-weather .dw-label{
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    color: var(--color-text);
+    text-transform: capitalize;
+  }
+  .weekly-day-weather .dw-temps{
+    font-size: var(--text-xs);
+    color: var(--color-text-sec);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Day hour table — vyrovnané stĺpce, sekundárne hodnoty stlmené */
+  .weekly-day-table{
+    table-layout: fixed;
+    width: 100%;
+  }
+  .weekly-day-table td,
+  .weekly-day-table th{
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .weekly-day-table tfoot td{
+    font-weight: var(--weight-bold);
+    border-top: 1px solid var(--color-border);
+    background: var(--color-bg-subtle, rgba(255,255,255,.02));
+  }
+  .weekly-day-table .td-sec{ color: var(--color-text-sec) }
+  .weekly-day-table .td-dim{ color: var(--color-text-dim) }
 
   /* Motion-safe — DESIGN-CODE.md § 9.2 */
   @media (prefers-reduced-motion: reduce){
