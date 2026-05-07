@@ -65,12 +65,44 @@ function fmtDateSk(iso){
 async function load(){
   $('#weeklyContent').innerHTML = '<div class="loading-text" style="text-align:center;padding:60px 20px">Načítavam...</div>';
   try {
-    const data = await api.get('/reports/weekly?from=' + _from + '&to=' + _to);
+    // Paralelný fetch — sales + weather. Počasie je len doplňujúce
+    // (ak Open-Meteo zlyhá, sales sa stále zobrazia).
+    const [data, weather] = await Promise.all([
+      api.get('/reports/weekly?from=' + _from + '&to=' + _to),
+      api.get('/reports/weather?from=' + _from + '&to=' + _to).catch(() => ({ observations: [] })),
+    ]);
     _data = data;
+    _data.weather = weather.observations || [];
     render();
   } catch (err) {
     $('#weeklyContent').innerHTML = '<div class="empty-state" style="padding:60px;text-align:center"><div class="empty-state-title" style="color:var(--color-danger)">Chyba načítania</div><div class="empty-state-text">' + (err.message || 'API zlyhalo') + '</div></div>';
   }
+}
+
+// Weather code → emoji + slovak label. Mirror of server/lib/weather.js
+function weatherInfo(code){
+  const c = Number(code);
+  if (c === 0) return { label: 'jasno', emoji: '☀️' };
+  if (c === 1) return { label: 'prevažne jasno', emoji: '🌤️' };
+  if (c === 2) return { label: 'polooblačno', emoji: '⛅' };
+  if (c === 3) return { label: 'zamračené', emoji: '☁️' };
+  if (c === 45 || c === 48) return { label: 'hmla', emoji: '🌫️' };
+  if (c >= 51 && c <= 57) return { label: 'mrholenie', emoji: '🌦️' };
+  if (c >= 61 && c <= 67) return { label: 'dážď', emoji: '🌧️' };
+  if (c >= 71 && c <= 77) return { label: 'sneženie', emoji: '🌨️' };
+  if (c >= 80 && c <= 82) return { label: 'prehánky', emoji: '🌧️' };
+  if (c === 85 || c === 86) return { label: 'snehové prehánky', emoji: '🌨️' };
+  if (c >= 95) return { label: 'búrka', emoji: '⛈️' };
+  return { label: '—', emoji: '·' };
+}
+
+// Build a map: date|hour → weather observation (latest if duplicate)
+function buildWeatherMap(observations){
+  const m = new Map();
+  for (const o of observations || []){
+    m.set(o.date + '|' + o.hour, o);
+  }
+  return m;
 }
 
 function render(){
@@ -287,10 +319,50 @@ function renderCookTable(cooks){
 }
 
 function renderHourTable(byHour){
+  // Tabuľka per (date, hour) — kombinujeme dáta cez dni v týždni.
+  // Pre každý deň × hodinu zlúčime sales + weather.
+  const fromD = new Date(_from);
+  const toD = new Date(_to);
+  const days = [];
+  for (let d = new Date(fromD); d <= toD; d.setDate(d.getDate() + 1)){
+    days.push(d.toISOString().split('T')[0]);
+  }
+
+  // Sales mapy: date|hour → kitchen/bar/orders. Server vracia byHour
+  // agregované cez celé obdobie, ale pre per-day-per-hour potrebujeme
+  // ísť do heatmap[dow|hour] a duplicitne to nasplit-ovať... server už
+  // hodinové dáta nepriviazal na konkrétny dátum v tomto endpointe —
+  // zobrazíme byHour agregované, plus počasie ako "priemer hodiny" cez
+  // všetky dni v perióde.
   const filtered = byHour.filter(h => h.totalRevenue > 0 || h.cookMinutes > 0);
   if (!filtered.length){
     return '<div class="td-empty" style="padding:30px;text-align:center;color:var(--color-text-dim)">Žiadne dáta</div>';
   }
+
+  // Aggregate weather by hour-of-day across the period (avg temp, wind).
+  const weatherMap = buildWeatherMap(_data.weather || []);
+  const wByHour = new Map();
+  for (const o of _data.weather || []){
+    if (!wByHour.has(o.hour)){
+      wByHour.set(o.hour, { temps: [], winds: [], clouds: [], precs: [], codes: [] });
+    }
+    const a = wByHour.get(o.hour);
+    if (o.temperatureC !== null) a.temps.push(o.temperatureC);
+    if (o.windSpeedKmh !== null) a.winds.push(o.windSpeedKmh);
+    if (o.cloudCoverPct !== null) a.clouds.push(o.cloudCoverPct);
+    if (o.precipitationMm !== null) a.precs.push(o.precipitationMm);
+    if (o.weatherCode !== null && o.weatherCode !== undefined) a.codes.push(o.weatherCode);
+  }
+  const avg = (arr) => arr.length ? arr.reduce((a,b) => a+b, 0) / arr.length : null;
+  const mode = (arr) => {
+    if (!arr.length) return null;
+    const c = new Map();
+    arr.forEach(x => c.set(x, (c.get(x)||0)+1));
+    let best = arr[0], bn = 0;
+    for (const [k, n] of c) if (n > bn) { best = k; bn = n; }
+    return best;
+  };
+
   return `
     <div class="table-scroll-wrap">
     <table class="data-table">
@@ -303,20 +375,36 @@ function renderHourTable(byHour){
           <th class="text-right">Spolu</th>
           <th class="text-right">Hodiny v kuchyni</th>
           <th class="text-right">€/hod efektivita</th>
+          <th class="text-center">Počasie</th>
+          <th class="text-right">Teplota</th>
+          <th class="text-right">Vietor</th>
         </tr>
       </thead>
       <tbody>
-        ${filtered.map(h => `<tr>
-          <td class="num">${String(h.hour).padStart(2,'0')}:00</td>
-          <td class="num text-right">${fmtInt(h.orders)}</td>
-          <td class="num text-right">${h.barRevenue > 0 ? fmtEur(h.barRevenue) : '<span style="color:var(--color-text-dim)">—</span>'}</td>
-          <td class="num text-right">${h.kitchenRevenue > 0 ? fmtEur(h.kitchenRevenue) : '<span style="color:var(--color-text-dim)">—</span>'}</td>
-          <td class="num text-right highlight-cell">${fmtEur(h.totalRevenue)}</td>
-          <td class="num text-right">${h.cookMinutes > 0 ? fmtHours(h.cookMinutes) : '<span style="color:var(--color-text-dim)">—</span>'}</td>
-          <td class="num text-right">${h.kitchenEfficiency > 0 ? fmtEur(h.kitchenEfficiency) : '<span style="color:var(--color-text-dim)">—</span>'}</td>
-        </tr>`).join('')}
+        ${filtered.map(h => {
+          const w = wByHour.get(h.hour);
+          const avgTemp = w ? avg(w.temps) : null;
+          const avgWind = w ? avg(w.winds) : null;
+          const code = w ? mode(w.codes) : null;
+          const wInfo = code !== null ? weatherInfo(code) : null;
+          return `<tr>
+            <td class="num">${String(h.hour).padStart(2,'0')}:00</td>
+            <td class="num text-right">${fmtInt(h.orders)}</td>
+            <td class="num text-right">${h.barRevenue > 0 ? fmtEur(h.barRevenue) : '<span style="color:var(--color-text-dim)">—</span>'}</td>
+            <td class="num text-right">${h.kitchenRevenue > 0 ? fmtEur(h.kitchenRevenue) : '<span style="color:var(--color-text-dim)">—</span>'}</td>
+            <td class="num text-right highlight-cell">${fmtEur(h.totalRevenue)}</td>
+            <td class="num text-right">${h.cookMinutes > 0 ? fmtHours(h.cookMinutes) : '<span style="color:var(--color-text-dim)">—</span>'}</td>
+            <td class="num text-right">${h.kitchenEfficiency > 0 ? fmtEur(h.kitchenEfficiency) : '<span style="color:var(--color-text-dim)">—</span>'}</td>
+            <td class="text-center" title="${wInfo ? escapeHtml(wInfo.label) : ''}">${wInfo ? wInfo.emoji : '<span style="color:var(--color-text-dim)">—</span>'}</td>
+            <td class="num text-right">${avgTemp !== null ? avgTemp.toFixed(1) + ' °C' : '<span style="color:var(--color-text-dim)">—</span>'}</td>
+            <td class="num text-right">${avgWind !== null ? avgWind.toFixed(0) + ' km/h' : '<span style="color:var(--color-text-dim)">—</span>'}</td>
+          </tr>`;
+        }).join('')}
       </tbody>
     </table>
+    </div>
+    <div style="margin-top:10px;font-size:var(--text-xs);color:var(--color-text-dim)">
+      Počasie: priemer cez všetky dni v období pre danú hodinu — <a href="https://open-meteo.com/" target="_blank" rel="noopener" style="color:var(--color-text-sec)">Open-Meteo</a>, lokalita Draždiak (48,1014°N, 17,1136°E).
     </div>
   `;
 }

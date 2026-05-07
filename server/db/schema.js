@@ -513,3 +513,28 @@ export const attendancePayouts = pgTable('attendance_payouts', {
 }, (t) => [
   index('attendance_payouts_staff_idx').on(t.staffId, t.paidAt),
 ]);
+
+
+// Weather observations — hourly weather samples for Drazdiak (lake in
+// Bratislava-Petrzalka). Source: Open-Meteo forecast API, fetched once
+// per hour via server cron + backfilled retroactively. Used by Tyzden
+// admin page to correlate sales with temperature, wind, cloud cover.
+export const weatherObservations = pgTable("weather_observations", {
+  id: serial("id").primaryKey(),
+  // Hour bucket (UTC, rounded down to start of hour). UNIQUE so
+  // re-fetch / backfill is idempotent.
+  observedAt: timestamp("observed_at", { withTimezone: true }).notNull(),
+  temperatureC: numeric("temperature_c", { precision: 5, scale: 2 }),
+  apparentTempC: numeric("apparent_temp_c", { precision: 5, scale: 2 }),
+  windSpeedKmh: numeric("wind_speed_kmh", { precision: 5, scale: 2 }),
+  windDirectionDeg: integer("wind_direction_deg"),
+  cloudCoverPct: integer("cloud_cover_pct"),
+  precipitationMm: numeric("precipitation_mm", { precision: 5, scale: 2 }),
+  // WMO code 0=clear, 1-3=partly cloudy/overcast, 45-48=fog,
+  // 51-65=rain, 71-75=snow, 80-82=showers, 95+=thunderstorm
+  weatherCode: integer("weather_code"),
+  source: varchar("source", { length: 30 }).notNull().default("open-meteo"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  uniqueIndex("weather_observed_at_uniq").on(t.observedAt),
+]);
