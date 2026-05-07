@@ -394,6 +394,298 @@ router.get('/summary', mgr, async (req, res) => {
   });
 });
 
+// GET /api/reports/weekly?from=YYYY-MM-DD&to=YYYY-MM-DD
+// Detailný týždenný breakdown — hodina × deň-v-týždni × destinácia
+// (bar/kuchyna), plus cook-shifts pre per-hour výpočet kuchárskej
+// efektivity. Slúži novej admin stránke "Týždeň".
+//
+// Pre cook efficiency potrebujeme: kto, koľko hodín, v akých hodinách
+// bol v práci, koľko € sa za ten čas vytočilo v kuchyni. Pomer
+// kitchen_revenue / cook_hours = €/hod efektivity. Pri viacerých
+// kuchároch v rovnakej hodine sa kitchen revenue delí proporčne.
+router.get('/weekly', mgr, async (req, res) => {
+  const to = req.query.to || new Date().toISOString().split('T')[0];
+  const from = req.query.from || (() => {
+    // Default = aktuálny pondelok-nedeľa rozsah
+    const d = new Date();
+    const dow = d.getDay() === 0 ? 6 : d.getDay() - 1; // Po=0, Ne=6
+    d.setDate(d.getDate() - dow);
+    return d.toISOString().split('T')[0];
+  })();
+  const fromBoundary = sql`(${from + ' 00:00:00'})::timestamp AT TIME ZONE ${TZ}`;
+  const toBoundary   = sql`(${to + ' 23:59:59'})::timestamp AT TIME ZONE ${TZ}`;
+
+  // Hour × weekday × dest aggregation. dest='kuchyna' alebo 'bar'.
+  const cellsRows = await db.execute(sql`
+    SELECT
+      EXTRACT(HOUR FROM (o.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ}))::int AS hour,
+      EXTRACT(ISODOW FROM (o.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ}))::int AS weekday,
+      to_char((o.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ})::date, 'YYYY-MM-DD') AS date,
+      c.dest AS dest,
+      COALESCE(SUM(oi.qty * mi.price::numeric), 0)::float AS revenue,
+      COUNT(DISTINCT o.id)::int AS orders,
+      COALESCE(SUM(oi.qty), 0)::int AS items
+    FROM order_items oi
+    INNER JOIN orders o ON o.id = oi.order_id
+    INNER JOIN menu_items mi ON mi.id = oi.menu_item_id
+    INNER JOIN menu_categories c ON c.id = mi.category_id
+    WHERE o.created_at >= ${fromBoundary} AND o.created_at <= ${toBoundary}
+      AND o.status != 'cancelled'
+    GROUP BY 1, 2, 3, 4
+  `);
+
+  // Cook shifts — všetky uzavreté smeny v období. Cook = staff.position
+  // obsahuje 'kuchár' / 'kuchar' / 'cook' / 'chef' (case-insensitive).
+  // Ak nikto taký, vrátime všetkých s hourly_rate>0 (server zaobchádza
+  // ako so 'všetkým personálom' a UI to označí).
+  const shiftsRows = await db.execute(sql`
+    WITH paired AS (
+      SELECT ae.staff_id, ae.type, ae.at,
+        LEAD(ae.at)   OVER (PARTITION BY ae.staff_id ORDER BY ae.at) AS next_at,
+        LEAD(ae.type) OVER (PARTITION BY ae.staff_id ORDER BY ae.at) AS next_type
+      FROM attendance_events ae
+    )
+    SELECT
+      paired.staff_id AS "staffId",
+      s.name,
+      s.position,
+      COALESCE(s.hourly_rate, 0)::float AS "hourlyRate",
+      paired.at AS "inAt",
+      paired.next_at AS "outAt"
+    FROM paired
+    JOIN staff s ON s.id = paired.staff_id
+    WHERE paired.type = 'clock_in'
+      AND paired.next_type = 'clock_out'
+      AND paired.at >= ${fromBoundary}
+      AND paired.at <= ${toBoundary}
+    ORDER BY paired.at
+  `);
+
+  // Cells: { date, hour, weekday, kitchenRevenue, barRevenue, orders, items }
+  const cellMap = new Map(); // key = date|hour
+  for (const r of cellsRows.rows){
+    const key = r.date + '|' + r.hour;
+    let cell = cellMap.get(key);
+    if (!cell){
+      cell = {
+        date: r.date,
+        hour: Number(r.hour),
+        weekday: Number(r.weekday), // ISO 1=Po..7=Ne
+        kitchenRevenue: 0,
+        barRevenue: 0,
+        kitchenItems: 0,
+        barItems: 0,
+        orders: 0,
+      };
+      cellMap.set(key, cell);
+    }
+    const dest = String(r.dest || 'bar');
+    if (dest === 'kuchyna'){
+      cell.kitchenRevenue += Number(r.revenue) || 0;
+      cell.kitchenItems += Number(r.items) || 0;
+    } else {
+      cell.barRevenue += Number(r.revenue) || 0;
+      cell.barItems += Number(r.items) || 0;
+    }
+    cell.orders += Number(r.orders) || 0;
+  }
+
+  // Per-hour-of-day aggregates (24 buckets across whole period)
+  const byHour = Array.from({length:24}, (_, i) => ({
+    hour: i,
+    kitchenRevenue: 0, barRevenue: 0,
+    kitchenItems: 0, barItems: 0,
+    orders: 0,
+    cookMinutes: 0,
+    activeCooks: 0,
+  }));
+
+  // Per-weekday-hour heatmap (7 × 24 cells, ISO Po=1..Ne=7)
+  const heatmapMap = new Map(); // key=weekday|hour
+  for (const cell of cellMap.values()){
+    const key = cell.weekday + '|' + cell.hour;
+    let hm = heatmapMap.get(key);
+    if (!hm){
+      hm = { weekday: cell.weekday, hour: cell.hour, kitchenRevenue: 0, barRevenue: 0, orders: 0 };
+      heatmapMap.set(key, hm);
+    }
+    hm.kitchenRevenue += cell.kitchenRevenue;
+    hm.barRevenue += cell.barRevenue;
+    hm.orders += cell.orders;
+    byHour[cell.hour].kitchenRevenue += cell.kitchenRevenue;
+    byHour[cell.hour].barRevenue += cell.barRevenue;
+    byHour[cell.hour].kitchenItems += cell.kitchenItems;
+    byHour[cell.hour].barItems += cell.barItems;
+    byHour[cell.hour].orders += cell.orders;
+  }
+
+  // Cook detection — keyword match na position. Ak žiadny cook,
+  // UI dostane všetok personál s flag 'noKitchenStaff'.
+  const cookKeywords = /kuch|cook|chef/i;
+  const allShifts = shiftsRows.rows.map(r => ({
+    staffId: Number(r.staffId),
+    name: r.name,
+    position: r.position || '',
+    hourlyRate: Number(r.hourlyRate) || 0,
+    inAt: r.inAt,
+    outAt: r.outAt,
+    isCook: cookKeywords.test(r.position || ''),
+  }));
+  const cookShifts = allShifts.filter(s => s.isCook);
+  const noKitchenStaff = cookShifts.length === 0;
+  const usedShifts = noKitchenStaff ? allShifts : cookShifts;
+
+  // For each hour-of-day, count cook-minutes across all shifts.
+  // Shift overlap with hour [h, h+1): for each shift, slice into per-hour segments.
+  // Day boundary: ak zmena prekročí polnoc, rozdelíme tiež.
+  for (const sh of usedShifts){
+    const start = new Date(sh.inAt);
+    const end = new Date(sh.outAt);
+    if (end <= start) continue;
+    let cur = new Date(start);
+    while (cur < end){
+      // Nájdi koniec aktuálneho hour-bucketu (TZ-aware cez Bratislava local)
+      const local = new Date(cur.toLocaleString('en-US', { timeZone: 'Europe/Bratislava' }));
+      const hour = local.getHours();
+      // Compute next hour boundary in UTC
+      const localNextHour = new Date(local);
+      localNextHour.setHours(hour + 1, 0, 0, 0);
+      // Convert local back to UTC
+      const offsetMs = (new Date(local.toLocaleString('en-US', { timeZone: 'UTC' })).getTime()
+                       - local.getTime());
+      const nextBoundaryUtc = new Date(localNextHour.getTime() + offsetMs);
+      const sliceEnd = nextBoundaryUtc > end ? end : nextBoundaryUtc;
+      const minutes = (sliceEnd - cur) / 60000;
+      if (minutes > 0 && hour >= 0 && hour < 24){
+        byHour[hour].cookMinutes += minutes;
+      }
+      cur = sliceEnd;
+      if (sliceEnd >= end) break;
+    }
+  }
+
+  // Per-cook efficiency table — total minutes worked + kitchen revenue
+  // attributed (proportionally if multiple cooks active in same hour).
+  // Simplifying: split kitchenRevenue v každej hodine medzi aktívnych
+  // cookov rovnakou váhou (% ich minút v tej hodine).
+  const cookStats = new Map(); // staffId -> { name, position, hourlyRate, minutes, kitchenRevenue }
+  for (const sh of usedShifts){
+    const id = sh.staffId;
+    if (!cookStats.has(id)){
+      cookStats.set(id, {
+        staffId: id,
+        name: sh.name,
+        position: sh.position,
+        hourlyRate: sh.hourlyRate,
+        minutes: 0,
+        kitchenRevenue: 0,
+      });
+    }
+    const stat = cookStats.get(id);
+    // Total minutes
+    stat.minutes += (new Date(sh.outAt) - new Date(sh.inAt)) / 60000;
+  }
+
+  // Per-hour kitchen revenue allocation — pre každú hodinu zisti aktívnych
+  // cookov a rozdeľ kitchen revenue proporčne ich minútam.
+  for (let h = 0; h < 24; h++){
+    const kitchenRev = byHour[h].kitchenRevenue;
+    if (kitchenRev <= 0) continue;
+    // Spočítaj per-cook minúty v tejto hodine
+    const minutesPerCook = new Map();
+    let totalMin = 0;
+    for (const sh of usedShifts){
+      const start = new Date(sh.inAt);
+      const end = new Date(sh.outAt);
+      let cur = new Date(start);
+      let cookH = 0;
+      while (cur < end){
+        const local = new Date(cur.toLocaleString('en-US', { timeZone: 'Europe/Bratislava' }));
+        const hour = local.getHours();
+        const localNextHour = new Date(local);
+        localNextHour.setHours(hour + 1, 0, 0, 0);
+        const offsetMs = (new Date(local.toLocaleString('en-US', { timeZone: 'UTC' })).getTime()
+                         - local.getTime());
+        const nextBoundaryUtc = new Date(localNextHour.getTime() + offsetMs);
+        const sliceEnd = nextBoundaryUtc > end ? end : nextBoundaryUtc;
+        const minutes = (sliceEnd - cur) / 60000;
+        if (hour === h){
+          cookH += minutes;
+        }
+        cur = sliceEnd;
+        if (sliceEnd >= end) break;
+      }
+      if (cookH > 0){
+        minutesPerCook.set(sh.staffId, (minutesPerCook.get(sh.staffId) || 0) + cookH);
+        totalMin += cookH;
+      }
+    }
+    if (totalMin > 0){
+      byHour[h].activeCooks = minutesPerCook.size;
+      for (const [id, min] of minutesPerCook){
+        const allocation = (min / totalMin) * kitchenRev;
+        const stat = cookStats.get(id);
+        if (stat) stat.kitchenRevenue += allocation;
+      }
+    }
+  }
+
+  // Round + finalize
+  const cookList = Array.from(cookStats.values()).map(c => ({
+    ...c,
+    hours: Math.round((c.minutes / 60) * 100) / 100,
+    kitchenRevenue: roundMoney(c.kitchenRevenue),
+    efficiency: c.minutes > 0 ? roundMoney(c.kitchenRevenue / (c.minutes / 60)) : 0,
+    wage: roundMoney((c.minutes / 60) * c.hourlyRate),
+  })).sort((a, b) => b.efficiency - a.efficiency);
+
+  const byHourFinal = byHour.map(h => ({
+    hour: h.hour,
+    kitchenRevenue: roundMoney(h.kitchenRevenue),
+    barRevenue: roundMoney(h.barRevenue),
+    totalRevenue: roundMoney(h.kitchenRevenue + h.barRevenue),
+    kitchenItems: h.kitchenItems,
+    barItems: h.barItems,
+    orders: h.orders,
+    cookMinutes: Math.round(h.cookMinutes),
+    cookHours: Math.round((h.cookMinutes / 60) * 100) / 100,
+    activeCooks: h.activeCooks,
+    kitchenEfficiency: h.cookMinutes > 0 ? roundMoney(h.kitchenRevenue / (h.cookMinutes / 60)) : 0,
+  }));
+
+  const heatmap = Array.from(heatmapMap.values()).map(c => ({
+    weekday: c.weekday,
+    hour: c.hour,
+    kitchenRevenue: roundMoney(c.kitchenRevenue),
+    barRevenue: roundMoney(c.barRevenue),
+    totalRevenue: roundMoney(c.kitchenRevenue + c.barRevenue),
+    orders: c.orders,
+  }));
+
+  // Totals
+  const totalKitchen = byHourFinal.reduce((s, h) => s + h.kitchenRevenue, 0);
+  const totalBar = byHourFinal.reduce((s, h) => s + h.barRevenue, 0);
+  const totalCookMinutes = byHourFinal.reduce((s, h) => s + h.cookMinutes, 0);
+  const totalCookHours = Math.round((totalCookMinutes / 60) * 100) / 100;
+  const avgKitchenEfficiency = totalCookMinutes > 0
+    ? roundMoney(totalKitchen / (totalCookMinutes / 60))
+    : 0;
+
+  res.json({
+    period: { from, to },
+    byHour: byHourFinal,
+    heatmap,
+    cooks: cookList,
+    noKitchenStaff,
+    totals: {
+      kitchenRevenue: roundMoney(totalKitchen),
+      barRevenue: roundMoney(totalBar),
+      cookHours: totalCookHours,
+      avgKitchenEfficiency,
+    },
+  });
+});
+
 // GET /api/reports/z-report?date=2026-03-26
 router.get('/z-report', mgr, async (req, res) => {
   const date = req.query.date || new Date().toISOString().split('T')[0];
