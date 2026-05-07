@@ -169,6 +169,124 @@ publicRouter.post('/clock', validate(clockSchema), asyncRoute(async (req, res) =
   });
 }));
 
+// POST /api/attendance/my-shifts — PIN-authenticated self-service view.
+// Zamestnanec si vie pozrieť vlastné smeny + zárobky cez ten istý PIN
+// na dochádzkovom termináli. Vracia aktuálny kalendárny mesiac (default)
+// alebo celé obdobie sezóny ak operátor pošle period='season'/'all'.
+//
+// Bezpečnosť: PIN sa overí cez findStaffByAttendancePin (rovnaká logika
+// ako /clock), uplatňuje sa rovnaký rate-limit.
+publicRouter.post('/my-shifts', validate(pinSchema), asyncRoute(async (req, res) => {
+  const ip = req.ip || req.connection?.remoteAddress || '';
+  const found = await findStaffByAttendancePin(req.body.pin);
+
+  const lockKey = found ? { staffId: found.id, ip: null } : { staffId: null, ip };
+  const failures = await failuresFor(lockKey.staffId, lockKey.ip);
+  if (failures >= PIN_MAX_ATTEMPTS) {
+    res.set('Retry-After', String(Math.ceil(PIN_WINDOW_MS / 1000)));
+    return res.status(429).json({ error: 'Prilis vela pokusov. Skuste neskor.' });
+  }
+  if (!found) {
+    await recordAttempt({ staffId: null, ip, success: false });
+    return res.status(401).json({ error: 'Neplatny PIN' });
+  }
+  await recordAttempt({ staffId: found.id, ip, success: true });
+
+  // Period: default = aktuálny kalendárny mesiac. 'season' = od 25.04.
+  // 'all' = od začiatku evidencie.
+  const period = String((req.body && req.body.period) || 'month');
+  const now = new Date();
+  let fromDate, toDate = new Date(now.getFullYear(), now.getMonth() + 1, 1); // start of next month
+  if (period === 'season') {
+    fromDate = new Date(`${now.getFullYear()}-04-25T00:00:00Z`);
+  } else if (period === 'all') {
+    fromDate = new Date('2000-01-01T00:00:00Z');
+  } else {
+    fromDate = new Date(now.getFullYear(), now.getMonth(), 1);
+  }
+
+  const events = await db.select().from(attendanceEvents).where(and(
+    eq(attendanceEvents.staffId, found.id),
+    gte(attendanceEvents.at, fromDate),
+    lte(attendanceEvents.at, toDate),
+  )).orderBy(attendanceEvents.at);
+
+  // Map clock_out events → payout (ak existuje), aby zamestnanec videl
+  // ✓ vyplatené pri každej smene a vedel rozlíšiť čo už dostal vs. čo
+  // ešte čaká.
+  const clockOutIds = events.filter((e) => e.type === 'clock_out').map((e) => e.id);
+  let payoutByOutId = new Map();
+  if (clockOutIds.length) {
+    const payouts = await db.select({
+      id: attendancePayouts.id,
+      clockOutEventId: attendancePayouts.clockOutEventId,
+      amount: attendancePayouts.amount,
+      paidAt: attendancePayouts.paidAt,
+    }).from(attendancePayouts).where(
+      sql`${attendancePayouts.clockOutEventId} IN (${sql.join(clockOutIds.map((id) => sql`${id}`), sql`, `)})`,
+    );
+    for (const p of payouts) payoutByOutId.set(p.clockOutEventId, p);
+  }
+
+  const shifts = pairEventsToShifts(events);
+  const summary = summarizeHours(shifts);
+  const totalWage = computeWage(summary.minutes, found.hourlyRate);
+
+  // Pre každú smenu vypočítaj earnings + paid status. Earning = minutes/60
+  // × hourlyRate (rovnaké ako server-side computeWage). Open shifts (bez
+  // clock_out) nie sú ešte hotové — nepripočítavame.
+  const hourlyRate = Number(found.hourlyRate) || 0;
+  const shiftRows = shifts.map((sh) => {
+    const minutes = sh.minutes || 0;
+    const hours = minutes / 60;
+    const earnings = sh.closed ? Math.round(hours * hourlyRate * 100) / 100 : 0;
+    const payout = sh.outEvent ? payoutByOutId.get(sh.outEvent.id) : null;
+    return {
+      inAt: sh.inEvent ? sh.inEvent.at : null,
+      outAt: sh.outEvent ? sh.outEvent.at : null,
+      minutes,
+      hours: Math.round(hours * 100) / 100,
+      earnings,
+      closed: sh.closed,
+      paid: payout ? {
+        amount: Number(payout.amount),
+        paidAt: payout.paidAt,
+      } : null,
+    };
+  });
+
+  // Sumár len cez closed shifts.
+  const closedShifts = shiftRows.filter((s) => s.closed);
+  const totalEarnings = closedShifts.reduce((s, x) => s + x.earnings, 0);
+  const paidEarnings = closedShifts.reduce((s, x) => s + (x.paid ? x.paid.amount : 0), 0);
+  const unpaidEarnings = Math.round((totalEarnings - paidEarnings) * 100) / 100;
+
+  res.json({
+    staff: {
+      id: found.id,
+      name: found.name,
+      position: found.position || '',
+      hourlyRate: hourlyRate,
+    },
+    period: {
+      kind: period,
+      from: fromDate.toISOString(),
+      to: now.toISOString(),
+    },
+    shifts: shiftRows.reverse(), // najnovšie hore
+    summary: {
+      shiftCount: closedShifts.length,
+      openShifts: summary.openShifts,
+      totalMinutes: summary.minutes,
+      totalHours: Math.round((summary.minutes / 60) * 100) / 100,
+      totalEarnings: Math.round(totalEarnings * 100) / 100,
+      paidEarnings: Math.round(paidEarnings * 100) / 100,
+      unpaidEarnings: unpaidEarnings,
+      hourlyRate: hourlyRate,
+    },
+  });
+}));
+
 // ===== Admin / manager attendance API =====================================
 // Mounted at /api/attendance with the JWT `auth` middleware. Public PIN
 // routes match first (Express order in app.js), so /identify and /clock

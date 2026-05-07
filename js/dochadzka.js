@@ -129,6 +129,146 @@
   $('btnIn').addEventListener('click', function () { clock('clock_in'); });
   $('btnOut').addEventListener('click', function () { clock('clock_out'); });
 
+  // === MOJE SMENY / ZÁROBKY ===
+  // PIN-authenticated self-service view. Zamestnanec klikne tlačidlo,
+  // server vráti zoznam smien + zárobkov (rovnaký rate-limit ako clock).
+  // Auto-close po 60s nečinnosti.
+  var msPeriod = 'month';
+  var msAutoClose = null;
+
+  function fmtEur(n) {
+    var x = Number(n) || 0;
+    return x.toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+  }
+  function fmtDateTime(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    var dd = String(d.getDate()).padStart(2, '0');
+    var mm = String(d.getMonth() + 1).padStart(2, '0');
+    var hh = String(d.getHours()).padStart(2, '0');
+    var min = String(d.getMinutes()).padStart(2, '0');
+    return dd + '.' + mm + '. ' + hh + ':' + min;
+  }
+  function fmtTime(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+  }
+  function fmtHours(min) {
+    var h = Math.floor((min || 0) / 60);
+    var m = (min || 0) % 60;
+    return h + 'h ' + String(m).padStart(2, '0') + 'm';
+  }
+
+  function fetchMyShifts() {
+    if (!pin || pin.length < 4) return;
+    postJson('/api/attendance/my-shifts', { pin: pin, period: msPeriod }).then(function (res) {
+      if (!res.ok) {
+        showToast(res.data.error || 'Chyba', false);
+        return;
+      }
+      renderMyShifts(res.data);
+      $('myShiftsOverlay').hidden = false;
+      scheduleMsAutoClose();
+    });
+  }
+
+  function scheduleMsAutoClose() {
+    clearTimeout(msAutoClose);
+    msAutoClose = setTimeout(closeMyShifts, 60000);
+  }
+
+  function closeMyShifts() {
+    clearTimeout(msAutoClose);
+    $('myShiftsOverlay').hidden = true;
+    pin = ''; currentStaff = null; currentState = 'clocked_out';
+    renderPin(); renderStatus(null);
+  }
+
+  function renderMyShifts(data) {
+    var s = data.staff || {};
+    var sum = data.summary || {};
+    $('msTitle').textContent = (s.name || 'Moje smeny') + (s.position ? ' · ' + s.position : '');
+
+    // Summary panel — total hodín + earnings + paid/unpaid breakdown
+    var hourlyRate = Number(s.hourlyRate) || 0;
+    var summaryHtml =
+      '<div class="ms-stat">' +
+        '<div class="ms-stat-label">Hodiny</div>' +
+        '<div class="ms-stat-num">' + fmtHours(sum.totalMinutes || 0) + '</div>' +
+        '<div class="ms-stat-foot">' + (sum.shiftCount || 0) + ' smien' + (sum.openShifts ? ' · ' + sum.openShifts + ' otvorená' : '') + '</div>' +
+      '</div>' +
+      '<div class="ms-stat">' +
+        '<div class="ms-stat-label">Zárobok</div>' +
+        '<div class="ms-stat-num primary">' + fmtEur(sum.totalEarnings || 0) + '</div>' +
+        '<div class="ms-stat-foot">' + (hourlyRate > 0 ? fmtEur(hourlyRate) + '/hod' : 'sadzba neurčená') + '</div>' +
+      '</div>' +
+      '<div class="ms-stat">' +
+        '<div class="ms-stat-label">Vyplatené</div>' +
+        '<div class="ms-stat-num paid">' + fmtEur(sum.paidEarnings || 0) + '</div>' +
+        '<div class="ms-stat-foot">zostáva ' + fmtEur(sum.unpaidEarnings || 0) + '</div>' +
+      '</div>';
+    $('msSummary').innerHTML = summaryHtml;
+
+    // List of shifts
+    var shifts = data.shifts || [];
+    if (!shifts.length) {
+      $('msList').innerHTML = '<div class="ms-empty">Za toto obdobie žiadne smeny.</div>';
+      return;
+    }
+    var listHtml = shifts.map(function (sh) {
+      var dateStr = fmtDateTime(sh.inAt).split(' ')[0]; // dd.mm.
+      var inT = fmtTime(sh.inAt);
+      var outT = sh.outAt ? fmtTime(sh.outAt) : '— stále vo vnútri —';
+      var paidBadge = '';
+      var statusClass = sh.closed ? 'ms-shift-closed' : 'ms-shift-open';
+      if (sh.paid) {
+        paidBadge = '<span class="ms-paid">✓ vyplatené</span>';
+      } else if (sh.closed) {
+        paidBadge = '<span class="ms-unpaid">čaká</span>';
+      }
+      return (
+        '<div class="ms-shift ' + statusClass + '">' +
+          '<div class="ms-shift-date">' + dateStr + '</div>' +
+          '<div class="ms-shift-times">' + inT + ' – ' + outT + '</div>' +
+          '<div class="ms-shift-hours">' + fmtHours(sh.minutes) + '</div>' +
+          '<div class="ms-shift-eur">' +
+            (sh.closed ? fmtEur(sh.earnings) : '<span class="ms-running">prebieha</span>') +
+            paidBadge +
+          '</div>' +
+        '</div>'
+      );
+    }).join('');
+    $('msList').innerHTML = listHtml;
+  }
+
+  $('btnMyShifts').addEventListener('click', function () {
+    if (!currentStaff || !pin) {
+      showToast('Najprv zadaj PIN', false);
+      return;
+    }
+    msPeriod = 'month';
+    document.querySelectorAll('.ms-period').forEach(function (b) {
+      b.classList.toggle('active', b.dataset.period === 'month');
+    });
+    fetchMyShifts();
+  });
+
+  $('msClose').addEventListener('click', closeMyShifts);
+
+  document.querySelectorAll('.ms-period').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('.ms-period').forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      msPeriod = btn.dataset.period;
+      fetchMyShifts();
+    });
+  });
+
+  // Reset auto-close timer on any user interaction inside overlay
+  $('myShiftsOverlay').addEventListener('click', scheduleMsAutoClose);
+  $('myShiftsOverlay').addEventListener('touchstart', scheduleMsAutoClose, { passive: true });
+
   document.addEventListener('keydown', function (e) {
     if (/^\d$/.test(e.key)) {
       if (pin.length >= 6) return;

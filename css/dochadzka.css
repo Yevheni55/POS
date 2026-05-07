@@ -21,6 +21,215 @@ body { margin: 0; padding: 0; background: var(--surface-bg, #0e0e12); color: var
 .doch-btn { flex: 1; padding: 22px 0; font-size: 22px; font-weight: 700; border-radius: 14px; border: 0; color: #07120a; cursor: pointer; min-height: 72px; }
 .doch-btn-in  { background: linear-gradient(135deg, #5edba8, #42c490); }
 .doch-btn-out { background: linear-gradient(135deg, #f1a47a, #e08a5b); color: #2a0e02; }
+/* "Moje smeny" otvorí self-service overlay s rozpisom hodín a zárobkov.
+   Štýl: cyan/blue (rovnaká paleta ako brand), aby sa odlíšilo od zelenej
+   "Príchod" a oranžovej "Odchod". */
+.doch-btn-myshifts {
+  flex: 0 0 auto;
+  padding: 22px 26px;
+  background: linear-gradient(135deg, #6ae0e2, #1f64a3);
+  color: #fdf9f3;
+}
+
+/* === Moje smeny overlay === */
+.doch-myshifts-overlay {
+  position: fixed; inset: 0;
+  background: rgba(4, 18, 42, .92);
+  backdrop-filter: blur(8px);
+  z-index: 1000;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: 16px;
+  overflow-y: auto;
+}
+.doch-myshifts-card {
+  width: 100%;
+  max-width: 720px;
+  margin: auto;
+  background: #0c3768;
+  border-radius: 18px;
+  border: 1px solid rgba(106, 224, 226, .25);
+  padding: 22px;
+  color: #fdf9f3;
+  box-shadow: 0 20px 60px rgba(4,18,42,.6);
+}
+.doch-myshifts-head {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(255,255,255,.1);
+}
+.doch-myshifts-title {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-style: italic;
+  font-size: 22px;
+  font-weight: 400;
+}
+.doch-myshifts-close {
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.08);
+  color: #fdf9f3;
+  border: none;
+  font-size: 22px;
+  cursor: pointer;
+  line-height: 1;
+}
+.doch-myshifts-close:hover { background: rgba(255,255,255,.16); }
+
+.doch-myshifts-period {
+  display: flex; gap: 6px;
+  margin-bottom: 16px;
+  padding: 4px;
+  background: rgba(255,255,255,.05);
+  border-radius: 12px;
+}
+.ms-period {
+  flex: 1;
+  padding: 12px;
+  border: none;
+  background: transparent;
+  color: rgba(253,249,243,.65);
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.ms-period:hover { color: #fdf9f3; }
+.ms-period.active {
+  background: linear-gradient(135deg, #6ae0e2, #18b5bc);
+  color: #04122a;
+}
+
+.doch-myshifts-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.ms-stat {
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 12px;
+  padding: 14px;
+  text-align: center;
+}
+.ms-stat-label {
+  font-size: 11px;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+  color: rgba(253,249,243,.55);
+  margin-bottom: 4px;
+}
+.ms-stat-num {
+  font-family: Georgia, serif;
+  font-size: 22px;
+  font-weight: 400;
+  line-height: 1.1;
+}
+.ms-stat-num.primary {
+  background: linear-gradient(120deg, #6ae0e2, #ffc857);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.ms-stat-num.paid { color: #5edba8; }
+.ms-stat-foot {
+  font-size: 10px;
+  color: rgba(253,249,243,.55);
+  margin-top: 4px;
+}
+
+.doch-myshifts-list { display: flex; flex-direction: column; gap: 8px; }
+.ms-shift {
+  display: grid;
+  grid-template-columns: 60px 1fr 80px 130px;
+  gap: 10px;
+  align-items: center;
+  padding: 12px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 10px;
+  font-size: 13px;
+}
+.ms-shift-open {
+  background: rgba(255,184,0,.08);
+  border-color: rgba(255,184,0,.3);
+}
+.ms-shift-date {
+  font-family: Georgia, serif;
+  font-style: italic;
+  color: rgba(253,249,243,.85);
+}
+.ms-shift-times {
+  font-variant-numeric: tabular-nums;
+  color: rgba(253,249,243,.7);
+}
+.ms-shift-hours {
+  text-align: right;
+  font-weight: 600;
+  color: rgba(253,249,243,.85);
+}
+.ms-shift-eur {
+  text-align: right;
+  font-family: Georgia, serif;
+  font-size: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+.ms-paid {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: #5edba8;
+  background: rgba(94, 219, 168, .15);
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-family: -apple-system, system-ui, sans-serif;
+}
+.ms-unpaid {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: #ffc857;
+  background: rgba(255, 200, 87, .12);
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-family: -apple-system, system-ui, sans-serif;
+}
+.ms-running {
+  font-size: 11px;
+  color: #ffc857;
+  font-style: italic;
+}
+.ms-empty {
+  text-align: center;
+  padding: 30px;
+  color: rgba(253,249,243,.5);
+  font-style: italic;
+}
+
+@media (max-width: 540px) {
+  .doch-myshifts-summary { grid-template-columns: 1fr; }
+  .ms-shift {
+    grid-template-columns: 1fr 110px;
+    grid-template-areas:
+      'date eur'
+      'times eur'
+      'hours hours';
+    row-gap: 4px;
+  }
+  .ms-shift-date { grid-area: date; font-size: 14px; }
+  .ms-shift-times { grid-area: times; font-size: 12px; }
+  .ms-shift-hours { grid-area: hours; text-align: left; font-size: 12px; }
+  .ms-shift-eur { grid-area: eur; }
+}
 .doch-toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(40px); opacity: 0; transition: opacity .2s, transform .2s; padding: 12px 18px; border-radius: 999px; background: #222; font-weight: 600; }
 .doch-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 .doch-toast.ok  { background: rgba(95, 200, 130, .9); color: #07120a; }

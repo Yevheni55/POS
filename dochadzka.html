@@ -37,7 +37,27 @@
     <section class="doch-actions" id="actions" hidden>
       <button class="doch-btn doch-btn-in"  id="btnIn"  hidden>Prichod</button>
       <button class="doch-btn doch-btn-out" id="btnOut" hidden>Odchod</button>
+      <button class="doch-btn doch-btn-myshifts" id="btnMyShifts">Moje smeny</button>
     </section>
+
+    <!-- Moje smeny / zárobky overlay — full screen list shown after the
+         employee taps "Moje smeny" on the terminal. Drops back to PIN
+         entry on close or after 30s idle. -->
+    <div class="doch-myshifts-overlay" id="myShiftsOverlay" hidden>
+      <div class="doch-myshifts-card">
+        <div class="doch-myshifts-head">
+          <div class="doch-myshifts-title" id="msTitle">Moje smeny</div>
+          <button class="doch-myshifts-close" id="msClose" aria-label="Zavrieť">×</button>
+        </div>
+        <div class="doch-myshifts-period">
+          <button class="ms-period active" data-period="month">Tento mesiac</button>
+          <button class="ms-period" data-period="season">Sezóna</button>
+          <button class="ms-period" data-period="all">Všetko</button>
+        </div>
+        <div class="doch-myshifts-summary" id="msSummary"></div>
+        <div class="doch-myshifts-list" id="msList"></div>
+      </div>
+    </div>
 
     <div class="doch-toast" id="toast" role="status" aria-live="polite"></div>
 
