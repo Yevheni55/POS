@@ -14,6 +14,20 @@ function fmtNum(n) {
   return Number(n).toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// fmtCost — adaptívny formát ceny podľa jej veľkosti.
+// Predtým fmtNum (2 desatinné) zobrazoval sub-centové ceny per-gram ako
+// "0,00 €" (napr. múka 0,00075 €/g) a operátor mal pocit že cena sa
+// stratila / nedelila sa. Teraz: ≥1€ → 2 desatinné, ≥0,01€ → 2-4
+// desatinné, sub-cent → 4-5 desatinných miest.
+function fmtCost(n) {
+  var x = Number(n);
+  if (!isFinite(x) || x === 0) return '0,00';
+  var abs = Math.abs(x);
+  if (abs >= 1) return x.toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (abs >= 0.01) return x.toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  return x.toLocaleString('sk-SK', { minimumFractionDigits: 4, maximumFractionDigits: 5 });
+}
+
 function getStatusBadge(item) {
   if (item.currentQty <= 0) {
     return '<span class="badge badge-danger">Prazdny</span>';
@@ -73,7 +87,10 @@ function renderTable() {
     html += '<td class="data-td td-sec">' + item.unit + '</td>';
     html += '<td class="data-td text-right num">' + fmtNum(item.currentQty) + '</td>';
     html += '<td class="data-td text-right num td-sec">' + fmtNum(item.minQty) + '</td>';
-    html += '<td class="data-td text-right num">' + fmtNum(item.costPerUnit) + ' \u20AC</td>';
+    // \u20AC/jednotka \u2014 pridanie sufixu "/g", "/l", "/ks" hne\u010F za sumou aby
+    // bolo jednozna\u010Dn\u00E9 ze cena je per-gram/liter, nie za balenie.
+    // Pre sub-centov\u00E9 ceny zobraz\u00EDme 4-5 desatinn\u00FDch miest cez fmtCost.
+    html += '<td class="data-td text-right num">' + fmtCost(item.costPerUnit) + '\u00A0\u20AC/' + item.unit + '</td>';
     html += '<td class="data-td text-center">' + getStatusBadge(item) + '</td>';
     html += '<td class="data-td text-right"><div class="prod-actions">';
     html += '<button class="act-btn" data-edit-id="' + item.id + '" title="Upravit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>';
@@ -129,7 +146,7 @@ function openModal(id) {
     + '</div>'
     + '<div class="u-modal-field">'
     + '<label for="fCostPerUnit">Cena za jednotku (EUR)</label>'
-    + '<input id="fCostPerUnit" type="number" step="0.01" min="0" placeholder="0.00" value="' + (item ? item.costPerUnit : '0') + '">'
+    + '<input id="fCostPerUnit" type="number" step="0.0001" min="0" placeholder="0,0000" value="' + (item ? item.costPerUnit : '0') + '">'
     + '</div>'
     + '</div>'
     + '<div class="u-modal-btns">'
