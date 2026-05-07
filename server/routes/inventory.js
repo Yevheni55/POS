@@ -129,13 +129,25 @@ router.delete('/ingredients/:id', mgr, asyncRoute(async (req, res) => {
 
 // ===================== RECIPES =====================
 
-/** Počet riadkov receptu pre každú položku menu — slúži na UI zoznam. */
+/** Počet riadkov receptu + food cost pre každú menu položku.
+ *  Používa sa v admin Recepty UI ako badge pri každej položke
+ *  (operátor vidí "X surov · Y,YYY € food cost" bez kliku do editoru).
+ *  Cost = SUM(qty_per_unit × ingredient.cost_per_unit) pre každý recept. */
 router.get('/recipes/summary', asyncRoute(async (req, res) => {
-  const rows = await db.select({
-    menuItemId: recipes.menuItemId,
-    count: count(),
-  }).from(recipes).groupBy(recipes.menuItemId);
-  res.json(rows.map((r) => ({ menuItemId: r.menuItemId, count: Number(r.count) })));
+  const rows = await db.execute(sql`
+    SELECT
+      r.menu_item_id                                            AS "menuItemId",
+      COUNT(*)::int                                             AS "count",
+      ROUND(SUM(r.qty_per_unit * i.cost_per_unit)::numeric, 4)::float AS "cost"
+    FROM recipes r
+    INNER JOIN ingredients i ON i.id = r.ingredient_id
+    GROUP BY r.menu_item_id
+  `);
+  res.json(rows.rows.map(r => ({
+    menuItemId: Number(r.menuItemId),
+    count: Number(r.count),
+    cost: Number(r.cost) || 0,
+  })));
 }));
 
 // Sales counts per menu_item — používa sa v Recepty UI aby zobrazilo

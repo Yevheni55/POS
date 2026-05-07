@@ -23,10 +23,30 @@ async function loadRecipeSummary() {
   try {
     var rows = await api.get('/inventory/recipes/summary');
     recipeSummary = {};
-    (rows || []).forEach(function (r) { recipeSummary[r.menuItemId] = r.count; });
+    // Server posiela {menuItemId, count, cost}. Skladujeme ako objekt,
+    // aby sme mali aj food cost (predtým to bola len jednoduchá count
+    // mapa). Render číta count cez recipeSummary[id].count, food cost
+    // cez recipeSummary[id].cost.
+    (rows || []).forEach(function (r) {
+      recipeSummary[r.menuItemId] = {
+        count: Number(r.count) || 0,
+        cost: Number(r.cost) || 0,
+      };
+    });
   } catch (_) {
     recipeSummary = {};
   }
+}
+
+// Adaptive € formatter — sub-cent food costs (drinky / kávy s lacnými
+// surovinami) potrebujú 4 desatinné, väčšie burgre stačia 2.
+function _fmtCost(n) {
+  var x = Number(n);
+  if (!isFinite(x) || x === 0) return '0,00';
+  var abs = Math.abs(x);
+  if (abs >= 1) return x.toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (abs >= 0.01) return x.toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  return x.toLocaleString('sk-SK', { minimumFractionDigits: 4, maximumFractionDigits: 5 });
 }
 
 // Per-menu predaje od začiatku aktuálnej sezóny (default 25.04). Bez tohto
@@ -115,7 +135,7 @@ function getFilteredItems() {
     if (activeFilter === 'sold-no-recipe') {
       var sold = salesByMenu[m.id] || 0;
       if (sold <= 0) return false;
-      var hasRecipe = (m.trackMode === 'recipe') && (recipeSummary[m.id] > 0);
+      var hasRecipe = (m.trackMode === 'recipe') && (recipeSummary[m.id] && recipeSummary[m.id].count > 0);
       if (hasRecipe) return false;
     } else if (activeFilter !== 'all' && m.trackMode !== activeFilter) {
       return false;
@@ -219,8 +239,11 @@ function renderItemList() {
     html += '<div style="padding:8px 12px 2px;font-size:10px;font-weight:700;color:var(--color-text-dim);text-transform:uppercase;letter-spacing:1px">'
       + escHtml(cat.label) + '</div>';
     cat.items.forEach(function(item) {
-      var count = recipeSummary[item.id] || 0;
+      var summary = recipeSummary[item.id] || { count: 0, cost: 0 };
+      var count = summary.count;
+      var foodCost = summary.cost;
       var sold = salesByMenu[item.id] || 0;
+      var price = parseFloat(item.price) || 0;
       var badgeClass = 'badge-info';
       var badgeLabel = 'none';
       if (item.trackMode === 'recipe') { badgeClass = 'badge-purple'; badgeLabel = 'recept'; }
@@ -228,6 +251,23 @@ function renderItemList() {
       var ingredientsLabel = count > 0
         ? '<span class="text-muted" style="margin-left:6px;font-size:11px">' + count + ' surov.</span>'
         : '';
+      // Food cost badge — €/porcia + % z predajnej ceny.
+      // Industry rule of thumb pre HoReCa: food cost <30 % je dobré,
+      // 30-35 % OK, >35 % zle. Farba badge mení sa podľa toho:
+      // zelená < 30 %, amber 30-35 %, červená > 35 %.
+      var foodCostBadge = '';
+      if (count > 0 && foodCost > 0) {
+        var pct = (price > 0) ? (foodCost / price) * 100 : 0;
+        var fcColor;
+        if (pct === 0) fcColor = 'background:rgba(255,255,255,.06);color:var(--color-text-dim)';
+        else if (pct < 30) fcColor = 'background:rgba(34,197,94,.15);color:#22c55e';
+        else if (pct < 35) fcColor = 'background:rgba(245,158,11,.15);color:#f59e0b';
+        else fcColor = 'background:rgba(239,68,68,.18);color:#ef4444';
+        var pctLabel = (price > 0) ? ' · ' + pct.toFixed(0) + '%' : '';
+        foodCostBadge = '<span title="Food cost na 1 porciu (' + (price>0?(pct.toFixed(1)+'% z ceny ' + price.toFixed(2) + '€'):'cena 0') + ')"'
+          + ' style="margin-left:6px;font-size:11px;padding:1px 6px;border-radius:4px;font-weight:700;'
+          + fcColor + '">' + _fmtCost(foodCost) + ' €' + pctLabel + '</span>';
+      }
       // "Predalo sa Xx" badge \u2014 \u017Elt\u00FD ak nem\u00E1 recept (oper\u00E1tor vid\u00ED \u010Do
       // ch\u00FDba v evidencii); \u0161ed\u00FD ak recept existuje (informa\u010Dn\u00FD).
       var hasRecipe = (item.trackMode === 'recipe') && (count > 0);
@@ -244,7 +284,7 @@ function renderItemList() {
         + '<span class="cat-icon">' + (item.emoji || '\uD83C\uDF7D') + '</span>'
         + '<div class="cat-info">'
         + '<div class="cat-name">' + escHtml(item.name) + '</div>'
-        + '<div class="cat-count"><span class="badge ' + badgeClass + '">' + badgeLabel + '</span>' + ingredientsLabel + soldBadge + '</div>'
+        + '<div class="cat-count"><span class="badge ' + badgeClass + '">' + badgeLabel + '</span>' + ingredientsLabel + foodCostBadge + soldBadge + '</div>'
         + '</div>'
         + '</button>';
     });
@@ -287,9 +327,46 @@ function renderEditor() {
 
   var html = '';
 
-  // Header: item name + mode selector
-  html += '<div class="prod-header" style="border-bottom:1px solid rgba(255,255,255,.05)">';
+  // Header: item name + price + food cost summary
+  // Food cost počítame zo živého currentRecipe (operátor pridá / zmení
+  // qty inline → cost sa hneď prepočíta), alebo z recipeSummary cache
+  // ak ešte nie je recept načítaný.
+  var price = parseFloat(item.price) || 0;
+  var liveFoodCost = 0;
+  if (Array.isArray(currentRecipe) && currentRecipe.length) {
+    for (var fi = 0; fi < currentRecipe.length; fi++) {
+      var line = currentRecipe[fi];
+      var ing = ingredientsList.find(function(x){ return x.id === line.ingredientId; });
+      var ingCost = ing ? parseFloat(ing.costPerUnit) || 0 : 0;
+      liveFoodCost += (parseFloat(line.qtyPerUnit) || 0) * ingCost;
+    }
+  } else if (recipeSummary[item.id] && recipeSummary[item.id].cost) {
+    liveFoodCost = recipeSummary[item.id].cost;
+  }
+  var fcPct = (price > 0 && liveFoodCost > 0) ? (liveFoodCost / price) * 100 : 0;
+  var fcColor = fcPct === 0 ? 'var(--color-text-dim)'
+    : fcPct < 30 ? '#22c55e'
+    : fcPct < 35 ? '#f59e0b'
+    : '#ef4444';
+
+  html += '<div class="prod-header" style="border-bottom:1px solid rgba(255,255,255,.05);display:flex;flex-direction:column;gap:8px">';
   html += '<div class="prod-header-title">' + (item.emoji || '') + ' ' + escHtml(item.name) + '</div>';
+  html += '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:13px">';
+  html += '<span style="color:var(--color-text-sec)">Cena: <strong style="color:var(--color-text)">' + _fmtCost(price) + ' €</strong></span>';
+  if (liveFoodCost > 0) {
+    html += '<span style="color:var(--color-text-sec)">Food cost: <strong style="color:' + fcColor + '">' + _fmtCost(liveFoodCost) + ' €</strong></span>';
+    if (fcPct > 0) {
+      html += '<span style="padding:3px 10px;border-radius:6px;font-weight:700;background:' + fcColor + '22;color:' + fcColor + '">'
+        + fcPct.toFixed(1) + ' % z ceny</span>';
+    }
+    if (price > 0) {
+      var marza = price - liveFoodCost;
+      html += '<span style="color:var(--color-text-sec)">Marža: <strong style="color:var(--color-text)">+' + _fmtCost(marza) + ' €</strong></span>';
+    }
+  } else {
+    html += '<span style="color:var(--color-text-dim);font-style:italic">Food cost: nie je recept</span>';
+  }
+  html += '</div>';
   html += '</div>';
 
   // Track mode selector
@@ -494,6 +571,9 @@ function bindEditorEvents(item) {
       currentRecipe[idx].qtyPerUnit = v;
       try {
         await saveRecipeLines(item.id, { silent: true, skipReload: true });
+        // Re-render editor — food cost summary v hlavičke sa prerátá
+        // (saveRecipeLines volá renderItemList ale nie renderEditor).
+        renderEditor();
         showToast('Mnozstvo upravene a recept ulozeny', true);
       } catch (err) {
         currentRecipe[idx].qtyPerUnit = prev;
