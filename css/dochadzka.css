@@ -17,7 +17,9 @@ body { margin: 0; padding: 0; background: var(--surface-bg, #0e0e12); color: var
 .doch-key:active { transform: scale(.97); background: rgba(255, 255, 255, .06); }
 .doch-key-clr { background: rgba(224, 112, 112, .18); }
 .doch-key-bk  { background: rgba(180, 180, 200, .12); }
-.doch-actions { display: flex; gap: 12px; margin-top: 18px; }
+.doch-actions { display: flex; gap: 12px; margin-top: 18px; flex-wrap: wrap; }
+.doch-actions[hidden] { display: none !important; }
+.doch-btn[hidden] { display: none !important; }
 .doch-btn { flex: 1; padding: 22px 0; font-size: 22px; font-weight: 700; border-radius: 14px; border: 0; color: #07120a; cursor: pointer; min-height: 72px; }
 .doch-btn-in  { background: linear-gradient(135deg, #5edba8, #42c490); }
 .doch-btn-out { background: linear-gradient(135deg, #f1a47a, #e08a5b); color: #2a0e02; }
@@ -31,7 +33,12 @@ body { margin: 0; padding: 0; background: var(--surface-bg, #0e0e12); color: var
   color: #fdf9f3;
 }
 
-/* === Moje smeny overlay === */
+/* === Moje smeny overlay ===
+   POZN.: HTML `hidden` atribút má v UA stylesheete `display:none`,
+   no `display: flex` v autorskej CSS bez explicitnej priority by ho
+   prepísal. Riešenie: druhý selektor s `[hidden]` má vyššiu špecificitu
+   a !important, aby `el.hidden = true` z JS skutočne skrylo overlay. */
+.doch-myshifts-overlay[hidden] { display: none !important; }
 .doch-myshifts-overlay {
   position: fixed; inset: 0;
   background: rgba(4, 18, 42, .92);
