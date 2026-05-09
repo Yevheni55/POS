@@ -818,6 +818,19 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
   transform:scale(.92) translateY(10px);
   transition:transform .3s cubic-bezier(.34,1.56,.64,1);
   box-shadow:0 24px 80px rgba(0,0,0,.5);
+  /* Modal nikdy nesmie pretiect viewport — bez tohoto pri zoomovanom
+     payment modale (cash helper s velkym numpadom + quick btns + change
+     box + actions) na 10.1" tablete v ne-fullscreen Chrome casti UI
+     (numpad / Potvrdit btn) padaju za hranu obrazovky a operator nedovidi.
+     max-height + overflow-y:auto = modal sa interne skroluje ked treba.
+     Hodnota 78vh: vh sa pocita voci RAW viewport (zoom ignoruje), pak
+     zoom 1.15 prenasoby paint na ~90vh — co este sedi v UI Chromu nad
+     panelmi (statusbar + addressbar). Bez zoomu (desktop / mobile) je
+     78vh plne dostatok na vsetky modalove obsahy. */
+  max-height:78vh;
+  max-height:78dvh;
+  overflow-y:auto;
+  overscroll-behavior:contain;
 }
 .u-overlay.show .u-modal{transform:scale(1) translateY(0)}
 
@@ -948,6 +961,11 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
    nutne JS upravy. */
 @media (min-width:769px) and (max-width:1366px) and (pointer:coarse){
   body{zoom:1.15}
+  /* Modaly su uz dedikovane tablet-bumpnute cez @media(max-width:1024px),
+     (pointer:coarse) (.u-modal{padding:36px;min-width:380px;max-width:520px}).
+     Dvojnasobne zoom-ovanie ich pretiekne za viewport — najma payment
+     modal s cash numpadom. Cancellujeme zoom pre overlays + ich children. */
+  .u-overlay{zoom:1}
   .header-title{font-size:26px}
   .header-clock{font-size:22px}
   .header-subtitle,.header-date{font-size:13px}
