@@ -155,29 +155,53 @@ router.get('/summary', mgr, async (req, res) => {
   // Split COGS na food (kuchyna) vs napoje (bar) cez menu_categories.dest.
   // Polozky bez receptu (vacsina barovych drinkov bez recipe definicie)
   // contribuju 0 — same simplifikacia ako cogsRows above.
+  //
+  // menu_value = SUM(qty × menu_items.price) — kolko by to stalo na predaj.
+  // Toto je hodnota benefitu, ktory zamestnanec dostal. menu_value − cost =
+  // marza na ktoru firma "rezignovala" (potencialny zisk).
+  //
+  // POZN: agregacia nad order_items vs over recipes-vyzaduje dve nezavisle
+  // GROUP-BY-a, lebo recipe ma multi-row JOIN per oi (jedna polozka, viac
+  // ingredients). Robime to v dvoch CTE a JOINujeme.
   const staffMealByPersonRows = await db.execute(sql`
+    WITH per_order AS (
+      SELECT
+        wo.id AS wo_id,
+        t.name AS person_name,
+        oi.id AS oi_id,
+        oi.qty,
+        mi.price::numeric AS menu_price,
+        mc.dest
+      FROM write_offs wo
+      INNER JOIN orders o ON o.id = wo.order_id
+      INNER JOIN tables t ON t.id = o.table_id
+      INNER JOIN order_items oi ON oi.order_id = o.id
+      LEFT JOIN menu_items mi ON mi.id = oi.menu_item_id
+      LEFT JOIN menu_categories mc ON mc.id = mi.category_id
+      WHERE wo.reason = 'staff_meal'
+        AND wo.created_at >= ${fromBoundary} AND wo.created_at <= ${toBoundary}
+    ),
+    per_oi_cogs AS (
+      SELECT
+        oi.id AS oi_id,
+        COALESCE(SUM(r.qty_per_unit::numeric * i.cost_per_unit::numeric), 0)::numeric AS unit_cogs
+      FROM order_items oi
+      LEFT JOIN recipes r ON r.menu_item_id = oi.menu_item_id
+      LEFT JOIN ingredients i ON i.id = r.ingredient_id
+      WHERE oi.id IN (SELECT oi_id FROM per_order)
+      GROUP BY oi.id
+    )
     SELECT
-      t.name AS person_name,
-      COUNT(DISTINCT wo.id)::int AS meals,
-      COALESCE(SUM(CASE WHEN mc.dest = 'kuchyna'
-        THEN oi.qty * r.qty_per_unit::numeric * i.cost_per_unit::numeric
-        ELSE 0 END), 0)::float AS food_cost,
-      COALESCE(SUM(CASE WHEN mc.dest = 'bar'
-        THEN oi.qty * r.qty_per_unit::numeric * i.cost_per_unit::numeric
-        ELSE 0 END), 0)::float AS drink_cost,
-      COALESCE(SUM(oi.qty * r.qty_per_unit::numeric * i.cost_per_unit::numeric), 0)::float AS cost
-    FROM write_offs wo
-    INNER JOIN orders o ON o.id = wo.order_id
-    INNER JOIN tables t ON t.id = o.table_id
-    INNER JOIN order_items oi ON oi.order_id = o.id
-    LEFT JOIN menu_items mi ON mi.id = oi.menu_item_id
-    LEFT JOIN menu_categories mc ON mc.id = mi.category_id
-    LEFT JOIN recipes r ON r.menu_item_id = oi.menu_item_id
-    LEFT JOIN ingredients i ON i.id = r.ingredient_id
-    WHERE wo.reason = 'staff_meal'
-      AND wo.created_at >= ${fromBoundary} AND wo.created_at <= ${toBoundary}
-    GROUP BY t.name
-    ORDER BY cost DESC, t.name ASC
+      po.person_name,
+      COUNT(DISTINCT po.wo_id)::int AS meals,
+      COALESCE(SUM(CASE WHEN po.dest = 'kuchyna' THEN po.qty * pc.unit_cogs ELSE 0 END), 0)::float AS food_cost,
+      COALESCE(SUM(CASE WHEN po.dest = 'bar'     THEN po.qty * pc.unit_cogs ELSE 0 END), 0)::float AS drink_cost,
+      COALESCE(SUM(po.qty * pc.unit_cogs), 0)::float AS cost,
+      COALESCE(SUM(po.qty * po.menu_price), 0)::float AS menu_value
+    FROM per_order po
+    INNER JOIN per_oi_cogs pc ON pc.oi_id = po.oi_id
+    GROUP BY po.person_name
+    ORDER BY menu_value DESC, po.person_name ASC
   `);
 
   // Per-menu-item COGS — used by the Produkty tab to show "Výroba" per
@@ -439,6 +463,7 @@ router.get('/summary', mgr, async (req, res) => {
       foodCost: Number(r.food_cost) || 0,
       drinkCost: Number(r.drink_cost) || 0,
       cost: Number(r.cost) || 0,
+      menuValue: Number(r.menu_value) || 0,
     })),
     daily: dailyArr,
     hourly: hourlyArr,

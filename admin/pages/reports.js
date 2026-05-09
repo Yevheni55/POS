@@ -219,34 +219,35 @@ function renderStaffMealByPerson(data) {
   let totalFood = 0;
   let totalDrink = 0;
   let totalCost = 0;
+  let totalMenuValue = 0;
   tbody.innerHTML = rows.map(r => {
     const meals = Number(r.meals) || 0;
     const food = Number(r.foodCost) || 0;
     const drink = Number(r.drinkCost) || 0;
     const cost = Number(r.cost) || 0;
+    const menuValue = Number(r.menuValue) || 0;
     totalMeals += meals;
     totalFood += food;
     totalDrink += drink;
     totalCost += cost;
-    const avgPerMeal = meals > 0 ? cost / meals : 0;
+    totalMenuValue += menuValue;
     return `<tr>
       <td class="td-name">${escapeHtml(r.name || '--')}</td>
       <td class="num text-right">${meals}</td>
       <td class="num text-right" style="color:var(--color-text-sec)">${food > 0 ? fmtEur(food) : '<span style="color:var(--color-text-dim)">—</span>'}</td>
       <td class="num text-right" style="color:var(--color-text-sec)">${drink > 0 ? fmtEur(drink) : '<span style="color:var(--color-text-dim)">—</span>'}</td>
       <td class="num text-right" style="font-weight:var(--weight-bold)">${fmtEur(cost)}</td>
-      <td class="num text-right" style="color:var(--color-text-sec)">${fmtEur(avgPerMeal)}</td>
+      <td class="num text-right" style="color:var(--color-text)" title="Koľko by zaplatil zákazník">${fmtEur(menuValue)}</td>
     </tr>`;
   }).join('');
 
-  const avgAll = totalMeals > 0 ? totalCost / totalMeals : 0;
   tfoot.innerHTML = `<tr>
     <td>Spolu</td>
     <td class="num text-right">${totalMeals}</td>
     <td class="num text-right" style="color:var(--color-text-sec)">${fmtEur(totalFood)}</td>
     <td class="num text-right" style="color:var(--color-text-sec)">${fmtEur(totalDrink)}</td>
     <td class="num text-right" style="font-weight:var(--weight-bold);color:var(--accent-amber, #f59e0b)">${fmtEur(totalCost)}</td>
-    <td class="num text-right" style="color:var(--color-text-sec)">${fmtEur(avgAll)}</td>
+    <td class="num text-right" style="font-weight:var(--weight-bold)">${fmtEur(totalMenuValue)}</td>
   </tr>`;
 }
 
@@ -900,8 +901,8 @@ const TEMPLATE = `
               <th class="text-right">Pocet</th>
               <th class="text-right">Jedlo (kuchyňa)</th>
               <th class="text-right">Nápoje (bar)</th>
-              <th class="text-right">Spolu</th>
-              <th class="text-right">Priem. na deň</th>
+              <th class="text-right">Náklad spolu</th>
+              <th class="text-right" title="Hodnota benefitu — koľko by zákazník zaplatil za rovnaké položky">Cena na predaj</th>
             </tr>
           </thead>
           <tbody></tbody>
