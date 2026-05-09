@@ -309,6 +309,128 @@ router.post('/:id/close', asyncRoute(async (req, res) => {
   }
 }));
 
+// POST /api/orders/:id/close-as-staff-meal
+//
+// Zamestnanecká spotreba: order zo zóny `zamestanci` sa uzavrie BEZ platby
+// a BEZ fiškálu. Zápis ide do write_offs (reason='staff_meal') so sumou =
+// COGS celej objednávky (recepty × ingredient cost). Sklad už bol odpísaný
+// pri /send (deductStockForSentItems píše stock_movements type='sale') —
+// nepriregistrovávame write_off_items, inak by bola dvojitá deduplikácia.
+//
+// Reporty: revenue ignoruje closure_type='staff_meal'; nová riadka
+// "Zamestnanecká spotreba" v P&L = SUM(write_offs.staff_meal.total_cost).
+//
+// Bezpečnosť: endpoint dovolí close-as-staff-meal LEN pre orders na
+// stoloch v zone='zamestanci'. Iné stoly musia ísť cez normálnu platbu.
+router.post('/:id/close-as-staff-meal', asyncRoute(async (req, res) => {
+  const orderId = +req.params.id;
+  const { version } = req.body || {};
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      const bumped = await bumpVersion(tx, orderId, version);
+      if (version !== undefined && !bumped) throw new VersionConflictError();
+
+      // Načítaj order + zone stola
+      const [orderRow] = await tx
+        .select({
+          id: orders.id,
+          tableId: orders.tableId,
+          status: orders.status,
+          zone: tables.zone,
+        })
+        .from(orders)
+        .innerJoin(tables, eq(tables.id, orders.tableId))
+        .where(eq(orders.id, orderId));
+
+      if (!orderRow) {
+        const err = new Error('Order not found');
+        err.statusCode = 404;
+        throw err;
+      }
+      if (orderRow.status !== 'open') {
+        const err = new Error('Order is not open');
+        err.statusCode = 400;
+        throw err;
+      }
+      if (orderRow.zone !== 'zamestanci') {
+        const err = new Error('Iba stoly v zone "zamestanci" mozu byt uzatvorene ako zamestnanecka spotreba');
+        err.statusCode = 403;
+        throw err;
+      }
+
+      // Vypocitaj COGS (suroviny × cena ingredient) za celu objednavku.
+      // Ak polozka nema recept (napr. coca-cola s trackMode='simple'),
+      // jej cogs je 0 — nealko sa odpisuje cez stock_movements priamo.
+      const cogsRow = await tx.execute(sql`
+        SELECT COALESCE(SUM(oi.qty * r.qty_per_unit::numeric * i.cost_per_unit::numeric), 0)::numeric(12,2) AS cogs
+        FROM order_items oi
+        LEFT JOIN recipes r ON r.menu_item_id = oi.menu_item_id
+        LEFT JOIN ingredients i ON i.id = r.ingredient_id
+        WHERE oi.order_id = ${orderId}
+      `);
+      const totalCogs = cogsRow.rows[0]?.cogs ?? '0.00';
+
+      // Update order
+      const [closedOrder] = await tx.update(orders)
+        .set({
+          status: 'closed',
+          closureType: 'staff_meal',
+          closedAt: new Date(),
+        })
+        .where(and(eq(orders.id, orderId), eq(orders.status, 'open')))
+        .returning();
+
+      if (!closedOrder) {
+        // Race s inou paralelnou platbou — order sa medzitým uzavrel.
+        const err = new Error('Order is not open');
+        err.statusCode = 409;
+        throw err;
+      }
+
+      // Write-off zaznam — auto-approved (zamestnanecka spotreba je
+      // automaticky schvalena, nepotrebuje manazerske approval).
+      const [woRow] = await tx.insert(writeOffs).values({
+        status: 'approved',
+        reason: 'staff_meal',
+        note: `Zamestnanecka spotreba — order #${orderId}`,
+        totalCost: String(totalCogs),
+        orderId,
+        createdBy: req.user.id,
+        approvedBy: req.user.id,
+        approvedAt: new Date(),
+      }).returning();
+
+      // Uvolni stol ak ziadne ine open orders
+      const remaining = await tx.select().from(orders)
+        .where(and(eq(orders.tableId, closedOrder.tableId), eq(orders.status, 'open')));
+      if (!remaining.length) {
+        await tx.update(tables).set({ status: 'free' }).where(eq(tables.id, closedOrder.tableId));
+      }
+
+      return { order: closedOrder, writeOff: woRow, totalCogs };
+    });
+
+    logEvent(db, {
+      orderId,
+      type: 'order_closed_staff_meal',
+      payload: { totalCogs: result.totalCogs, writeOffId: result.writeOff.id },
+      staffId: req.user.id,
+    }).catch(e => console.error('Audit log error:', e));
+    emitEvent(req, 'order:closed', { tableId: result.order.tableId, orderId });
+
+    res.json({
+      order: result.order,
+      writeOff: result.writeOff,
+      totalCogs: result.totalCogs,
+    });
+  } catch (e) {
+    if (e instanceof VersionConflictError) return res.status(409).json({ error: VERSION_CONFLICT_MSG });
+    if (e.statusCode) return res.status(e.statusCode).json({ error: e.message });
+    throw e;
+  }
+}));
+
 // POST /api/orders/:id/send — mark all unsent items as sent + deduct stock
 router.post('/:id/send', asyncRoute(async (req, res) => {
   const orderId = +req.params.id;

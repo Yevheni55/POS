@@ -654,6 +654,25 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
 .btn-card{background:var(--action-primary-bg);color:var(--action-primary);border:1px solid var(--action-primary-border);font-size:var(--text-md);padding:var(--space-3) var(--space-4);font-weight:var(--weight-bold);min-height:var(--btn-h-md);letter-spacing:var(--tracking-normal);box-shadow:none;transition:transform var(--transition-fast),box-shadow var(--transition-fast),background var(--transition-fast)}
 .btn-card:hover{background:var(--action-primary-bg-hover);transform:translateY(-1px);box-shadow:0 4px 16px rgba(139,124,246,.15)}
 .btn-card:active{transform:translateY(0);box-shadow:none}
+/* Zamestnanecka spotreba — vlastny look (amber tint), aby pripomenul, ze
+   to NIE JE platba ale benefit/naklad. [hidden] override lebo .btn ma
+   display:flex co prebije nativny [hidden]. */
+.btn-staff-meal{
+  width:100%;
+  background:rgba(245,158,11,.10);
+  color:var(--accent-amber, #f59e0b);
+  border:1px solid rgba(245,158,11,.30);
+  font-size:var(--text-md);
+  padding:var(--space-3) var(--space-4);
+  font-weight:var(--weight-bold);
+  min-height:var(--btn-h-md);
+  letter-spacing:var(--tracking-normal);
+  margin-top:6px;
+  transition:background var(--transition-fast),transform var(--transition-fast),box-shadow var(--transition-fast);
+}
+.btn-staff-meal:hover{background:rgba(245,158,11,.18);transform:translateY(-1px);box-shadow:0 4px 16px rgba(245,158,11,.15)}
+.btn-staff-meal:active{transform:translateY(0);box-shadow:none}
+.btn-staff-meal[hidden]{display:none !important}
 .btn-pay{background:linear-gradient(135deg,var(--action-primary),var(--action-primary-dim));color:var(--surface-app);font-size:var(--text-lg);padding:var(--space-3);border-radius:var(--radius-sm);min-height:var(--btn-h-md);font-weight:var(--weight-extrabold);transition:opacity var(--transition-fast),transform var(--transition-fast),box-shadow var(--transition-fast)}
 .btn-pay:hover{opacity:.95;transform:translateY(-1px);box-shadow:0 4px 16px rgba(139,124,246,.2)}
 .extra-row{display:flex;gap:6px;border-top:1px solid var(--border-default);padding-top:4px;margin-top:2px}

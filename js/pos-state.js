@@ -403,6 +403,13 @@ async function loadTableOrder(tableId, forceRefresh) {
     }
     refreshTableStatus(tableId);
     _persistTableOrdersNow();
+    // Po výbere stola: zobrazenie / skryvanie tlačidla "Zamestnanecká spotreba"
+    // podľa toho, či je stôl v zóne 'zamestanci'. Implementacia v
+    // pos-payments.js — hookujeme cez existujúci event flow, aby tlačidlo
+    // ostalo skryté na regular customer tables.
+    if (typeof updateStaffMealButtonVisibility === 'function') {
+      updateStaffMealButtonVisibility();
+    }
   } catch(e) {
     console.error('loadTableOrder error:', e);
     // Do not clear or persist on error — preserve any locally cached items for crash recovery

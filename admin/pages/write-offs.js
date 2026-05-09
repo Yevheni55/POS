@@ -43,6 +43,7 @@ function reasonBadge(reason) {
     expiration: { cls: 'badge-warning', label: 'Expiracia' },
     damage:     { cls: 'badge-danger',  label: 'Poskodenie' },
     theft:      { cls: 'badge-purple',  label: 'Kradez' },
+    staff_meal: { cls: 'badge-amber',   label: 'Zamestnanecka spotreba' },
     other:      { cls: '',              label: 'Ine' }
   };
   var entry = map[reason] || { cls: '', label: reason || '--' };

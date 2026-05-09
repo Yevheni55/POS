@@ -157,6 +157,11 @@ export const orders = pgTable('orders', {
   staffId: integer('staff_id').notNull().references(() => staff.id),
   shiftId: integer('shift_id').references(() => shifts.id),
   status: varchar('status', { length: 20 }).notNull().default('open'),
+  // closure_type: ako bola objednávka uzavretá. 'paid' = normálna platba
+  // (s payment row + fiškálnym dokladom), 'staff_meal' = zamestnanecká
+  // spotreba (žiadny payment, žiadny fiškál — len odpis suroviny + náklad
+  // v reportoch). Default 'paid' kvôli backward-compat starých riadkov.
+  closureType: varchar('closure_type', { length: 20 }).notNull().default('paid'),
   label: varchar('label', { length: 20 }).notNull().default('Ucet 1'),
   discountId: integer('discount_id').references(() => discounts.id),
   discountAmount: numeric('discount_amount', { precision: 10, scale: 2 }),
@@ -400,15 +405,22 @@ export const inventoryAuditItems = pgTable('inventory_audit_items', {
 export const writeOffs = pgTable('write_offs', {
   id: serial('id').primaryKey(),
   status: varchar('status', { length: 20 }).notNull().default('pending'),
+  // reason: 'damage' | 'expired' | 'staff_meal' | 'other' | …
+  // staff_meal write-offs sú párované 1:1 s order cez orderId.
   reason: varchar('reason', { length: 20 }).notNull(),
   note: varchar('note', { length: 500 }).notNull().default(''),
   totalCost: numeric('total_cost', { precision: 12, scale: 2 }).notNull().default('0'),
+  // orderId: nenull len pre reason='staff_meal' (zamestnanecká spotreba
+  // generovaná uzatvorením objednávky bez platby). Reporty vedia takto
+  // vypočítať náklad zamestnaneckej spotreby per shift / per deň.
+  orderId: integer('order_id').references(() => orders.id),
   createdBy: integer('created_by').notNull().references(() => staff.id),
   approvedBy: integer('approved_by').references(() => staff.id),
   createdAt: timestamp('created_at').defaultNow(),
   approvedAt: timestamp('approved_at'),
 }, (t) => [
   index('write_offs_status_idx').on(t.status, t.createdAt),
+  index('write_offs_order_idx').on(t.orderId),
 ]);
 
 export const writeOffItems = pgTable('write_off_items', {

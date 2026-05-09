@@ -72,9 +72,10 @@ function showEmptyReports() {
 }
 
 function renderStats(data) {
-  // The 7-card grid is rendered top-to-bottom: 4 sales KPIs, then 3
-  // hospodársky-výsledok cards. Values flow into them by index because the
-  // existing template binds via .stat-value class (no IDs).
+  // The 8-card grid is rendered top-to-bottom: 4 sales KPIs (Trzby, Pocet,
+  // Priemerny ucet, Trzby/zam), then 4 hospodársky-výsledok cards (Vyroba,
+  // Mzdy, Zam.spotreba, Vysledok). Values flow into them by index because
+  // the existing template binds via .stat-value class (no IDs).
   const statValues = $$('.stat-value');
   if (data.totalRevenue !== undefined && statValues[0]) {
     statValues[0].innerHTML = fmtEur(data.totalRevenue);
@@ -99,15 +100,20 @@ function renderStats(data) {
   if (data.totalLabor !== undefined && statValues[5]) {
     statValues[5].innerHTML = fmtEur(data.totalLabor);
   }
-  // Výsledok = Tržby − Výroba − Mzdy. Farebne zvýrazníme: zelená pre +,
-  // červená pre −, šedá pre 0 — operátor potrebuje na prvý pohľad vidieť
-  // či je deň/mesiac v pluse.
-  if (data.totalProfit !== undefined && statValues[6]) {
+  // Zamestnanecka spotreba — naklad na suroviny pre staff meals (write_offs
+  // s reason='staff_meal'). Server už vie agregovať per period.
+  if (data.totalStaffMeal !== undefined && statValues[6]) {
+    statValues[6].innerHTML = fmtEur(data.totalStaffMeal);
+  }
+  // Výsledok = Tržby − Výroba − Mzdy − Zam.spotreba. Farebne zvýrazníme:
+  // zelená pre +, červená pre −, šedá pre 0 — operátor potrebuje na prvý
+  // pohľad vidieť či je deň/mesiac v pluse.
+  if (data.totalProfit !== undefined && statValues[7]) {
     const v = Number(data.totalProfit) || 0;
     const color = v > 0 ? 'var(--color-success, #22c55e)'
                 : v < 0 ? 'var(--color-danger, #ef4444)'
                 : 'var(--color-text-sec, #94a3b8)';
-    statValues[6].innerHTML = '<span style="color:' + color + '">' + fmtEur(v) + '</span>';
+    statValues[7].innerHTML = '<span style="color:' + color + '">' + fmtEur(v) + '</span>';
   }
 }
 
@@ -763,9 +769,21 @@ const TEMPLATE = `
         <div class="stat-value">-- &euro;</div>
       </div>
     </div>
-    <!-- Výsledok = Tržby − Výroba − Mzdy. Hospodársky výsledok pred ostat-
-         nými nákladmi (energie, nájom, prac. ochranné). Zelená/červená farba
-         sa nastavuje v renderStats(). -->
+    <!-- Zamestnanecka spotreba — naklad na suroviny pre staff meals
+         uzatvorene cez "Pre zamestnanca" v zone Zamestanci. Nepride do
+         Trzieb (ziadna platba), ale ide z Vysledku ako naklad firmy. -->
+    <div class="stat-card">
+      <div class="stat-icon amber">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="7" r="4"/><path d="M5.5 21a6.5 6.5 0 0 1 13 0"/></svg>
+      </div>
+      <div class="stat-info">
+        <div class="stat-label">Zam. spotreba</div>
+        <div class="stat-value">-- &euro;</div>
+      </div>
+    </div>
+    <!-- Výsledok = Tržby − Výroba − Mzdy − Zam. spotreba. Hospodársky
+         výsledok pred ostatnými nákladmi (energie, nájom, prac. ochranné).
+         Zelená/červená farba sa nastavuje v renderStats(). -->
     <div class="stat-card">
       <div class="stat-icon mint">
         <svg aria-hidden="true" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>

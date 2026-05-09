@@ -475,6 +475,88 @@ function closeModal() {
   pendingPaymentMethod = null;
 }
 
+// === ZAMESTNANECKA SPOTREBA ===
+// Skryva/zobrazuje tlacidlo "Zamestnanecka spotreba" podla toho, ci je
+// aktualne vybrany stol v zone 'zamestanci'. Volane z loadTableOrder.
+function updateStaffMealButtonVisibility() {
+  var btn = document.getElementById('btnStaffMeal');
+  if (!btn) return;
+  var t = (typeof TABLES !== 'undefined' && selectedTableId)
+    ? TABLES.find(function(x){ return x.id === selectedTableId; })
+    : null;
+  var show = !!(t && t.zone === 'zamestanci');
+  if (show) btn.removeAttribute('hidden');
+  else btn.setAttribute('hidden', '');
+}
+
+// Uzavrie objednavku ako zamestnanecku spotrebu — ziadna platba, ziadny
+// fiskal, write-off so sumou COGS sa zapise pre P&L. Pred tym auto-send
+// vsetkych nepostatych poloziek aby kuchyna dostala bon a sklad sa odpisal.
+async function closeAsStaffMeal() {
+  var order = getOrder();
+  if (!order.length) { showToast('Nie je co uzatvorit', 'warning'); return; }
+
+  // Sanity: musi to byt zona 'zamestanci' (back-end to overi tiez)
+  var t = (typeof TABLES !== 'undefined' && selectedTableId)
+    ? TABLES.find(function(x){ return x.id === selectedTableId; })
+    : null;
+  if (!t || t.zone !== 'zamestanci') {
+    showToast('Tato akcia je len pre stoly v zone Zamestanci', 'warning');
+    return;
+  }
+
+  // Confirm — táto akcia neprebieha cez fiškál, takže staff musí potvrdiť.
+  var totalEur = (typeof getOrderTotal === 'function') ? getOrderTotal() : 0;
+  var confirmed = window.confirm(
+    'Uzavriet objednavku ako zamestnanecku spotrebu?\n\n'
+    + 'Hodnota menu: ' + (typeof fmt === 'function' ? fmt(totalEur) : totalEur.toFixed(2) + ' €')
+    + '\n\nZIADNA platba a ZIADNY fiskal sa nevytvori.\n'
+    + 'Sklad sa odpise normalne (cez recepty).'
+  );
+  if (!confirmed) return;
+
+  var btn = document.getElementById('btnStaffMeal');
+  if (btn) btnLoading(btn);
+
+  try {
+    // Najprv sync local-only items na server
+    await syncOrderToServer();
+    if (!currentOrderId) { showToast('Nie je co uzatvorit', 'warning'); return; }
+
+    // Auto-send nepostatych poloziek tak ako pri normalnej platbe — kuchyna
+    // musi dostat bon, inak by recept ingrediencie boli nikdy odpisane.
+    var stornoResult = await flushPendingStornoTickets();
+    if (stornoResult && stornoResult.printed) {
+      showToast('Storno bolo odoslane na kuchynu/bar', 'success');
+    }
+    var autoSendResult = await autoSendPendingItemsBeforePayment();
+    if (autoSendResult && autoSendResult.printed) {
+      showToast('Polozky boli odoslane na kuchynu/bar', 'success');
+    }
+
+    // Backend: uzavri ako staff_meal
+    var result = await api.post(
+      '/orders/' + currentOrderId + '/close-as-staff-meal',
+      { version: currentOrderVersion }
+    );
+
+    if (!result || !result.order) {
+      showToast('Uzavretie zlyhalo', 'error');
+      return;
+    }
+
+    showToast('Zamestnanecka spotreba zaznamenana — naklad: ' + (typeof fmt === 'function' ? fmt(Number(result.totalCogs) || 0) : result.totalCogs + ' €'), 'success');
+    // Free table + clear order rovnako ako pri normalnej platbe
+    await finalizeSuccessfulPayment('Zamestnanecka spotreba zaznamenana', 'success');
+  } catch (e) {
+    console.error('closeAsStaffMeal error:', e);
+    var msg = (e && e.message) ? e.message : 'Uzavretie zlyhalo';
+    showToast(msg, 'error');
+  } finally {
+    if (btn) btnReset(btn);
+  }
+}
+
 async function confirmPayment() {
   var btn = document.querySelector('#paymentModal .u-btn-mint');
   if (btn) btnLoading(btn);

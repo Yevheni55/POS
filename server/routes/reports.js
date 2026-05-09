@@ -124,6 +124,23 @@ router.get('/summary', mgr, async (req, res) => {
     INNER JOIN ingredients i ON i.id = r.ingredient_id
     WHERE o.created_at >= ${fromBoundary} AND o.created_at <= ${toBoundary}
       AND o.status != 'cancelled'
+      AND COALESCE(o.closure_type, 'paid') != 'staff_meal'
+    GROUP BY 1
+    ORDER BY 1
+  `);
+
+  // Per-day zamestnanecká spotreba — náklad na suroviny pre staff meals.
+  // Toto je oddelene od COGS predaja, aby P&L vedel ukázať "z čoho":
+  //   tržby − náklad na výrobu predaného − mzdy − staff_meal_cost = zisk
+  // Sklad sa už odpísal pri /send (deductStockForSentItems) → tu len
+  // sumarizujeme cez write_offs ktoré sa vytvorili pri close-as-staff-meal.
+  const staffMealRows = await db.execute(sql`
+    SELECT
+      to_char((wo.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ})::date, 'YYYY-MM-DD') AS date,
+      COALESCE(SUM(wo.total_cost::numeric), 0)::float AS cost
+    FROM write_offs wo
+    WHERE wo.reason = 'staff_meal'
+      AND wo.created_at >= ${fromBoundary} AND wo.created_at <= ${toBoundary}
     GROUP BY 1
     ORDER BY 1
   `);
@@ -144,6 +161,7 @@ router.get('/summary', mgr, async (req, res) => {
     INNER JOIN ingredients i ON i.id = r.ingredient_id
     WHERE o.created_at >= ${fromBoundary} AND o.created_at <= ${toBoundary}
       AND o.status != 'cancelled'
+      AND COALESCE(o.closure_type, 'paid') != 'staff_meal'
     GROUP BY mi.name
   `);
 
@@ -272,6 +290,8 @@ router.get('/summary', mgr, async (req, res) => {
   for (const r of cogsRows.rows) cogsByDate[r.date] = Number(r.cogs) || 0;
   const laborByDate = {};
   for (const r of laborRows.rows) laborByDate[r.date] = Number(r.labor) || 0;
+  const staffMealByDate = {};
+  for (const r of staffMealRows.rows) staffMealByDate[r.date] = Number(r.cost) || 0;
   // A day might exist in cogs/labor but not in dailyArr (sales-less day
   // that still had a paid shift, or recipe write-off). Union all keys so
   // such days still surface with revenue=0.
@@ -279,6 +299,7 @@ router.get('/summary', mgr, async (req, res) => {
     ...dailyRows.rows.map(r => r.date),
     ...Object.keys(cogsByDate),
     ...Object.keys(laborByDate),
+    ...Object.keys(staffMealByDate),
   ]);
   const revenueByDate = {};
   const ordersByDate = {};
@@ -291,6 +312,7 @@ router.get('/summary', mgr, async (req, res) => {
     const revenue = revenueByDate[date] || 0;
     const cogs = roundMoney(cogsByDate[date] || 0);
     const labor = roundMoney(laborByDate[date] || 0);
+    const staffMeal = roundMoney(staffMealByDate[date] || 0);
     return {
       date,
       orders,
@@ -299,7 +321,11 @@ router.get('/summary', mgr, async (req, res) => {
       peakHours: '',
       cogs,
       labor,
-      profit: roundMoney(revenue - cogs - labor),
+      staffMeal,
+      // Zisk = tržby − suroviny predaného − mzdy − suroviny zamestnaneckej spotreby.
+      // staff_meal nie je odčítaný z tržieb (žiadna platba), ale je nákladom
+      // na suroviny, takže ide do mínusu pri výpočte zisku.
+      profit: roundMoney(revenue - cogs - labor - staffMeal),
     };
   });
   // Union the hour buckets from both queries so an hour that had only
@@ -351,7 +377,8 @@ router.get('/summary', mgr, async (req, res) => {
   // contributes to whichever bucket its clock_in fell in.
   const totalCogs = roundMoney(dailyArr.reduce((s, d) => s + (d.cogs || 0), 0));
   const totalLabor = roundMoney(dailyArr.reduce((s, d) => s + (d.labor || 0), 0));
-  const totalProfit = roundMoney(totalRevenue - totalCogs - totalLabor);
+  const totalStaffMeal = roundMoney(dailyArr.reduce((s, d) => s + (d.staffMeal || 0), 0));
+  const totalProfit = roundMoney(totalRevenue - totalCogs - totalLabor - totalStaffMeal);
 
   res.json({
     period: { from, to },
@@ -369,6 +396,7 @@ router.get('/summary', mgr, async (req, res) => {
     topRevenue,
     totalCogs,
     totalLabor,
+    totalStaffMeal,
     totalProfit,
     daily: dailyArr,
     hourly: hourlyArr,
