@@ -254,6 +254,40 @@ router.get('/summary', mgr, async (req, res) => {
     ORDER BY 1
   `);
 
+  // Per-staff labor breakdown — rovnaka paired CTE, ale GROUP BY staff_id.
+  // Pouzite v admin Reportoch panelom "Mzdy podla zamestnancov" aby sef
+  // vedel kto najviac stal firmu cez zvolene obdobie. Open shifts (chybajuci
+  // clock_out) sa nepocitaju — co je konzistentne s totalLabor agregaciou.
+  const laborByStaffRows = await db.execute(sql`
+    WITH paired AS (
+      SELECT
+        ae.staff_id,
+        ae.type,
+        ae.at,
+        LEAD(ae.at)   OVER (PARTITION BY ae.staff_id ORDER BY ae.at) AS next_at,
+        LEAD(ae.type) OVER (PARTITION BY ae.staff_id ORDER BY ae.at) AS next_type
+      FROM attendance_events ae
+    )
+    SELECT
+      s.id AS staff_id,
+      s.name AS staff_name,
+      COALESCE(s.position, '') AS position,
+      COALESCE(s.hourly_rate, 0)::float AS hourly_rate,
+      COALESCE(SUM(EXTRACT(EPOCH FROM (paired.next_at - paired.at)) / 3600.0), 0)::float AS hours,
+      COALESCE(SUM(EXTRACT(EPOCH FROM (paired.next_at - paired.at)) / 3600.0
+        * COALESCE(s.hourly_rate, 0)::numeric), 0)::float AS labor,
+      COUNT(*)::int AS shifts
+    FROM paired
+    INNER JOIN staff s ON s.id = paired.staff_id
+    WHERE paired.type = 'clock_in'
+      AND paired.next_type = 'clock_out'
+      AND paired.at >= ${fromBoundary}
+      AND paired.at <= ${toBoundary}
+    GROUP BY s.id, s.name, s.position, s.hourly_rate
+    HAVING COALESCE(SUM(EXTRACT(EPOCH FROM (paired.next_at - paired.at)) / 3600.0), 0) > 0
+    ORDER BY labor DESC, s.name ASC
+  `);
+
   // Per-hour-of-day breakdown for the Hodiny tab. Hours are LOCAL Bratislava
   // hours so 18:00 means 18:00 in the bar, not 16:00 UTC.
   const hourlyRows = await db.execute(sql`
@@ -464,6 +498,15 @@ router.get('/summary', mgr, async (req, res) => {
       drinkCost: Number(r.drink_cost) || 0,
       cost: Number(r.cost) || 0,
       menuValue: Number(r.menu_value) || 0,
+    })),
+    laborByStaff: laborByStaffRows.rows.map(r => ({
+      staffId: Number(r.staff_id) || 0,
+      name: r.staff_name,
+      position: r.position || '',
+      hourlyRate: Number(r.hourly_rate) || 0,
+      hours: Number(r.hours) || 0,
+      labor: Number(r.labor) || 0,
+      shifts: Number(r.shifts) || 0,
     })),
     daily: dailyArr,
     hourly: hourlyArr,

@@ -47,6 +47,7 @@ async function loadReports() {
       renderStats(data);
       renderDestSplit(data);
       renderTrzby(data);
+      renderLaborByStaff(data);
       renderStaffMealByPerson(data);
       renderProdukty(data);
       renderZamestnanci(data);
@@ -195,6 +196,58 @@ function renderTrzby(data) {
       <td>${data.avgCheck !== undefined ? fmtEur(data.avgCheck) : ''}</td>
     </tr>`;
   }
+}
+
+// Mzdy podla zamestnancov — paired clock_in -> clock_out × hourly_rate.
+// Skryje cely panel ked nie su data (napr. obdobie bez zmien).
+function renderLaborByStaff(data) {
+  const panel = $('#laborByStaffPanel');
+  if (!panel) return;
+  const rows = (data && Array.isArray(data.laborByStaff)) ? data.laborByStaff : [];
+  if (!rows.length) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = '';
+  const tbody = $('#table-labor-staff tbody');
+  const tfoot = $('#table-labor-staff tfoot');
+  if (!tbody || !tfoot) return;
+
+  function fmtHours(h) {
+    const total = Number(h) || 0;
+    const hh = Math.floor(total);
+    const mm = Math.round((total - hh) * 60);
+    return hh + 'h ' + String(mm).padStart(2, '0') + 'm';
+  }
+
+  let totalShifts = 0;
+  let totalHours = 0;
+  let totalLabor = 0;
+  tbody.innerHTML = rows.map(r => {
+    const hours = Number(r.hours) || 0;
+    const labor = Number(r.labor) || 0;
+    const rate = Number(r.hourlyRate) || 0;
+    const shifts = Number(r.shifts) || 0;
+    totalShifts += shifts;
+    totalHours += hours;
+    totalLabor += labor;
+    return `<tr>
+      <td class="td-name">${escapeHtml(r.name || '--')}</td>
+      <td>${escapeHtml(r.position) || '<span style="color:var(--color-text-dim)">—</span>'}</td>
+      <td class="num text-right">${shifts}</td>
+      <td class="num text-right">${fmtHours(hours)}</td>
+      <td class="num text-right" style="color:var(--color-text-sec)">${rate > 0 ? fmtEur(rate) + '/h' : '<span style="color:var(--color-text-dim)">—</span>'}</td>
+      <td class="num text-right" style="font-weight:var(--weight-bold)">${fmtEur(labor)}</td>
+    </tr>`;
+  }).join('');
+
+  tfoot.innerHTML = `<tr>
+    <td colspan="2">Spolu</td>
+    <td class="num text-right">${totalShifts}</td>
+    <td class="num text-right">${fmtHours(totalHours)}</td>
+    <td class="num text-right" style="color:var(--color-text-sec)">—</td>
+    <td class="num text-right" style="font-weight:var(--weight-bold);color:var(--color-accent, #8b7cf6)">${fmtEur(totalLabor)}</td>
+  </tr>`;
 }
 
 // Zamestnanecka spotreba podla mena (= meno stola v zone Zamestanci).
@@ -882,6 +935,31 @@ const TEMPLATE = `
         </tbody>
         <tfoot></tfoot>
       </table>
+      </div>
+    </div>
+
+    <!-- Mzdy podla zamestnancov — viditelny len ked > 0. Renderuje sa
+         cez renderLaborByStaff() z dat.laborByStaff. -->
+    <div class="panel" id="laborByStaffPanel" style="display:none;margin-top:18px">
+      <div class="panel-title">Mzdy podľa zamestnancov</div>
+      <div style="font-size:var(--text-sm);color:var(--color-text-sec);margin-top:-8px;margin-bottom:14px">
+        odpracované hodiny × hodinová sadzba — len uzavreté zmeny (clock_in → clock_out) v tomto období
+      </div>
+      <div class="table-scroll-wrap">
+        <table class="data-table" id="table-labor-staff">
+          <thead>
+            <tr>
+              <th>Meno</th>
+              <th>Pozícia</th>
+              <th class="text-right">Smeny</th>
+              <th class="text-right">Hodiny</th>
+              <th class="text-right">Sadzba</th>
+              <th class="text-right">Mzda</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+          <tfoot></tfoot>
+        </table>
       </div>
     </div>
 
