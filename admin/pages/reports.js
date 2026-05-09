@@ -198,6 +198,8 @@ function renderTrzby(data) {
 }
 
 // Zamestnanecka spotreba podla mena (= meno stola v zone Zamestanci).
+// Naklad rozdeleny na jedlo (kuchyna) a napoje (bar) cez category.dest —
+// owner vidi ze napr. Yevhen ide hlavne na napoje (kola), Tania na jedlo.
 // Skryje cely panel ak nie su data — vacsina periodov ma 0 staff meals,
 // nechceme prazdny panel mast vizual.
 function renderStaffMealByPerson(data) {
@@ -214,17 +216,25 @@ function renderStaffMealByPerson(data) {
   if (!tbody || !tfoot) return;
 
   let totalMeals = 0;
+  let totalFood = 0;
+  let totalDrink = 0;
   let totalCost = 0;
   tbody.innerHTML = rows.map(r => {
-    const cost = Number(r.cost) || 0;
     const meals = Number(r.meals) || 0;
+    const food = Number(r.foodCost) || 0;
+    const drink = Number(r.drinkCost) || 0;
+    const cost = Number(r.cost) || 0;
     totalMeals += meals;
+    totalFood += food;
+    totalDrink += drink;
     totalCost += cost;
     const avgPerMeal = meals > 0 ? cost / meals : 0;
     return `<tr>
       <td class="td-name">${escapeHtml(r.name || '--')}</td>
       <td class="num text-right">${meals}</td>
-      <td class="num text-right">${fmtEur(cost)}</td>
+      <td class="num text-right" style="color:var(--color-text-sec)">${food > 0 ? fmtEur(food) : '<span style="color:var(--color-text-dim)">—</span>'}</td>
+      <td class="num text-right" style="color:var(--color-text-sec)">${drink > 0 ? fmtEur(drink) : '<span style="color:var(--color-text-dim)">—</span>'}</td>
+      <td class="num text-right" style="font-weight:var(--weight-bold)">${fmtEur(cost)}</td>
       <td class="num text-right" style="color:var(--color-text-sec)">${fmtEur(avgPerMeal)}</td>
     </tr>`;
   }).join('');
@@ -233,6 +243,8 @@ function renderStaffMealByPerson(data) {
   tfoot.innerHTML = `<tr>
     <td>Spolu</td>
     <td class="num text-right">${totalMeals}</td>
+    <td class="num text-right" style="color:var(--color-text-sec)">${fmtEur(totalFood)}</td>
+    <td class="num text-right" style="color:var(--color-text-sec)">${fmtEur(totalDrink)}</td>
     <td class="num text-right" style="font-weight:var(--weight-bold);color:var(--accent-amber, #f59e0b)">${fmtEur(totalCost)}</td>
     <td class="num text-right" style="color:var(--color-text-sec)">${fmtEur(avgAll)}</td>
   </tr>`;
@@ -873,20 +885,23 @@ const TEMPLATE = `
     </div>
 
     <!-- Zamestnanecka spotreba podla mena — viditelny len ked total > 0.
-         Renderuje sa cez renderStaffMealByPerson() z dat.staffMealByPerson. -->
+         Renderuje sa cez renderStaffMealByPerson() z dat.staffMealByPerson.
+         Naklad rozdeleny na jedlo (kuchyna) vs napoje (bar) cez category.dest. -->
     <div class="panel" id="staffMealPanel" style="display:none;margin-top:18px">
       <div class="panel-title">Zamestnanecká spotreba podľa mena</div>
       <div style="font-size:var(--text-sm);color:var(--color-text-sec);margin-top:-8px;margin-bottom:14px">
-        atribúcia podľa mena stola v zóne Zamestanci (Alex / Oleh / Tania / Yevhen…) — náklad firmy na jedlo zamestnanca
+        atribúcia podľa mena stola v zóne Zamestanci (Alex / Oleh / Tania / Yevhen…) — náklad firmy na jedlo + nápoje zamestnanca
       </div>
       <div class="table-scroll-wrap">
         <table class="data-table" id="table-staff-meal">
           <thead>
             <tr>
               <th>Meno</th>
-              <th class="text-right">Pocet jedál</th>
-              <th class="text-right">Náklad (suroviny)</th>
-              <th class="text-right">Priem. na jedlo</th>
+              <th class="text-right">Pocet</th>
+              <th class="text-right">Jedlo (kuchyňa)</th>
+              <th class="text-right">Nápoje (bar)</th>
+              <th class="text-right">Spolu</th>
+              <th class="text-right">Priem. na deň</th>
             </tr>
           </thead>
           <tbody></tbody>

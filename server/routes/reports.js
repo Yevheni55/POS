@@ -151,14 +151,29 @@ router.get('/summary', mgr, async (req, res) => {
   // dáva čistú per-person attribution bez nutnosti staff_id flagu na
   // order. (created_by na write_off je kasier ktorý zatvoril, nie ten
   // kto si dal jedlo.)
+  //
+  // Split COGS na food (kuchyna) vs napoje (bar) cez menu_categories.dest.
+  // Polozky bez receptu (vacsina barovych drinkov bez recipe definicie)
+  // contribuju 0 — same simplifikacia ako cogsRows above.
   const staffMealByPersonRows = await db.execute(sql`
     SELECT
       t.name AS person_name,
       COUNT(DISTINCT wo.id)::int AS meals,
-      COALESCE(SUM(wo.total_cost::numeric), 0)::float AS cost
+      COALESCE(SUM(CASE WHEN mc.dest = 'kuchyna'
+        THEN oi.qty * r.qty_per_unit::numeric * i.cost_per_unit::numeric
+        ELSE 0 END), 0)::float AS food_cost,
+      COALESCE(SUM(CASE WHEN mc.dest = 'bar'
+        THEN oi.qty * r.qty_per_unit::numeric * i.cost_per_unit::numeric
+        ELSE 0 END), 0)::float AS drink_cost,
+      COALESCE(SUM(oi.qty * r.qty_per_unit::numeric * i.cost_per_unit::numeric), 0)::float AS cost
     FROM write_offs wo
     INNER JOIN orders o ON o.id = wo.order_id
     INNER JOIN tables t ON t.id = o.table_id
+    INNER JOIN order_items oi ON oi.order_id = o.id
+    LEFT JOIN menu_items mi ON mi.id = oi.menu_item_id
+    LEFT JOIN menu_categories mc ON mc.id = mi.category_id
+    LEFT JOIN recipes r ON r.menu_item_id = oi.menu_item_id
+    LEFT JOIN ingredients i ON i.id = r.ingredient_id
     WHERE wo.reason = 'staff_meal'
       AND wo.created_at >= ${fromBoundary} AND wo.created_at <= ${toBoundary}
     GROUP BY t.name
@@ -421,6 +436,8 @@ router.get('/summary', mgr, async (req, res) => {
     staffMealByPerson: staffMealByPersonRows.rows.map(r => ({
       name: r.person_name,
       meals: Number(r.meals) || 0,
+      foodCost: Number(r.food_cost) || 0,
+      drinkCost: Number(r.drink_cost) || 0,
       cost: Number(r.cost) || 0,
     })),
     daily: dailyArr,
