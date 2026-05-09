@@ -569,29 +569,30 @@ function _increaseSentItemAsUnsentDelta(order, item, delta) {
 // Scroll order panel na vrch — pouzite po pridani polozky (manualne cez
 // menu, cez + na unsent, alebo cez + na sent ktore vytvori unsent delta).
 // Bez toho panel ostane na povodnom scrolle a casnik nevidi novu polozku
-// v hornej casti — musel by manualne skrolovat. Robime to pre desktop
-// (#orderItems) aj mobile (#mobOrderItems) panely. requestAnimationFrame
-// kvoli tomu, ze DOM mutation moze byt este nepushed do layoutu.
+// v hornej casti — musel by manualne skrolovat.
+//
+// Hosts:
+//   #orderItems     — desktop / tablet (> 768px)
+//   #mobOrderItems  — phone (≤ 768px)
+//
+// Implementacia: instant snap (scrollTop=0) DVAKRAT — raz okamzite,
+// druhy raz po 140ms. Dovod: changeQty volá _scheduleRender s 120ms
+// debounce ktory potom rebuilduje innerHTML cez renderOrder(). Smooth
+// scroll animacia by sa nestihla dokoncit pred rebuildom a poloha by
+// sa restorovala. Instant snap je `сразу` (okamzite) tak ako pyta
+// pouzivatel, a re-snap po debounce je idempotentny safety-net.
 function scrollOrderToTop() {
-  var hosts = ['orderItems', 'mobOrderItems'];
-  if (typeof requestAnimationFrame !== 'undefined') {
-    requestAnimationFrame(function() {
-      hosts.forEach(function(id) {
-        var el = document.getElementById(id);
-        if (!el) return;
-        if (typeof el.scrollTo === 'function') {
-          el.scrollTo({ top: 0, behavior: 'smooth' });
-        } else {
-          el.scrollTop = 0;
-        }
-      });
-    });
-  } else {
-    hosts.forEach(function(id) {
+  function snap() {
+    ['orderItems', 'mobOrderItems'].forEach(function(id) {
       var el = document.getElementById(id);
       if (el) el.scrollTop = 0;
     });
   }
+  // Okamzity snap — vacsina pripadov to vyriesi.
+  snap();
+  // Re-snap po 140ms — po 120ms debounced renderOrder() rebuilde, ktory
+  // by inak mohol obnovit povodny scroll po tom co sme my snapli na 0.
+  setTimeout(snap, 140);
 }
 
 // Show the storno reason popup and POST the write-off when the cashier
