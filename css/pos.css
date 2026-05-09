@@ -938,8 +938,16 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
 /* ===== TABLET (touch, 10–13") — bump everything for arm's-length use =====
    Placed AFTER the 1100/800 shrink blocks so the cascade favours bigger
    sizes on touch devices, while non-touch laptops in the same width range
-   keep the dense desktop layout. */
+   keep the dense desktop layout.
+
+   Globalna zoom 1.15: po per-element bumpoch nizsie nasob cely UI o 15 %
+   pre 10.1" tablety kde aj pre cisnicku s dobrym zrakom je to stale male
+   (operator si vyziadal). zoom presne propaguje do position:fixed
+   modalov, toastov i scroll containerov v modernych Chromium / Safari /
+   FF 126+. Pointer/click suradnice browser handluje internally — ziadne
+   nutne JS upravy. */
 @media (min-width:769px) and (max-width:1366px) and (pointer:coarse){
+  body{zoom:1.15}
   .header-title{font-size:26px}
   .header-clock{font-size:22px}
   .header-subtitle,.header-date{font-size:13px}
