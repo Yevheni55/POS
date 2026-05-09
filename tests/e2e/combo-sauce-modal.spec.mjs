@@ -78,3 +78,28 @@ test('Two combo taps create 2 distinct combo rows + 2 annotation rows', async ({
   await expect(page.locator('.order-item-wrap').filter({ hasText: 'Combo BBQ Smash' })).toHaveCount(2);
   await expect(page.locator('.order-item-wrap').filter({ hasText: 'Omáčka (combo)' })).toHaveCount(2);
 });
+
+// Kuracie hranolky majú omáčku zahrnutú v cene rovnako ako combos —
+// musia ponúknuť rovnaký sauce-picker. Ak by sa táto rule náhodou
+// odstránila zo `_needsSaucePicker` v js/pos-orders.js alebo
+// z `needsSaucePicker` v server/lib/menu-helpers.js, tento test to
+// ihneď zachytí.
+async function openKuracie(page) {
+  await selectCategory(page, 'Prílohy');
+  await page.locator('.product-card[data-name="Kuracie hranolky"]').click();
+}
+
+test('Kuracie hranolky tiež otvoria sauce-picker (omáčka v cene)', async ({ page }) => {
+  await loginAndOpenPos(page);
+  await openTable(page, 'Stol 1');
+  await openKuracie(page);
+
+  const modal = page.locator('#sauceSelectorModal');
+  await expect(modal).toBeVisible();
+  await modal.locator('input[data-sauce="Tatárka domáca"]').check();
+  await modal.locator('#sauceConfirm').click();
+
+  await expect(page.locator('.order-item-wrap').filter({ hasText: 'Kuracie hranolky' })).toBeVisible();
+  const annotation = page.locator('.order-item-wrap').filter({ hasText: 'Omáčka (combo)' });
+  await expect(annotation).toContainText(/Tatárka/);
+});

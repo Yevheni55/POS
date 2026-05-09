@@ -259,14 +259,23 @@ function addToOrderN(name, emoji, price, n) {
   for (var i = 0; i < count; i++) addToOrder(name, emoji, price);
 }
 
+// Items that include a side-sauce in their price → otvor sauce-picker.
+// Combo-* (burger combos) majú omáčku v recepte; Kuracie hranolky tiež —
+// takže obe musia ponúknuť výber Tatárka/Kečup/BBQ atď. pre kuchyňa-tiket.
+function _needsSaucePicker(name) {
+  if (/^combo\s/i.test(name)) return true;
+  if (/kuracie\s+hranolky/i.test(name)) return true;
+  return false;
+}
+
 function addToOrder(name, emoji, price) {
   var menuItemId = MENU_ID_MAP.get(name);
   if (!menuItemId) return;
 
-  // Combos open a sauce-picker modal first. After the waiter confirms,
-  // we add the combo itself plus a 0-price "Omáčka (combo)" annotation
-  // line so the cook sees the selection on the kitchen ticket.
-  if (/^combo\s/i.test(name) && typeof showSauceSelector === 'function') {
+  // Combos + Kuracie hranolky majú omáčku v cene → najprv sauce-picker,
+  // až potom pridáme položku + 0 EUR annotation row "Omáčka (combo)" s
+  // vybranou omáčkou v note (kuchyňa to vidí na bone).
+  if (_needsSaucePicker(name) && typeof showSauceSelector === 'function') {
     showSauceSelector(name, function (sauces) {
       if (sauces == null) return; // user cancelled
       // Combos must NOT merge into an existing combo row of the same name —
@@ -616,14 +625,13 @@ function changeQty(name,d,itemId){
   if (!item) return;
 
   if (d > 0 && item.sent) {
-    // Combos need a sauce paired 1:1 with each portion. The sent combo's
-    // sauce annotation belongs to that specific portion, and after a server
-    // round-trip we no longer have the local _companionOf link to clone it
-    // safely. Reroute through addToOrder so the sauce picker opens for the
-    // new portion and the cashier can choose Chilli-mayo / Tatárka / etc.
-    // Without this, +on a sent combo created an orphan combo row in the DB
-    // and printed on the kitchen ticket as "1x Combo …" with no sauce line.
-    if (/^combo /i.test(item.name) && typeof addToOrder === 'function') {
+    // Combos + Kuracie hranolky potrebujú omáčku spárovanú 1:1 s každou
+    // porciou. Sent annotation patrí konkrétnej porcii a po server round-trip
+    // už nemáme local _companionOf link na bezpečné klonovanie. Preto +1
+    // na sent položke prejde cez addToOrder() → otvorí sa sauce-picker pre
+    // novú porciu a obsluha vyberie Chilli-mayo / Tatárka / atď.
+    // Bez toho by +1 na sent combe vyrobil orphan combo riadok bez omáčky.
+    if (typeof _needsSaucePicker === 'function' && _needsSaucePicker(item.name) && typeof addToOrder === 'function') {
       addToOrder(item.name, item.emoji, item.price);
       return;
     }

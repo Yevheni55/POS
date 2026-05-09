@@ -6,6 +6,7 @@ import { eq, and, lte, sql } from 'drizzle-orm';
 import { requireRole } from '../middleware/requireRole.js';
 import { isPortosEnabled, registerCashWithdrawal, PortosTransportError } from '../lib/portos.js';
 import { getActiveCashRegisterCode } from '../lib/active-cash-register.js';
+import { needsSaucePicker, SAUCE_ANNOTATION_NAME } from '../lib/menu-helpers.js';
 
 const router = Router();
 const mgr = requireRole('manazer', 'admin');
@@ -269,9 +270,9 @@ function buildKitchenTicket({ dest, tableName, staffName, items, orderNum, time 
     // leaving ~24 for the LARGE name (the qty itself prints in DOUBLE).
     const nameAscii = s(item.name);
     const sauceAscii = (() => {
-      if (!/^combo /i.test(item.name)) return '';
+      if (!needsSaucePicker(item.name)) return '';
       const next = items[idx + 1];
-      if (next && next.name === 'Omáčka (combo)' && next.note) return s(next.note);
+      if (next && next.name === SAUCE_ANNOTATION_NAME && next.note) return s(next.note);
       return '';
     })();
     const nameBudget = item.qty > 1 ? 24 : 26;

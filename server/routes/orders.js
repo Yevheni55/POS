@@ -15,6 +15,7 @@ import { createOrderSchema, addItemsSchema, updateItemSchema, batchSchema, split
 import { deductStockForSentItems, applyWriteOff } from '../lib/stock.js';
 import { applyStornoStockResolution } from '../lib/storno-stock.js';
 import { asyncRoute } from '../lib/async-route.js';
+import { needsSaucePicker, isSauceAnnotationRow } from '../lib/menu-helpers.js';
 
 const router = Router();
 
@@ -58,15 +59,14 @@ async function consolidateSentOrderItems(tx, orderId) {
   const duplicateIds = [];
 
   for (const row of sentRows) {
-    // Combos with sauce annotations must NEVER be consolidated. Two taps of
-    // "Combo Big Mac" with two different sauces would otherwise be merged
-    // into qty=2 with note='', and the kitchen ticket builder
-    // (server/routes/print.js:buildKitchenTicket) only reads the FIRST
-    // adjacent "Omáčka (combo)" row's note — the second sauce silently
-    // disappears. Same defensive skip for the sauce annotation row itself,
-    // because each sauce note is paired 1:1 with its preceding combo.
-    if (row.name && /^combo /i.test(row.name)) continue;
-    if (row.name === 'Omáčka (combo)') continue;
+    // Sauce-paired položky (combos, Kuracie hranolky) sa NIKDY nekonsolidujú.
+    // Dva taps tej istej položky s rôznymi omáčkami by boli zlúčené do qty=2
+    // s note='', a kitchen ticket builder (server/routes/print.js:buildKitchenTicket)
+    // číta len note z prvého susedného "Omáčka (combo)" riadku — druhá
+    // omáčka by ticha zmizla. Rovnaký defensive skip aj pre samotný
+    // annotation riadok, lebo každá sauce nota je párovaná 1:1 s primary.
+    if (needsSaucePicker(row.name)) continue;
+    if (isSauceAnnotationRow(row.name)) continue;
 
     const key = `${row.menuItemId}::${row.note || ''}`;
     const existing = grouped.get(key);
