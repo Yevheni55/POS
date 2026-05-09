@@ -394,6 +394,12 @@ function _addToOrderCore(name, emoji, price, forceNewRow) {
     c.insertAdjacentHTML('afterbegin', html);
   }
 
+  // Skrolneme order panel na vrch po pridani / inkremente — bez tohoto
+  // casnik tapnuty na sent polozku v dolnej casti listu nevidi novu
+  // unsent polozku ktoru jeho tap vytvoril (lebo unsent items su na
+  // vrchu cez sort by id desc). Funguje pre desktop aj mobile panel.
+  scrollOrderToTop();
+
   // Lightweight counter + total update (no full rebuild)
   var countEl = document.getElementById('orderCount');
   var newCount = order.reduce(function(s, o) { return s + o.qty; }, 0);
@@ -535,6 +541,11 @@ function _increaseSentItemAsUnsentDelta(order, item, delta) {
   if (unsentTwin) {
     unsentTwin.qty += delta;
     unsentTwin._localQtyChanged = true;
+    // Casnik klikol + na sent polozke a uz existuje unsent twin →
+    // skrolneme order panel hore aby twin (s novym qty) bol viditelny.
+    // Bez toho twin zostane mimo viewportu na tablete a casnik si mysli
+    // ze ho stratil.
+    if (typeof scrollOrderToTop === 'function') scrollOrderToTop();
     return unsentTwin;
   }
 
@@ -549,7 +560,38 @@ function _increaseSentItemAsUnsentDelta(order, item, delta) {
     sent: false,
   };
   order.push(newItem);
+  // Novy unsent delta riadok ide hore (sort by id desc) — skrolneme,
+  // aby ho casnik hned videl.
+  if (typeof scrollOrderToTop === 'function') scrollOrderToTop();
   return newItem;
+}
+
+// Scroll order panel na vrch — pouzite po pridani polozky (manualne cez
+// menu, cez + na unsent, alebo cez + na sent ktore vytvori unsent delta).
+// Bez toho panel ostane na povodnom scrolle a casnik nevidi novu polozku
+// v hornej casti — musel by manualne skrolovat. Robime to pre desktop
+// (#orderItems) aj mobile (#mobOrderItems) panely. requestAnimationFrame
+// kvoli tomu, ze DOM mutation moze byt este nepushed do layoutu.
+function scrollOrderToTop() {
+  var hosts = ['orderItems', 'mobOrderItems'];
+  if (typeof requestAnimationFrame !== 'undefined') {
+    requestAnimationFrame(function() {
+      hosts.forEach(function(id) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        if (typeof el.scrollTo === 'function') {
+          el.scrollTo({ top: 0, behavior: 'smooth' });
+        } else {
+          el.scrollTop = 0;
+        }
+      });
+    });
+  } else {
+    hosts.forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.scrollTop = 0;
+    });
+  }
 }
 
 // Show the storno reason popup and POST the write-off when the cashier
