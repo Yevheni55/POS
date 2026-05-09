@@ -68,6 +68,7 @@ async function switchView(v){
   document.getElementById('productsPanel').classList.toggle('active',v==='products');
   document.querySelector('.order-panel').classList.toggle('pos-hidden', v==='tables');
   if(v==='tables')renderFloor();if(v==='products')renderProducts();
+  if (typeof persistUIState === 'function') persistUIState();
 }
 
 // Edit mode — POS-local floor rearrangement. Positions persist via PUT /tables/:id
@@ -89,7 +90,7 @@ function renderFloorZones(){
     `<button class="zone-btn ${z.id===activeZone?'active':''}" onclick="setZone('${escAttr(z.id)}')">${escHtml(z.label)}</button>`
   ).join('');
 }
-function setZone(id){activeZone=id;renderFloorZones();renderFloor()}
+function setZone(id){activeZone=id;renderFloorZones();renderFloor();if(typeof persistUIState==='function')persistUIState();}
 
 // Floor canvas — absolute-pixel positioning, identical coordinate system to admin.
 // Admin drag-and-drop on /admin#tables writes the same (x,y) integers we read here.
@@ -313,6 +314,7 @@ async function selectTableAndLoadOrder(id){
   } else {
     renderOrder();updateQtyBadges();
   }
+  if (typeof persistUIState === 'function') persistUIState();
 }
 
 async function chipClick(id){
@@ -422,7 +424,7 @@ function renderCategories(){
     `<button class="cat-btn ${key===activeCategory?'active':''}" onclick="setCategory('${escAttr(key)}')"><span class="cat-icon">${escHtml(cat.icon)}</span>${escHtml(cat.label)}<span class="cat-key">${escHtml(cat.key)}</span></button>`
   ).join('');
 }
-function setCategory(key){activeCategory=key;searchQuery='';document.getElementById('searchInput').value='';renderCategories();renderProducts()}
+function setCategory(key){activeCategory=key;searchQuery='';document.getElementById('searchInput').value='';renderCategories();renderProducts();if(typeof persistUIState==='function')persistUIState();}
 
 (function(){var searchTimer=null;document.getElementById('searchInput').addEventListener('input',function(e){searchQuery=e.target.value.toLowerCase().trim();clearTimeout(searchTimer);searchTimer=setTimeout(function(){renderProducts()},200)})})();
 

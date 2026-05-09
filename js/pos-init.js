@@ -105,18 +105,57 @@ async function initPOS() {
     await loadAllOrders(); // Preload all open orders for instant table switching
     if (typeof loadStornoBasket === 'function') loadStornoBasket();
     updateTableStatuses(); // Derive table statuses from orders cache
+
+    // Pokus restore predchadzajucu UI state (view + stol + zona + kategoria)
+    // z localStorage. Po reloade na tablete tak ostavame na rovnakej obrazovke
+    // ako pred refreshom. Validujeme proti aktualnym dátam — ak ulozeny stol
+    // medzitym zmazaly cez admin, fallback na default.
+    var persisted = (typeof loadPersistedUIState === 'function') ? loadPersistedUIState() : null;
+
     var fcs = Object.keys(MENU)[0];
-    if (fcs) activeCategory = fcs;
-    if (ZONES.length) activeZone = ZONES[0].id;
+    var defaultCategory = fcs || '__top__';
+    var defaultZone = ZONES.length ? ZONES[0].id : 'interior';
+
+    // Aktivna kategoria — preferuj persisted ak existuje v aktualnom MENU
+    if (persisted && persisted.category && (persisted.category === '__top__' || MENU[persisted.category])) {
+      activeCategory = persisted.category;
+    } else {
+      activeCategory = defaultCategory;
+    }
+
+    // Zona — preferuj persisted ak je v ZONES
+    if (persisted && persisted.zone && ZONES.some(function(z){ return z.id === persisted.zone; })) {
+      activeZone = persisted.zone;
+    } else {
+      activeZone = defaultZone;
+    }
+
     renderCategories();
     renderFloorZones();
     renderFloor();
-    if (TABLES.length) {
+
+    // Stol — preferuj persisted ak existuje v TABLES, inak prvy v zone
+    var targetTableId = null;
+    if (persisted && persisted.tableId && TABLES.some(function(t){ return t.id === persisted.tableId; })) {
+      targetTableId = persisted.tableId;
+    } else if (TABLES.length) {
       var fiz = TABLES.find(function(t){ return t.zone === activeZone; }) || TABLES[0];
-      await selectTableAndLoadOrder(fiz.id);
+      targetTableId = fiz.id;
+    }
+    if (targetTableId) {
+      await selectTableAndLoadOrder(targetTableId);
     }
     renderProducts();
     applyPosSettings();
+
+    // Po inicializacii TABLES + ZONES + selectTable → ak persisted bol v
+    // 'products' view (otvorena objednavka), prepneme na nu. Bez tohto by
+    // sme ostali v 'tables' view aj pri persisted.view='products'.
+    if (persisted && persisted.view === 'products' && targetTableId && typeof switchView === 'function') {
+      // Bez asynchroneho await — switchView nepotrebuje cakat pre normalne
+      // prepnutie (loadTables uz bezalo v selectTableAndLoadOrder vyssie).
+      switchView('products');
+    }
 
     // Connect WebSocket for real-time sync
     connectWS();

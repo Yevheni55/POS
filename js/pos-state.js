@@ -476,6 +476,47 @@ function _persistTableOrdersNow(){
   try{localStorage.setItem('pos_tableOrders',JSON.stringify(tableOrders))}catch(e){}
 }
 
+// === UI STATE PERSISTENCE ===
+// Po reloade stranky chcem ostat tam kde som bol — view (tables/products),
+// stol, zona, kategoria. Bez tohoto F5 vzdy hodi do tablesView na prvy stol
+// v default zone, co je iritujuce pri rychlej praci na tablete.
+//
+// Storage shape:
+//   { view: 'tables'|'products', tableId: number|null, zone: string|null,
+//     category: string|null, ts: epoch_ms }
+// TTL ~24h aby sa nelepilo cez nasledujuci pracovny den.
+var POS_UI_STATE_KEY = 'pos_uiState';
+var POS_UI_STATE_TTL_MS = 24 * 60 * 60 * 1000;
+
+function persistUIState() {
+  try {
+    var st = {
+      view: typeof currentView !== 'undefined' ? currentView : 'tables',
+      tableId: typeof selectedTableId !== 'undefined' ? selectedTableId : null,
+      zone: typeof activeZone !== 'undefined' ? activeZone : null,
+      category: typeof activeCategory !== 'undefined' ? activeCategory : null,
+      ts: Date.now(),
+    };
+    localStorage.setItem(POS_UI_STATE_KEY, JSON.stringify(st));
+  } catch (e) {}
+}
+
+function loadPersistedUIState() {
+  try {
+    var raw = localStorage.getItem(POS_UI_STATE_KEY);
+    if (!raw) return null;
+    var st = JSON.parse(raw);
+    if (!st || !st.ts) return null;
+    if (Date.now() - st.ts > POS_UI_STATE_TTL_MS) {
+      localStorage.removeItem(POS_UI_STATE_KEY);
+      return null;
+    }
+    return st;
+  } catch (e) {
+    return null;
+  }
+}
+
 function savePositions(){
   // Save positions to API
   TABLES.forEach(t => {
