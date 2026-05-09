@@ -145,6 +145,26 @@ router.get('/summary', mgr, async (req, res) => {
     ORDER BY 1
   `);
 
+  // Zamestnanecká spotreba podľa mena (= meno stola v zóne 'zamestanci').
+  // Konvencia: stoly v staff zóne sa volajú menami zamestnancov (Alex,
+  // Oleh, Tania, Yevhen…), takže name stola = identita konzumenta. Toto
+  // dáva čistú per-person attribution bez nutnosti staff_id flagu na
+  // order. (created_by na write_off je kasier ktorý zatvoril, nie ten
+  // kto si dal jedlo.)
+  const staffMealByPersonRows = await db.execute(sql`
+    SELECT
+      t.name AS person_name,
+      COUNT(DISTINCT wo.id)::int AS meals,
+      COALESCE(SUM(wo.total_cost::numeric), 0)::float AS cost
+    FROM write_offs wo
+    INNER JOIN orders o ON o.id = wo.order_id
+    INNER JOIN tables t ON t.id = o.table_id
+    WHERE wo.reason = 'staff_meal'
+      AND wo.created_at >= ${fromBoundary} AND wo.created_at <= ${toBoundary}
+    GROUP BY t.name
+    ORDER BY cost DESC, t.name ASC
+  `);
+
   // Per-menu-item COGS — used by the Produkty tab to show "Výroba" per
   // riadok (cumulative cost over the picked period). Same recipe joins as
   // the per-day cogsRows query, but grouped by menu_item instead of date.
@@ -398,6 +418,11 @@ router.get('/summary', mgr, async (req, res) => {
     totalLabor,
     totalStaffMeal,
     totalProfit,
+    staffMealByPerson: staffMealByPersonRows.rows.map(r => ({
+      name: r.person_name,
+      meals: Number(r.meals) || 0,
+      cost: Number(r.cost) || 0,
+    })),
     daily: dailyArr,
     hourly: hourlyArr,
     staff: staffArr,

@@ -47,6 +47,7 @@ async function loadReports() {
       renderStats(data);
       renderDestSplit(data);
       renderTrzby(data);
+      renderStaffMealByPerson(data);
       renderProdukty(data);
       renderZamestnanci(data);
       renderHodiny(data);
@@ -194,6 +195,47 @@ function renderTrzby(data) {
       <td>${data.avgCheck !== undefined ? fmtEur(data.avgCheck) : ''}</td>
     </tr>`;
   }
+}
+
+// Zamestnanecka spotreba podla mena (= meno stola v zone Zamestanci).
+// Skryje cely panel ak nie su data — vacsina periodov ma 0 staff meals,
+// nechceme prazdny panel mast vizual.
+function renderStaffMealByPerson(data) {
+  const panel = $('#staffMealPanel');
+  if (!panel) return;
+  const rows = (data && Array.isArray(data.staffMealByPerson)) ? data.staffMealByPerson : [];
+  if (!rows.length) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = '';
+  const tbody = $('#table-staff-meal tbody');
+  const tfoot = $('#table-staff-meal tfoot');
+  if (!tbody || !tfoot) return;
+
+  let totalMeals = 0;
+  let totalCost = 0;
+  tbody.innerHTML = rows.map(r => {
+    const cost = Number(r.cost) || 0;
+    const meals = Number(r.meals) || 0;
+    totalMeals += meals;
+    totalCost += cost;
+    const avgPerMeal = meals > 0 ? cost / meals : 0;
+    return `<tr>
+      <td class="td-name">${escapeHtml(r.name || '--')}</td>
+      <td class="num text-right">${meals}</td>
+      <td class="num text-right">${fmtEur(cost)}</td>
+      <td class="num text-right" style="color:var(--color-text-sec)">${fmtEur(avgPerMeal)}</td>
+    </tr>`;
+  }).join('');
+
+  const avgAll = totalMeals > 0 ? totalCost / totalMeals : 0;
+  tfoot.innerHTML = `<tr>
+    <td>Spolu</td>
+    <td class="num text-right">${totalMeals}</td>
+    <td class="num text-right" style="font-weight:var(--weight-bold);color:var(--accent-amber, #f59e0b)">${fmtEur(totalCost)}</td>
+    <td class="num text-right" style="color:var(--color-text-sec)">${fmtEur(avgAll)}</td>
+  </tr>`;
 }
 
 function renderProdukty(data) {
@@ -827,6 +869,29 @@ const TEMPLATE = `
         </tbody>
         <tfoot></tfoot>
       </table>
+      </div>
+    </div>
+
+    <!-- Zamestnanecka spotreba podla mena — viditelny len ked total > 0.
+         Renderuje sa cez renderStaffMealByPerson() z dat.staffMealByPerson. -->
+    <div class="panel" id="staffMealPanel" style="display:none;margin-top:18px">
+      <div class="panel-title">Zamestnanecká spotreba podľa mena</div>
+      <div style="font-size:var(--text-sm);color:var(--color-text-sec);margin-top:-8px;margin-bottom:14px">
+        atribúcia podľa mena stola v zóne Zamestanci (Alex / Oleh / Tania / Yevhen…) — náklad firmy na jedlo zamestnanca
+      </div>
+      <div class="table-scroll-wrap">
+        <table class="data-table" id="table-staff-meal">
+          <thead>
+            <tr>
+              <th>Meno</th>
+              <th class="text-right">Pocet jedál</th>
+              <th class="text-right">Náklad (suroviny)</th>
+              <th class="text-right">Priem. na jedlo</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+          <tfoot></tfoot>
+        </table>
       </div>
     </div>
   </div>
