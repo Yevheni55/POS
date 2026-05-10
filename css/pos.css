@@ -953,99 +953,91 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
    sizes on touch devices, while non-touch laptops in the same width range
    keep the dense desktop layout.
 
-   Globalna zoom 1.15: po per-element bumpoch nizsie nasob cely UI o 15 %
-   pre 10.1" tablety kde aj pre cisnicku s dobrym zrakom je to stale male
-   (operator si vyziadal). zoom presne propaguje do position:fixed
-   modalov, toastov i scroll containerov v modernych Chromium / Safari /
-   FF 126+. Pointer/click suradnice browser handluje internally — ziadne
-   nutne JS upravy. */
+   Sizing politika: vsetky pixel hodnoty su uz vynasobene cca 1.15× oproti
+   povodnemu tablet bumpu — operator si vyziadal este +15% na 10.1"
+   displeji. Robi sa to PRIAMO cez CSS pixel hodnoty, nie cez body{zoom}
+   (zoom je nestandardny + dvojite-zoomoval modaly + sposoboval overflow).
+   Ak treba znova upravit, dvihni/zniz vsetky vahy primerne. */
 @media (min-width:769px) and (max-width:1366px) and (pointer:coarse){
-  body{zoom:1.15}
-  /* Modaly su uz dedikovane tablet-bumpnute cez @media(max-width:1024px),
-     (pointer:coarse) (.u-modal{padding:36px;min-width:380px;max-width:520px}).
-     Dvojnasobne zoom-ovanie ich pretiekne za viewport — najma payment
-     modal s cash numpadom. Cancellujeme zoom pre overlays + ich children. */
-  .u-overlay{zoom:1}
-  .header-title{font-size:26px}
-  .header-clock{font-size:22px}
-  .header-subtitle,.header-date{font-size:13px}
-  .view-btn,.zone-btn,.cat-btn{font-size:16px;padding:10px 16px}
-  .floor-title{font-size:30px}
-  .floor-stat,.legend-item{font-size:15px}
+  .header-title{font-size:30px}
+  .header-clock{font-size:25px}
+  .header-subtitle,.header-date{font-size:15px}
+  .view-btn,.zone-btn,.cat-btn{font-size:18px;padding:12px 18px}
+  .floor-title{font-size:35px}
+  .floor-stat,.legend-item{font-size:17px}
   .floor-legend{display:flex}
-  /* Stoly na tablete — pôvodne 130×130 bolo veľa, na 10–13" displeji
-     sa zmestilo iba 6–8 stolov bez scrollu. Zmenšujeme na 100×100 (Square)
-     a large na 130×100 — operátor vidí celú zónu naraz, dlhé prsty stále
-     pohodlne klikajú (>= ~40 mm hit target). Fonty primerane redukované. */
-  .table-chip{width:100px;height:100px;padding:8px 6px;gap:3px}
-  .table-chip.large{width:130px;height:100px}
-  .chip-name{font-size:18px}
-  .chip-badge{font-size:9px;padding:2px 6px}
-  .chip-amount{font-size:14px}
-  .chip-guests{font-size:11px}
-  .chip-time{font-size:11px}
-  .search-input{font-size:18px;min-height:50px;padding:12px 12px 12px 44px}
-  .search-icon{font-size:22px}
-  /* Menu products — slightly smaller so more fit per row */
-  .product-card{min-height:92px;padding:9px}
-  .product-emoji{font-size:22px;margin-bottom:2px}
-  .product-name{font-size:15px;line-height:var(--leading-snug)}
-  .product-desc{font-size:11px}
-  .product-price{font-size:18px}
+  /* Stoly na tablete — operator chce 10.1" displej s velkymi chipmi.
+     Po ručnom 1.15× bumpovani: 100→115, 130→150. Stale ~6–8 stolov v
+     zone bez scrollu pri normalnej hustote, dlhe prsty pohodlne. */
+  .table-chip{width:115px;height:115px;padding:9px 7px;gap:3px}
+  .table-chip.large{width:150px;height:115px}
+  .chip-name{font-size:21px}
+  .chip-badge{font-size:10px;padding:2px 7px}
+  .chip-amount{font-size:16px}
+  .chip-guests{font-size:13px}
+  .chip-time{font-size:13px}
+  .search-input{font-size:21px;min-height:58px;padding:14px 14px 14px 51px}
+  .search-icon{font-size:25px}
+  /* Menu products — bumpnute aby sef videl ceny z laku ruky */
+  .product-card{min-height:106px;padding:10px}
+  .product-emoji{font-size:25px;margin-bottom:2px}
+  .product-name{font-size:17px;line-height:var(--leading-snug)}
+  .product-desc{font-size:13px}
+  .product-price{font-size:21px}
   /* Order list — bigger so the cashier reads it from arm's length */
-  .order-item-wrap{padding:10px 12px}
-  .order-item-emoji{font-size:30px}
+  .order-item-wrap{padding:12px 14px}
+  .order-item-emoji{font-size:35px}
   /* Allow long names to wrap on tablet — the base rule clips at 140 px with
      ellipsis, which hides the rest of names like "Combo Vegetarian Halloumi"
      once the font is bumped. */
   .order-item-name{
-    font-size:22px;font-weight:var(--weight-bold);
+    font-size:25px;font-weight:var(--weight-bold);
     white-space:normal;overflow:visible;text-overflow:clip;
     max-width:none;line-height:1.2;word-break:break-word;
   }
-  .order-item-inner{min-height:54px;align-items:flex-start}
-  .order-item-total{font-size:24px;font-weight:var(--weight-extrabold)}
-  .order-item-qty{gap:8px}
-  .order-item-qty .qty-btn{width:44px;height:44px;font-size:22px}
-  .qty-btn,.qty-popup-btn{width:48px;height:48px;font-size:24px}
-  .order-tab{font-size:16px;padding:12px 16px}
-  .pos-subtotal-row{font-size:18px}
-  .order-panel{width:380px}
+  .order-item-inner{min-height:62px;align-items:flex-start}
+  .order-item-total{font-size:28px;font-weight:var(--weight-extrabold)}
+  .order-item-qty{gap:9px}
+  .order-item-qty .qty-btn{width:51px;height:51px;font-size:25px}
+  .qty-btn,.qty-popup-btn{width:55px;height:55px;font-size:28px}
+  .order-tab{font-size:18px;padding:14px 18px}
+  .pos-subtotal-row{font-size:21px}
+  .order-panel{width:437px}
   /* Order total — must dominate the screen so the customer reads it
      instantly when the cashier turns the tablet ("koľko platím?"). */
   .sum-total-wrap{
     border-top:2px solid var(--border-default);
-    padding:14px 0 8px;
-    margin-top:6px;
+    padding:16px 0 9px;
+    margin-top:7px;
     align-items:baseline;
   }
   .sum-total-label{
-    font-size:14px;
+    font-size:16px;
     opacity:.7;
     text-transform:uppercase;
     letter-spacing:1px;
   }
   #total,.sum-total-val{
-    font-size:40px;
+    font-size:46px;
     font-weight:800;
     font-variant-numeric:tabular-nums;
     line-height:1.0;
   }
-  .form-input,.form-select,.u-modal-field input,.u-modal-field textarea,.u-modal-field select{height:52px;font-size:17px}
-  .u-btn{font-size:17px;min-height:52px;padding:12px 20px}
-  .u-modal{padding:36px;min-width:380px;max-width:520px}
-  .u-modal-title{font-size:28px}
-  .u-modal-text{font-size:17px}
-  .u-modal-icon{font-size:56px}
-  .u-modal-amount{font-size:64px}
-  .storno-reason-btn{padding:18px 20px;font-size:17px}
-  .admin-btn,.logout-btn{font-size:15px;padding:10px 16px;min-height:44px}
+  .form-input,.form-select,.u-modal-field input,.u-modal-field textarea,.u-modal-field select{height:60px;font-size:20px}
+  .u-btn{font-size:20px;min-height:60px;padding:14px 23px}
+  .u-modal{padding:41px;min-width:437px;max-width:598px}
+  .u-modal-title{font-size:32px}
+  .u-modal-text{font-size:20px}
+  .u-modal-icon{font-size:64px}
+  .u-modal-amount{font-size:74px}
+  .storno-reason-btn{padding:21px 23px;font-size:20px}
+  .admin-btn,.logout-btn{font-size:17px;padding:12px 18px;min-height:51px}
   /* Footer action row (Zlava / Rozdelit / Presun) — bigger touch targets */
-  .extra-row{gap:12px}
+  .extra-row{gap:14px}
   .extra-row .btn-discount,
   .extra-row .btn-split,
   .extra-row .btn-move{
-    min-height:48px;
+    min-height:55px;
     font-size:var(--text-sm);
     padding:var(--space-3) var(--space-4);
   }
