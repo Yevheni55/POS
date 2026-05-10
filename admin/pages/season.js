@@ -132,6 +132,16 @@ function render(){
       </div>
     </div>
 
+    <!-- Predaj podla kategorie — pre fotku majitelovi: hned za KPI kartami
+         vidi kolko sa predalo burgerov, salatov, pizz, kavy, piva atd. -->
+    <div class="panel" style="margin-bottom:16px">
+      <div class="panel-title">Predaj podľa kategórie</div>
+      <div style="font-size:12px;color:var(--color-text-sec);margin-top:-8px;margin-bottom:14px">
+        koľko kusov a koľko tržieb dostal každý druh tovaru za sezónu
+      </div>
+      ${renderCategoryBreakdown(d.products || [], trzba)}
+    </div>
+
     <!-- Daily revenue chart panel -->
     <div class="panel" style="margin-bottom:16px">
       <div class="panel-title">Tržby po dňoch</div>
@@ -221,6 +231,82 @@ function renderDayCard(day, kind, title){
         <tr>
           <td>Výsledok</td>
           <td class="num text-right" style="color:${profitColor}">${profit >= 0 ? '+' : ''}${fmtEur(profit)}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>`;
+}
+
+// === Predaj podla kategorie — agregacia products[] per category ===
+// Pre majitela: jednoznacny pohlad kolko sa predalo "burgrov", "salatov",
+// "kávy" atď. Sortuje podla trzieb zostupne, aby najziskovejsie kategorie
+// vyplavali nahor.
+function renderCategoryBreakdown(products, totalRev){
+  if (!products.length) {
+    return '<div class="td-empty" style="padding:30px;text-align:center;color:var(--color-text-dim)">Žiadne dáta</div>';
+  }
+  // Agreguj per kategoria
+  const byCategory = new Map();
+  for (const p of products) {
+    const cat = p.category || 'Bez kategórie';
+    if (!byCategory.has(cat)) {
+      byCategory.set(cat, { name: cat, qty: 0, revenue: 0, cogs: 0, profit: 0 });
+    }
+    const agg = byCategory.get(cat);
+    agg.qty += Number(p.qty) || 0;
+    agg.revenue += Number(p.revenue) || 0;
+    agg.cogs += Number(p.cogs) || 0;
+    agg.profit += Number(p.profit) || 0;
+  }
+  const rows = Array.from(byCategory.values()).sort((a,b) => b.revenue - a.revenue);
+  const maxRev = Math.max(...rows.map(r => r.revenue), 1);
+
+  let totalQty = 0, totalRevSum = 0, totalCogs = 0, totalProfit = 0;
+  const tbody = rows.map(r => {
+    totalQty += r.qty;
+    totalRevSum += r.revenue;
+    totalCogs += r.cogs;
+    totalProfit += r.profit;
+    const w = (r.revenue / maxRev) * 100;
+    const pct = totalRev > 0 ? (r.revenue / totalRev) * 100 : 0;
+    const margin = r.revenue > 0 ? (r.profit / r.revenue) * 100 : 0;
+    const profitColor = r.profit >= 0 ? 'var(--color-success)' : 'var(--color-danger)';
+    return `<tr>
+      <td class="td-name" style="font-weight:var(--weight-semibold)">${escapeHtml(r.name)}</td>
+      <td class="num text-right" style="font-weight:var(--weight-bold)">${fmtInt(r.qty)} ks</td>
+      <td class="text-right" style="min-width:160px">
+        <div class="progress-wrap"><div class="progress-fill" style="width:${w}%"></div></div>
+        <div class="num" style="font-size:13px;margin-top:4px;font-weight:var(--weight-semibold)">${fmtEur(r.revenue)}</div>
+        <div style="font-size:10px;color:var(--color-text-dim)">${pct.toFixed(1)} % z tržieb</div>
+      </td>
+      <td class="num text-right" style="color:var(--color-text-sec)">${fmtEur(r.cogs)}</td>
+      <td class="num text-right" style="color:${profitColor};font-weight:var(--weight-bold)">${r.profit >= 0 ? '+' : ''}${fmtEur(r.profit)}</td>
+      <td class="num text-right" style="color:${profitColor}">${margin.toFixed(0)} %</td>
+    </tr>`;
+  }).join('');
+
+  const totalMargin = totalRevSum > 0 ? (totalProfit / totalRevSum) * 100 : 0;
+  return `<div class="table-scroll-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Kategória</th>
+          <th class="text-right">Predané</th>
+          <th class="text-right">Tržby</th>
+          <th class="text-right">Suroviny</th>
+          <th class="text-right">Zisk</th>
+          <th class="text-right">Marža</th>
+        </tr>
+      </thead>
+      <tbody>${tbody}</tbody>
+      <tfoot>
+        <tr>
+          <td>Spolu</td>
+          <td class="num text-right" style="font-weight:var(--weight-bold)">${fmtInt(totalQty)} ks</td>
+          <td class="num text-right" style="font-weight:var(--weight-bold);color:var(--color-text)">${fmtEur(totalRevSum)}</td>
+          <td class="num text-right" style="color:var(--color-text-sec)">${fmtEur(totalCogs)}</td>
+          <td class="num text-right" style="font-weight:var(--weight-bold);color:${totalProfit >= 0 ? 'var(--color-success)' : 'var(--color-danger)'}">${totalProfit >= 0 ? '+' : ''}${fmtEur(totalProfit)}</td>
+          <td class="num text-right" style="font-weight:var(--weight-bold);color:${totalMargin >= 0 ? 'var(--color-success)' : 'var(--color-danger)'}">${totalMargin.toFixed(0)} %</td>
         </tr>
       </tfoot>
     </table>

@@ -61,6 +61,11 @@ router.get('/summary', mgr, async (req, res) => {
   // wants the full list, NOT a top-10 cap. The dashboard widget that
   // shows "top products today" is responsible for slicing on its end.
   // Joins menu_categories so each row carries a category label for the UI.
+  // Vylucujeme staff_meal ordery zo sales-side topItems — tak rovnako ako pri
+  // cogsRows. Staff_meal je naklad firmy (benefit), nie predaj — keby ich
+  // pripocitavali, kategoria breakdown by inflatoval qty (sef by si myslel
+  // ze sa predalo viac ako naozaj). Reportova "Zamestnanecka spotreba"
+  // panel uz zobrazuje staff_meal naklady oddelene.
   const topItems = await db.select({
     name: menuItems.name,
     emoji: menuItems.emoji,
@@ -72,7 +77,7 @@ router.get('/summary', mgr, async (req, res) => {
   .innerJoin(menuItems, eq(orderItems.menuItemId, menuItems.id))
   .innerJoin(menuCategories, eq(menuItems.categoryId, menuCategories.id))
   .innerJoin(orders, eq(orderItems.orderId, orders.id))
-  .where(sql`${orders.createdAt} >= ${fromBoundary} AND ${orders.createdAt} <= ${toBoundary} AND ${orders.status} != 'cancelled'`)
+  .where(sql`${orders.createdAt} >= ${fromBoundary} AND ${orders.createdAt} <= ${toBoundary} AND ${orders.status} != 'cancelled' AND COALESCE(${orders.closureType}, 'paid') != 'staff_meal'`)
   .groupBy(menuItems.name, menuItems.emoji, menuCategories.label)
   .orderBy(desc(sql`SUM(${orderItems.qty})`));
 
