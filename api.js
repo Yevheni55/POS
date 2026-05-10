@@ -315,6 +315,13 @@ const api = {
     return this.post('/payments/' + paymentId + '/refiscalize', {});
   },
 
+  // Zmena sposobu platby na uz vytlacenom doklade. Backend (POST
+  // /payments/:id/change-method) urobi: storno povodneho dokladu cez Portos
+  // → novy sale doklad s novym sposobom → UPDATE payments.method.
+  changePaymentMethod(paymentId, newMethod) {
+    return this.post('/payments/' + paymentId + '/change-method', { newMethod: newMethod });
+  },
+
   invalidateMenu() {
     this._menuCache = null;
     this._menuCacheTime = 0;

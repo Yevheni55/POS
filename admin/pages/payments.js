@@ -80,6 +80,14 @@ function actionsCell(item) {
     var btnTone = needsRefiscalize ? 'background:var(--color-warning,#E0A830)' : '';
     html += '<button class="btn-save btn-sm" data-payment-refiscalize="' + item.id + '" style="margin-right:6px;' + btnTone + '" title="Pošle nový fiškálny request a vytlačí blok">Re-fiškalizovať</button>';
   }
+  // Zmena sposobu platby — dostupna iba ak je platba storno-eligible
+  // (= povodny doklad je v stave kde sa da storno + nie je uz stornovany).
+  // Backend urobi: storno povodneho + novy sale s novym sposobom.
+  if (item.stornoEligible) {
+    var swapTo = item.method === 'hotovost' ? 'karta' : 'hotovost';
+    var swapLabel = item.method === 'hotovost' ? 'Karta' : 'Hotovost';
+    html += '<button class="btn-save btn-sm" data-payment-change-method="' + item.id + '" data-new-method="' + swapTo + '" style="margin-right:6px;background:var(--color-accent,#8b7cf6)" title="Storno povodneho dokladu + novy doklad s novym sposobom">→ ' + swapLabel + '</button>';
+  }
   if (item.stornoEligible) {
     html += '<button class="btn-save btn-sm" data-payment-storno="' + item.id + '" style="background:var(--color-danger,#c44)">STORNO</button>';
   } else if (item.storno) {
@@ -201,6 +209,30 @@ function confirmRefiscalize(id) {
   );
 }
 
+// Zmena sposobu platby na uz vytlacenom doklade. Ukaze potvrdzovaci modal
+// (volaca operacia stornuje povodny doklad cez Portos a vytlaci novy s
+// novym sposobom — preto manazerske confirm-uje).
+function confirmChangeMethod(id, newMethod) {
+  var newLabel = newMethod === 'karta' ? 'Karta' : 'Hotovost';
+  showConfirm(
+    'Zmena spôsobu platby',
+    'Zmeniť platbu #' + id + ' na <strong>' + newLabel + '</strong>?<br><br>'
+    + 'Operácia: stornuje pôvodný fiškálny doklad cez Portos a vystaví nový s novým spôsobom platby. Vytlačia sa <strong>2 doklady</strong> na CHDU (storno + nový).',
+    async function () {
+      try {
+        var r = await api.changePaymentMethod(id, newMethod);
+        var st = (r && r.fiscal && r.fiscal.status) || 'ok';
+        showToast('Spôsob zmenený na ' + newLabel + ' (' + st + ')', true);
+        await loadHistory();
+      } catch (e) {
+        var msg = (e && e.data && (e.data.error || e.data.detail)) || e.message || 'Chyba pri zmene spôsobu';
+        showToast(msg, 'error');
+      }
+    },
+    { type: 'danger', confirmText: 'Zmeniť na ' + newLabel },
+  );
+}
+
 function confirmStorno(id) {
   showConfirm(
     'Fiškálne STORNO',
@@ -221,6 +253,14 @@ function confirmStorno(id) {
 }
 
 function onClick(event) {
+  var changeMethod = event.target.closest('[data-payment-change-method]');
+  if (changeMethod) {
+    confirmChangeMethod(
+      Number(changeMethod.dataset.paymentChangeMethod),
+      changeMethod.dataset.newMethod,
+    );
+    return;
+  }
   var storno = event.target.closest('[data-payment-storno]');
   if (storno) {
     confirmStorno(Number(storno.dataset.paymentStorno));
