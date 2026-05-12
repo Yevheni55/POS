@@ -1,0 +1,1758 @@
+<!DOCTYPE html>
+<html lang="sk" data-theme="lighthouse">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Atelier POS — Design Demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* ========================================================================
+   ATELIER POS — Multi-tenant design system
+   Tokens architecture:
+     base.css   (depth, text, spacing, radius — IMMUTABLE)
+     theme-*    (data-theme="<name>" — accent, semantic mappings)
+   This demo is a single file for review; production splits per tenant.
+   ======================================================================== */
+
+/* === BASE TOKENS (universal) === */
+:root {
+  /* Spacing — 4 px modular scale */
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10: 40px;
+  --space-12: 48px; --space-16: 64px; --space-20: 80px;
+
+  /* Radius scale — soft, organic */
+  --radius-xs: 6px;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+
+  /* Type scale — display + body + mono */
+  --font-display: 'Outfit', system-ui, sans-serif;
+  --font-body: 'Outfit', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  --text-xs: 11px; --text-sm: 13px; --text-base: 15px;
+  --text-md: 16px; --text-lg: 18px; --text-xl: 22px;
+  --text-2xl: 28px; --text-3xl: 36px; --text-4xl: 48px;
+  --text-5xl: 64px; --text-6xl: 80px;
+
+  --weight-regular: 400; --weight-medium: 500;
+  --weight-semibold: 600; --weight-bold: 700; --weight-extrabold: 800;
+
+  --tracking-tight: -0.02em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.04em;
+  --tracking-uppercase: 0.08em;
+
+  --leading-tight: 1.1;
+  --leading-normal: 1.35;
+  --leading-relaxed: 1.5;
+
+  /* Motion */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-out: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --t-fast: 120ms;
+  --t-base: 220ms;
+  --t-slow: 360ms;
+
+  /* Shadow tokens (semantic) */
+  --shadow-card: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -8px rgba(0,0,0,.4);
+  --shadow-lifted: 0 4px 12px rgba(0,0,0,.35), 0 24px 48px -12px rgba(0,0,0,.55);
+  --shadow-glow-accent: 0 0 0 1px var(--accent-primary-soft),
+                         0 8px 24px -4px color-mix(in oklab, var(--accent-primary) 35%, transparent);
+}
+
+/* === THEME: LIGHTHOUSE (default — universal premium dark) === */
+:root[data-theme="lighthouse"] {
+  --depth-1: #0c0e12;
+  --depth-2: #131720;
+  --depth-3: #1a2030;
+  --depth-4: #232b3d;
+  --depth-5: #2d3650;
+
+  --text-primary: #f0ece4;
+  --text-secondary: #a8a497;
+  --text-dim: #6b6759;
+  --text-on-accent: #ffffff;
+
+  --accent-primary: #6b9080;
+  --accent-primary-soft: rgba(107, 144, 128, .18);
+  --accent-primary-strong: #80a896;
+
+  --accent-secondary: #d9a566;
+  --accent-secondary-soft: rgba(217, 165, 102, .18);
+  --accent-secondary-strong: #e6b878;
+
+  --status-success: #5fae8c;
+  --status-warning: #d9a566;
+  --status-danger: #cf6b5f;
+  --status-info: #6b8fa0;
+
+  --border-subtle: rgba(255, 255, 255, .06);
+  --border-default: rgba(255, 255, 255, .10);
+  --border-strong: rgba(255, 255, 255, .18);
+
+  --theme-name: 'Lighthouse';
+  --theme-desc: 'Univerzálny premium — sage + amber. Default pre väčšinu podnikov.';
+
+  --bg-ambient: radial-gradient(ellipse 80% 60% at 30% 10%, rgba(107,144,128,.06) 0%, transparent 60%),
+                radial-gradient(ellipse 60% 80% at 80% 90%, rgba(217,165,102,.04) 0%, transparent 50%),
+                var(--depth-1);
+}
+
+/* === THEME: ESPRESSO (coffee shop) === */
+:root[data-theme="espresso"] {
+  --depth-1: #1a120a;
+  --depth-2: #251a10;
+  --depth-3: #322316;
+  --depth-4: #3f2d1c;
+  --depth-5: #4e3a26;
+
+  --text-primary: #f5ebd4;
+  --text-secondary: #c2a878;
+  --text-dim: #7a6647;
+  --text-on-accent: #1a120a;
+
+  --accent-primary: #e8c97a;
+  --accent-primary-soft: rgba(232, 201, 122, .16);
+  --accent-primary-strong: #f0d690;
+
+  --accent-secondary: #c4634a;
+  --accent-secondary-soft: rgba(196, 99, 74, .18);
+  --accent-secondary-strong: #d4795e;
+
+  --status-success: #8aae5f;
+  --status-warning: #e8a05f;
+  --status-danger: #c44a3f;
+  --status-info: #b89a6a;
+
+  --border-subtle: rgba(245, 235, 212, .05);
+  --border-default: rgba(245, 235, 212, .10);
+  --border-strong: rgba(245, 235, 212, .20);
+
+  --theme-name: 'Espresso';
+  --theme-desc: 'Kaviareň, espresso bar — dark roast brown + cream + terracotta. Vôňa kávy v UI.';
+
+  --bg-ambient: radial-gradient(ellipse 80% 60% at 30% 10%, rgba(232,201,122,.06) 0%, transparent 60%),
+                radial-gradient(ellipse 60% 80% at 80% 90%, rgba(196,99,74,.04) 0%, transparent 50%),
+                var(--depth-1);
+}
+
+/* === THEME: GREENROOM (fine dining) === */
+:root[data-theme="greenroom"] {
+  --depth-1: #0a1410;
+  --depth-2: #0f1d16;
+  --depth-3: #142820;
+  --depth-4: #1c352b;
+  --depth-5: #264538;
+
+  --text-primary: #f0e8d4;
+  --text-secondary: #b8a884;
+  --text-dim: #6e6248;
+  --text-on-accent: #0a1410;
+
+  --accent-primary: #c9a55c;
+  --accent-primary-soft: rgba(201, 165, 92, .16);
+  --accent-primary-strong: #d4b370;
+
+  --accent-secondary: #8aae8e;
+  --accent-secondary-soft: rgba(138, 174, 142, .18);
+  --accent-secondary-strong: #9cbf9f;
+
+  --status-success: #8aae8e;
+  --status-warning: #c9a55c;
+  --status-danger: #b85a4e;
+  --status-info: #7d9a8a;
+
+  --border-subtle: rgba(240, 232, 212, .05);
+  --border-default: rgba(240, 232, 212, .10);
+  --border-strong: rgba(240, 232, 212, .20);
+
+  --theme-name: 'Greenroom';
+  --theme-desc: 'Fine dining — midnight forest + sage gold + brass. Pôsobí draho ako vaše menu.';
+
+  --bg-ambient: radial-gradient(ellipse 80% 60% at 30% 10%, rgba(201,165,92,.05) 0%, transparent 60%),
+                radial-gradient(ellipse 60% 80% at 80% 90%, rgba(138,174,142,.04) 0%, transparent 50%),
+                var(--depth-1);
+}
+
+/* === THEME: NEON LAB (nightlife bar / club) === */
+:root[data-theme="neon"] {
+  --depth-1: #000000;
+  --depth-2: #0a0a0f;
+  --depth-3: #14141f;
+  --depth-4: #1f1f30;
+  --depth-5: #2a2a42;
+
+  --text-primary: #ffffff;
+  --text-secondary: #b8b8d4;
+  --text-dim: #5a5a78;
+  --text-on-accent: #000000;
+
+  --accent-primary: #00e0d4;
+  --accent-primary-soft: rgba(0, 224, 212, .14);
+  --accent-primary-strong: #4fede4;
+
+  --accent-secondary: #ff3d8a;
+  --accent-secondary-soft: rgba(255, 61, 138, .14);
+  --accent-secondary-strong: #ff6ea3;
+
+  --status-success: #00e0a4;
+  --status-warning: #ffb800;
+  --status-danger: #ff3d3d;
+  --status-info: #00b8e0;
+
+  --border-subtle: rgba(255, 255, 255, .06);
+  --border-default: rgba(255, 255, 255, .12);
+  --border-strong: rgba(255, 255, 255, .22);
+
+  --theme-name: 'Neon Lab';
+  --theme-desc: 'Lounge bar, klub — true black + electric cyan + hot pink. Klubový high-contrast.';
+
+  --bg-ambient: radial-gradient(ellipse 60% 50% at 20% 10%, rgba(0,224,212,.08) 0%, transparent 50%),
+                radial-gradient(ellipse 50% 60% at 85% 90%, rgba(255,61,138,.06) 0%, transparent 50%),
+                var(--depth-1);
+}
+
+/* === THEME: DAYLIGHT (outdoor cafe, food truck — LIGHT MODE) === */
+:root[data-theme="daylight"] {
+  --depth-1: #f5efe3;
+  --depth-2: #ece4d2;
+  --depth-3: #e0d6bf;
+  --depth-4: #d4c8ad;
+  --depth-5: #c5b698;
+
+  --text-primary: #1e1812;
+  --text-secondary: #5a4f3c;
+  --text-dim: #8a7d65;
+  --text-on-accent: #f5efe3;
+
+  --accent-primary: #b8542a;
+  --accent-primary-soft: rgba(184, 84, 42, .14);
+  --accent-primary-strong: #cc6638;
+
+  --accent-secondary: #1f3a5c;
+  --accent-secondary-soft: rgba(31, 58, 92, .12);
+  --accent-secondary-strong: #2e4d72;
+
+  --status-success: #4a7a3a;
+  --status-warning: #b87c1a;
+  --status-danger: #b03830;
+  --status-info: #3a5a7a;
+
+  --border-subtle: rgba(30, 24, 18, .06);
+  --border-default: rgba(30, 24, 18, .10);
+  --border-strong: rgba(30, 24, 18, .18);
+
+  --theme-name: 'Daylight';
+  --theme-desc: 'Exteriér kaviareň, food truck — warm cream linen + terra + navy. Slnko-čitateľné light mode.';
+
+  --bg-ambient: radial-gradient(ellipse 80% 60% at 30% 10%, rgba(184,84,42,.05) 0%, transparent 60%),
+                radial-gradient(ellipse 60% 80% at 80% 90%, rgba(31,58,92,.04) 0%, transparent 50%),
+                var(--depth-1);
+}
+
+/* === THEME: LAKE (Surf Spirit / Drazdiak — original) === */
+:root[data-theme="lake"] {
+  --depth-1: #061015;
+  --depth-2: #0a1820;
+  --depth-3: #0f242e;
+  --depth-4: #15323e;
+  --depth-5: #1d4252;
+
+  --text-primary: #e8f2f5;
+  --text-secondary: #9ab5c0;
+  --text-dim: #5a7580;
+  --text-on-accent: #061015;
+
+  --accent-primary: #3a9bb8;
+  --accent-primary-soft: rgba(58, 155, 184, .18);
+  --accent-primary-strong: #58b0c8;
+
+  --accent-secondary: #ff9558;
+  --accent-secondary-soft: rgba(255, 149, 88, .16);
+  --accent-secondary-strong: #ffaa75;
+
+  --status-success: #4eb89a;
+  --status-warning: #ffb466;
+  --status-danger: #e26a5c;
+  --status-info: #6ba8c4;
+
+  --border-subtle: rgba(232, 242, 245, .05);
+  --border-default: rgba(232, 242, 245, .10);
+  --border-strong: rgba(232, 242, 245, .20);
+
+  --theme-name: 'Lake';
+  --theme-desc: 'Surf Spirit / Draždiak — deep teal + tide blue + dawn peach. Voda pri svitaní.';
+
+  --bg-ambient: radial-gradient(ellipse 80% 60% at 30% 10%, rgba(58,155,184,.08) 0%, transparent 60%),
+                radial-gradient(ellipse 60% 80% at 80% 90%, rgba(255,149,88,.05) 0%, transparent 50%),
+                var(--depth-1);
+}
+
+/* === RESET === */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+html { font-family: var(--font-body); }
+body {
+  background: var(--bg-ambient);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'cv11', 'ss01', 'ss03';
+  min-height: 100vh;
+  transition: background var(--t-base) var(--ease-out),
+              color var(--t-base) var(--ease-out);
+}
+
+/* === DEMO LAYOUT === */
+.demo-shell {
+  max-width: 1480px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-6) var(--space-20);
+}
+
+.demo-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4) 0 var(--space-8);
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: var(--space-8);
+  flex-wrap: wrap;
+}
+.demo-brand {
+  display: flex; align-items: center; gap: var(--space-3);
+}
+.demo-logo {
+  width: 44px; height: 44px;
+  background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+  border-radius: var(--radius-md);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-on-accent);
+  font-family: var(--font-display);
+  font-weight: var(--weight-extrabold);
+  font-size: 16px;
+  letter-spacing: -0.02em;
+  box-shadow: var(--shadow-glow-accent);
+  transition: background var(--t-base);
+}
+.demo-title {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-tight);
+}
+.demo-tagline {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+/* Theme picker */
+.theme-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: flex-end;
+}
+.theme-chips {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.theme-chip {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  padding: 8px 14px;
+  background: var(--depth-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--t-fast);
+  font-feature-settings: 'cv11';
+}
+.theme-chip:hover { background: var(--depth-3); color: var(--text-primary); }
+.theme-chip.is-active {
+  background: var(--accent-primary-soft);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary-strong);
+}
+.theme-chip-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--swatch);
+  box-shadow: 0 0 0 1px var(--border-default);
+}
+.theme-meta {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  max-width: 360px;
+  text-align: right;
+  line-height: var(--leading-relaxed);
+}
+
+/* === SECTIONS === */
+.section {
+  margin-bottom: var(--space-16);
+}
+.section-eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--accent-primary);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-uppercase);
+  margin-bottom: var(--space-2);
+}
+.section-title {
+  font-family: var(--font-display);
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--leading-tight);
+  margin-bottom: var(--space-3);
+}
+.section-desc {
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  max-width: 720px;
+  line-height: var(--leading-relaxed);
+  margin-bottom: var(--space-8);
+}
+
+/* === PALETTE SHOWCASE === */
+.palette-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-4);
+}
+.palette-card {
+  background: var(--depth-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  transition: transform var(--t-base);
+}
+.palette-card:hover { transform: translateY(-2px); }
+.palette-swatch {
+  height: 80px;
+  position: relative;
+}
+.palette-meta {
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+}
+.palette-name {
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+.palette-hex {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+/* === TYPOGRAPHY SAMPLER === */
+.typo-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  background: var(--depth-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-8);
+}
+.typo-row {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  align-items: baseline;
+  gap: var(--space-6);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px dashed var(--border-subtle);
+}
+.typo-row:last-child { border-bottom: none; padding-bottom: 0; }
+.typo-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-uppercase);
+}
+.t-display-xl { font-family: var(--font-display); font-size: var(--text-6xl); font-weight: var(--weight-extrabold); letter-spacing: -0.04em; line-height: 1; }
+.t-display-lg { font-family: var(--font-display); font-size: var(--text-4xl); font-weight: var(--weight-bold); letter-spacing: var(--tracking-tight); }
+.t-body-lg { font-size: var(--text-lg); }
+.t-body { font-size: var(--text-md); color: var(--text-secondary); line-height: var(--leading-relaxed); }
+.t-mono { font-family: var(--font-mono); font-size: var(--text-2xl); font-weight: var(--weight-medium); font-variant-numeric: tabular-nums; }
+.t-eyebrow { font-family: var(--font-body); font-size: var(--text-xs); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: var(--tracking-uppercase); color: var(--accent-primary); }
+
+/* === COMPONENT SAMPLER === */
+.components-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--space-5);
+}
+.comp-tile {
+  background: var(--depth-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-6);
+}
+.comp-tile-title {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-uppercase);
+  margin-bottom: var(--space-4);
+}
+
+/* BigNumber */
+.big-number {
+  font-family: var(--font-mono);
+  font-size: var(--text-6xl);
+  font-weight: var(--weight-bold);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.big-number-currency {
+  font-size: var(--text-3xl);
+  color: var(--text-secondary);
+  margin-left: 4px;
+  font-weight: var(--weight-medium);
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: var(--font-body);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  padding: 12px 22px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all var(--t-fast);
+  min-height: 48px;
+  font-feature-settings: 'cv11';
+}
+.btn-primary {
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+  border-color: var(--accent-primary);
+}
+.btn-primary:hover { background: var(--accent-primary-strong); box-shadow: var(--shadow-glow-accent); }
+.btn-secondary {
+  background: var(--accent-secondary);
+  color: var(--text-on-accent);
+}
+.btn-secondary:hover { background: var(--accent-secondary-strong); }
+.btn-ghost {
+  background: transparent;
+  color: var(--text-primary);
+  border-color: var(--border-default);
+}
+.btn-ghost:hover { background: var(--depth-3); border-color: var(--border-strong); }
+.btn-danger {
+  background: transparent;
+  color: var(--status-danger);
+  border: 1px dashed color-mix(in oklab, var(--status-danger) 40%, transparent);
+}
+.btn-danger:hover { background: color-mix(in oklab, var(--status-danger) 12%, transparent); border-style: solid; }
+
+/* Status badges */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+}
+.badge-success { color: var(--status-success); background: color-mix(in oklab, var(--status-success) 12%, transparent); border-color: color-mix(in oklab, var(--status-success) 30%, transparent); }
+.badge-warning { color: var(--status-warning); background: color-mix(in oklab, var(--status-warning) 12%, transparent); border-color: color-mix(in oklab, var(--status-warning) 30%, transparent); }
+.badge-danger  { color: var(--status-danger);  background: color-mix(in oklab, var(--status-danger) 12%, transparent);  border-color: color-mix(in oklab, var(--status-danger) 30%, transparent); }
+.badge-info    { color: var(--status-info);    background: color-mix(in oklab, var(--status-info) 12%, transparent);    border-color: color-mix(in oklab, var(--status-info) 30%, transparent); }
+
+/* Stepper */
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  background: var(--depth-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+}
+.stepper-btn {
+  width: 44px; height: 44px;
+  background: color-mix(in oklab, var(--accent-primary) 14%, transparent);
+  border: 1px solid color-mix(in oklab, var(--accent-primary) 30%, transparent);
+  border-radius: var(--radius-sm);
+  color: var(--accent-primary-strong);
+  font-size: 22px;
+  font-weight: var(--weight-bold);
+  cursor: pointer;
+  transition: all var(--t-fast);
+  font-family: inherit;
+}
+.stepper-btn:hover { background: color-mix(in oklab, var(--accent-primary) 22%, transparent); }
+.stepper-val {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-bold);
+  min-width: 50px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Buttons row helper */
+.row { display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center; }
+
+/* === MOCKUP DEVICE FRAMING === */
+.mock-frame {
+  background: var(--depth-2);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-default);
+  padding: 2px;
+  box-shadow: var(--shadow-lifted);
+  overflow: hidden;
+}
+.mock-body {
+  background: var(--bg-ambient);
+  border-radius: calc(var(--radius-xl) - 2px);
+  overflow: hidden;
+  position: relative;
+}
+
+/* ============================================================
+   POS MOCKUPS — Floor / Products / Order / Payment
+   ============================================================ */
+
+/* Generic POS header inside mockup */
+.pos-mock-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: var(--space-4) var(--space-5);
+  background: linear-gradient(180deg, var(--depth-2) 0%, transparent 100%);
+  border-bottom: 1px solid var(--border-subtle);
+  gap: var(--space-4);
+}
+.pos-mock-clock {
+  font-family: var(--font-mono);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+.pos-mock-user {
+  display: flex; align-items: center; gap: 8px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.pos-mock-avatar {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: var(--weight-bold);
+  color: var(--text-on-accent);
+}
+
+/* ============= FLOOR VIEW ============= */
+.floor-mock { display: grid; grid-template-columns: 220px 1fr; min-height: 580px; }
+.floor-zones {
+  background: var(--depth-2);
+  border-right: 1px solid var(--border-subtle);
+  padding: var(--space-5) var(--space-3);
+  display: flex; flex-direction: column; gap: var(--space-1);
+}
+.zone-pill {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--t-fast);
+  border: 1px solid transparent;
+}
+.zone-pill:hover { background: var(--depth-3); color: var(--text-primary); }
+.zone-pill.is-active {
+  background: var(--accent-primary-soft);
+  border-color: color-mix(in oklab, var(--accent-primary) 28%, transparent);
+  color: var(--accent-primary-strong);
+}
+.zone-icon {
+  width: 26px; height: 26px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--accent-primary) 14%, transparent);
+  font-size: 14px;
+}
+.zone-pill.is-active .zone-icon { background: var(--accent-primary); color: var(--text-on-accent); }
+
+.floor-canvas {
+  position: relative;
+  padding: var(--space-6);
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: var(--space-4);
+  align-content: start;
+}
+.table-tile {
+  background: var(--depth-2);
+  border: 1px solid var(--border-default);
+  border-radius: 20px 22px 24px 18px; /* organic asymmetric */
+  padding: var(--space-4);
+  min-height: 130px;
+  display: flex; flex-direction: column;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: transform var(--t-fast), box-shadow var(--t-base), border-color var(--t-fast);
+  position: relative;
+  overflow: hidden;
+}
+.table-tile::before {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(ellipse 80% 40% at 30% 20%, rgba(255,255,255,.04) 0%, transparent 60%);
+  pointer-events: none;
+}
+.table-tile:hover { transform: translateY(-3px); box-shadow: var(--shadow-card); }
+.table-tile.s-occupied {
+  border-color: color-mix(in oklab, var(--accent-secondary) 35%, transparent);
+  background: linear-gradient(135deg, var(--depth-3), color-mix(in oklab, var(--accent-secondary) 8%, var(--depth-2)));
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent-secondary) 18%, transparent);
+}
+.table-tile.s-reserved {
+  border-color: color-mix(in oklab, var(--status-info) 35%, transparent);
+}
+.table-tile.s-attention {
+  border-color: var(--status-warning);
+  animation: tablePulse 2.5s ease-in-out infinite;
+}
+@keyframes tablePulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--status-warning) 40%, transparent); }
+  50% { box-shadow: 0 0 0 6px color-mix(in oklab, var(--status-warning) 0%, transparent); }
+}
+.table-name {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-tight);
+}
+.table-amt {
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  color: var(--accent-secondary-strong);
+  font-variant-numeric: tabular-nums;
+}
+.table-meta-row {
+  display: flex; justify-content: space-between; align-items: end;
+  gap: var(--space-2);
+}
+.table-seats {
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+  display: inline-flex; align-items: center; gap: 4px;
+}
+
+/* Storno chip floats in top-right of floor */
+.storno-chip {
+  position: absolute; top: var(--space-5); right: var(--space-5);
+  background: color-mix(in oklab, var(--status-danger) 14%, var(--depth-2));
+  border: 1px solid color-mix(in oklab, var(--status-danger) 35%, transparent);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  display: flex; flex-direction: column; align-items: center;
+  cursor: pointer;
+  transition: transform var(--t-fast);
+}
+.storno-chip:hover { transform: scale(1.04); }
+.storno-label {
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--status-danger);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-uppercase);
+}
+.storno-val {
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  font-weight: var(--weight-bold);
+  color: var(--text-primary);
+  margin-top: 2px;
+}
+
+/* ============= PRODUCTS VIEW ============= */
+.products-mock {
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  min-height: 620px;
+}
+.products-pane {
+  padding: var(--space-5);
+  border-right: 1px solid var(--border-subtle);
+}
+.search-hero {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  background: var(--depth-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-5);
+  transition: all var(--t-fast);
+}
+.search-hero:focus-within {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 4px var(--accent-primary-soft);
+}
+.search-hero input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: var(--text-lg);
+}
+.search-hero input::placeholder { color: var(--text-dim); }
+.search-icon {
+  width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--accent-primary);
+}
+
+.cat-rail {
+  display: flex; gap: var(--space-2);
+  overflow-x: auto;
+  padding-bottom: var(--space-3);
+  margin-bottom: var(--space-5);
+  scrollbar-width: thin;
+}
+.cat-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 18px;
+  background: var(--depth-2);
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all var(--t-fast);
+}
+.cat-chip:hover { color: var(--text-primary); border-color: var(--border-strong); }
+.cat-chip.is-active {
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+  border-color: var(--accent-primary);
+  box-shadow: var(--shadow-glow-accent);
+}
+
+.products-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-3);
+}
+.prod-card {
+  background: linear-gradient(135deg, var(--depth-2), var(--depth-3));
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  cursor: pointer;
+  transition: all var(--t-fast);
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 120px;
+}
+.prod-card::before {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(ellipse 100% 60% at 80% 0%, color-mix(in oklab, var(--accent-secondary) 10%, transparent) 0%, transparent 60%);
+  opacity: 0;
+  transition: opacity var(--t-base);
+  pointer-events: none;
+}
+.prod-card:hover { transform: translateY(-2px); border-color: color-mix(in oklab, var(--accent-primary) 30%, transparent); }
+.prod-card:hover::before { opacity: 1; }
+.prod-card.is-featured {
+  grid-column: span 2;
+  background: linear-gradient(135deg, var(--depth-3), color-mix(in oklab, var(--accent-primary) 10%, var(--depth-4)));
+  border-color: color-mix(in oklab, var(--accent-primary) 22%, transparent);
+}
+.prod-icon {
+  width: 36px; height: 36px;
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--accent-primary) 14%, transparent);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+  color: var(--accent-primary-strong);
+}
+.prod-name {
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+}
+.prod-desc {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  line-height: var(--leading-relaxed);
+}
+.prod-price {
+  font-family: var(--font-mono);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
+  color: var(--text-primary);
+  margin-top: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Order panel (right column in products mock + standalone mock) */
+.order-mock {
+  background: var(--depth-2);
+  display: flex; flex-direction: column;
+  height: 100%;
+}
+.order-head {
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.order-head-row { display: flex; justify-content: space-between; align-items: flex-end; }
+.order-table-name {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
+}
+.order-subtitle {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-uppercase);
+  margin-top: 2px;
+}
+.order-tabs {
+  display: flex; gap: var(--space-2); margin-top: var(--space-3);
+}
+.order-tab {
+  padding: 6px 14px;
+  background: var(--depth-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.order-tab.is-active {
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+  border-color: var(--accent-primary);
+}
+
+.order-items {
+  flex: 1;
+  padding: var(--space-3) var(--space-4);
+  overflow-y: auto;
+  display: flex; flex-direction: column; gap: var(--space-1);
+}
+.order-row {
+  display: grid;
+  grid-template-columns: 36px 1fr auto auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--depth-3);
+  border: 1px solid var(--border-subtle);
+  transition: all var(--t-fast);
+  position: relative;
+}
+.order-row.is-sent {
+  background: color-mix(in oklab, var(--status-success) 8%, var(--depth-3));
+  border-color: color-mix(in oklab, var(--status-success) 24%, transparent);
+}
+.order-row.is-sent::before {
+  content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px;
+  background: var(--status-success);
+  border-radius: 0 4px 4px 0;
+}
+.order-row-icon {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--accent-primary) 12%, transparent);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px;
+  color: var(--accent-primary-strong);
+}
+.order-row-name {
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.order-row-qty {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  background: var(--depth-4);
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+}
+.order-row-amt {
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  font-weight: var(--weight-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+.order-shelf {
+  padding: var(--space-4) var(--space-5) var(--space-5);
+  background: linear-gradient(180deg, transparent 0%, var(--depth-1) 30%);
+  backdrop-filter: blur(8px);
+  border-top: 1px solid var(--border-subtle);
+}
+.order-subtotal-row {
+  display: flex; justify-content: space-between;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.order-discount-row {
+  display: flex; justify-content: space-between;
+  font-size: var(--text-sm);
+  color: var(--accent-secondary);
+  margin-bottom: var(--space-3);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.order-total {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-default);
+  margin-bottom: var(--space-4);
+}
+.order-total-label {
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-uppercase);
+  font-weight: var(--weight-semibold);
+}
+.order-total-amt {
+  font-family: var(--font-mono);
+  font-size: var(--text-5xl);
+  font-weight: var(--weight-bold);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.order-actions { display: flex; flex-direction: column; gap: 8px; }
+.order-action-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+/* ============= PAYMENT MODAL ============= */
+.modal-stage {
+  position: relative;
+  min-height: 580px;
+  background:
+    radial-gradient(ellipse 60% 40% at 50% 50%, color-mix(in oklab, var(--accent-primary) 14%, transparent) 0%, transparent 70%),
+    var(--depth-1);
+  display: flex; align-items: center; justify-content: center;
+  padding: var(--space-8);
+}
+.modal-island {
+  width: 460px;
+  background: linear-gradient(180deg, var(--depth-3) 0%, var(--depth-2) 100%);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xl);
+  padding: var(--space-8);
+  box-shadow: var(--shadow-lifted), 0 0 0 1px color-mix(in oklab, var(--accent-primary) 12%, transparent),
+              0 24px 80px -24px color-mix(in oklab, var(--accent-primary) 40%, transparent);
+  text-align: center;
+}
+.modal-eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--accent-primary);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-uppercase);
+  margin-bottom: var(--space-3);
+}
+.modal-amount {
+  font-family: var(--font-mono);
+  font-size: 72px;
+  font-weight: var(--weight-bold);
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  background: linear-gradient(180deg, var(--accent-secondary), var(--accent-secondary-strong));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: var(--space-2);
+}
+.modal-method {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-6);
+}
+.cash-input {
+  width: 100%;
+  background: var(--depth-1);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  text-align: center;
+  font-weight: var(--weight-bold);
+  color: var(--text-primary);
+  margin-bottom: var(--space-4);
+  font-variant-numeric: tabular-nums;
+}
+.numpad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: var(--space-5);
+}
+.numpad-key {
+  height: 56px;
+  background: var(--depth-4);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-bold);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all var(--t-fast);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.04), 0 1px 2px rgba(0,0,0,.2);
+}
+.numpad-key:hover { background: var(--depth-5); }
+.numpad-key:active { transform: translateY(1px); box-shadow: inset 0 1px 2px rgba(0,0,0,.2); }
+.numpad-key.is-special {
+  background: color-mix(in oklab, var(--accent-secondary) 18%, var(--depth-4));
+  color: var(--accent-secondary-strong);
+  border-color: color-mix(in oklab, var(--accent-secondary) 30%, transparent);
+}
+.change-box {
+  padding: var(--space-3);
+  background: var(--depth-1);
+  border: 1px solid color-mix(in oklab, var(--status-success) 28%, transparent);
+  border-radius: var(--radius-sm);
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin-bottom: var(--space-5);
+}
+.change-label {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-uppercase);
+  font-weight: var(--weight-semibold);
+}
+.change-amt {
+  font-family: var(--font-mono);
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-bold);
+  color: var(--status-success);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============= FOOTER / NOTE ============= */
+.demo-note {
+  margin-top: var(--space-8);
+  padding: var(--space-5);
+  background: var(--depth-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: var(--leading-relaxed);
+  display: flex; gap: var(--space-3); align-items: flex-start;
+}
+.demo-note-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--accent-primary);
+  flex-shrink: 0;
+  margin-top: 6px;
+  box-shadow: 0 0 0 4px var(--accent-primary-soft);
+}
+.demo-note strong { color: var(--text-primary); }
+
+/* Two-column mockup grid */
+.mock-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-6);
+  margin-top: var(--space-6);
+}
+@media (max-width: 1100px) {
+  .mock-row { grid-template-columns: 1fr; }
+  .products-mock { grid-template-columns: 1fr; }
+}
+
+/* Accessibility: focus rings */
+button:focus-visible,
+.theme-chip:focus-visible,
+.zone-pill:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0s !important; transition-duration: 0s !important; }
+}
+</style>
+</head>
+<body>
+
+<div class="demo-shell">
+
+  <!-- ===== HEADER ===== -->
+  <header class="demo-header">
+    <div class="demo-brand">
+      <div class="demo-logo">AT</div>
+      <div>
+        <div class="demo-title">Atelier POS — Design Demo</div>
+        <div class="demo-tagline">Multi-tenant design system · prepni theme vpravo</div>
+      </div>
+    </div>
+
+    <div class="theme-picker">
+      <div class="theme-chips" id="themeChips"></div>
+      <div class="theme-meta" id="themeMeta"></div>
+    </div>
+  </header>
+
+  <!-- ===== SECTION 1 — Palette ===== -->
+  <section class="section">
+    <div class="section-eyebrow">01 — Foundation</div>
+    <h2 class="section-title">Theme aktívneho tenanta</h2>
+    <p class="section-desc">
+      Každý tenant má svoju paletu. Core design language (typografia, layout, motion) ostáva univerzálny —
+      menia sa iba <strong>accent tokens</strong> a brand pack (logo, ilustrácie). Tokeny dole sa aktualizujú
+      v reálnom čase keď prepneš theme vpravo hore.
+    </p>
+
+    <div class="palette-grid">
+      <div class="palette-card">
+        <div class="palette-swatch" style="background: var(--accent-primary)"></div>
+        <div class="palette-meta"><span class="palette-name">Accent primary</span><span class="palette-hex" id="px-ap"></span></div>
+      </div>
+      <div class="palette-card">
+        <div class="palette-swatch" style="background: var(--accent-secondary)"></div>
+        <div class="palette-meta"><span class="palette-name">Accent secondary</span><span class="palette-hex" id="px-as"></span></div>
+      </div>
+      <div class="palette-card">
+        <div class="palette-swatch" style="background: var(--depth-1)"></div>
+        <div class="palette-meta"><span class="palette-name">Depth 1 — base</span><span class="palette-hex" id="px-d1"></span></div>
+      </div>
+      <div class="palette-card">
+        <div class="palette-swatch" style="background: var(--depth-3)"></div>
+        <div class="palette-meta"><span class="palette-name">Depth 3 — card</span><span class="palette-hex" id="px-d3"></span></div>
+      </div>
+      <div class="palette-card">
+        <div class="palette-swatch" style="background: var(--status-success)"></div>
+        <div class="palette-meta"><span class="palette-name">Status success</span><span class="palette-hex" id="px-su"></span></div>
+      </div>
+      <div class="palette-card">
+        <div class="palette-swatch" style="background: var(--status-danger)"></div>
+        <div class="palette-meta"><span class="palette-name">Status danger</span><span class="palette-hex" id="px-dn"></span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SECTION 2 — Typography ===== -->
+  <section class="section">
+    <div class="section-eyebrow">02 — Type language</div>
+    <h2 class="section-title">Typografia</h2>
+    <p class="section-desc">
+      <strong>Outfit</strong> pre display + body (charakterná neo-grotesque), <strong>JetBrains Mono</strong> pre všetky čísla
+      (ceny, qty, čas). Tabular numerics znamenajú že 1 zarovná s 9, suma sa nepohne keď cashier zmení qty.
+    </p>
+
+    <div class="typo-stack">
+      <div class="typo-row">
+        <div class="typo-label">Display XL</div>
+        <div class="t-display-xl">Atelier</div>
+      </div>
+      <div class="typo-row">
+        <div class="typo-label">Display LG</div>
+        <div class="t-display-lg">Stôl 5 · Účet 1</div>
+      </div>
+      <div class="typo-row">
+        <div class="typo-label">Body LG</div>
+        <div class="t-body-lg">Polooblačno, 18 °C, vietor 12 km/h. Storno bola dnes 3×.</div>
+      </div>
+      <div class="typo-row">
+        <div class="typo-label">Body</div>
+        <div class="t-body">Pri vlhkom prste sú všetky tap-zóny minimálne 44 px (WCAG / Apple). Klávesnice sú vlastné — žiadny Android KB nezakryje modal s výmenkom.</div>
+      </div>
+      <div class="typo-row">
+        <div class="typo-label">Tabular mono</div>
+        <div class="t-mono">128,50 € · 09:42 · 6/12</div>
+      </div>
+      <div class="typo-row">
+        <div class="typo-label">Eyebrow</div>
+        <div class="t-eyebrow">Tržby dňa · Hodina 14:00 · Účet 3</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SECTION 3 — Components ===== -->
+  <section class="section">
+    <div class="section-eyebrow">03 — Atomic library</div>
+    <h2 class="section-title">Komponenty</h2>
+    <p class="section-desc">
+      Univerzálne komponenty s theming hooks. Bar a kaviareň vyzerajú odlišne ale <strong>správajú sa identicky</strong> —
+      čašník zo Surf Spirit otvorí Espresso bar POS a okamžite vie ovládať.
+    </p>
+
+    <div class="components-grid">
+      <div class="comp-tile">
+        <div class="comp-tile-title">Suma celkom</div>
+        <div class="big-number">128,50<span class="big-number-currency">€</span></div>
+      </div>
+
+      <div class="comp-tile">
+        <div class="comp-tile-title">Akcie — buttons</div>
+        <div class="row">
+          <button class="btn btn-primary">Potvrdiť</button>
+          <button class="btn btn-secondary">Pošli</button>
+          <button class="btn btn-ghost">Spať</button>
+          <button class="btn btn-danger">Zrušiť</button>
+        </div>
+      </div>
+
+      <div class="comp-tile">
+        <div class="comp-tile-title">Status</div>
+        <div class="row">
+          <span class="badge badge-success">Odoslané</span>
+          <span class="badge badge-warning">Čaká</span>
+          <span class="badge badge-info">Rezervácia</span>
+          <span class="badge badge-danger">Storno</span>
+        </div>
+      </div>
+
+      <div class="comp-tile">
+        <div class="comp-tile-title">Qty stepper</div>
+        <div class="stepper">
+          <button class="stepper-btn">−</button>
+          <span class="stepper-val">3</span>
+          <button class="stepper-btn">+</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SECTION 4 — Floor mockup ===== -->
+  <section class="section">
+    <div class="section-eyebrow">04 — Surface · Stoly</div>
+    <h2 class="section-title">Floor view</h2>
+    <p class="section-desc">
+      Zóny vertikálne vľavo (šetrí horizontálny priestor). Stoly ako asymmetric organic shapes — voľný studený,
+      obsadený s teplým glow v secondary accent. „Forgotten table" má warning pulse.
+    </p>
+
+    <div class="mock-frame">
+      <div class="mock-body">
+        <div class="pos-mock-header">
+          <div class="row" style="gap:14px">
+            <div class="demo-logo" style="width:36px;height:36px;font-size:13px">AT</div>
+            <div style="font-family:var(--font-display);font-size:18px;font-weight:600">Mapa stolov</div>
+          </div>
+          <div class="row" style="gap:18px">
+            <div class="pos-mock-clock">14:42</div>
+            <div class="pos-mock-user"><div class="pos-mock-avatar">TA</div>Tania</div>
+          </div>
+        </div>
+
+        <div class="floor-mock">
+          <aside class="floor-zones">
+            <div class="zone-pill is-active"><span class="zone-icon">☀</span>Terasa</div>
+            <div class="zone-pill"><span class="zone-icon">⌂</span>Interiér</div>
+            <div class="zone-pill"><span class="zone-icon">♨</span>Bar</div>
+            <div class="zone-pill"><span class="zone-icon">⚇</span>Zamestnanci</div>
+          </aside>
+
+          <div class="floor-canvas">
+            <div class="table-tile">
+              <div class="table-name">1</div>
+              <div class="table-meta-row">
+                <span class="badge badge-info">Voľný</span>
+                <span class="table-seats">⚇ 4</span>
+              </div>
+            </div>
+            <div class="table-tile s-occupied">
+              <div>
+                <div class="table-name">2</div>
+                <div class="table-amt">42,80 €</div>
+              </div>
+              <div class="table-meta-row">
+                <span class="badge badge-warning">Obsad.</span>
+                <span class="table-seats">⚇ 2</span>
+              </div>
+            </div>
+            <div class="table-tile s-occupied s-attention">
+              <div>
+                <div class="table-name">3</div>
+                <div class="table-amt">78,40 €</div>
+              </div>
+              <div class="table-meta-row">
+                <span class="badge badge-warning">23 min</span>
+                <span class="table-seats">⚇ 4</span>
+              </div>
+            </div>
+            <div class="table-tile">
+              <div class="table-name">4</div>
+              <div class="table-meta-row">
+                <span class="badge badge-info">Voľný</span>
+                <span class="table-seats">⚇ 6</span>
+              </div>
+            </div>
+            <div class="table-tile s-reserved">
+              <div>
+                <div class="table-name">5</div>
+                <div class="table-amt" style="color:var(--status-info)">18:30</div>
+              </div>
+              <div class="table-meta-row">
+                <span class="badge badge-info">Rezerv.</span>
+                <span class="table-seats">⚇ 4</span>
+              </div>
+            </div>
+            <div class="table-tile s-occupied">
+              <div>
+                <div class="table-name">6</div>
+                <div class="table-amt">15,20 €</div>
+              </div>
+              <div class="table-meta-row">
+                <span class="badge badge-warning">Obsad.</span>
+                <span class="table-seats">⚇ 2</span>
+              </div>
+            </div>
+            <div class="table-tile">
+              <div class="table-name">7</div>
+              <div class="table-meta-row">
+                <span class="badge badge-info">Voľný</span>
+                <span class="table-seats">⚇ 4</span>
+              </div>
+            </div>
+            <div class="table-tile s-occupied">
+              <div>
+                <div class="table-name">8</div>
+                <div class="table-amt">96,10 €</div>
+              </div>
+              <div class="table-meta-row">
+                <span class="badge badge-warning">Obsad.</span>
+                <span class="table-seats">⚇ 6</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="storno-chip">
+            <div class="storno-label">Storno</div>
+            <div class="storno-val">2 · 8,40 €</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SECTION 5 — Products + Order ===== -->
+  <section class="section">
+    <div class="section-eyebrow">05 — Surface · Menu + košík</div>
+    <h2 class="section-title">Products & Order panel</h2>
+    <p class="section-desc">
+      Asymmetric editorial grid — featured item zaberá 2× šírku. Search hero hore je full-bleed (psychologicky inviting).
+      Order panel vpravo má dominantnú sumu (mono 64-72 px) — customer ju prečíta z 2 m. Sent items majú border-left stripe v success color.
+    </p>
+
+    <div class="mock-frame">
+      <div class="mock-body">
+        <div class="pos-mock-header">
+          <div class="row" style="gap:14px">
+            <div class="demo-logo" style="width:36px;height:36px;font-size:13px">AT</div>
+            <div style="font-family:var(--font-display);font-size:18px;font-weight:600">Stôl 2 · Menu</div>
+          </div>
+          <div class="row" style="gap:18px">
+            <div class="pos-mock-clock">14:43</div>
+            <div class="pos-mock-user"><div class="pos-mock-avatar">TA</div>Tania</div>
+          </div>
+        </div>
+
+        <div class="products-mock">
+          <div class="products-pane">
+            <div class="search-hero">
+              <div class="search-icon">⌕</div>
+              <input type="text" placeholder="Hľadať produkt alebo kategóriu…">
+            </div>
+
+            <div class="cat-rail">
+              <div class="cat-chip is-active">★ Najčastejšie</div>
+              <div class="cat-chip">☕ Káva</div>
+              <div class="cat-chip">🥃 Drinky</div>
+              <div class="cat-chip">🍔 Burgre</div>
+              <div class="cat-chip">🍕 Pizza</div>
+              <div class="cat-chip">🥗 Šaláty</div>
+              <div class="cat-chip">🍰 Dezerty</div>
+            </div>
+
+            <div class="products-grid">
+              <div class="prod-card is-featured">
+                <div class="prod-icon">★</div>
+                <div class="prod-name">Combo BBQ Smash</div>
+                <div class="prod-desc">Burger + hranolky + omáčka v cene</div>
+                <div class="prod-price">12,80 €</div>
+              </div>
+              <div class="prod-card">
+                <div class="prod-icon">☕</div>
+                <div class="prod-name">Espresso</div>
+                <div class="prod-price">1,80 €</div>
+              </div>
+              <div class="prod-card">
+                <div class="prod-icon">🥤</div>
+                <div class="prod-name">Coca-Cola</div>
+                <div class="prod-desc">0,5 l</div>
+                <div class="prod-price">2,80 €</div>
+              </div>
+              <div class="prod-card">
+                <div class="prod-icon">🍔</div>
+                <div class="prod-name">Smash Burger</div>
+                <div class="prod-price">8,90 €</div>
+              </div>
+              <div class="prod-card">
+                <div class="prod-icon">🍕</div>
+                <div class="prod-name">Margherita</div>
+                <div class="prod-desc">Tradičná, 32 cm</div>
+                <div class="prod-price">9,40 €</div>
+              </div>
+              <div class="prod-card">
+                <div class="prod-icon">🥗</div>
+                <div class="prod-name">Caesar šalát</div>
+                <div class="prod-price">7,20 €</div>
+              </div>
+            </div>
+          </div>
+
+          <aside class="order-mock">
+            <div class="order-head">
+              <div class="order-head-row">
+                <div>
+                  <div class="order-table-name">Stôl 2</div>
+                  <div class="order-subtitle">Účet 1 · 6 položiek</div>
+                </div>
+                <span class="badge badge-warning">Obsadený</span>
+              </div>
+              <div class="order-tabs">
+                <div class="order-tab is-active">Účet 1</div>
+                <div class="order-tab">Účet 2</div>
+                <div class="order-tab">+ Nový</div>
+              </div>
+            </div>
+
+            <div class="order-items">
+              <div class="order-row is-sent">
+                <div class="order-row-icon">☕</div>
+                <div class="order-row-name">Espresso</div>
+                <span class="order-row-qty">2×</span>
+                <div class="order-row-amt">3,60 €</div>
+              </div>
+              <div class="order-row is-sent">
+                <div class="order-row-icon">🥤</div>
+                <div class="order-row-name">Coca-Cola 0,5 l</div>
+                <span class="order-row-qty">1×</span>
+                <div class="order-row-amt">2,80 €</div>
+              </div>
+              <div class="order-row is-sent">
+                <div class="order-row-icon">🍔</div>
+                <div class="order-row-name">Smash Burger</div>
+                <span class="order-row-qty">2×</span>
+                <div class="order-row-amt">17,80 €</div>
+              </div>
+              <div class="order-row">
+                <div class="order-row-icon">★</div>
+                <div class="order-row-name">Combo BBQ Smash</div>
+                <span class="order-row-qty">1×</span>
+                <div class="order-row-amt">12,80 €</div>
+              </div>
+              <div class="order-row">
+                <div class="order-row-icon">🍰</div>
+                <div class="order-row-name">Tiramisu</div>
+                <span class="order-row-qty">1×</span>
+                <div class="order-row-amt">4,80 €</div>
+              </div>
+              <div class="order-row">
+                <div class="order-row-icon">🥃</div>
+                <div class="order-row-name">Aperol Spritz</div>
+                <span class="order-row-qty">2×</span>
+                <div class="order-row-amt">9,60 €</div>
+              </div>
+            </div>
+
+            <div class="order-shelf">
+              <div class="order-subtotal-row"><span>Medzisúčet</span><span>51,40 €</span></div>
+              <div class="order-discount-row"><span>Zľava 10 %</span><span>−5,14 €</span></div>
+              <div class="order-total">
+                <span class="order-total-label">Celkom</span>
+                <span class="order-total-amt">46,26<span style="font-size:24px;color:var(--text-secondary);margin-left:4px">€</span></span>
+              </div>
+              <div class="order-actions">
+                <button class="btn btn-secondary" style="width:100%;font-size:17px;min-height:56px">⇡ Poslať na kuchyňu</button>
+                <div class="order-action-row">
+                  <button class="btn btn-primary">Hotovosť</button>
+                  <button class="btn btn-ghost">Karta</button>
+                </div>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SECTION 6 — Payment modal ===== -->
+  <section class="section">
+    <div class="section-eyebrow">06 — Surface · Platba</div>
+    <h2 class="section-title">Payment modal — Island</h2>
+    <p class="section-desc">
+      Plávajúci modal s outer glow v primary accent. Cash numpad má tactile 3D feel (inset shadow). Suma na predaj
+      72 px, gradient v secondary accent — customer vidí z arm's-length cez sklenený tablet.
+    </p>
+
+    <div class="mock-frame">
+      <div class="modal-stage">
+        <div class="modal-island">
+          <div class="modal-eyebrow">Potvrdenie platby</div>
+          <div class="modal-amount">46,26 €</div>
+          <div class="modal-method">Hotovosť · Stôl 2 · Účet 1</div>
+
+          <input class="cash-input" value="50,00 €" readonly>
+
+          <div class="numpad">
+            <div class="numpad-key">1</div>
+            <div class="numpad-key">2</div>
+            <div class="numpad-key">3</div>
+            <div class="numpad-key">4</div>
+            <div class="numpad-key">5</div>
+            <div class="numpad-key">6</div>
+            <div class="numpad-key">7</div>
+            <div class="numpad-key">8</div>
+            <div class="numpad-key">9</div>
+            <div class="numpad-key is-special">⌫</div>
+            <div class="numpad-key">0</div>
+            <div class="numpad-key is-special">C</div>
+          </div>
+
+          <div class="change-box">
+            <span class="change-label">Vydať</span>
+            <span class="change-amt">3,74 €</span>
+          </div>
+
+          <div class="row" style="gap:8px">
+            <button class="btn btn-ghost" style="flex:1">Späť</button>
+            <button class="btn btn-primary" style="flex:2">Potvrdiť platbu</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Footer note ===== -->
+  <div class="demo-note">
+    <div class="demo-note-dot"></div>
+    <div>
+      <strong>Atelier framework</strong> · Multi-tenant POS design system. Tento súbor je demo — production rozdelí
+      base tokens (immutable) a per-tenant theme overlay. Theme picker hore prepína <code style="font-family:var(--font-mono);font-size:12px;background:var(--depth-3);padding:1px 6px;border-radius:4px">data-theme</code> atribút na <code style="font-family:var(--font-mono);font-size:12px;background:var(--depth-3);padding:1px 6px;border-radius:4px">&lt;html&gt;</code>. 6 themes pripravených (Lighthouse / Espresso / Greenroom / Neon Lab / Daylight / Lake), pridanie ďalšieho = ~30 riadkov CSS.
+      <br><br>
+      <strong>Toto je iba návrh.</strong> Implementácia v reálnej kase ide po surfacoch: tokeny.css → theme presets → komponenty → page-by-page roll-out.
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ============================================================
+// Theme switcher
+// ============================================================
+const THEMES = [
+  { id: 'lighthouse', name: 'Lighthouse', swatch: '#6b9080' },
+  { id: 'espresso',   name: 'Espresso',   swatch: '#e8c97a' },
+  { id: 'greenroom',  name: 'Greenroom',  swatch: '#c9a55c' },
+  { id: 'neon',       name: 'Neon Lab',   swatch: '#00e0d4' },
+  { id: 'daylight',   name: 'Daylight',   swatch: '#b8542a' },
+  { id: 'lake',       name: 'Lake',       swatch: '#3a9bb8' },
+];
+
+const chipsHost = document.getElementById('themeChips');
+const metaHost  = document.getElementById('themeMeta');
+
+function applyTheme(id){
+  document.documentElement.setAttribute('data-theme', id);
+  // Update active chip
+  Array.from(chipsHost.children).forEach(el => {
+    el.classList.toggle('is-active', el.dataset.theme === id);
+  });
+  // Update meta description (read from CSS var)
+  requestAnimationFrame(() => {
+    const cs = getComputedStyle(document.documentElement);
+    const desc = (cs.getPropertyValue('--theme-desc') || '').trim().replace(/^'|'$/g, '');
+    metaHost.textContent = desc;
+    // Refresh hex displays
+    document.getElementById('px-ap').textContent = cs.getPropertyValue('--accent-primary').trim();
+    document.getElementById('px-as').textContent = cs.getPropertyValue('--accent-secondary').trim();
+    document.getElementById('px-d1').textContent = cs.getPropertyValue('--depth-1').trim();
+    document.getElementById('px-d3').textContent = cs.getPropertyValue('--depth-3').trim();
+    document.getElementById('px-su').textContent = cs.getPropertyValue('--status-success').trim();
+    document.getElementById('px-dn').textContent = cs.getPropertyValue('--status-danger').trim();
+  });
+}
+
+THEMES.forEach(t => {
+  const btn = document.createElement('button');
+  btn.className = 'theme-chip';
+  btn.dataset.theme = t.id;
+  btn.innerHTML = `<span class="theme-chip-dot" style="--swatch:${t.swatch}"></span>${t.name}`;
+  btn.addEventListener('click', () => applyTheme(t.id));
+  chipsHost.appendChild(btn);
+});
+
+applyTheme('lighthouse');
+</script>
+
+</body>
+</html>
