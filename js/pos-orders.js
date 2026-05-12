@@ -1124,13 +1124,16 @@ document.addEventListener('click', function(e){
   _renderSplitTabs();
 });
 
-// Selektovane order item IDs pre item-split mode. Tap-toggle.
-var _splitSelectedItemIds = new Set();
+// Selektovane polozky pre item-split mode. Map itemId -> qty (number).
+// Ak je itemId v mape, polozka je vybrata. qty je kolko z nej ide na
+// novy ucet (1..original_qty). Ak je qty rovny original_qty, ide cela
+// polozka; inak server cez /move-items rozdeli zdrojovy riadok.
+var _splitSelectedItems = new Map();
 
 function _renderSplitItemsList(){
   var host = document.getElementById('splitItemsList');
   if (!host) return;
-  _splitSelectedItemIds.clear();
+  _splitSelectedItems.clear();
   var order = getOrder() || [];
   // Filter: companion rows (Záloha fľaša atd.) sa nezobrazuju samostatne —
   // pojdu s primary. Aj sauce annotation rows skryjeme.
@@ -1144,24 +1147,61 @@ function _renderSplitItemsList(){
     return;
   }
   host.innerHTML = pickable.map(function(it){
-    var lineTotal = (Number(it.price) || 0) * (Number(it.qty) || 0);
-    return '<button type="button" class="split-item-row" data-split-item-id="' + it.id + '" '
-      + 'style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--color-bg-surface);border:1px solid var(--color-border);border-radius:6px;cursor:pointer;text-align:left">'
-      + '<span class="split-item-check" style="width:24px;height:24px;border-radius:4px;border:2px solid var(--color-border);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-weight:700;color:#fff;font-size:14px"></span>'
-      + '<span style="flex:1;font-size:14px">' + escAttr(it.emoji + ' ' + it.name) + '</span>'
-      + '<span style="font-size:12px;color:var(--color-text-sec)">' + it.qty + '×</span>'
-      + '<span style="font-size:14px;font-weight:600;color:var(--color-text);min-width:70px;text-align:right">' + fmt(lineTotal) + '</span>'
-      + '</button>';
+    return _splitItemRowHtml(it);
   }).join('');
   _updateSplitItemsTotal();
+}
+
+// Render jeden split-item-row. Vyziadane separatne aby update po qty
+// pickeri prerendroval len konkrety riadok.
+function _splitItemRowHtml(it){
+  var selectedQty = _splitSelectedItems.get(it.id) || 0;
+  var isSelected = selectedQty > 0;
+  var lineTotal = (Number(it.price) || 0) * selectedQty;
+  var fullLineTotal = (Number(it.price) || 0) * (Number(it.qty) || 0);
+  // Vizual: ked vybrate, ramcek + check, suma vpravo je za selectedQty.
+  // Ked nevybrate, suma vpravo = celkova suma riadku.
+  var bg = isSelected ? 'rgba(139,124,246,.12)' : 'var(--color-bg-surface)';
+  var border = isSelected ? 'var(--color-accent,#8b7cf6)' : 'var(--color-border)';
+  var checkBg = isSelected ? 'var(--color-accent,#8b7cf6)' : 'transparent';
+  var checkContent = isSelected ? '✓' : '';
+  // Ked qty>1 a vybrate ciastocne, pridame badge "selectedQty/total".
+  var qtyBadge = '';
+  if (it.qty > 1) {
+    if (isSelected && selectedQty < it.qty){
+      qtyBadge = '<span style="font-size:12px;font-weight:700;color:var(--color-accent);background:rgba(139,124,246,.18);padding:2px 8px;border-radius:10px">' + selectedQty + '/' + it.qty + '</span>';
+    } else {
+      qtyBadge = '<span style="font-size:12px;color:var(--color-text-sec)">' + it.qty + '×</span>';
+    }
+  }
+  var amountShown = isSelected ? fmt(lineTotal) : fmt(fullLineTotal);
+  return '<button type="button" class="split-item-row" data-split-item-id="' + it.id + '" '
+    + 'style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:' + bg + ';border:1px solid ' + border + ';border-radius:6px;cursor:pointer;text-align:left;transition:background .15s,border-color .15s">'
+    + '<span class="split-item-check" style="width:24px;height:24px;border-radius:4px;border:2px solid ' + border + ';background:' + checkBg + ';display:flex;align-items:center;justify-content:center;flex-shrink:0;font-weight:700;color:#fff;font-size:14px">' + checkContent + '</span>'
+    + '<span style="flex:1;font-size:14px">' + escAttr(it.emoji + ' ' + it.name) + '</span>'
+    + qtyBadge
+    + '<span style="font-size:14px;font-weight:600;color:var(--color-text);min-width:70px;text-align:right">' + amountShown + '</span>'
+    + '</button>';
+}
+
+function _updateSplitItemRow(itemId){
+  var order = getOrder() || [];
+  var it = order.find(function(x){ return x.id === itemId; });
+  if (!it) return;
+  var oldRow = document.querySelector('.split-item-row[data-split-item-id="' + itemId + '"]');
+  if (!oldRow) return;
+  var tmp = document.createElement('div');
+  tmp.innerHTML = _splitItemRowHtml(it);
+  var newRow = tmp.firstChild;
+  oldRow.parentNode.replaceChild(newRow, oldRow);
 }
 
 function _updateSplitItemsTotal(){
   var total = 0;
   var order = getOrder() || [];
-  _splitSelectedItemIds.forEach(function(id){
+  _splitSelectedItems.forEach(function(qty, id){
     var it = order.find(function(x){ return x.id === id; });
-    if (it) total += (Number(it.price) || 0) * (Number(it.qty) || 0);
+    if (it) total += (Number(it.price) || 0) * qty;
   });
   var el = document.getElementById('splitItemsTotal');
   if (el) el.textContent = fmt(total);
@@ -1172,51 +1212,79 @@ document.addEventListener('click', function(e){
   if (!row) return;
   var id = Number(row.dataset.splitItemId);
   if (!id) return;
-  if (_splitSelectedItemIds.has(id)){
-    _splitSelectedItemIds.delete(id);
-    row.style.background = 'var(--color-bg-surface)';
-    row.style.borderColor = 'var(--color-border)';
-    var c = row.querySelector('.split-item-check');
-    if (c){ c.style.background = 'transparent'; c.style.borderColor = 'var(--color-border)'; c.textContent = ''; }
-  } else {
-    _splitSelectedItemIds.add(id);
-    row.style.background = 'rgba(139,124,246,.12)';
-    row.style.borderColor = 'var(--color-accent,#8b7cf6)';
-    var c2 = row.querySelector('.split-item-check');
-    if (c2){ c2.style.background = 'var(--color-accent,#8b7cf6)'; c2.style.borderColor = 'var(--color-accent,#8b7cf6)'; c2.textContent = '✓'; }
+  var order = getOrder() || [];
+  var it = order.find(function(x){ return x.id === id; });
+  if (!it) return;
+  // Ak uz vybrata, klik = odznacit
+  if (_splitSelectedItems.has(id)){
+    _splitSelectedItems.delete(id);
+    _updateSplitItemRow(id);
+    _updateSplitItemsTotal();
+    return;
   }
-  _updateSplitItemsTotal();
+  // Ak qty == 1, rovno selektni cele
+  if ((Number(it.qty) || 0) <= 1){
+    _splitSelectedItems.set(id, 1);
+    _updateSplitItemRow(id);
+    _updateSplitItemsTotal();
+    return;
+  }
+  // qty > 1 → opyt sa kolko cez existujuci _showMoveQtyPicker (reuse).
+  // Picker vrati number (1..maxQty) alebo null pri zruseni.
+  _showMoveQtyPicker(it, function(chosenQty){
+    if (chosenQty == null || chosenQty < 1) return;
+    _splitSelectedItems.set(id, chosenQty);
+    _updateSplitItemRow(id);
+    _updateSplitItemsTotal();
+  });
 });
 
 async function confirmSplit(){
   try{
     if (_splitMode === 'items'){
-      if (!_splitSelectedItemIds.size){
+      if (!_splitSelectedItems.size){
         showToast('Vyber aspon jednu polozku', 'warning');
         return;
       }
+      // Sanity: ked uzivatel vybral celu objednavku (vsetky polozky + ich
+      // cele qty), nedava zmysel pretoze by sa neostalo nic na povodnom.
       var order = getOrder() || [];
-      var groupNew = Array.from(_splitSelectedItemIds);
-      var groupRest = order
-        .filter(function(it){
-          if (_splitSelectedItemIds.has(it.id)) return false;
-          if (it._companionOf) return false;
-          if (it.name === 'Omáčka (combo)') return false;
-          return it.qty > 0;
-        })
-        .map(function(it){ return it.id; });
-      if (!groupRest.length){
-        showToast('Aspon jedna polozka musi ostat na povodnom ucte', 'warning');
+      var pickable = order.filter(function(it){
+        if (it._companionOf) return false;
+        if (it.name === 'Omáčka (combo)') return false;
+        return it.qty > 0;
+      });
+      var movingEverything = pickable.length === _splitSelectedItems.size
+        && pickable.every(function(it){ return _splitSelectedItems.get(it.id) === it.qty; });
+      if (movingEverything){
+        showToast('Aspon jedna polozka (alebo jej cast) musi ostat na povodnom ucte', 'warning');
         return;
       }
-      // itemGroups: kazdy sub-array = novy ucet. groupNew = priatelov,
-      // groupRest = zvysok na povodnom (server vytvori 2 ucty).
-      await api.post('/orders/'+currentOrderId+'/split',{ itemGroups: [groupNew, groupRest] });
+
+      // Reuse /move-items endpoint cez itemQtys — uz podporuje partial
+      // qty (zdrojovy riadok rozdeli, ked qty < original). Najprv vytvor
+      // novy ucet, potom presun vybrane polozky+qty.
+      var label = 'Ucet ' + (tableOrdersList.length + 1);
+      var newOrder = await api.post('/orders', { tableId: selectedTableId, items: [], label: label });
+      var itemQtys = [];
+      _splitSelectedItems.forEach(function(qty, id){
+        var it = pickable.find(function(x){ return x.id === id; });
+        if (!it) return;
+        // qty=null znamena "cele" pre server fallback, ale my mame
+        // konkretne cislo. Posli ho.
+        itemQtys.push({ itemId: id, qty: qty });
+      });
+      await api.post('/orders/'+currentOrderId+'/move-items', {
+        itemQtys: itemQtys, targetTableId: selectedTableId, targetOrderId: newOrder.id
+      });
+
       document.getElementById('splitModal').classList.remove('show');
+      _splitSelectedItems.clear();
       await loadTableOrder(selectedTableId, true);
       renderOrder();
       if(isMobile()) renderMobOrder();
-      showToast('Polozky presunute na novy ucet',true);
+      var n = itemQtys.reduce(function(s, x){ return s + (x.qty || 0); }, 0);
+      showToast(n + ' pol. presunutych na novy ucet', true);
       return;
     }
     // equal N-way split
@@ -1234,7 +1302,7 @@ async function confirmSplit(){
 
 function closeSplitModal(){
   document.getElementById('splitModal').classList.remove('show');
-  _splitSelectedItemIds.clear();
+  _splitSelectedItems.clear();
 }
 
 // === Inline Move Mode (Tap-to-Move) ===
