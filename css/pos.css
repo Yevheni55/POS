@@ -868,6 +868,140 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
    incident. Bump na 48 + vacsi padding + gap medzi chipmi. */
 @media (pointer:coarse){.note-preset-chip{min-height:48px;padding:12px 18px;font-size:15px} .note-presets{gap:10px}}
 
+/* Qty picker (Move / Split-by-items mode) — redesigned: big stepper
+   v strede, suma preview, quick chips. Cisty CSS, ziadne inline styly. */
+.mqp-modal{max-width:420px;text-align:center}
+.mqp-header{
+  display:flex;
+  align-items:center;
+  gap:14px;
+  text-align:left;
+  margin-bottom:20px;
+}
+.mqp-icon{
+  font-size:34px;
+  width:56px;height:56px;
+  display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(135deg,rgba(139,124,246,.20),rgba(139,124,246,.06));
+  border:1px solid rgba(139,124,246,.30);
+  border-radius:12px;
+  flex-shrink:0;
+  color:var(--color-accent,#8b7cf6);
+}
+.mqp-title-block{flex:1;min-width:0}
+.mqp-title{
+  font-family:var(--font-display);
+  font-size:18px;font-weight:700;
+  color:var(--color-text);
+  line-height:1.15;
+}
+.mqp-item{
+  font-size:13px;color:var(--color-text-sec);
+  margin-top:3px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+
+.mqp-stepper-wrap{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:12px;
+  padding:14px 0 8px;
+}
+.mqp-step{
+  width:64px;height:64px;
+  border-radius:12px;
+  background:rgba(139,124,246,.10);
+  border:1px solid rgba(139,124,246,.30);
+  color:var(--color-accent,#8b7cf6);
+  font-size:30px;font-weight:700;
+  cursor:pointer;
+  user-select:none;-webkit-tap-highlight-color:transparent;
+  transition:background .15s,transform .08s;
+  font-family:inherit;
+  line-height:1;
+}
+.mqp-step:hover{background:rgba(139,124,246,.18)}
+.mqp-step:active{transform:scale(.94)}
+.mqp-step.is-disabled{
+  opacity:.30;
+  pointer-events:none;
+}
+.mqp-value-wrap{
+  flex:1;
+  min-width:90px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+}
+.mqp-value{
+  font-family:var(--font-display);
+  font-size:56px;
+  font-weight:800;
+  line-height:1;
+  color:var(--color-text);
+  font-variant-numeric:tabular-nums;
+}
+.mqp-of{
+  font-size:12px;
+  color:var(--color-text-sec);
+  margin-top:6px;
+  text-transform:uppercase;
+  letter-spacing:.5px;
+}
+.mqp-total{
+  font-family:var(--font-display);
+  font-size:22px;
+  font-weight:700;
+  color:var(--color-accent,#8b7cf6);
+  margin:8px 0 18px;
+  font-variant-numeric:tabular-nums;
+}
+
+.mqp-quick-row{
+  display:flex;
+  gap:8px;
+  justify-content:center;
+  flex-wrap:wrap;
+  margin-bottom:18px;
+}
+.mqp-quick-chip{
+  background:rgba(255,255,255,.05);
+  border:1px solid var(--color-border);
+  border-radius:8px;
+  padding:10px 16px;
+  font-size:14px;
+  font-weight:600;
+  color:var(--color-text-sec);
+  font-family:inherit;
+  cursor:pointer;
+  transition:background .15s,border-color .15s,color .15s;
+}
+.mqp-quick-chip:hover{background:rgba(139,124,246,.10);color:var(--color-text)}
+.mqp-quick-chip.is-active{
+  background:rgba(139,124,246,.18);
+  border-color:var(--color-accent,#8b7cf6);
+  color:var(--color-accent,#8b7cf6);
+}
+.mqp-quick-chip.is-all{
+  color:var(--color-success);
+  border-color:rgba(92,196,158,.30);
+  background:rgba(92,196,158,.08);
+}
+.mqp-quick-chip.is-all.is-active{
+  background:rgba(92,196,158,.22);
+  border-color:var(--color-success);
+}
+
+/* Tablet bump — vlhky prst safe. */
+@media (pointer:coarse){
+  .mqp-step{width:72px;height:72px;font-size:34px}
+  .mqp-value{font-size:64px}
+  .mqp-total{font-size:26px}
+  .mqp-quick-chip{min-height:48px;padding:12px 20px;font-size:15px}
+}
+
 /* Vlastna klavesnica pre note input — nahradza nativnu Android klavesnicu
    ktora zakryvala modal. Layout: 10/9/7 letter rows + action row (toggle
    diakritika, toggle cisla, medzera, backspace). Tap targets 48px min

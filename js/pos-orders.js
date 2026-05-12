@@ -1474,66 +1474,122 @@ function _moveSelectionQtyFor(itemId) {
   return moveSelectedItems[idx].qty;
 }
 
-// Quick qty-picker overlay. Operátor klikne na chip s číslom (1..max-1)
-// alebo "Všetko". Callback dostane zvolené qty (alebo null pri zrušení).
+// Qty picker — redesigned: big stepper +/- s zivym mnozstvom v strede,
+// suma preview, quick chips (1 / Polovica / Vsetko) pre rychly vyber,
+// Potvrdit + Zrusit. Vsetko v CSS classes (mqp-*), ziadne inline styly.
+//
+// Default = celé množstvo (operator najcastejsie chce presunut vsetko;
+// keby chcel ciastocne, mini-mini logika sa zmeni cez stepper). Stepper
+// clamp 1..maxQty. Quick chips disabled ak duplicitne (napr. maxQty=2 ->
+// "Polovica" sa neukaze, lebo by bola identicka s "1").
 function _showMoveQtyPicker(item, callback) {
   var existing = document.getElementById('moveQtyPicker');
   if (existing) existing.parentNode.removeChild(existing);
 
   var maxQty = Number(item.qty) || 1;
-  var chipsHtml = '';
-  for (var i = 1; i < maxQty; i++) {
-    chipsHtml += '<button class="mq-chip" data-qty="' + i + '" type="button">' + i + '</button>';
-  }
-  chipsHtml += '<button class="mq-chip mq-chip-all" data-qty="' + maxQty + '" type="button">Všetko (' + maxQty + ')</button>';
+  var unitPrice = Number(item.price) || 0;
+  var current = maxQty; // default = vsetko
+  var half = Math.max(1, Math.floor(maxQty / 2));
 
   var overlay = document.createElement('div');
   overlay.id = 'moveQtyPicker';
   overlay.className = 'u-overlay show';
   overlay.style.zIndex = '10000';
+
+  // Quick chips — len tie ktore davaju zmysel pre tento qty:
+  //   "1"        — vzdy ak maxQty > 1
+  //   "Polovica" — ak maxQty >= 4 a polovica != 1 a != vsetko
+  //   "Vsetko"   — vzdy
+  var quickChipsHtml = '';
+  quickChipsHtml += '<button type="button" class="mqp-quick-chip" data-q="1">1</button>';
+  if (maxQty >= 4 && half !== 1 && half !== maxQty) {
+    quickChipsHtml += '<button type="button" class="mqp-quick-chip" data-q="' + half + '">Polovica (' + half + ')</button>';
+  }
+  quickChipsHtml += '<button type="button" class="mqp-quick-chip is-all" data-q="' + maxQty + '">Všetko (' + maxQty + ')</button>';
+
   overlay.innerHTML =
-    '<div class="u-modal" role="dialog" aria-modal="true" style="max-width:380px">' +
-      '<span class="u-modal-icon">↗</span>' +
-      '<div class="u-modal-title">Koľko presunúť?</div>' +
-      '<div class="u-modal-amount" style="font-size:16px;color:var(--color-text-sec)">' +
-        (item.emoji || '') + ' ' + (item.name || '') +
+    '<div class="u-modal mqp-modal" role="dialog" aria-modal="true" aria-labelledby="mqpTitle">' +
+      '<div class="mqp-header">' +
+        '<div class="mqp-icon" aria-hidden="true">↗</div>' +
+        '<div class="mqp-title-block">' +
+          '<div class="mqp-title" id="mqpTitle">Koľko presunúť?</div>' +
+          '<div class="mqp-item">' + escAttr((item.emoji || '') + ' ' + (item.name || '')) + '</div>' +
+        '</div>' +
       '</div>' +
-      '<div class="u-modal-body" style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding:14px 0">' +
-        chipsHtml +
+
+      '<div class="mqp-stepper-wrap">' +
+        '<button type="button" class="mqp-step mqp-step-minus" aria-label="Znížiť">−</button>' +
+        '<div class="mqp-value-wrap">' +
+          '<div class="mqp-value" id="mqpValue">' + current + '</div>' +
+          '<div class="mqp-of">z celkom ' + maxQty + ' ks</div>' +
+        '</div>' +
+        '<button type="button" class="mqp-step mqp-step-plus" aria-label="Zvýšiť">+</button>' +
       '</div>' +
+
+      '<div class="mqp-total" id="mqpTotal">' + fmt(unitPrice * current) + '</div>' +
+
+      '<div class="mqp-quick-row">' + quickChipsHtml + '</div>' +
+
       '<div class="u-modal-btns">' +
-        '<button class="u-btn u-btn-ghost" id="mqCancel" type="button">Zrušiť</button>' +
+        '<button class="u-btn u-btn-ghost" id="mqpCancel" type="button">Zrušiť</button>' +
+        '<button class="u-btn u-btn-mint" id="mqpConfirm" type="button">Potvrdiť</button>' +
       '</div>' +
     '</div>';
   document.body.appendChild(overlay);
 
-  // Štýl pre chipy — inline lebo nemáme pre toto class v CSS.
-  var chips = overlay.querySelectorAll('.mq-chip');
-  Array.prototype.forEach.call(chips, function (c) {
-    c.style.cssText = 'min-width:64px;padding:14px 18px;font-size:18px;font-weight:700;'
-      + 'border-radius:8px;border:1px solid var(--color-border);background:rgba(255,255,255,.06);'
-      + 'color:var(--color-text);cursor:pointer';
-    if (c.classList.contains('mq-chip-all')) {
-      c.style.borderColor = 'var(--color-accent, #22c55e)';
-      c.style.color = 'var(--color-accent, #22c55e)';
-    }
-    c.addEventListener('click', function () {
-      var q = parseInt(c.dataset.qty, 10);
-      _closeMoveQtyPicker();
-      callback(q);
+  function updateUI() {
+    var vEl = document.getElementById('mqpValue');
+    if (vEl) vEl.textContent = current;
+    var tEl = document.getElementById('mqpTotal');
+    if (tEl) tEl.textContent = fmt(unitPrice * current);
+    // Disable stepper buttons na hraniciach
+    var minus = overlay.querySelector('.mqp-step-minus');
+    var plus = overlay.querySelector('.mqp-step-plus');
+    if (minus) minus.classList.toggle('is-disabled', current <= 1);
+    if (plus)  plus.classList.toggle('is-disabled',  current >= maxQty);
+    // Highlight aktivny quick chip
+    var chips = overlay.querySelectorAll('.mqp-quick-chip');
+    Array.prototype.forEach.call(chips, function(c){
+      c.classList.toggle('is-active', Number(c.dataset.q) === current);
+    });
+  }
+  updateUI();
+
+  overlay.querySelector('.mqp-step-minus').addEventListener('click', function(){
+    if (current > 1) { current -= 1; updateUI(); }
+  });
+  overlay.querySelector('.mqp-step-plus').addEventListener('click', function(){
+    if (current < maxQty) { current += 1; updateUI(); }
+  });
+  Array.prototype.forEach.call(overlay.querySelectorAll('.mqp-quick-chip'), function(c){
+    c.addEventListener('click', function(){
+      current = Math.max(1, Math.min(maxQty, parseInt(c.dataset.q, 10) || 1));
+      updateUI();
     });
   });
-  overlay.querySelector('#mqCancel').addEventListener('click', function () {
+  overlay.querySelector('#mqpConfirm').addEventListener('click', function(){
+    _closeMoveQtyPicker();
+    callback(current);
+  });
+  overlay.querySelector('#mqpCancel').addEventListener('click', function(){
     _closeMoveQtyPicker();
     callback(null);
   });
-  // Klik na overlay (mimo modalu) zruší.
+  // Klik na overlay (mimo modalu) zrusi.
   overlay.addEventListener('click', function (e) {
     if (e.target === overlay) {
       _closeMoveQtyPicker();
       callback(null);
     }
   });
+  // Hardware keyboard support — Enter potvrdi, +/- stepuje, Esc zrusi.
+  var keyHandler = function(e){
+    if (e.key === 'Enter')   { e.preventDefault(); _closeMoveQtyPicker(); document.removeEventListener('keydown', keyHandler, true); callback(current); }
+    else if (e.key === 'Escape'){ e.preventDefault(); _closeMoveQtyPicker(); document.removeEventListener('keydown', keyHandler, true); callback(null); }
+    else if (e.key === '+' || e.key === 'ArrowUp')   { e.preventDefault(); if (current < maxQty){ current += 1; updateUI(); } }
+    else if (e.key === '-' || e.key === 'ArrowDown') { e.preventDefault(); if (current > 1){ current -= 1; updateUI(); } }
+  };
+  document.addEventListener('keydown', keyHandler, true);
 }
 
 function _closeMoveQtyPicker() {
