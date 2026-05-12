@@ -1289,21 +1289,26 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
   .product-name{font-size:17px;line-height:var(--leading-snug)}
   .product-desc{font-size:13px}
   .product-price{font-size:21px}
-  /* Order list — bigger so the cashier reads it from arm's length */
-  .order-item-wrap{padding:12px 14px}
-  .order-item-emoji{font-size:35px}
-  /* Allow long names to wrap on tablet — the base rule clips at 140 px with
-     ellipsis, which hides the rest of names like "Combo Vegetarian Halloumi"
-     once the font is bumped. */
-  .order-item-name{
-    font-size:25px;font-weight:var(--weight-bold);
-    white-space:normal;overflow:visible;text-overflow:clip;
-    max-width:none;line-height:1.2;word-break:break-word;
+  /* Order list — DENSITY OPTIMIZED for tablet. Operator si vyziadal aby
+     sa zmestilo aspon 6 poloziek bez scrolu. Predtym bolo iba 2.
+     Riadkova vyska teraz ~46-50px (predtym 86+). Dlhe nazvy ellipsis-uju
+     na 1 riadok namiesto wrapovania (Combo Vegetarian Halloumi → 'Combo
+     Vegetarian Hal…' — full name vidies na tap, kuchar na bone tiez). */
+  .order-item-wrap{padding:6px 12px}
+  .order-item-inner{min-height:38px;align-items:center;gap:8px}
+  .order-item-emoji{
+    font-size:22px;
+    width:32px;height:32px;
+    flex-shrink:0;
   }
-  .order-item-inner{min-height:62px;align-items:flex-start}
-  .order-item-total{font-size:28px;font-weight:var(--weight-extrabold)}
-  .order-item-qty{gap:9px}
-  .order-item-qty .qty-btn{width:51px;height:51px;font-size:25px}
+  .order-item-name{
+    font-size:17px;font-weight:var(--weight-bold);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    max-width:200px;line-height:1.2;
+  }
+  .order-item-total{font-size:19px;font-weight:var(--weight-extrabold)}
+  .order-item-qty{gap:5px}
+  .order-item-qty .qty-btn{width:38px;height:38px;font-size:20px}
   .qty-btn,.qty-popup-btn{width:55px;height:55px;font-size:28px}
   .order-tab{font-size:18px;padding:14px 18px}
   .pos-subtotal-row{font-size:21px}
@@ -1977,36 +1982,39 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
 .order-item-actions{display:none}
 
 /* === TABLET ORDER LIST OVERRIDES — placed at end so they win over base rules ===
-   Layout: name on its own full-width row, then emoji + qty + total below.
-   Even very long names ("Combo Vegetarian Halloumi") get the full panel width
-   to themselves so the cashier doesn't see "Co\nmb\no..." stacked 2 letters
-   per line. */
+   DENSITY OPTIMIZED: 6+ poloziek bez scrolu (predtym len 2 cez 2-row grid).
+   Single-row inline: [emoji] [name s ellipsis] [qty -/+] [suma]. Dlhe nazvy
+   ("Combo Vegetarian Halloumi") ellipsis-uju na 1 riadok — full text vidies
+   na tap (note modal) a kuchar na bone tiez. Trade: max ~200 px name space
+   za 3× viac viditelnych poloziek. */
 @media (min-width:769px) and (max-width:1366px) and (pointer:coarse){
   .order-panel{width:480px}
-  .order-item-wrap{overflow:visible;padding:8px 6px;min-height:56px}
+  .order-item-wrap{overflow:visible;padding:6px 10px;min-height:46px}
   .order-item-inner{
-    display:grid;
-    grid-template-columns:auto 1fr auto;
-    grid-template-areas:
-      "info  info  info"
-      "emoji qty   total";
-    column-gap:10px;row-gap:6px;
+    display:flex;
     align-items:center;
-    min-height:54px;padding:10px 12px;
+    gap:8px;
+    min-height:38px;
+    padding:6px 8px;
   }
-  .order-item-info{grid-area:info;min-width:0;max-width:none}
+  .order-item-info{flex:1;min-width:0;max-width:none}
   .order-item-name{
-    font-size:24px;font-weight:600;
-    white-space:normal;overflow:visible;text-overflow:clip;
-    max-width:none;line-height:1.2;word-break:break-word;
+    font-size:17px;font-weight:var(--weight-bold);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    max-width:none;line-height:1.2;
     color:var(--text-primary);
     -webkit-line-clamp:initial;
     display:block;
   }
-  .order-item-emoji{grid-area:emoji;font-size:32px;line-height:1;flex-shrink:0}
-  .order-item-qty{grid-area:qty;justify-self:start;flex-shrink:0}
-  .order-item-qty .qty-btn{width:48px;height:48px;font-size:24px}
-  .order-item-total{grid-area:total;justify-self:end;font-size:26px;font-weight:var(--weight-extrabold);white-space:nowrap}
+  .order-item-emoji{font-size:22px;line-height:1;flex-shrink:0;width:30px;height:30px}
+  .order-item-qty{flex-shrink:0;gap:5px}
+  .order-item-qty .qty-btn{width:38px;height:38px;font-size:20px}
+  .order-item-total{font-size:19px;font-weight:var(--weight-extrabold);white-space:nowrap;flex-shrink:0;font-variant-numeric:tabular-nums}
+  /* Move-tlacidlo v polozke — taktiez kompaktnejsie */
+  .order-item-move{width:32px;height:32px;font-size:14px}
+  /* Note chip menes pod nazvom — neexpanduje vysku polozky */
+  .order-item-note{font-size:11px;padding:2px 8px;margin-top:2px}
+  .order-item-note-placeholder{font-size:11px;padding:2px 8px}
 }
 
 /* Floor edit mode — make it obvious a tap will drag, not select */
