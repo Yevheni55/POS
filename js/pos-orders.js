@@ -1730,8 +1730,17 @@ async function doMergeAccounts() {
         await api.post('/orders/' + toMerge[i].id + '/move-items', {
           itemIds: itemIds, targetTableId: selectedTableId, targetOrderId: targetOrderId
         });
+      } else {
+        // Prazdny ucet bez poloziek — move-items by len echo-loval ze nic
+        // nie je co presunut. Vymaz priamo. Ak medzitym ostatny tab uz
+        // zmazal stol, 404 je benign.
+        try { await api.del('/orders/' + toMerge[i].id); } catch (e) {}
       }
-      try { await api.del('/orders/' + toMerge[i].id); } catch(e) {}
+      // POZN: po move-items server SAM vymaze zdrojovy order ak ostal
+      // prazdny (server/routes/orders.js:727 — `if (!remaining.length)
+      // tx.delete(orders)`). Predtym sa tu volal explicitny DELETE ktory
+      // dostaval 404 lebo order uz neexistoval — len zbytocny sum v
+      // konzole. Odstraneny.
     }
     await loadTableOrder(selectedTableId, true);
     _activateLoadedOrder(targetOrderId);
