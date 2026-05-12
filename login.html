@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="theme-color" content="#0f0d1a">
+<meta name="theme-color" content="#f5efe3">
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icons/icon-192.svg">
 <title>POS - Prihlasenie</title>
@@ -14,6 +14,55 @@
 <link rel="stylesheet" href="/a11y.css">
 <link rel="stylesheet" href="/fonts/fonts.css">
 <style>
+  /* === DAYLIGHT THEME — login page === */
+  /* Aplikuje Atelier Daylight tokeny rovnako ako css/pos.css. Login je
+     samostatna stranka takze ma vlastny :root override. */
+  :root {
+    --color-bg-sunken:   #ece4d2;
+    --color-bg:          #f5efe3;
+    --color-bg-elevated: #ece4d2;
+    --color-bg-surface:  rgba(30, 24, 18, .04);
+    --color-bg-hover:    rgba(30, 24, 18, .08);
+    --color-bg-active:   rgba(30, 24, 18, .12);
+    --color-overlay:     rgba(30, 24, 18, .50);
+
+    --color-border:        rgba(30, 24, 18, .10);
+    --color-border-hover:  rgba(30, 24, 18, .16);
+    --color-border-strong: rgba(30, 24, 18, .22);
+
+    --color-accent:           #b8542a;
+    --color-accent-dim:       #a04920;
+    --color-accent-bg:        rgba(184, 84, 42, .08);
+    --color-accent-bg-hover:  rgba(184, 84, 42, .16);
+    --color-accent-border:    rgba(184, 84, 42, .26);
+    --color-accent-glow:      rgba(184, 84, 42, .22);
+
+    --color-success:        #4a7a3a;
+    --color-success-bg:     rgba(74, 122, 58, .10);
+    --color-success-border: rgba(74, 122, 58, .28);
+
+    --color-danger:        #b03830;
+    --color-danger-bg:     rgba(176, 56, 48, .08);
+    --color-danger-border: rgba(176, 56, 48, .26);
+
+    --color-text:     #1e1812;
+    --color-text-sec: #5a4f3c;
+    --color-text-dim: #8a7d65;
+    --color-focus:    #b8542a;
+
+    --surface-app:    var(--color-bg);
+    --surface-raised: var(--color-bg-elevated);
+    --surface-sunken: var(--color-bg-sunken);
+    --surface-card:   var(--color-bg-surface);
+    --border-default: var(--color-border);
+    --border-strong:  var(--color-border-strong);
+    --text-primary:   var(--color-text);
+    --text-secondary: var(--color-text-sec);
+    --text-muted:     var(--color-text-dim);
+
+    color-scheme: light;
+  }
+
   *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
   button, a, input { touch-action: manipulation; -webkit-touch-callout: none; }
 
@@ -22,7 +71,7 @@
     overflow: hidden;
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
     font-family: var(--font-body);
-    background: linear-gradient(160deg, #0f0d1a 0%, #161229 45%, #0a0820 100%);
+    background: linear-gradient(160deg, #f5efe3 0%, #ece4d2 45%, #dfd5be 100%);
     color: var(--text-primary);
     -webkit-tap-highlight-color: transparent;
     user-select: none;
@@ -38,12 +87,12 @@
   body::before {
     width: 600px; height: 600px;
     top: -200px; left: -200px;
-    background: radial-gradient(circle, rgba(139,124,246,.08) 0%, transparent 70%);
+    background: radial-gradient(circle, rgba(184,84,42,.06) 0%, transparent 70%);
   }
   body::after {
     width: 500px; height: 500px;
     bottom: -150px; right: -150px;
-    background: radial-gradient(circle, rgba(139,124,246,.05) 0%, transparent 70%);
+    background: radial-gradient(circle, rgba(31,58,92,.05) 0%, transparent 70%);
   }
 
   .page {
@@ -57,11 +106,11 @@
     padding: 20px;
   }
 
-  /* Glass card */
+  /* Cream card with soft shadow — Daylight glass */
   .card {
     width: 100%;
     max-width: 400px;
-    background: rgba(12,20,30,.92);
+    background: rgba(245, 239, 227, .96);
     border: 1px solid var(--color-border);
     border-radius: 24px;
     padding: 32px 28px 28px;
@@ -69,18 +118,23 @@
     flex-direction: column;
     align-items: center;
     gap: 22px;
+    box-shadow: 0 1px 3px rgba(30,24,18,.06),
+                0 12px 32px -8px rgba(30,24,18,.12),
+                0 24px 64px -16px rgba(184,84,42,.10);
+    backdrop-filter: blur(8px);
   }
 
-  /* Logo */
+  /* Logo — Daylight terra/navy gradient */
   .logo {
     width: 56px; height: 56px;
     border-radius: 14px;
-    background: linear-gradient(135deg, var(--color-accent), var(--color-accent-dim));
+    background: linear-gradient(135deg, var(--color-accent), #1f3a5c);
     display: flex; align-items: center; justify-content: center;
     font-family: var(--font-display);
     font-weight: 800; font-size: 18px;
-    color: var(--surface-app);
+    color: #f5efe3;
     opacity: 0; animation: fadeInUp .5s ease forwards;
+    box-shadow: 0 4px 12px rgba(184,84,42,.18);
   }
 
   .brand-name {
@@ -126,12 +180,12 @@
     font-size: 13px; font-weight: 500;
     color: var(--text-secondary);
   }
-  .pill:hover { background: rgba(255,255,255,.07); }
+  .pill:hover { background: rgba(30,24,18,.06); }
   .pill.selected {
     border-color: var(--color-accent);
-    background: rgba(139,124,246,.08);
+    background: rgba(184,84,42,.10);
     color: var(--text-primary);
-    box-shadow: 0 0 12px rgba(139,124,246,.15);
+    box-shadow: 0 2px 12px rgba(184,84,42,.18);
   }
 
   .pill-avatar {
@@ -140,11 +194,11 @@
     display: flex; align-items: center; justify-content: center;
     font-family: var(--font-display);
     font-size: 11px; font-weight: 700;
-    color: var(--surface-app);
+    color: #f5efe3;
     flex-shrink: 0;
   }
   .pill-avatar.admin { background: var(--color-accent); }
-  .pill-avatar.manazer { background: var(--color-accent-dim); }
+  .pill-avatar.manazer { background: #1f3a5c; }
   .pill-avatar.cisnik { background: var(--color-success); }
 
   /* PIN dots */
@@ -156,24 +210,24 @@
   .dot {
     width: 20px; height: 20px;
     border-radius: 50%;
-    border: 2px solid rgba(255,255,255,.15);
+    border: 2px solid rgba(30,24,18,.18);
     background: transparent;
     transition: all .2s ease;
   }
   .dot.filled {
     background: var(--color-accent);
     border-color: var(--color-accent);
-    box-shadow: 0 0 10px rgba(139,124,246,.35);
+    box-shadow: 0 2px 8px rgba(184,84,42,.30);
   }
   .dot.error {
     background: var(--color-danger);
     border-color: var(--color-danger);
-    box-shadow: 0 0 10px rgba(224,112,112,.35);
+    box-shadow: 0 2px 8px rgba(176,56,48,.30);
   }
   .dot.success {
     background: var(--color-success);
     border-color: var(--color-success);
-    box-shadow: 0 0 10px rgba(92,196,158,.35);
+    box-shadow: 0 2px 8px rgba(74,122,58,.30);
   }
   .dots.shake { animation: shake .5s ease; }
 
@@ -200,10 +254,10 @@
     transition: all .12s ease;
     -webkit-tap-highlight-color: transparent;
   }
-  .num-btn:hover { background: rgba(255,255,255,.07); }
+  .num-btn:hover { background: rgba(30,24,18,.06); }
   .num-btn:active, .num-btn.active-flash {
     transform: scale(0.93);
-    background: rgba(255,255,255,.1);
+    background: rgba(30,24,18,.10);
   }
   .num-btn.fn {
     font-size: 20px;
