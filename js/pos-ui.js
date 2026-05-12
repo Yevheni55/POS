@@ -118,13 +118,17 @@ function showStornoReason(itemName, qty, callback) {
     return '<button type="button" class="storno-reason-btn" data-reason="' + r.value + '">' + r.label + '</button>';
   }).join('');
 
+  // Hierarchia: PRIMARNA info = co sa stornuje (qty × name), bold 24px.
+  // SEKUNDARNA = ze ide o storno akciu (eyebrow). Predtym bolo opacne —
+  // "Storno" velkym titulkom a item drobny, takze casnik si v rychly tahu
+  // mohol pomylit POLOZKU ktoru rusi.
   ov.innerHTML = ''
     + '<div class="u-modal" role="dialog" aria-modal="true" aria-labelledby="stornoModalTitle" style="max-width:460px;text-align:left">'
     +   '<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">'
     +     '<div style="font-size:36px;line-height:1">❌</div>'
     +     '<div>'
-    +       '<div class="u-modal-title" id="stornoModalTitle" style="margin:0;text-align:left">Storno</div>'
-    +       '<div class="u-modal-text" style="margin:2px 0 0;text-align:left">' + qty + '× ' + itemName + '</div>'
+    +       '<div id="stornoModalTitle" style="font-size:24px;font-weight:700;color:var(--color-text);margin:0;line-height:1.15">' + qty + '× ' + itemName + '</div>'
+    +       '<div style="font-size:13px;color:var(--color-danger,#ef4444);margin:2px 0 0;text-transform:uppercase;letter-spacing:.5px;font-weight:600">Storno</div>'
     +     '</div>'
     +   '</div>'
     +   '<div class="storno-section-label">Bolo uz pripravene?</div>'

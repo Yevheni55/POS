@@ -1074,6 +1074,10 @@ async function saveNote(){
   }
 }
 
+// Split mode: 'equal' = N-way rovnomerne, 'items' = priatel plati len
+// svoje 2 polozky. Server podporuje oba (itemGroups parameter).
+var _splitMode = 'equal';
+
 async function splitBill(){
   if(!getOrder().length){showToast('Prazdna objednavka');return}
   try{
@@ -1082,6 +1086,9 @@ async function splitBill(){
     const total=getOrderTotal();
     document.getElementById('splitCount').value=2;
     document.getElementById('splitPreview').textContent='Kazdy plati: '+fmt(total/2);
+    _splitMode = 'equal';
+    _renderSplitTabs();
+    _renderSplitItemsList();
     document.getElementById('splitModal').classList.add('show');
   }catch(e){
     console.error('splitBill error:', e);
@@ -1095,9 +1102,125 @@ document.getElementById('splitCount')?.addEventListener('input',function(){
   document.getElementById('splitPreview').textContent='Kazdy plati: '+fmt(total/n);
 });
 
+// === Split modal tabby + per-item picker ===
+// Tab switch: equal vs items mode. Polozky picker: tap-toggle riadky,
+// running subtotal "vybrate na novy ucet". Confirm posiela itemGroups.
+function _renderSplitTabs(){
+  var tabs = document.querySelectorAll('.split-tab-btn');
+  if (!tabs.length) return;
+  tabs.forEach(function(t){
+    var on = t.dataset.splitMode === _splitMode;
+    t.classList.toggle('active', on);
+    t.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  document.getElementById('splitModeEqual').hidden = (_splitMode !== 'equal');
+  document.getElementById('splitModeItems').hidden = (_splitMode !== 'items');
+}
+
+document.addEventListener('click', function(e){
+  var btn = e.target && e.target.closest && e.target.closest('.split-tab-btn');
+  if (!btn) return;
+  _splitMode = btn.dataset.splitMode;
+  _renderSplitTabs();
+});
+
+// Selektovane order item IDs pre item-split mode. Tap-toggle.
+var _splitSelectedItemIds = new Set();
+
+function _renderSplitItemsList(){
+  var host = document.getElementById('splitItemsList');
+  if (!host) return;
+  _splitSelectedItemIds.clear();
+  var order = getOrder() || [];
+  // Filter: companion rows (Záloha fľaša atd.) sa nezobrazuju samostatne —
+  // pojdu s primary. Aj sauce annotation rows skryjeme.
+  var pickable = order.filter(function(it){
+    if (it._companionOf) return false;
+    if (it.name === 'Omáčka (combo)') return false;
+    return it.qty > 0;
+  });
+  if (!pickable.length){
+    host.innerHTML = '<div style="padding:20px;text-align:center;color:var(--color-text-sec);font-size:13px">Ziadne polozky</div>';
+    return;
+  }
+  host.innerHTML = pickable.map(function(it){
+    var lineTotal = (Number(it.price) || 0) * (Number(it.qty) || 0);
+    return '<button type="button" class="split-item-row" data-split-item-id="' + it.id + '" '
+      + 'style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--color-bg-surface);border:1px solid var(--color-border);border-radius:6px;cursor:pointer;text-align:left">'
+      + '<span class="split-item-check" style="width:24px;height:24px;border-radius:4px;border:2px solid var(--color-border);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-weight:700;color:#fff;font-size:14px"></span>'
+      + '<span style="flex:1;font-size:14px">' + escAttr(it.emoji + ' ' + it.name) + '</span>'
+      + '<span style="font-size:12px;color:var(--color-text-sec)">' + it.qty + '×</span>'
+      + '<span style="font-size:14px;font-weight:600;color:var(--color-text);min-width:70px;text-align:right">' + fmt(lineTotal) + '</span>'
+      + '</button>';
+  }).join('');
+  _updateSplitItemsTotal();
+}
+
+function _updateSplitItemsTotal(){
+  var total = 0;
+  var order = getOrder() || [];
+  _splitSelectedItemIds.forEach(function(id){
+    var it = order.find(function(x){ return x.id === id; });
+    if (it) total += (Number(it.price) || 0) * (Number(it.qty) || 0);
+  });
+  var el = document.getElementById('splitItemsTotal');
+  if (el) el.textContent = fmt(total);
+}
+
+document.addEventListener('click', function(e){
+  var row = e.target && e.target.closest && e.target.closest('.split-item-row');
+  if (!row) return;
+  var id = Number(row.dataset.splitItemId);
+  if (!id) return;
+  if (_splitSelectedItemIds.has(id)){
+    _splitSelectedItemIds.delete(id);
+    row.style.background = 'var(--color-bg-surface)';
+    row.style.borderColor = 'var(--color-border)';
+    var c = row.querySelector('.split-item-check');
+    if (c){ c.style.background = 'transparent'; c.style.borderColor = 'var(--color-border)'; c.textContent = ''; }
+  } else {
+    _splitSelectedItemIds.add(id);
+    row.style.background = 'rgba(139,124,246,.12)';
+    row.style.borderColor = 'var(--color-accent,#8b7cf6)';
+    var c2 = row.querySelector('.split-item-check');
+    if (c2){ c2.style.background = 'var(--color-accent,#8b7cf6)'; c2.style.borderColor = 'var(--color-accent,#8b7cf6)'; c2.textContent = '✓'; }
+  }
+  _updateSplitItemsTotal();
+});
+
 async function confirmSplit(){
-  const parts=parseInt(document.getElementById('splitCount').value)||2;
   try{
+    if (_splitMode === 'items'){
+      if (!_splitSelectedItemIds.size){
+        showToast('Vyber aspon jednu polozku', 'warning');
+        return;
+      }
+      var order = getOrder() || [];
+      var groupNew = Array.from(_splitSelectedItemIds);
+      var groupRest = order
+        .filter(function(it){
+          if (_splitSelectedItemIds.has(it.id)) return false;
+          if (it._companionOf) return false;
+          if (it.name === 'Omáčka (combo)') return false;
+          return it.qty > 0;
+        })
+        .map(function(it){ return it.id; });
+      if (!groupRest.length){
+        showToast('Aspon jedna polozka musi ostat na povodnom ucte', 'warning');
+        return;
+      }
+      // itemGroups: kazdy sub-array = novy ucet. groupNew = priatelov,
+      // groupRest = zvysok na povodnom (server vytvori 2 ucty).
+      await api.post('/orders/'+currentOrderId+'/split',{ itemGroups: [groupNew, groupRest] });
+      document.getElementById('splitModal').classList.remove('show');
+      await loadTableOrder(selectedTableId, true);
+      renderOrder();
+      if(isMobile()) renderMobOrder();
+      showToast('Polozky presunute na novy ucet',true);
+      return;
+    }
+    // equal N-way split
+    const parts=parseInt(document.getElementById('splitCount').value)||2;
     await api.post('/orders/'+currentOrderId+'/split',{parts});
     document.getElementById('splitModal').classList.remove('show');
     await loadTableOrder(selectedTableId, true);
@@ -1111,6 +1234,7 @@ async function confirmSplit(){
 
 function closeSplitModal(){
   document.getElementById('splitModal').classList.remove('show');
+  _splitSelectedItemIds.clear();
 }
 
 // === Inline Move Mode (Tap-to-Move) ===

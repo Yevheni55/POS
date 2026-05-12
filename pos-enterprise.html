@@ -290,15 +290,34 @@
 </div>
 
 <div class="u-overlay" id="splitModal">
-  <div class="u-modal" role="dialog" aria-modal="true" aria-labelledby="splitModalTitle">
+  <div class="u-modal" role="dialog" aria-modal="true" aria-labelledby="splitModalTitle" style="max-width:540px">
     <span class="u-modal-icon">&#128101;</span>
     <div class="u-modal-title" id="splitModalTitle">Rozdelit ucet</div>
+    <!-- Tabby: rovnomerne N-way split vs. po polozkach (priatel plati len svoje 2 polozky). -->
+    <div class="split-tabs" role="tablist" style="display:flex;gap:6px;margin:14px 0 16px;justify-content:center">
+      <button type="button" class="split-tab-btn active" data-split-mode="equal" role="tab" aria-selected="true">Rovnomerne</button>
+      <button type="button" class="split-tab-btn" data-split-mode="items" role="tab" aria-selected="false">Po polozkach</button>
+    </div>
     <div class="u-modal-body">
-      <div class="u-modal-field">
-        <label for="splitCount">Pocet osob</label>
-        <input id="splitCount" type="number" min="2" max="10" value="2">
+      <!-- Mode A: equal N-way -->
+      <div id="splitModeEqual" class="split-mode-panel">
+        <div class="u-modal-field">
+          <label for="splitCount">Pocet osob</label>
+          <input id="splitCount" type="number" min="2" max="10" value="2">
+        </div>
+        <div class="u-modal-text" id="splitPreview">Kazdy plati: 0,00 EUR</div>
       </div>
-      <div class="u-modal-text" id="splitPreview">Kazdy plati: 0,00 EUR</div>
+      <!-- Mode B: tap-toggle items → priatel plati svoje 2 polozky, zvysok ostane na povodnom ucte. -->
+      <div id="splitModeItems" class="split-mode-panel" hidden>
+        <div style="font-size:13px;color:var(--color-text-sec);margin-bottom:10px">
+          Klikni polozky pre <strong>novy ucet</strong> (zvysok ostane na povodnom):
+        </div>
+        <div id="splitItemsList" style="display:flex;flex-direction:column;gap:6px;max-height:300px;overflow-y:auto;margin-bottom:12px"></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:rgba(139,124,246,.08);border-radius:6px">
+          <span style="font-size:13px;color:var(--color-text-sec)">Vybrate na novy ucet:</span>
+          <span id="splitItemsTotal" style="font-size:18px;font-weight:700;color:var(--color-accent)">0,00 €</span>
+        </div>
+      </div>
     </div>
     <div class="u-modal-btns">
       <button class="u-btn u-btn-ghost" onclick="closeSplitModal()">Zrusit</button>

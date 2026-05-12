@@ -399,17 +399,15 @@ function _setupCashHelper(method, total) {
     { k: '7' }, { k: '8' }, { k: '9' },
     { k: '\u232B', special: 'back' }, { k: '0' }, { k: 'C', special: 'clear' },
   ];
+  // Styling teraz cez .cash-numpad-btn v css/pos.css aby @media
+  // (pointer:coarse) mohol bumpovat hodnoty pre tablet. Special keys
+  // (backspace, clear) dostavaju .is-special variantu s amber tintom.
   numpad.innerHTML = keys.map(function (kk) {
-    var bg = kk.special ? 'rgba(245,158,11,.10)' : 'rgba(255,255,255,.06)';
-    var color = kk.special ? '#f59e0b' : 'var(--color-text)';
-    var border = kk.special ? '1px solid rgba(245,158,11,.30)' : '1px solid var(--color-border)';
-    return '<button type="button" class="cash-numpad-btn"'
+    return '<button type="button" class="cash-numpad-btn'
+      + (kk.special ? ' is-special' : '') + '"'
       + ' data-key="' + kk.k + '"'
       + (kk.special ? ' data-special="' + kk.special + '"' : '')
-      + ' style="padding:14px 8px;font-size:20px;font-weight:600;border-radius:6px;'
-      +        'background:' + bg + ';border:' + border + ';color:' + color + ';'
-      +        'cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent">'
-      + kk.k + '</button>';
+      + '>' + kk.k + '</button>';
   }).join('');
   Array.prototype.forEach.call(numpad.querySelectorAll('.cash-numpad-btn'), function (b) {
     b.addEventListener('click', function () {
