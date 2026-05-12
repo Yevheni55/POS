@@ -868,6 +868,101 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
    incident. Bump na 48 + vacsi padding + gap medzi chipmi. */
 @media (pointer:coarse){.note-preset-chip{min-height:48px;padding:12px 18px;font-size:15px} .note-presets{gap:10px}}
 
+/* === Custom search keyboard — nahradza native Android KB v Products view.
+   Otvori sa tap-om na search-wrap, zatvori cez Hotovo / X / tap-mimo. */
+.search-clear{
+  position:absolute;right:8px;top:50%;transform:translateY(-50%);
+  background:rgba(255,255,255,.06);
+  border:1px solid var(--color-border);
+  border-radius:50%;
+  width:32px;height:32px;
+  display:flex;align-items:center;justify-content:center;
+  color:var(--color-text-sec);
+  cursor:pointer;
+  font-size:14px;
+  z-index:2;
+  transition:background .12s;
+}
+.search-clear:hover{background:rgba(255,255,255,.14);color:var(--color-text)}
+.search-clear[hidden]{display:none !important}
+@media (pointer:coarse){.search-clear{width:38px;height:38px;font-size:16px}}
+
+/* Search-wrap je relativne aby search-clear absolute pozicia fungovala. */
+.search-wrap{position:relative}
+
+/* Keyboard popup — pod searchWrap, pred grid. flex column z radkov. */
+.search-kb{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  padding:10px 8px 12px;
+  background:rgba(16,14,36,.85);
+  border-bottom:1px solid var(--color-border);
+  animation:searchKbSlide .18s ease-out;
+}
+.search-kb[hidden]{display:none !important}
+@keyframes searchKbSlide{
+  from{opacity:0;transform:translateY(-6px)}
+  to{opacity:1;transform:translateY(0)}
+}
+.search-kb-row{
+  display:flex;
+  gap:5px;
+  justify-content:center;
+}
+.search-kb-key{
+  flex:1 1 0;
+  min-width:32px;
+  min-height:44px;
+  padding:10px 4px;
+  font-size:17px;
+  font-weight:600;
+  font-family:inherit;
+  background:rgba(255,255,255,.06);
+  border:1px solid var(--color-border);
+  border-radius:7px;
+  color:var(--color-text);
+  cursor:pointer;
+  user-select:none;
+  -webkit-tap-highlight-color:transparent;
+  transition:background .12s,transform .08s;
+}
+.search-kb-key:active{background:rgba(255,255,255,.14);transform:scale(.96)}
+.search-kb-key.is-mod{
+  background:rgba(139,124,246,.10);
+  border-color:rgba(139,124,246,.30);
+  color:var(--color-accent,#8b7cf6);
+  font-size:14px;
+  flex:0 0 68px;
+  min-width:68px;
+}
+.search-kb-key.is-mod:active{background:rgba(139,124,246,.22)}
+.search-kb-key.is-space{
+  flex:2 1 0;
+  font-size:13px;
+  color:var(--color-text-sec);
+  letter-spacing:.5px;
+}
+.search-kb-key.is-close{
+  background:rgba(92,196,158,.14);
+  border-color:rgba(92,196,158,.40);
+  color:var(--color-success);
+  flex:0 0 88px;
+  min-width:88px;
+}
+.search-kb-key.is-close:active{background:rgba(92,196,158,.28)}
+.search-kb-actions{margin-top:4px}
+
+/* Tablet bump — kompaktnejsie keyboard space + vacsie targety */
+@media (pointer:coarse){
+  .search-kb{padding:12px 10px 14px;gap:7px}
+  .search-kb-key{min-height:52px;font-size:18px;padding:12px 4px}
+  .search-kb-key.is-mod{min-width:78px;font-size:15px}
+  .search-kb-key.is-close{min-width:104px;font-size:15px}
+  .search-kb-key.is-space{font-size:14px}
+  .search-kb-row{gap:7px}
+}
+
 /* Sauce-repeat CTA — pri "+" na sent combe (alebo Kuracie hranolky)
    sa zachyti minula omacka. Big tap target s eyebrow + value. Operator
    nemusi znova prechadzkovat checkboxy.

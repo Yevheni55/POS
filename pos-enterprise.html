@@ -79,9 +79,16 @@
     <div class="products-panel" id="productsPanel">
       <div class="search-wrap">
         <span class="search-icon">&#128269;</span>
-        <label for="searchInput" class="sr-only">Hladat produkt</label><input class="search-input" id="searchInput" type="text" placeholder="Hladat produkt alebo kategoriu..." autocomplete="off">
+        <!-- readonly + inputmode=none + transparent caret = ziadna nativna
+             Android klavesnica nevyskoci. Tap otvori custom search-kb dole. -->
+        <label for="searchInput" class="sr-only">Hladat produkt</label><input class="search-input" id="searchInput" type="text" readonly inputmode="none" placeholder="Hladat produkt alebo kategoriu..." autocomplete="off" style="caret-color:transparent">
         <span class="search-hint">/</span>
+        <button type="button" id="searchClearBtn" class="search-clear" aria-label="Vymazat" hidden>&#10005;</button>
       </div>
+      <!-- Custom search keyboard — viditelna len pri otvoreni cez tap na
+           searchInput. 3 vrstvy (abc/dia/123) ako note-kb. Tap outside =
+           close. Live filter cez existujuci searchInput input event. -->
+      <div class="search-kb" id="searchKeyboard" hidden></div>
       <div class="cat-grid-wrap">
         <div class="categories" id="categories"></div>
         <div class="products-grid" id="productsGrid"></div>
