@@ -279,8 +279,19 @@
         <button type="button" class="note-preset-chip" onclick="appendNotePreset('alergia')">alergia</button>
       </div>
       <div class="u-modal-field">
-        <label for="noteInput" class="sr-only">Poznamka k polozke</label><input id="noteInput" type="text" placeholder="Napr. bez cibule, extra ostra..." maxlength="200">
+        <label for="noteInput" class="sr-only">Poznamka k polozke</label>
+        <!-- READONLY + inputmode=none + transparent caret = ziadna nativna
+             Android klavesnica nevyskoci. Pisanie sa robi cez nasu vlastnu
+             #noteKeyboard nizsie. Rovnaky pattern ako cash helper numpad. -->
+        <input id="noteInput" type="text" readonly inputmode="none"
+          placeholder="Napr. bez cibule, extra ostra..."
+          maxlength="200"
+          style="caret-color:transparent">
       </div>
+      <!-- Vlastna klavesnica — buduje sa JS-om v openNoteModal pre flexibilne
+           pridanie diakritiky / numerickej vrstvy. Trasieme cez tap-zone
+           48x48 min — bezpecne wet-finger. -->
+      <div id="noteKeyboard" class="note-kb"></div>
     </div>
     <div class="u-modal-btns">
       <button class="u-btn u-btn-ghost" onclick="closeNoteModal()">Zrusit</button>

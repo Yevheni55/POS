@@ -990,11 +990,91 @@ function openNoteModal(name, itemId){
   var hint = document.getElementById('noteModalSentHint');
   if (hint) hint.classList.toggle('pos-hidden', !item.sent);
   _refreshNotePresetActiveState();
+  _buildNoteKeyboard();
   document.getElementById('noteModal').classList.add('show');
-  // No auto-focus on the input — cashier should land on the preset chips
-  // first; the on-screen keyboard only pops up when they explicitly tap
-  // the text field for a custom note.
 }
+
+// === Vlastna klavesnica pre note input ===
+// 3 vrstvy: 'abc' (zakladne pismena), 'dia' (slovenske diakritiky), '123'
+// (cisla + symboly). Toggle cez klavesy 'áž' a '123'. Vsetky tapy 48px
+// min — wet-finger safe. Pisanie ide cez input.value mutaciu + refresh
+// preset active state.
+var _noteKbLayer = 'abc';
+
+function _buildNoteKeyboard(){
+  _noteKbLayer = 'abc';
+  _renderNoteKeyboard();
+}
+
+function _renderNoteKeyboard(){
+  var host = document.getElementById('noteKeyboard');
+  if (!host) return;
+  var rows;
+  if (_noteKbLayer === 'abc'){
+    rows = [
+      ['q','w','e','r','t','y','u','i','o','p'],
+      ['a','s','d','f','g','h','j','k','l'],
+      ['z','x','c','v','b','n','m'],
+    ];
+  } else if (_noteKbLayer === 'dia'){
+    rows = [
+      ['á','č','ď','é','í','ľ','ĺ','ň'],
+      ['ó','ô','ŕ','š','ť','ú','ý','ž'],
+    ];
+  } else { // '123'
+    rows = [
+      ['1','2','3','4','5','6','7','8','9','0'],
+      ['.',',','-','_','!','?','(',')','%','/'],
+    ];
+  }
+  var html = '';
+  for (var r = 0; r < rows.length; r++){
+    html += '<div class="note-kb-row">';
+    for (var c = 0; c < rows[r].length; c++){
+      var k = rows[r][c];
+      html += '<button type="button" class="note-kb-key" data-kb-key="' + k + '">' + k + '</button>';
+    }
+    html += '</div>';
+  }
+  // Action row — toggle layers + space + backspace + comma + return
+  html += '<div class="note-kb-row note-kb-actions">';
+  html += '<button type="button" class="note-kb-key is-mod" data-kb-action="toggle-dia">'
+    + (_noteKbLayer === 'dia' ? 'abc' : 'áž') + '</button>';
+  html += '<button type="button" class="note-kb-key is-mod" data-kb-action="toggle-123">'
+    + (_noteKbLayer === '123' ? 'abc' : '123') + '</button>';
+  html += '<button type="button" class="note-kb-key is-space" data-kb-key=" ">medzera</button>';
+  html += '<button type="button" class="note-kb-key is-mod" data-kb-action="backspace">⌫</button>';
+  html += '</div>';
+  host.innerHTML = html;
+}
+
+document.addEventListener('click', function(e){
+  var keyBtn = e.target && e.target.closest && e.target.closest('.note-kb-key');
+  if (!keyBtn) return;
+  var input = document.getElementById('noteInput');
+  if (!input) return;
+  var action = keyBtn.dataset.kbAction;
+  if (action === 'backspace'){
+    input.value = (input.value || '').slice(0, -1);
+    _refreshNotePresetActiveState();
+    return;
+  }
+  if (action === 'toggle-dia'){
+    _noteKbLayer = _noteKbLayer === 'dia' ? 'abc' : 'dia';
+    _renderNoteKeyboard();
+    return;
+  }
+  if (action === 'toggle-123'){
+    _noteKbLayer = _noteKbLayer === '123' ? 'abc' : '123';
+    _renderNoteKeyboard();
+    return;
+  }
+  var key = keyBtn.dataset.kbKey;
+  if (key == null) return;
+  if ((input.value || '').length >= 200) return; // maxlength guard
+  input.value = (input.value || '') + key;
+  _refreshNotePresetActiveState();
+});
 
 // Preset note chips — quick-insert common phrases (bez cibule, extra ostre...)
 // so cashier doesn't have to type on tablet. Toggling: tap an inactive chip

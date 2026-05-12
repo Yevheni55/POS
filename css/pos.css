@@ -868,6 +868,64 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
    incident. Bump na 48 + vacsi padding + gap medzi chipmi. */
 @media (pointer:coarse){.note-preset-chip{min-height:48px;padding:12px 18px;font-size:15px} .note-presets{gap:10px}}
 
+/* Vlastna klavesnica pre note input — nahradza nativnu Android klavesnicu
+   ktora zakryvala modal. Layout: 10/9/7 letter rows + action row (toggle
+   diakritika, toggle cisla, medzera, backspace). Tap targets 48px min
+   na tablete cez (pointer:coarse) override. */
+.note-kb{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  margin-top:12px;
+}
+.note-kb-row{
+  display:flex;
+  gap:5px;
+  justify-content:center;
+}
+.note-kb-key{
+  flex:1 1 0;
+  min-width:32px;
+  min-height:42px;
+  padding:8px 4px;
+  font-size:16px;
+  font-weight:600;
+  font-family:inherit;
+  background:rgba(255,255,255,.06);
+  border:1px solid var(--color-border);
+  border-radius:6px;
+  color:var(--color-text);
+  cursor:pointer;
+  user-select:none;
+  -webkit-tap-highlight-color:transparent;
+  transition:background .12s,transform .08s;
+}
+.note-kb-key:active{background:rgba(255,255,255,.14);transform:scale(.96)}
+.note-kb-key.is-mod{
+  background:rgba(139,124,246,.10);
+  border-color:rgba(139,124,246,.30);
+  color:var(--color-accent,#8b7cf6);
+  font-size:14px;
+  flex:0 0 64px;
+  min-width:64px;
+}
+.note-kb-key.is-mod:active{background:rgba(139,124,246,.22)}
+.note-kb-key.is-space{
+  flex:2 1 0;
+  font-size:13px;
+  color:var(--color-text-sec);
+  letter-spacing:.5px;
+}
+.note-kb-actions{margin-top:4px}
+/* Tablet bump — wet finger safe. */
+@media (pointer:coarse){
+  .note-kb-key{min-height:52px;font-size:18px}
+  .note-kb-key.is-mod{min-width:76px;font-size:15px}
+  .note-kb-key.is-space{font-size:14px}
+  .note-kb-row{gap:7px}
+  .note-kb{gap:7px}
+}
+
 /* Split modal tabs — Rovnomerne vs Po polozkach */
 .split-tab-btn{
   background:var(--color-bg-surface,rgba(255,255,255,.04));
