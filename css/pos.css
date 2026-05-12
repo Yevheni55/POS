@@ -868,6 +868,67 @@ body{font-family:var(--font-body);color:var(--text-primary);background:var(--sur
    incident. Bump na 48 + vacsi padding + gap medzi chipmi. */
 @media (pointer:coarse){.note-preset-chip{min-height:48px;padding:12px 18px;font-size:15px} .note-presets{gap:10px}}
 
+/* Sauce-repeat CTA — pri "+" na sent combe (alebo Kuracie hranolky)
+   sa zachyti minula omacka. Big tap target s eyebrow + value. Operator
+   nemusi znova prechadzkovat checkboxy.
+   Pre-checknute riadky maju .is-prechecked variant (highlight border). */
+.sauce-repeat-btn{
+  display:flex;
+  align-items:center;
+  gap:14px;
+  width:100%;
+  padding:14px 16px;
+  margin-bottom:16px;
+  background:linear-gradient(135deg,rgba(139,124,246,.22),rgba(139,124,246,.08));
+  border:1px solid rgba(139,124,246,.45);
+  border-radius:10px;
+  cursor:pointer;
+  color:var(--color-text);
+  font-family:inherit;
+  text-align:left;
+  transition:background .15s,border-color .15s,transform .08s;
+  -webkit-tap-highlight-color:transparent;
+}
+.sauce-repeat-btn:hover{
+  background:linear-gradient(135deg,rgba(139,124,246,.32),rgba(139,124,246,.14));
+  border-color:var(--color-accent,#8b7cf6);
+}
+.sauce-repeat-btn:active{transform:scale(.98)}
+.sauce-repeat-icon{
+  font-size:24px;
+  width:40px;height:40px;
+  display:flex;align-items:center;justify-content:center;
+  border-radius:50%;
+  background:rgba(139,124,246,.20);
+  color:var(--color-accent,#8b7cf6);
+  flex-shrink:0;
+  font-weight:600;
+}
+.sauce-repeat-text{
+  display:flex;flex-direction:column;gap:2px;
+  min-width:0;flex:1;
+}
+.sauce-repeat-eyebrow{
+  font-size:11px;
+  font-weight:600;
+  text-transform:uppercase;
+  letter-spacing:.6px;
+  color:var(--color-accent,#8b7cf6);
+}
+.sauce-repeat-value{
+  font-size:16px;
+  font-weight:700;
+  color:var(--color-text);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+@media (pointer:coarse){
+  .sauce-repeat-btn{min-height:56px;padding:16px 18px}
+  .sauce-repeat-icon{width:44px;height:44px;font-size:26px}
+  .sauce-repeat-value{font-size:17px}
+}
+
 /* Qty picker (Move / Split-by-items mode) — redesigned: big stepper
    v strede, suma preview, quick chips. Cisty CSS, ziadne inline styly. */
 .mqp-modal{max-width:420px;text-align:center}

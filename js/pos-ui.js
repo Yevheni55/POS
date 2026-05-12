@@ -217,8 +217,35 @@ function showStornoReason(itemName, qty, callback) {
   submitBtn.addEventListener('click', submit);
 }
 
+// Helper — vrati array predtym pouzitych omacok pre rovnaku polozku v
+// aktualnej objednavke. Pouzite v showSauceSelector aby tap "+" na sent
+// combo neotvorilo prazdny modal ale zachytilo poslednu volbu.
+// Returns: null ak ziadny predchadzajuci, [] pre "bez omacky", inak array.
+function _findLastSauceForItem(comboName) {
+  if (typeof getOrder !== 'function') return null;
+  var order = getOrder() || [];
+  var primaries = order
+    .filter(function (it) { return it.name === comboName && !it._companionOf; })
+    .sort(function (a, b) { return (b.id || 0) - (a.id || 0); });
+  for (var i = 0; i < primaries.length; i++) {
+    var ann = order.find(function (it) {
+      return it.name === 'Omáčka (combo)' && it._companionOf === primaries[i].id;
+    });
+    if (ann && typeof ann.note === 'string') {
+      if (/bezs*omáčky/i.test(ann.note)) return [];
+      return ann.note.split('+').map(function (s) { return s.trim(); }).filter(Boolean);
+    }
+  }
+  return null;
+}
+
 // Sauce selector for combos. Callback receives an array of selected sauce names
 // (possibly empty — means "bez omáčky") or null if the user cancelled.
+//
+// Ak v aktualnej objednavke uz existuje rovnaka polozka s omackou, modal
+// zobrazi prominent "Opakovat" CTA hore (jeden klik = potvrdenie s
+// rovnakou volbou) + checkboxy budu pre-checknute. Casnik s rusnikom v
+// ruke uz nemusi prerolovat zoznam vsetkych chuti.
 function showSauceSelector(comboName, callback) {
   var existing = document.getElementById('sauceSelectorModal');
   if (existing) existing.remove();
@@ -236,21 +263,44 @@ function showSauceSelector(comboName, callback) {
   ov.className = 'u-overlay';
   ov.id = 'sauceSelectorModal';
 
+  // Predchadzajuca volba — pouzita ako default + ako "Opakovat" CTA.
+  var previous = _findLastSauceForItem(comboName);
+  var hasPrevious = Array.isArray(previous);
+  var previousLabel = '';
+  if (hasPrevious) {
+    previousLabel = previous.length ? previous.join(' + ') : 'bez omáčky';
+  }
+
   var sauceBoxes = sauces.map(function (s, i) {
     var id = 'sauce-' + i;
-    return '<label for="' + id + '" style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(255,255,255,.04);border:1px solid var(--color-border);border-radius:var(--radius-sm);cursor:pointer;font-size:var(--text-base)">'
-      + '<input type="checkbox" id="' + id + '" data-sauce="' + s + '" style="width:18px;height:18px;cursor:pointer">'
+    var preChecked = hasPrevious && previous.indexOf(s) >= 0;
+    return '<label for="' + id + '" class="sauce-row' + (preChecked ? ' is-prechecked' : '') + '" style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:' + (preChecked ? 'rgba(139,124,246,.10)' : 'rgba(255,255,255,.04)') + ';border:1px solid ' + (preChecked ? 'rgba(139,124,246,.40)' : 'var(--color-border)') + ';border-radius:var(--radius-sm);cursor:pointer;font-size:var(--text-base)">'
+      + '<input type="checkbox" id="' + id + '" data-sauce="' + s + '"' + (preChecked ? ' checked' : '') + ' style="width:18px;height:18px;cursor:pointer">'
       + '<span>' + s + '</span></label>';
   }).join('');
+
+  // Repeat CTA — viditeľný len ak našla sa predchádzajúca volba. Plne
+  // accent-tinted, big tap target, ikona ↻ aby bolo zrejmé že je to repeat.
+  var repeatCta = '';
+  if (hasPrevious) {
+    repeatCta = '<button type="button" class="sauce-repeat-btn" id="sauceRepeat">'
+      + '<span class="sauce-repeat-icon" aria-hidden="true">↻</span>'
+      + '<span class="sauce-repeat-text">'
+      +   '<span class="sauce-repeat-eyebrow">Opakovať omáčku</span>'
+      +   '<span class="sauce-repeat-value">' + (previousLabel || '—') + '</span>'
+      + '</span>'
+      + '</button>';
+  }
 
   ov.innerHTML = '<div class="u-modal" role="dialog" aria-modal="true" aria-labelledby="sauceModalTitle" style="max-width:380px">'
     + '<div class="u-modal-icon">\uD83E\uDD62</div>'
     + '<div class="u-modal-title" id="sauceModalTitle">Vyber omáčok</div>'
     + '<div class="u-modal-text">' + comboName + '</div>'
+    + repeatCta
     + '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px">' + sauceBoxes + '</div>'
     + '<div class="u-modal-btns" style="gap:8px">'
     + '<button class="u-btn u-btn-ice" id="sauceNone">Bez omáčky</button>'
-    + '<button class="u-btn u-btn-ice" id="sauceConfirm">Potvrdiť</button>'
+    + '<button class="u-btn u-btn-mint" id="sauceConfirm">Potvrdiť</button>'
     + '</div>'
     + '</div>';
 
@@ -268,6 +318,14 @@ function showSauceSelector(comboName, callback) {
       ev.preventDefault();
       finishClose();
       if (callback) callback(null);
+    } else if (ev.key === 'Enter') {
+      ev.preventDefault();
+      var picked = [];
+      ov.querySelectorAll('input[type="checkbox"]:checked').forEach(function (cb) {
+        picked.push(cb.dataset.sauce);
+      });
+      finishClose();
+      if (callback) callback(picked);
     }
   }
   document.addEventListener('keydown', keyHandler, true);
@@ -279,6 +337,17 @@ function showSauceSelector(comboName, callback) {
       if (callback) callback(null);
     }
   });
+
+  // Repeat CTA — instant confirm s presne tou istou omackou ako naposledy.
+  if (hasPrevious) {
+    var repeatBtn = document.getElementById('sauceRepeat');
+    if (repeatBtn) {
+      repeatBtn.addEventListener('click', function () {
+        finishClose();
+        if (callback) callback(previous.slice());
+      });
+    }
+  }
 
   document.getElementById('sauceNone').addEventListener('click', function () {
     finishClose();
