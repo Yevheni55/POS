@@ -667,17 +667,18 @@ function changeQty(name,d,itemId){
   const item = _findOrderItemForQtyChange(order, name, itemId);
   if (!item) return;
 
+  // Combos + Kuracie hranolky: kazdy + (sent ALEBO unsent) otvori sauce-picker
+  // pre tu novu porciu. Predtym to bolo len pri sent — unsent silently
+  // inkrementoval qty a annotation row sa mirror-oval, takze vsetky porcie
+  // zdielali rovnaku omacku ("1× s BBQ + 1× s Tatarkou" nebolo mozne).
+  // Teraz konzistentne: + = picker. Repeat CTA v pickeri = 1 tap pre
+  // "to iste znova" pripad, takze friction je minimalna.
+  if (d > 0 && typeof _needsSaucePicker === 'function' && _needsSaucePicker(item.name) && typeof addToOrder === 'function') {
+    addToOrder(item.name, item.emoji, item.price);
+    return;
+  }
+
   if (d > 0 && item.sent) {
-    // Combos + Kuracie hranolky potrebujú omáčku spárovanú 1:1 s každou
-    // porciou. Sent annotation patrí konkrétnej porcii a po server round-trip
-    // už nemáme local _companionOf link na bezpečné klonovanie. Preto +1
-    // na sent položke prejde cez addToOrder() → otvorí sa sauce-picker pre
-    // novú porciu a obsluha vyberie Chilli-mayo / Tatárka / atď.
-    // Bez toho by +1 na sent combe vyrobil orphan combo riadok bez omáčky.
-    if (typeof _needsSaucePicker === 'function' && _needsSaucePicker(item.name) && typeof addToOrder === 'function') {
-      addToOrder(item.name, item.emoji, item.price);
-      return;
-    }
     _increaseSentItemAsUnsentDelta(order, item, d);
     setOrder(order);
     _orderDirty = true;
