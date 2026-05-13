@@ -499,7 +499,7 @@ body::after{
 @keyframes cardIn{to{opacity:1}}
 
 /* ===== ORDER PANEL ===== */
-.order-panel{position:relative;width:380px;flex-shrink:0;display:flex;flex-direction:column;background:var(--surface-raised);border-left:1px solid var(--border-default);border-top:2px dashed var(--color-border)}
+.order-panel{position:relative;width:380px;flex-shrink:0;display:flex;flex-direction:column;background:var(--surface-raised);border-left:1px solid var(--border-default);border-top:2px dashed var(--color-border-strong)}
 /* Receipt perforation — 2px dashed top edge evokes torn-off ledger sheet.
    Pure decorative; nothing else relies on this border. */
 .order-panel::before{
@@ -513,7 +513,10 @@ body::after{
   pointer-events:none;
   opacity:.55;
 }
-.order-header{padding:var(--space-2) var(--space-4) 4px;border-bottom:1px solid var(--border-default);display:flex;align-items:center;justify-content:space-between}
+/* Phase 7: asymmetric spacing — order-header dostane viac vertikalneho
+   priestoru (golden-ratio rhythm namiesto rigid uniform grid).
+   Hornu padding 18px (predtym ~8px), spodny ~14px pre breathing. */
+.order-header{padding:18px var(--space-4) 14px;border-bottom:1px solid var(--border-default);display:flex;align-items:center;justify-content:space-between}
 .order-tabs{display:flex;gap:var(--space-1);padding:var(--space-1) var(--space-4);border-bottom:1px solid var(--color-border);overflow-x:auto;flex-shrink:0;position:sticky;top:0;z-index:5;background:linear-gradient(180deg, color-mix(in srgb, var(--color-bg) 95%, transparent) 0%, color-mix(in srgb, var(--color-bg) 85%, transparent) 100%);backdrop-filter:blur(8px) saturate(120%);-webkit-backdrop-filter:blur(8px) saturate(120%)}
 .order-tab{display:flex;flex-direction:column;align-items:flex-start;padding:6px 12px;border-radius:var(--radius-sm);border:1px solid var(--action-primary-border);background:transparent;color:var(--text-secondary);font-family:var(--font-body);font-size:var(--text-sm);font-weight:var(--weight-semibold);cursor:pointer;white-space:nowrap;transition:all .15s;position:relative}
 .order-tab.active{background:var(--action-primary-bg);color:var(--action-primary);border-color:var(--action-primary)}
@@ -564,12 +567,11 @@ body::after{
 /* (move-item-row, move-check, move-banner removed — replaced by inline move mode) */
 
 /* === INLINE MOVE MODE ===
-   POS používa dark theme — slabučké rgba(92,196,158,.08) tinty na
-   tmavom pozadí vyzerajú takmer čierne. Operátor ich nevidí ako
-   "drop targety" a má pocit že tlačidlá sú nefunkčné. Riešenie:
-   vyrazne zosvetliť drop-targety na solid green-tinted fill +
-   čitateľný text, a active SOURCE tab dostane jasné amber
-   "ja som zdroj" označenie namiesto opacity 0.5. */
+   Daylight theme (cream): slabučké rgba(92,196,158,.08) tinty by sa
+   na linen pozadí strácali — operátor by ich nevidel ako "drop targety".
+   Riešenie: výrazne zosvetlené drop-targety na solid green-tinted fill
+   s čitateľným textom, a active SOURCE tab dostane jasné amber "ZDROJ"
+   označenie namiesto opacity 0.5. */
 .move-mode .order-tabs{
   background:rgba(92,196,158,.10);
   border-color:rgba(92,196,158,.4);
@@ -834,7 +836,10 @@ body::after{
 .btn-serve{font-size:var(--text-2xs);padding:var(--space-1) var(--space-2);border-radius:6px;border:1px solid var(--color-success-border);background:var(--color-success-bg);color:var(--color-success);cursor:pointer;font-weight:var(--weight-bold);margin-left:3px;min-height:var(--btn-h-xs);line-height:var(--leading-snug)}
 .btn-serve:hover{background:rgba(92,196,158,.2)}
 
-.order-footer{border-top:1px solid var(--border-default);padding:8px 12px 12px;background:var(--surface-sunken)}
+/* Phase 7: asymmetric spacing — order-footer dostane vacsi padding-top
+   (16px namiesto 8px) aby sum-total label/value mali breathing room.
+   Lower third visual weight cez ~1:1.6 ratio horny:bottom padding. */
+.order-footer{border-top:1px solid var(--border-default);padding:16px 12px 12px;background:var(--surface-sunken)}
 .sum-total-wrap{
   display:flex;justify-content:space-between;align-items:baseline;
   padding:var(--space-3) 0 var(--space-4);
@@ -1469,6 +1474,19 @@ body::after{
 .u-btn-lavender:hover{background:rgba(184,84,42,.22);box-shadow:0 4px 16px rgba(184,84,42,.12)}
 .u-modal-method{font-size:12px;color:var(--color-text-sec);margin-bottom:4px}
 .kbd{display:inline-block;padding:1px 5px;border-radius:4px;background:rgba(30,24,18,.06);border:1px solid var(--color-border);font-size:9px;color:var(--color-text-dim);font-weight:700;font-family:monospace;margin-left:4px}
+
+/* Phase 7: Hand-drawn divider — irregular SVG line, used between modal
+   sections and in long forms to break visual monotony. Opt-in; replaces
+   <hr> as <hr class="hr-handdrawn"> alebo <div class="hr-handdrawn"></div>. */
+.hr-handdrawn{
+  border:none;
+  height:8px;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 8' preserveAspectRatio='none'><path d='M2 4 Q 50 6, 100 4 T 198 4' fill='none' stroke='%237a6855' stroke-width='1.2' stroke-linecap='round'/></svg>");
+  background-repeat:no-repeat;
+  background-size:100% 100%;
+  margin:var(--space-4) 0;
+  opacity:.55;
+}
 
 /* Utilities — prefer classes over inline styles in HTML/JS templates */
 .pos-hidden{display:none !important}

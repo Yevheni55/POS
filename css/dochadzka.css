@@ -263,3 +263,30 @@ body { margin: 0; padding: 0; background: var(--surface-bg, #0e0e12); color: var
 .doch-splash-icon{font-size:64px;line-height:1;margin-bottom:6px;font-weight:700}
 .doch-splash-title{font-size:28px;font-weight:700}
 .doch-splash-name{font-size:20px;font-weight:600;opacity:.9;margin-top:4px}
+
+/* Phase 7: Clock-in stamp impression — ink-stamp aesthetic pre uspesny
+   prichod/odchod. Dashed border + terra/forest farby + spring scale-rotate
+   keyframe simuluje skutocnu peciatku padajucu na papier. Utility class;
+   wrap success span do <div class="doch-stamp-success">…</div>. */
+@keyframes stampImpression {
+  0%   { transform: scale(1.4) rotate(-4deg); opacity: 0; }
+  60%  { transform: scale(0.92) rotate(2deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0); opacity: 1; }
+}
+.doch-stamp-success {
+  display: inline-block;
+  padding: 12px 24px;
+  background: rgba(74, 122, 58, .12);
+  border: 2px dashed var(--color-success, #4a7a3a);
+  border-radius: var(--radius-md, 14px);
+  color: var(--color-success, #4a7a3a);
+  font-family: var(--font-display, 'Outfit', sans-serif);
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  animation: stampImpression .5s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .doch-stamp-success { animation: none; }
+}
