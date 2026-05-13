@@ -1,4 +1,7 @@
 // Asset management (majetok) page module
+import { mountEmptyState } from '../components/empty-state.js';
+import { softDelete } from '../components/toast-undo.js';
+
 let assets = [];
 let summary = null;
 let _container = null;
@@ -109,11 +112,13 @@ function renderTable() {
   if (!tableWrap) return;
 
   if (!assets || !assets.length) {
-    tableWrap.innerHTML = '<div class="empty-state">'
-      + '<div class="empty-state-icon">&#128188;</div>'
-      + '<div class="empty-state-title">Ziadny majetok</div>'
-      + '<div class="empty-state-text">Pridajte zariadenie kliknutim na "Pridat zariadenie".</div>'
-      + '</div>';
+    mountEmptyState(tableWrap, {
+      icon: '💼',
+      title: 'Žiadny majetok',
+      text: 'Tu sa zobrazujú odpisovateľné zariadenia (chladnička, espresso, nábytok). Pridajte prvé.',
+      ctaLabel: 'Pridať zariadenie',
+      onCta: function () { openAddEditModal(null); },
+    });
     return;
   }
 
@@ -421,23 +426,32 @@ function renderDetailContent(ov, asset) {
   modal.querySelector('.u-modal-body').innerHTML = infoHtml + stateHtml + historyHtml;
 }
 
-// === Delete asset ===
-function deleteAsset(id, name) {
-  showConfirm(
-    'Zmazat zariadenie',
-    'Naozaj chcete zmazat "' + escHtml(name) + '"? Tato akcia sa neda vratit.',
-    async function () {
-      try {
-        await api.del('/inventory/assets/' + id);
-        showToast('Zariadenie odstranene', true);
-        loadAssets();
-        loadSummary();
-      } catch (err) {
-        showToast(err.message || 'Chyba pri mazani', 'error');
-      }
-    },
-    { type: 'danger' }
-  );
+// === Delete asset (optimistic + undo-toast) ===
+async function deleteAsset(id, name) {
+  const idx = assets.findIndex(a => a.id === id);
+  if (idx < 0) return;
+  const snapshot = assets[idx];
+
+  // Optimistic remove
+  assets.splice(idx, 1);
+  renderAssets();
+
+  const result = await softDelete({
+    label: '„' + name + '" odstránené',
+    deleteFn: function () { return api.del('/inventory/assets/' + id); },
+  });
+
+  if (result.undone) {
+    assets.splice(idx, 0, snapshot);
+    renderTable();
+    showToast('Vratene', true);
+  } else if (result.error) {
+    assets.splice(idx, 0, snapshot);
+    renderTable();
+  } else {
+    // Commited — reload summary stats (depreciation totals zmenene)
+    loadSummary();
+  }
 }
 
 // === Run depreciation ===

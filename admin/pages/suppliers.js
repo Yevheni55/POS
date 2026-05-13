@@ -1,4 +1,6 @@
 // Suppliers page module
+import { softDelete } from '../components/toast-undo.js';
+
 let suppliers = [];
 let editingId = null;
 let _container = null;
@@ -165,25 +167,30 @@ function openModal(id) {
   setTimeout(() => document.getElementById('fSupName').focus(), 100);
 }
 
-// ===== DELETE =====
-function deleteSupplier(id) {
-  const s = suppliers.find(x => x.id === id);
-  if (!s) return;
-  showConfirm(
-    'Odstranit dodavatela',
-    'Naozaj chcete odstranit dodavatela ' + s.name + '?',
-    async function () {
-      try {
-        await api.del('/inventory/suppliers/' + id);
-        suppliers = suppliers.filter(x => x.id !== id);
-        renderSuppliers();
-        showToast('Dodavatel odstraneny', true);
-      } catch (err) {
-        showToast('Chyba: ' + err.message);
-      }
-    },
-    { type: 'danger', confirmText: 'Odstranit' }
-  );
+// ===== DELETE (optimistic + undo-toast) =====
+async function deleteSupplier(id) {
+  const idx = suppliers.findIndex(x => x.id === id);
+  if (idx < 0) return;
+  const snapshot = suppliers[idx];
+
+  // Optimistic remove
+  suppliers.splice(idx, 1);
+  renderSuppliers();
+
+  const result = await softDelete({
+    label: 'Dodávateľ „' + snapshot.name + '" odstránený',
+    deleteFn: function () { return api.del('/inventory/suppliers/' + id); },
+  });
+
+  if (result.undone) {
+    suppliers.splice(idx, 0, snapshot);
+    renderSuppliers();
+    showToast('Vratene', true);
+  } else if (result.error) {
+    // Server failed — restore
+    suppliers.splice(idx, 0, snapshot);
+    renderSuppliers();
+  }
 }
 
 // ===== INIT / DESTROY =====

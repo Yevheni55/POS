@@ -2116,3 +2116,144 @@ select:focus-visible{
 }
 .nav-item--sub svg{width:15px;height:15px;opacity:.7}
 .nav-item--sub.active svg{opacity:1}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   EMPTY STATE — CTA variant (Editorial refinement)
+   ════════════════════════════════════════════════════════════════════════════ */
+.empty-state-cta{
+  appearance:none;
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:10px 18px;
+  font-family:var(--font-body);
+  font-weight:700;
+  font-size:13px;
+  letter-spacing:-.005em;
+  color:#fff;
+  background:linear-gradient(135deg,var(--color-accent),var(--color-accent-dim));
+  border:1px solid var(--color-accent-border);
+  border-radius:var(--radius-sm);
+  cursor:pointer;
+  min-height:42px;
+  margin-top:6px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.22),0 2px 6px -1px rgba(184, 84, 42, .26),0 4px 12px -2px rgba(184, 84, 42, .18);
+  transition:transform var(--transition-fast),box-shadow var(--transition-fast);
+  -webkit-tap-highlight-color:transparent;
+}
+.empty-state-cta:hover{
+  transform:translateY(-1px);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.26),0 3px 10px -1px rgba(184, 84, 42, .32),0 6px 18px -2px rgba(184, 84, 42, .22);
+}
+.empty-state-cta:active{
+  transform:translateY(0);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.16),0 1px 3px rgba(184, 84, 42, .20);
+}
+.empty-state-cta:focus-visible{
+  outline:none;
+  box-shadow:0 0 0 3px rgba(184, 84, 42, .28),inset 0 1px 0 rgba(255,255,255,.22);
+}
+.empty-state-cta span:first-child{
+  font-size:16px;
+  line-height:1;
+  font-weight:400;
+  opacity:.85;
+}
+
+/* Inline variant — smaller, for table-row contexts */
+.empty-state--inline{padding:32px 16px}
+.empty-state--inline .empty-state-icon{width:56px;height:56px;font-size:22px;margin-bottom:14px}
+.empty-state--inline .empty-state-title{font-size:16px}
+.empty-state--inline .empty-state-text{font-size:12.5px;margin-bottom:14px}
+.empty-state--inline .empty-state-cta{min-height:36px;padding:8px 14px;font-size:12px}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   TOAST UNDO — Gmail-style undoable toast s countdown progress bar
+   ════════════════════════════════════════════════════════════════════════════ */
+.toast-undo{
+  position:fixed;
+  bottom:24px;
+  left:50%;
+  transform:translateX(-50%) translateY(20px);
+  display:flex;
+  align-items:center;
+  gap:12px;
+  padding:12px 16px 12px 14px;
+  background:var(--color-bg-elevated);
+  border:1px solid var(--color-border-strong);
+  border-radius:var(--radius-md);
+  box-shadow:
+    0 1px 2px rgba(30, 24, 18, .06),
+    0 12px 32px -6px rgba(30, 24, 18, .18),
+    0 24px 64px -12px rgba(30, 24, 18, .22);
+  opacity:0;
+  pointer-events:none;
+  z-index:var(--z-toast,300);
+  min-width:280px;
+  max-width:480px;
+  font-family:var(--font-body);
+  font-size:13px;
+  color:var(--color-text);
+  overflow:hidden;
+  transition:opacity 280ms cubic-bezier(0.32, 0.72, 0, 1),transform 280ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+.toast-undo.show{
+  opacity:1;
+  pointer-events:auto;
+  transform:translateX(-50%) translateY(0);
+}
+.toast-undo-icon{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:32px;
+  height:32px;
+  border-radius:8px;
+  background:rgba(184, 84, 42, .10);
+  color:var(--color-accent);
+  flex-shrink:0;
+}
+.toast-undo-msg{
+  flex:1;
+  font-weight:600;
+  letter-spacing:-.005em;
+}
+.toast-undo-btn{
+  appearance:none;
+  background:transparent;
+  border:1px solid var(--color-accent-border);
+  color:var(--color-accent);
+  font-family:var(--font-body);
+  font-weight:700;
+  font-size:12px;
+  letter-spacing:.02em;
+  padding:7px 13px;
+  border-radius:6px;
+  cursor:pointer;
+  flex-shrink:0;
+  transition:background var(--transition-fast),border-color var(--transition-fast);
+  -webkit-tap-highlight-color:transparent;
+}
+.toast-undo-btn:hover{
+  background:var(--color-accent-bg-hover);
+  border-color:var(--color-accent);
+}
+.toast-undo-btn:focus-visible{
+  outline:none;
+  box-shadow:0 0 0 3px rgba(184, 84, 42, .25);
+}
+.toast-undo-countdown{
+  position:absolute;
+  bottom:0;
+  left:0;
+  height:3px;
+  background:var(--color-accent);
+  width:100%;
+  border-radius:0 0 var(--radius-md) var(--radius-md);
+  transition:width 100ms linear;
+  pointer-events:none;
+}
+@media (prefers-reduced-motion: reduce){
+  .toast-undo{transition:opacity 0ms}
+  .toast-undo-countdown{transition:none}
+}

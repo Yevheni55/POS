@@ -1,4 +1,7 @@
 // Ingredients page module
+import { mountEmptyState } from '../components/empty-state.js';
+import { softDelete } from '../components/toast-undo.js';
+
 let ingredients = [];
 let editingId = null;
 let searchTerm = '';
@@ -63,12 +66,21 @@ function renderTable() {
   });
 
   if (!filtered.length) {
-    var emptyMsg = searchTerm
-      ? 'Ziadne vysledky pre "' + searchTerm + '"'
-      : 'Ziadne suroviny. Kliknite "Pridat surovinu" pre vytvorenie.';
-    tableWrap.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📦</div>'
-      + '<div class="empty-state-title">' + (searchTerm ? 'Ziadne vysledky' : 'Ziadne suroviny') + '</div>'
-      + '<div class="empty-state-text">' + emptyMsg + '</div></div>';
+    if (searchTerm) {
+      mountEmptyState(tableWrap, {
+        icon: '🔍',
+        title: 'Žiadne výsledky',
+        text: 'Pre hľadaný výraz „' + searchTerm + '" sa nenašla žiadna surovina. Skúste iný výraz alebo zmažte filter.',
+      });
+    } else {
+      mountEmptyState(tableWrap, {
+        icon: '📦',
+        title: 'Žiadne suroviny',
+        text: 'Tu sa zobrazujú suroviny, ktoré nakupujete pre kuchyňu a bar. Začnite pridaním prvej.',
+        ctaLabel: 'Pridať prvú surovinu',
+        onCta: function () { openModal(null); },
+      });
+    }
     return;
   }
 
@@ -205,22 +217,36 @@ function openModal(id) {
   };
 }
 
-// === Delete ===
-function deleteIngredient(id, name) {
-  showConfirm(
-    'Zmazat surovinu',
-    'Naozaj chcete zmazat surovinu "' + name + '"? Tato akcia sa neda vratit.',
-    async function () {
-      try {
-        await api.del('/inventory/ingredients/' + id);
-        await loadIngredients();
-        showToast('Surovina odstranena', true);
-      } catch (err) {
-        showToast('Chyba: ' + err.message, 'error');
-      }
-    },
-    { type: 'danger' }
-  );
+// === Delete (optimistic + undo-toast pattern) ===
+// Mazanie nepokazi confirm modal. Iba: zmiznе z UI hned, 5s timer v toaste,
+// klik "Vratit spat" → vratime do listu. Po vyprsani toastu volame API.
+async function deleteIngredient(id, name) {
+  const idx = ingredients.findIndex(function (i) { return i.id === id; });
+  if (idx < 0) return;
+  const snapshot = ingredients[idx];
+
+  // Optimistic remove + render
+  ingredients.splice(idx, 1);
+  renderTable();
+
+  const result = await softDelete({
+    label: '„' + name + '" zmazaná',
+    deleteFn: function () { return api.del('/inventory/ingredients/' + id); },
+  });
+
+  if (result.undone) {
+    // Restore at original position
+    ingredients.splice(idx, 0, snapshot);
+    renderTable();
+    showToast('Vratene', true);
+  } else if (!result.error) {
+    // Delete commited — sync from server so currentQty / dependencies sa dosynchronizuju
+    await loadIngredients();
+  } else {
+    // Server delete failed → restore UI (snapshot + render)
+    ingredients.splice(idx, 0, snapshot);
+    renderTable();
+  }
 }
 
 // === EXPORTS ===
