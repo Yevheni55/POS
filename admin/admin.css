@@ -1627,26 +1627,33 @@ body::before{
 }
 
 /* ── Sidebar nav-item — refined hover/active ──────────────────────────────── */
-/* NOTE: ZACHOVAVAME `border-left: 3px solid transparent` z line 147 (legacy rule)
-   ako active marker. Predchadzajuca verzia mala ::before bar na left:-10px,
-   ale ten bol orezany pretoze .nav ma overflow-y:auto co CSS-spec nuti aj
-   overflow-x do clipping mode → bar bol neviditelny → user nevidel co je
-   aktivne → vsetky polozky vyzerali rovnako "lit". Border-left riesi
-   to bezpecne, ostane viditelny vzdy. */
+/* NOTE: Border-left 3px solid transparent z line 147 (legacy) sluzi ako
+   miesto-rezervujuci marker pre active state. Active vyplni border terra.
+   Predchadzajuca verzia mala ::before bar na left:-10px ktory bol orezany
+   .nav overflow-y:auto (CSS spec nuti aj overflow-x do clipping mode).
+   Border-left vnutri nav-item je vzdy viditelny.
+
+   INACTIVE = tmavy espresso text (--color-text), default nie text-sec
+   prebrate z legacy line 147. Vacsi kontrast voci active terra. */
 .nav-item{
   font-family:var(--font-body);
   font-weight:600;
   font-size:13px;
   letter-spacing:-.005em;
+  color:var(--color-text) !important;
   position:relative;
   transition:background var(--transition-fast),color var(--transition-fast),border-color var(--transition-fast);
 }
+.nav-item:hover{
+  color:var(--color-text) !important;
+  background:rgba(30, 24, 18, .05);
+}
 .nav-item.active{
-  background:rgba(184, 84, 42, .10) !important;
+  background:rgba(184, 84, 42, .12) !important;
   color:var(--color-accent) !important;
-  font-weight:700;
+  font-weight:800;
   border-left-color:var(--color-accent) !important;
-  box-shadow:inset 3px 0 0 var(--color-accent),0 0 12px rgba(184, 84, 42, .12);
+  box-shadow:inset 3px 0 0 var(--color-accent);
 }
 .nav-divider{background:var(--color-border);height:1px;margin:10px 18px}
 
