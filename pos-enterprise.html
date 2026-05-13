@@ -20,12 +20,17 @@
 <link rel="stylesheet" href="/a11y.css">
 <link rel="stylesheet" href="/fonts/fonts.css">
 <link rel="stylesheet" href="/css/pos.css?v=22">
-<script defer src="/components/escHtml.js"></script>
-<script defer src="/js/pos-escape.js"></script>
-<script defer src="/components/toast.js"></script>
-<script defer src="/components/loading.js"></script>
-<script defer src="/components/confirm.js"></script>
-<script defer src="/components/icons.js"></script>
+<!-- POZN: defer NEPOUZIVAT na tieto subory. Body scripts (pos-state.js,
+     pos-init.js, atd.) bezia hned ako sa parser k nim dostane a OCEKAVAJU
+     ze showToast / escHtml / posIcons su uz k dispozicii. defer by ich
+     vlozil AZ po DOMContentLoaded → init() throw → "Chyba nacitania dat".
+     Tieto komponenty su male, blok inkluzia je <50ms na tablete. -->
+<script src="/components/escHtml.js"></script>
+<script src="/js/pos-escape.js"></script>
+<script src="/components/toast.js"></script>
+<script src="/components/loading.js"></script>
+<script src="/components/confirm.js"></script>
+<script src="/components/icons.js"></script>
 </head>
 <body>
 <a href="#main" class="skip-link">Preskocit na obsah</a>
