@@ -6,7 +6,18 @@
    Both use font-display:swap for zero FOIT.
    Sora: Latin + Latin-ext (variable font, 400–800)
    Manrope: Latin + Latin-ext + Cyrillic + Cyrillic-ext (variable font, 400–700)
+
+   Daylight foundation (Phase 1) additions:
+   Outfit         — display-alt (300–800 variable), loaded for Phase 2 swap.
+   JetBrains Mono — mono / numerals for tabular values (incl. variable).
+   Loaded via Google Fonts (CSS2 API). Not applied via rules in Phase 1.
    ========================================================== */
+
+/* ===== OUTFIT — Display alt (Daylight, loaded for Phase 2 swap) ===== */
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300..800&display=swap');
+
+/* ===== JETBRAINS MONO — Mono / tabular numerals (variable) ===== */
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
 
 /* ===== SORA — Display Font ===== */
 

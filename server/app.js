@@ -77,9 +77,12 @@ app.use(helmet({
     directives: {
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'", "'unsafe-inline'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
+      // Google Fonts CSS (Outfit + JetBrains Mono) loaded via @import in
+      // fonts/fonts.css for Daylight theme — needs fonts.googleapis.com.
+      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       imgSrc: ["'self'", 'data:', 'blob:'],
-      fontSrc: ["'self'", 'data:'],
+      // Google Fonts files served from fonts.gstatic.com.
+      fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
       connectSrc: ["'self'", 'ws:', 'wss:'],
       workerSrc: ["'self'"],
       // 'self' (not 'none') — POS opens the admin panel as an iframe

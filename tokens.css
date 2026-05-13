@@ -67,6 +67,10 @@
   /* === TYPOGRAPHY === */
   --font-display: 'Sora', sans-serif;
   --font-body: 'Manrope', sans-serif;
+  /* Daylight typography (Phase 1 — loaded, not yet applied). */
+  --font-display-alt: 'Outfit', system-ui, sans-serif;
+  --font-mono:        'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, monospace;
+  --font-numerals:    var(--font-mono);
 
   /* Type Scale — harmonized from 9px–36px */
   --text-2xs: 9px;
@@ -126,6 +130,13 @@
   --transition-fast: 150ms ease;
   --transition-normal: 250ms ease;
   --transition-slow: 350ms ease;
+
+  /* === MOTION CURVES (Daylight foundation — Phase 1) === */
+  /* Reusable easings + paper-flip timing for later phases. */
+  --ease-soft:    cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring:  cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-out:     cubic-bezier(0.32, 0.72, 0, 1);
+  --t-paper:      280ms;
 
   /* === SEMANTIC ALIASES (design system) — map only to primitives; no new palette === */
   --surface-app: var(--color-bg);
