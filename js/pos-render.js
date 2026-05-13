@@ -219,6 +219,10 @@ function renderFloor(){
   if (!canvas.dataset.delegated) {
     canvas.dataset.delegated = '1';
     canvas.addEventListener('click', function(e){
+      // Edit-mode pôvodne NEvolala chipClick (na inline onclick sa
+      // pripojil iba mimo edit-mode). Tu zachovavame správanie:
+      // v edit-mode klik na stôl je iba začiatok dragu, nie navigacia.
+      if (typeof editMode !== 'undefined' && editMode) return;
       var chip = e.target.closest('[data-table-id]');
       if (!chip) return;
       var id = Number(chip.dataset.tableId);
