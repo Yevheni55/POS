@@ -474,12 +474,24 @@ async function openTable(id){
   selectedTableId=id;
   const t=TABLES.find(x=>x.id===id);
   document.getElementById('orderTableLabel').textContent=t?t.name:'';
+
+  // OPTIMISTIC UI: switch view + render BEFORE awaiting data fetch.
+  // User vidi products grid + order panel cca ~30ms po tape namiesto
+  // 250-500ms cakania na loadTableOrder. Pri cache-hit (99% pripadov)
+  // su orders uz v tableOrders[id], renderOrder() ich zobrazí. Pri
+  // cache-miss zobrazime to čo mame lokalne (možno empty) a po fetch
+  // panel sa re-render-ne s freshmi dátami.
+  switchView('products');
+  renderOrder();
+  updateQtyBadges();
+
+  // Now load fresh data; if it changes anything, re-render. Multi-account
+  // case still opens picker AFTER fetch (need to know all accounts).
   await loadTableOrder(id);
-  // If multiple accounts, show picker before opening products
   if (tableOrdersList.length > 1) {
     showAccountPicker(id, true);
   } else {
-    switchView('products');renderOrder();updateQtyBadges();
+    renderOrder();updateQtyBadges();
   }
 }
 
