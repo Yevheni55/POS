@@ -1939,19 +1939,22 @@ select:focus-visible{
 }
 
 /* ── Page-load entrance — staggered reveal ────────────────────────────────── */
+/* CRITICAL: :not(.u-overlay) — overlays maju opacity:0 default a .show class
+   im prepne. Bez :not() by moja animacia s `both` fill-mode prebila default
+   opacity:0 -> 1, takze modaly by sa otvarali "vsade" hned po nacitani. */
 @keyframes atelier-rise{
   from{opacity:0;transform:translateY(8px)}
   to{opacity:1;transform:translateY(0)}
 }
-.content > *{
+.content > *:not(.u-overlay):not([role="dialog"]){
   animation:atelier-rise 380ms cubic-bezier(0.32, 0.72, 0, 1) both;
 }
-.content > *:nth-child(1){animation-delay:0ms}
-.content > *:nth-child(2){animation-delay:60ms}
-.content > *:nth-child(3){animation-delay:120ms}
-.content > *:nth-child(4){animation-delay:180ms}
-.content > *:nth-child(5){animation-delay:240ms}
-.content > *:nth-child(n+6){animation-delay:300ms}
+.content > *:not(.u-overlay):not([role="dialog"]):nth-child(1){animation-delay:0ms}
+.content > *:not(.u-overlay):not([role="dialog"]):nth-child(2){animation-delay:60ms}
+.content > *:not(.u-overlay):not([role="dialog"]):nth-child(3){animation-delay:120ms}
+.content > *:not(.u-overlay):not([role="dialog"]):nth-child(4){animation-delay:180ms}
+.content > *:not(.u-overlay):not([role="dialog"]):nth-child(5){animation-delay:240ms}
+.content > *:not(.u-overlay):not([role="dialog"]):nth-child(n+6){animation-delay:300ms}
 @media (prefers-reduced-motion: reduce){
   .content > *{animation:none}
 }
