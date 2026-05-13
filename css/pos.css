@@ -71,6 +71,12 @@
   --shadow-glow:  0 2px 12px rgba(184, 84, 42, .22);
   --shadow-inset: inset 0 1px 2px rgba(30, 24, 18, .06);
 
+  /* Phase 2 — display font: Outfit (loaded in Phase 1) replaces Sora.
+     Both display AND body use Outfit; geometric refined sans works for both.
+     Manrope stays loaded but inactive (zero-cost). Admin keeps Sora. */
+  --font-display: 'Outfit', system-ui, sans-serif;
+  --font-body:    'Outfit', system-ui, sans-serif;
+
   /* Re-aliasy ktore tokens.css definuje vyssie — explicit override aby
      sa cache-line nepouzil. */
   --surface-app:    var(--color-bg);
@@ -1490,11 +1496,19 @@ body::after{
     text-transform:uppercase;
     letter-spacing:1px;
   }
+  /* Phase 2 — Big Number ceremonial bump (46→64 px) + gradient text fill.
+     Customer reads grand total from 2m when cashier turns tablet. Gradient
+     uses terra accent → dim for warm ceremony; at 0,00 € the gradient still
+     reads cleanly on cream. */
   #total,.sum-total-val{
-    font-size:46px;
-    font-weight:800;
+    font-size:64px;
+    font-weight:var(--weight-extrabold);
     font-variant-numeric:tabular-nums;
     line-height:1.0;
+    background:linear-gradient(180deg,var(--color-accent),var(--color-accent-dim));
+    -webkit-background-clip:text;
+    background-clip:text;
+    -webkit-text-fill-color:transparent;
   }
   .form-input,.form-select,.u-modal-field input,.u-modal-field textarea,.u-modal-field select{height:60px;font-size:20px}
   .u-btn{font-size:20px;min-height:60px;padding:14px 23px}
@@ -2207,6 +2221,64 @@ body.edit-mode #editToggle { background: var(--color-warning, #E0A830); color: #
   50%      { box-shadow: 0 0 0 2px var(--color-warning, #E0A830) inset, 0 4px 22px rgba(224,168,48,.45); }
 }
 
+
+/* === PHASE 2: TABULAR MONO — all numerical UI in JetBrains Mono Variable ===
+   Banking-grade column alignment for prices/totals/amounts. ss01 = slashed
+   zero (distinguishes 0 from O on a glance), cv11 = alternate digit forms.
+   `font-family` override wins over base rules via specificity (each selector
+   here matches its base rule exactly) — no !important needed.
+   Placed near bottom of file so it wins by source order against scattered
+   font-family:var(--font-display) declarations earlier in the cascade. */
+.product-price,
+.order-item-total,
+.chip-amount,
+.sum-total-val,
+#total,
+.u-modal-amount,
+.modal-amount,
+.cash-input,
+.change-amt,
+.cash-numpad-btn,
+.qty-val,
+.qty-btn,
+.header-clock,
+.mob-header-clock,
+.mob-table-amount,
+.mob-product-price,
+.mob-oi-qty span,
+.mob-oi-qty-readonly,
+.mob-oi-price,
+.mob-total-val,
+.order-row-amt,
+.table-amt,
+.order-row-qty,
+.pos-subtotal-row,
+.discount-line,
+.discount-item-value,
+.ap-card-total,
+.u-shift-stat,
+.u-shift-stat--accent,
+.u-shift-stat--diff,
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'ss01', 'cv11';
+}
+
+/* === PHASE 2: SMALL CAPS — eyebrow labels (editorial menu-chapter rhythm) ===
+   text-transform: uppercase is the primary effect (Outfit has no native small
+   caps), letter-spacing gives breath, 'smcp' is graceful no-op until a
+   future font ships with the feature. */
+.sum-total-label,
+.order-subtitle,
+.section-eyebrow,
+.modal-eyebrow,
+.t-eyebrow,
+.sauce-repeat-eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-feature-settings: 'smcp';
+}
 
 /* Global prefers-reduced-motion — hide noise overlay (Phase 1 polish).
    Mobile media-query had a nested rule; this top-level rule covers

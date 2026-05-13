@@ -77,6 +77,10 @@
     --text-secondary: var(--color-text-sec);
     --text-muted:     var(--color-text-dim);
 
+    /* Phase 2 — display + body font: Outfit replaces Sora (POS only). */
+    --font-display: 'Outfit', system-ui, sans-serif;
+    --font-body:    'Outfit', system-ui, sans-serif;
+
     color-scheme: light;
   }
 
@@ -303,10 +307,15 @@
     opacity: 0; animation: fadeInUp .5s ease .44s forwards;
   }
   .clock {
-    font-family: var(--font-display);
+    /* Phase 2 — digital-watch feel: JetBrains Mono Variable with ss01
+       slashed zero + cv11 alternate digits. Tabular nums keep 14:32 stable
+       as seconds tick. */
+    font-family: var(--font-mono);
     font-size: 34px; font-weight: 400;
     color: var(--text-secondary);
     line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'ss01', 'cv11';
   }
   .clock-date {
     font-size: 14px;
