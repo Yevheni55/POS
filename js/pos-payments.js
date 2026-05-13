@@ -865,6 +865,97 @@ async function sendToKitchen() {
   }
 }
 
+// Predúčet (pre-bill) — informatívny doklad PRED fiškálnou platbou.
+// Klasický restauračný flow: zákazník chce vidieť účet → čašník stlačí
+// Predúčet → tlačiareň vypľuje non-fiskal blocek s velkym disclaimerom
+// "NIE JE DANOVY DOKLAD" → zákazník skontroluje, vyberie spôsob platby
+// → čašník stlačí Hotovosť/Karta → vtedy ide fiškálny blocek cez Portos.
+//
+// Žiadny side-effect: stav objednávky sa nemení, môžeš tlačiť viackrát.
+async function printPreBill() {
+  // Najprv sync — ak operátor pridal položky offline, potrebujeme aktuálny stav
+  // na serveri aby orderNum + items boli konzistentné.
+  await syncOrderToServer();
+
+  var order = getOrder();
+  if (!order.length) {
+    showToast('Prazdna objednavka — nie je co tlacit', 'warning');
+    return;
+  }
+
+  var btn = document.getElementById('btnPreBill');
+  var mobBtn = document.getElementById('mobBtnPreBill');
+  var btnOriginalHTML = null;
+  var mobBtnOriginalHTML = null;
+
+  if (btn) {
+    btnOriginalHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.style.pointerEvents = 'none';
+    btn.innerHTML = '<span class="btn-spinner"></span>Tlacim…';
+  }
+  if (mobBtn) {
+    mobBtnOriginalHTML = mobBtn.innerHTML;
+    mobBtn.disabled = true;
+    mobBtn.style.pointerEvents = 'none';
+    mobBtn.innerHTML = '<span class="btn-spinner"></span>Tlacim…';
+  }
+
+  try {
+    // Subtotal pred zľavou + discount — server vie obe vytlačiť, klient ich rátame tu
+    var subtotal = order.reduce(function (s, o) { return s + o.price * o.qty; }, 0);
+    var total = getOrderTotal();
+    var discount = Math.max(0, subtotal - total);
+
+    var table = (typeof TABLES !== 'undefined') ? TABLES.find(function (t) { return t.id === selectedTableId; }) : null;
+    var tableName = table ? table.name : ('Stol ' + selectedTableId);
+    var user = (typeof api !== 'undefined' && api.getUser) ? api.getUser() : null;
+    var staffName = user ? (user.name || '') : '';
+
+    // Filter položky — sauce companion riadky riešime server-side, ale pre istotu
+    // pošleme všetko a server ich preskočí. Kazdy item potrebuje name, qty, price.
+    var items = order.map(function (it) {
+      return {
+        name: it.name,
+        qty: it.qty,
+        price: it.price,
+        note: it.note || '',
+      };
+    });
+
+    var result = await api.post('/print/pre-bill', {
+      tableName: tableName,
+      staffName: staffName,
+      items: items,
+      total: total,
+      subtotal: subtotal,
+      discount: discount,
+      orderNum: currentOrderId || null,
+    });
+
+    if (result && result.queued) {
+      showToast('Predúčet v queue — tlačiareň offline', 'warning');
+    } else {
+      showToast('✔ Predúčet vytlačený', 'success');
+    }
+    try { if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(10); } catch (_) {}
+  } catch (e) {
+    console.error('printPreBill error:', e);
+    showToast('Chyba tlače predúčtu: ' + (e.message || 'neznáma chyba'), 'error');
+  } finally {
+    if (btn) {
+      if (btnOriginalHTML !== null) btn.innerHTML = btnOriginalHTML;
+      btn.disabled = false;
+      btn.style.pointerEvents = '';
+    }
+    if (mobBtn) {
+      if (mobBtnOriginalHTML !== null) mobBtn.innerHTML = mobBtnOriginalHTML;
+      mobBtn.disabled = false;
+      mobBtn.style.pointerEvents = '';
+    }
+  }
+}
+
 // One-time spinner style for the "Posielam..." button state in sendToKitchen.
 // Lives here (not in css/pos.css) because js/pos-payments.js owns this UX bit.
 if (typeof document !== 'undefined' && !document.getElementById('btn-spinner-style')) {

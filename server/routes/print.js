@@ -321,6 +321,83 @@ function buildKitchenTicket({ dest, tableName, staffName, items, orderNum, time 
   return ticket;
 }
 
+// Predúčet — informatívny doklad pre zákazníka pred fiškálnou platbou.
+// Restauracny štandard v SR/CZ: čašník donesie zákazníkovi tento doklad
+// aby si overil sumu, prípadne sa rozhodol pre platobnú metódu. NIE JE to
+// daňový doklad — § 3 ods. 1 zákona o ERP požaduje aby bol jasne odlíšený.
+// Preto:
+//   - hlavička "PREDBEZNY UCET" (NIE "UCTENKA" ako fiskal)
+//   - pod hlavičkou veľký bold riadok "NIE JE DANOVY DOKLAD"
+//   - žiadne polia "Sposob platby" / "Zaplateno" — zákazník ešte neplatil
+//   - footer ešte raz pripomenie že to nie je daňový doklad
+//   - žiadna fiškálna číselná identifikácia (DKP, OKP, podpis) — to dáva
+//     iba Portos pri reálnej platbe
+function buildPreBillTicket({ tableName, staffName, items, total, subtotal, discount, time, orderNum }) {
+  let ticket = '';
+  ticket += CMD.INIT;
+
+  // Header — výrazne odlíšené od UCTENKA aby si čašník nepomýlil bony
+  ticket += CMD.ALIGN_CENTER;
+  ticket += CMD.DOUBLE_SIZE;
+  ticket += 'PREDBEZNY\n';
+  ticket += 'UCET\n';
+  ticket += CMD.NORMAL_SIZE;
+  ticket += CMD.BOLD_ON;
+  ticket += 'NIE JE DANOVY DOKLAD\n';
+  ticket += CMD.BOLD_OFF;
+  ticket += CMD.LINE;
+
+  // Meta — stôl, čašník, čas, číslo objednávky
+  ticket += CMD.ALIGN_LEFT;
+  ticket += s(tableName) + '  |  ' + time + '\n';
+  ticket += 'Cisnik: ' + s(staffName) + '\n';
+  if (orderNum) ticket += 'Obj. #' + orderNum + '\n';
+  ticket += CMD.LINE;
+
+  // Items — rovnaký pattern ako fiskal receipt (qty x meno  cena)
+  items.forEach(item => {
+    // Skip sauce companion rows — sú už zahrnuté v cene comba
+    if (item.name === 'Omáčka (combo)') return;
+
+    const price = (item.price * item.qty).toFixed(2).replace('.', ',') + ' E';
+    const line = ' ' + item.qty + 'x ' + s(item.name);
+    const pad = 32 - line.length - price.length;
+    ticket += line + (pad > 0 ? ' '.repeat(pad) : '  ') + price + '\n';
+  });
+
+  ticket += CMD.LINE;
+
+  // Subtotal + zľava (ak je nejaká) — pred SPOLU
+  if (discount && discount > 0.005) {
+    ticket += CMD.ALIGN_LEFT;
+    ticket += padLine('Medzisucet:', subtotal.toFixed(2).replace('.', ',') + ' EUR') + '\n';
+    ticket += padLine('Zlava:', '-' + discount.toFixed(2).replace('.', ',') + ' EUR') + '\n';
+    ticket += CMD.LINE;
+  }
+
+  // Total — bold + double size, ako fiskal aby bolo jasne čitateľné na 32-char termali
+  ticket += CMD.ALIGN_CENTER;
+  ticket += CMD.BOLD_ON;
+  ticket += CMD.DOUBLE_SIZE;
+  ticket += 'SPOLU: ' + total.toFixed(2).replace('.', ',') + ' EUR\n';
+  ticket += CMD.NORMAL_SIZE;
+  ticket += CMD.BOLD_OFF;
+  ticket += CMD.DASHED;
+
+  // Footer — druhý disclaimer (právne dôležité)
+  ticket += CMD.BOLD_ON;
+  ticket += 'Toto NIE JE danovy doklad\n';
+  ticket += CMD.BOLD_OFF;
+  ticket += 'Fiskalny blocek dostanete\n';
+  ticket += 'pri platbe.\n';
+  ticket += '\n';
+  ticket += 'Dakujeme za navstevu!\n';
+  ticket += CMD.FEED;
+  ticket += CMD.CUT;
+
+  return ticket;
+}
+
 function buildReceiptTicket({ tableName, staffName, items, total, method, time, orderNum }) {
   let ticket = '';
   ticket += CMD.INIT;
@@ -393,6 +470,43 @@ router.post('/receipt', async (req, res) => {
     res.json({ ok: true, queued: !!result.queued });
   } catch (e) {
     console.error('Print error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/print/pre-bill — informatívny predúčet, NIE fiškálny blocek.
+// Volá sa keď zákazník chce vidieť účet pred platbou (klasický restauračný
+// flow: "Účet prosím" → čašník donesie predúčet → zákazník skontroluje +
+// vyberie platobnú metódu → čašník stlačí Hotovosť/Karta → fiškálny blocek).
+//
+// NEROBÍ:
+//   - žiadny Portos roundtrip (nie je to fiškálny doklad)
+//   - žiadnu zmenu stavu objednávky (status ostane open)
+//   - žiadne logovanie do fiscal_documents
+//
+// Endpoint je side-effect-free — môžeš predúčet vytlačiť viackrát bez problému.
+router.post('/pre-bill', async (req, res) => {
+  try {
+    const { tableName, staffName, items, total, subtotal, discount, orderNum } = req.body;
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'Prazdna objednavka — nie je co tlacit' });
+    }
+    const time = localTimeHHMM();
+    const printer = await getPrinterForDest('uctenka');
+    const ticket = buildPreBillTicket({
+      tableName,
+      staffName,
+      items,
+      total: Number(total) || 0,
+      subtotal: Number(subtotal) || Number(total) || 0,
+      discount: Number(discount) || 0,
+      time,
+      orderNum,
+    });
+    const result = await sendOrQueue('pre-bill', ticket, printer.ip, printer.port);
+    res.json({ ok: true, queued: !!result.queued });
+  } catch (e) {
+    console.error('Pre-bill print error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });

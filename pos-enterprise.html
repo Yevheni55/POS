@@ -118,6 +118,10 @@
         <div class="sum-total-wrap"><span class="sum-total-label">Celkom</span><span class="sum-total-val" id="total">0,00 &euro;</span></div>
         <div class="actions">
           <button class="btn btn-send" id="btnSend" onclick="sendToKitchen()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>Poslat objednavku</button>
+          <!-- Predúčet — informatívny doklad PRED fiškálnou platbou.
+               Zákazník chce vidieť účet → tlač predúčet → vyberie spôsob platby →
+               Hotovosť/Karta → vtedy ide fiškálny blocek cez Portos. -->
+          <button class="btn btn-prebill" id="btnPreBill" onclick="printPreBill()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>Predúčet</button>
           <div class="pay-row">
             <button class="btn btn-cash" onclick="initiatePayment('hotovost')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M2 9h2M20 9h2M2 15h2M20 15h2"/></svg>Hotovost</button>
             <button class="btn btn-card" onclick="initiatePayment('karta')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>Karta</button>
@@ -212,6 +216,7 @@
                 <button class="mob-btn-pay card" onclick="initiatePayment('karta')">Karta</button>
               </div>
               <div class="mob-pay-secondary">
+                <button class="mob-btn-secondary" id="mobBtnPreBill" onclick="printPreBill();closeMobPayDrawer()">Predúčet</button>
                 <button class="mob-btn-secondary" onclick="showDiscountModal();closeMobPayDrawer()">Zlava</button>
                 <button class="mob-btn-secondary" onclick="splitBill();closeMobPayDrawer()">Rozdelit ucet</button>
               </div>
