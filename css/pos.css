@@ -527,7 +527,8 @@ body::after{
   background:radial-gradient(circle,rgba(184,84,42,.14) 0%,rgba(184,84,42,.06) 100%);
   border:1.5px dashed rgba(184,84,42,.2);
   display:flex;align-items:center;justify-content:center;
-  font-size:32px;margin-bottom:6px;
+  color:var(--text-secondary);
+  margin-bottom:6px;
 }
 .order-empty-title{font-family:var(--font-display);font-size:var(--text-2xl);font-weight:var(--weight-bold);color:var(--text-primary)}
 .order-empty-text{font-size:var(--text-base);font-weight:var(--weight-medium);line-height:var(--leading-normal);color:var(--text-secondary);max-width:220px}
@@ -787,18 +788,20 @@ body::after{
 }
 .ap-card-new:active{background:rgba(184,84,42,.06);border-color:rgba(184,84,42,.25);color:var(--color-accent)}
 
-/* Primary CTA rule (desktop + mobile): “Pošli” is the main action until kitchen send is done;
-   platba / „Zaplatiť“ stays secondary (outline / success-muted) like .btn-cash / .btn-card — drawer opens for hotovosť & karta. */
+/* Primary CTA rule (desktop + mobile): "Pošli" is the in-between action — not destructive
+   and not the final purchase. Phase 4 paints it AMBER to distinguish from final-tx terra
+   (.btn-cash/.btn-pay) and the secondary navy outline (.btn-card). Amber = "send to kitchen
+   pipeline". Inset top highlight + warm drop shadow give it filled-amber identity. */
 .btn-send{
-  background:var(--action-primary);color:#fff;border:none;
+  background:var(--accent-amber);color:#f5efe3;border:none;
   font-size:var(--text-lg);font-weight:var(--weight-extrabold);padding:var(--space-3);width:100%;margin-bottom:2px;
   position:relative;overflow:hidden;min-height:var(--btn-h-md);letter-spacing:var(--tracking-wide);
   text-transform:uppercase;
   transition:transform var(--transition-fast),box-shadow var(--transition-fast),opacity var(--transition-fast),background var(--transition-fast);
 }
-.btn-send:not(:disabled){box-shadow:0 2px 10px rgba(184,84,42,.15)}
-.btn-send:hover:not(:disabled){transform:translateY(-1px);background:rgba(184,84,42,.9);box-shadow:0 4px 16px rgba(184,84,42,.2)}
-.btn-send:active:not(:disabled){transform:translateY(0);box-shadow:none}
+.btn-send:not(:disabled){box-shadow:inset 0 1px 0 rgba(255,255,255,.22),0 2px 6px -1px rgba(184,124,26,.30),0 4px 12px -2px rgba(184,124,26,.18)}
+.btn-send:hover:not(:disabled){transform:translateY(-1px);background:#c98a22;box-shadow:inset 0 1px 0 rgba(255,255,255,.26),0 3px 10px -1px rgba(184,124,26,.35),0 6px 18px -2px rgba(184,124,26,.22)}
+.btn-send:active:not(:disabled){transform:translateY(0);box-shadow:inset 0 1px 0 rgba(255,255,255,.18),0 1px 3px rgba(184,124,26,.20)}
 .btn-send:disabled{opacity:.12;background:var(--surface-card);border:1px solid var(--border-default);color:var(--text-muted);cursor:default;transform:none;box-shadow:none}
 
 .item-status{font-size:8px;font-weight:700;padding:3px 7px;border-radius:var(--radius-xs);text-transform:uppercase;letter-spacing:.5px;display:inline-flex;align-items:center;gap:3px}
@@ -835,20 +838,26 @@ body::after{
 .actions .pay-row{border-top:1px solid var(--border-default);padding-top:4px;margin-top:2px}
 .pay-row{display:flex;gap:8px}
 .btn{flex:1;padding:var(--space-4);border:none;border-radius:var(--radius-sm);font-family:var(--font-body);font-weight:var(--weight-bold);font-size:var(--text-xl);cursor:pointer;transition:all var(--transition-fast);display:flex;align-items:center;justify-content:center;gap:6px;min-height:var(--btn-h-md)}
-.btn-cash{background:var(--action-success-bg);color:var(--action-success);border:1px solid var(--action-success-border);font-size:var(--text-md);padding:var(--space-3) var(--space-4);font-weight:var(--weight-bold);min-height:var(--btn-h-md);letter-spacing:var(--tracking-normal);box-shadow:none;transition:transform var(--transition-fast),box-shadow var(--transition-fast),background var(--transition-fast)}
-.btn-cash:hover{background:rgba(92,196,158,.18);transform:translateY(-1px);box-shadow:0 4px 16px rgba(74,122,58,.15)}
-.btn-cash:active{transform:translateY(0);box-shadow:none}
-.btn-card{background:var(--action-primary-bg);color:var(--action-primary);border:1px solid var(--action-primary-border);font-size:var(--text-md);padding:var(--space-3) var(--space-4);font-weight:var(--weight-bold);min-height:var(--btn-h-md);letter-spacing:var(--tracking-normal);box-shadow:none;transition:transform var(--transition-fast),box-shadow var(--transition-fast),background var(--transition-fast)}
-.btn-card:hover{background:var(--action-primary-bg-hover);transform:translateY(-1px);box-shadow:0 4px 16px rgba(184,84,42,.15)}
-.btn-card:active{transform:translateY(0);box-shadow:none}
+/* Phase 4: Primary CTA shape language — filled terra background, white-cream text,
+   inset top highlight + warm drop shadow. Cash is the dominant final-transaction action. */
+.btn-cash{background:var(--action-primary);color:#f5efe3;border:none;font-size:var(--text-md);padding:var(--space-3) var(--space-4);font-weight:var(--weight-bold);min-height:var(--btn-h-md);letter-spacing:var(--tracking-normal);box-shadow:inset 0 1px 0 rgba(255,255,255,.20),0 2px 6px -1px var(--color-accent-glow),0 4px 12px -2px rgba(184,84,42,.18);transition:transform var(--transition-fast),box-shadow var(--transition-fast),background var(--transition-fast)}
+.btn-cash:hover{background:#c4612f;transform:translateY(-1px);box-shadow:inset 0 1px 0 rgba(255,255,255,.24),0 3px 10px -1px rgba(184,84,42,.28),0 6px 18px -2px rgba(184,84,42,.22)}
+.btn-cash:active{transform:translateY(0);box-shadow:inset 0 1px 0 rgba(255,255,255,.16),0 1px 3px rgba(184,84,42,.18)}
+/* Phase 4: Secondary CTA shape language — navy ink 2px outline, no fill,
+   navy text. Inverse of primary; hover lightly fills navy at 8%. */
+.btn-card{background:transparent;color:#1f3a5c;border:2px solid #1f3a5c;font-size:var(--text-md);padding:var(--space-3) var(--space-4);font-weight:var(--weight-bold);min-height:var(--btn-h-md);letter-spacing:var(--tracking-normal);box-shadow:none;transition:transform var(--transition-fast),box-shadow var(--transition-fast),background var(--transition-fast)}
+.btn-card:hover{background:rgba(31,58,92,.08);transform:translateY(-1px);box-shadow:0 4px 14px -2px rgba(31,58,92,.18)}
+.btn-card:active{transform:translateY(0);box-shadow:none;background:rgba(31,58,92,.14)}
 /* Zamestnanecka spotreba — vlastny look (amber tint), aby pripomenul, ze
-   to NIE JE platba ale benefit/naklad. [hidden] override lebo .btn ma
-   display:flex co prebije nativny [hidden]. */
+   to NIE JE platba ale benefit/naklad. Phase 4: amber-tint shape language
+   aligned with .btn-send (filled-amber). Here we go softer (tint not fill)
+   so cashier reads it as "benefit", not "send action".
+   [hidden] override lebo .btn ma display:flex co prebije nativny [hidden]. */
 .btn-staff-meal{
   width:100%;
-  background:rgba(245,158,11,.10);
-  color:var(--accent-amber, #f59e0b);
-  border:1px solid rgba(245,158,11,.30);
+  background:rgba(184,124,26,.10);
+  color:var(--accent-amber);
+  border:1px solid rgba(184,124,26,.30);
   font-size:var(--text-md);
   padding:var(--space-3) var(--space-4);
   font-weight:var(--weight-bold);
@@ -857,11 +866,14 @@ body::after{
   margin-top:6px;
   transition:background var(--transition-fast),transform var(--transition-fast),box-shadow var(--transition-fast);
 }
-.btn-staff-meal:hover{background:rgba(245,158,11,.18);transform:translateY(-1px);box-shadow:0 4px 16px rgba(245,158,11,.15)}
+.btn-staff-meal:hover{background:rgba(184,124,26,.18);transform:translateY(-1px);box-shadow:0 4px 14px -2px rgba(184,124,26,.18)}
 .btn-staff-meal:active{transform:translateY(0);box-shadow:none}
 .btn-staff-meal[hidden]{display:none !important}
-.btn-pay{background:linear-gradient(135deg,var(--action-primary),var(--action-primary-dim));color:var(--surface-app);font-size:var(--text-lg);padding:var(--space-3);border-radius:var(--radius-sm);min-height:var(--btn-h-md);font-weight:var(--weight-extrabold);transition:opacity var(--transition-fast),transform var(--transition-fast),box-shadow var(--transition-fast)}
-.btn-pay:hover{opacity:.95;transform:translateY(-1px);box-shadow:0 4px 16px rgba(184,84,42,.2)}
+/* Phase 4: Primary CTA — same filled-terra shape language as .btn-cash but
+   slightly bolder typographically. Inset top highlight + 2-tier warm drop shadow. */
+.btn-pay{background:linear-gradient(135deg,var(--action-primary),var(--action-primary-dim));color:#f5efe3;font-size:var(--text-lg);padding:var(--space-3);border-radius:var(--radius-sm);min-height:var(--btn-h-md);font-weight:var(--weight-extrabold);box-shadow:inset 0 1px 0 rgba(255,255,255,.22),0 2px 6px -1px var(--color-accent-glow),0 4px 12px -2px rgba(184,84,42,.20);transition:opacity var(--transition-fast),transform var(--transition-fast),box-shadow var(--transition-fast),background var(--transition-fast)}
+.btn-pay:hover{opacity:.97;transform:translateY(-1px);box-shadow:inset 0 1px 0 rgba(255,255,255,.26),0 3px 10px -1px rgba(184,84,42,.28),0 6px 18px -2px rgba(184,84,42,.22)}
+.btn-pay:active{transform:translateY(0);box-shadow:inset 0 1px 0 rgba(255,255,255,.16),0 1px 3px rgba(184,84,42,.18)}
 .extra-row{display:flex;gap:6px;border-top:1px solid var(--border-default);padding-top:4px;margin-top:2px}
 /* Rozdelit (split bill) — purple/accent identifies split mode + matches
    accent across UI (active tab color). */
@@ -912,13 +924,17 @@ body::after{
    disabled placeholder. Bud casnik tlacidlo nevidi, alebo omylom klepne
    lebo nevie ci je live. Teraz: full opacity, danger tint hned (nie az
    na hover), --text-sm font, dashed border = "destrukivne ale uvazene". */
-.btn-cancel{background:transparent;color:var(--action-danger,#ef4444);border:1px dashed var(--action-danger-border,rgba(239,68,68,.3));font-size:var(--text-sm);font-weight:var(--weight-semibold);padding:var(--space-2) var(--space-3);min-height:var(--btn-h-sm,36px);letter-spacing:var(--tracking-wide);text-transform:uppercase;transition:background var(--transition-fast),border-color var(--transition-fast)}.btn-cancel:hover{background:var(--action-danger-bg);border-color:var(--action-danger);border-style:solid}
+/* Phase 4: Danger CTA shape language — dashed rust border, uppercase, tracking,
+   no fill. Tactical/deliberate signal: "destrukivne ale uvazene". Hover strengthens
+   border to solid + light tint, never fills strongly. */
+.btn-cancel{background:transparent;color:var(--action-danger);border:1px dashed var(--action-danger-border);font-size:var(--text-sm);font-weight:var(--weight-semibold);padding:var(--space-2) var(--space-3);min-height:var(--btn-h-sm,36px);letter-spacing:var(--tracking-wide);text-transform:uppercase;transition:background var(--transition-fast),border-color var(--transition-fast),border-style var(--transition-fast),color var(--transition-fast)}
+.btn-cancel:hover{background:var(--action-danger-bg);border-color:var(--action-danger);border-style:solid;color:var(--action-danger)}
+.btn-cancel:active{background:rgba(176,56,48,.14)}
 @media (pointer:coarse){.btn-cancel{min-height:48px;font-size:14px;padding:10px 16px}}
 
-/* TOAST */
-.toast{position:fixed;bottom:24px;right:24px;transform:translateY(80px);padding:10px 20px;border-radius:10px;background:rgba(16,14,34,.9);backdrop-filter:blur(16px);border:1px solid var(--color-border);font-weight:600;font-size:12px;color:var(--color-text);z-index:100;opacity:0;pointer-events:none;transition:all .3s ease;box-shadow:0 8px 24px rgba(0,0,0,.3)}
-.toast.show{opacity:1;transform:translateY(0)}
-.toast.success{border-color:rgba(52,211,153,.2);color:var(--color-success)}
+/* TOAST — legacy .toast (Daylight redesign at end-of-file, Phase 4).
+   This block keeps only the mobile-overlay position override that the
+   end-of-file rule cannot inherit because it uses different bottom/top. */
 @media (max-width:1024px), (pointer:coarse){
   .toast{
     top:calc(12px + env(safe-area-inset-top, 0px));
@@ -1411,8 +1427,12 @@ body::after{
   min-height:var(--btn-h-md);line-height:var(--leading-snug);
 }
 .u-btn:hover{transform:translateY(-1px)}
-.u-btn-ghost{background:rgba(30,24,18,.04);color:var(--color-text-sec);border:1px solid var(--color-border)}
-.u-btn-ghost:hover{background:var(--color-bg-hover);color:var(--color-text)}
+/* Phase 4: Ghost shape language — transparent, faint border, warm taupe text.
+   Recedes; doesn't compete with primary/secondary/danger CTAs. Hover gives a
+   subtle taupe wash so cashier still feels the tap response. */
+.u-btn-ghost{background:transparent;color:var(--text-secondary);border:1px solid var(--color-border)}
+.u-btn-ghost:hover{background:rgba(122,100,80,.10);color:var(--text-primary);border-color:var(--color-border-hover)}
+.u-btn-ghost:active{background:rgba(122,100,80,.16)}
 .u-btn-ice{background:var(--color-accent-bg-hover);color:var(--color-accent);border:1px solid var(--color-accent-glow)}
 .u-btn-ice:hover{background:rgba(184,84,42,.22);box-shadow:0 4px 16px rgba(184,84,42,.12)}
 .u-btn-mint{background:var(--color-accent-bg-hover);color:var(--color-accent);border:1px solid var(--color-accent-glow)}
@@ -2336,6 +2356,139 @@ body.edit-mode #editToggle { background: var(--color-warning, #E0A830); color: #
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-feature-settings: 'smcp';
+}
+
+/* ================================================================
+   PHASE 4 — Component-level polish (animations, toast, skeleton, empty)
+   ================================================================ */
+
+/* 4.2 — Send pulse: only when there are unsent items.
+   The `.has-pending` class is toggled in js/pos-render.js based on
+   order.some(o => !o.sent). Ring expands outward from amber glow and
+   fades to nothing; loop is gentle (2.5s) — draws the eye without
+   strobing. Disabled state never pulses. */
+@keyframes sendPulse {
+  0%, 100% {
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.22),
+      0 2px 6px -1px rgba(184,124,26,.30),
+      0 4px 12px -2px rgba(184,124,26,.18),
+      0 0 0 0 rgba(184,124,26,.40);
+  }
+  50% {
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.22),
+      0 2px 6px -1px rgba(184,124,26,.30),
+      0 4px 12px -2px rgba(184,124,26,.18),
+      0 0 0 10px rgba(184,124,26,0);
+  }
+}
+.btn-send.has-pending:not(:disabled) {
+  animation: sendPulse 2.5s ease-in-out infinite;
+}
+
+/* 4.3 — Sent stamp animation: when an order item flips to .sent state,
+   a small terra/forest circle with a checkmark pops in over the top-right
+   of the row. Coexists with existing border-left stripe (stripe = at-a-glance,
+   stamp = transition feedback). .order-item-inner already has
+   `position: relative` (line ~2195) so absolute positioning works. */
+@keyframes inkStamp {
+  0%   { transform: scale(1.4) rotate(-6deg); opacity: 0; }
+  50%  { transform: scale(.95) rotate(2deg);  opacity: 1; }
+  100% { transform: scale(1)   rotate(0);     opacity: 1; }
+}
+.order-item-inner.sent::before {
+  content: '\2713';
+  position: absolute;
+  right: -6px;
+  top: -6px;
+  width: 22px;
+  height: 22px;
+  background: var(--color-success);
+  color: #f5efe3;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+  box-shadow: 0 2px 6px rgba(74,122,58,.30), inset 0 1px 0 rgba(255,255,255,.22);
+  animation: inkStamp .4s var(--ease-spring) backwards;
+  pointer-events: none;
+}
+
+/* 4.4 — Toast redesign (legacy .toast class in pos.css — components/toast.js
+   uses .toast-item and its own injected styles which are updated separately).
+   Cream pill, 4px left border in status color, soft drop shadow. */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  transform: translateY(80px);
+  background: var(--color-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--text-secondary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  padding: 12px 18px 12px 16px;
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 500;
+  z-index: 100;
+  opacity: 0;
+  pointer-events: none;
+  transition: all .3s ease;
+  backdrop-filter: none;
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+.toast.success { border-left-color: var(--color-success); color: var(--text-primary); }
+.toast.warning { border-left-color: var(--accent-amber); }
+.toast.error,
+.toast.danger { border-left-color: var(--color-danger); }
+.toast.info { border-left-color: var(--color-accent); }
+
+/* 4.5 — Loading skeleton utility (paper-shuffle shimmer).
+   Apply by adding .skeleton or .loading-skeleton class; set width/height
+   on the consumer. Reduced-motion stops the shimmer but keeps placeholder. */
+@keyframes skeletonShimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.skeleton,
+.loading-skeleton {
+  background: linear-gradient(90deg,
+    var(--color-bg-elevated) 0%,
+    rgba(184,84,42,.08) 50%,
+    var(--color-bg-elevated) 100%);
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.5s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+  height: 1em;
+  display: block;
+}
+
+/* 4.6 — Order empty state icon (when emoji is replaced with inline SVG).
+   The .order-empty-icon container previously held a 32px emoji centered
+   in an 80px dashed circle. With SVG we let the SVG be the icon itself
+   and keep the dashed warm-taupe halo for visual continuity. */
+.order-empty-icon > svg {
+  width: 56px;
+  height: 56px;
+  stroke: var(--text-secondary);
+  fill: none;
+  display: block;
+}
+
+/* Phase 4 — animation reduced-motion guards.
+   Stamps still appear (just snap in), pulses + shimmer halt. */
+@media (prefers-reduced-motion: reduce) {
+  .btn-send.has-pending:not(:disabled) { animation: none; }
+  .order-item-inner.sent::before { animation: none; }
+  .skeleton,
+  .loading-skeleton { animation: none; opacity: .6; }
 }
 
 /* Global prefers-reduced-motion — hide noise overlay (Phase 1 polish).

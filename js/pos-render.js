@@ -790,7 +790,7 @@ function renderOrder(){
 </div>`}).join('')}
   // Update send button state
   const btnSend=document.getElementById('btnSend');
-  if(btnSend){btnSend.disabled=!order.length;}
+  if(btnSend){btnSend.disabled=!order.length;btnSend.classList.toggle('has-pending',order.some(function(o){return o&&!o.sent;}));}
   updateTotals();
 }
 function updateTotals(){
