@@ -754,7 +754,7 @@ function renderOrder(){
     if(tableOrdersList.length)orderPanel.setAttribute('role','tabpanel');
     else orderPanel.removeAttribute('role');
   }
-  if(!order.length){c.innerHTML=`<div class="order-empty"><div class="order-empty-icon">&#128203;</div><div class="order-empty-title">Prazdna objednavka</div><div class="order-empty-text">Pridajte polozky z menu alebo kliknite na stol</div><div class="order-empty-hint"><span>&#8592;</span> Vyberte z menu</div></div>`}
+  if(!order.length){c.innerHTML=`<div class="order-empty"><div class="order-empty-icon"><svg viewBox="0 0 64 64" width="56" height="56" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 18h40v40H12z"/><path d="M18 26h28M18 32h28M18 38h20"/><circle cx="32" cy="10" r="4"/><path d="M28 10h-4M40 10h-4"/></svg></div><div class="order-empty-title">Prazdna objednavka</div><div class="order-empty-text">Pridajte polozky z menu alebo kliknite na stol</div><div class="order-empty-hint"><span>&#8592;</span> Vyberte z menu</div></div>`}
   else{var sorted=order.slice().sort(function(a,b){return (b.id||0)-(a.id||0)});c.innerHTML=sorted.map(o=>{
     const esc=escAttr(o.name.replace(/'/g,"\\'"));
     const _isSent=o.sent;

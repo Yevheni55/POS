@@ -29,6 +29,13 @@
   --color-accent-border: rgba(139,124,246,.12);
   --color-accent-glow: rgba(139,124,246,.2);
 
+  /* Navy ink — Daylight secondary accent (cool counterpart to terra primary).
+     Used for navy-outline buttons, brand secondary signals. AA contrast on
+     cream: ~9.5:1. */
+  --color-accent-secondary: #1f3a5c;
+  --color-accent-secondary-soft: rgba(31, 58, 92, .08);
+  --color-accent-secondary-strong: #2e4d72;
+
   /* Success */
   --color-success: #5CC49E;         /* 7.2:1 — passes */
   --color-success-bg: rgba(92,196,158,.08);

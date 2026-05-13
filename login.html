@@ -95,7 +95,7 @@
     /* Daylight foundation — dual radial (warm/cool axis) + cream linear */
     background:
       radial-gradient(ellipse 80% 60% at 30% 10%, rgba(184, 84, 42, .05) 0%, transparent 60%),
-      radial-gradient(ellipse 60% 80% at 80% 90%, rgba(31, 58, 92, .04) 0%, transparent 50%),
+      radial-gradient(ellipse 60% 80% at 80% 90%, color-mix(in srgb, var(--color-accent-secondary) 4%, transparent) 0%, transparent 50%),
       linear-gradient(180deg, #f5efe3 0%, #ece4d2 100%);
     color: var(--text-primary);
     -webkit-tap-highlight-color: transparent;
@@ -162,7 +162,7 @@
   .logo {
     width: 56px; height: 56px;
     border-radius: 14px;
-    background: linear-gradient(135deg, var(--color-accent), #1f3a5c);
+    background: linear-gradient(135deg, var(--color-accent), var(--color-accent-secondary));
     display: flex; align-items: center; justify-content: center;
     font-family: var(--font-display);
     font-weight: 800; font-size: 18px;
@@ -232,7 +232,7 @@
     flex-shrink: 0;
   }
   .pill-avatar.admin { background: var(--color-accent); }
-  .pill-avatar.manazer { background: #1f3a5c; }
+  .pill-avatar.manazer { background: var(--color-accent-secondary); }
   .pill-avatar.cisnik { background: var(--color-success); }
 
   /* PIN dots */
