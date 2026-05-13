@@ -453,10 +453,29 @@ async function selectTableAndLoadOrder(id){
 
 async function chipClick(id){
   if (moveMode) { await handleMoveToTable(id); return; }
+  // PERF instrumentation — meria ako dlho trva tap → products view paint.
+  // Vysledok zobrazi v orderTableLabel na 2s + console.log + alert nad 300ms.
+  var _perfT0 = (performance && performance.now) ? performance.now() : Date.now();
   await openTable(id);
-  // PERF: renderFloor() volane TU rebuilduje 30+ chip-ov DOMOM ihneď po
-  // switchView('products') — výsledok je už neviditelne. Defer-neme to
-  // do idle moment; floor sa rebuilduje aj tak pri navrate na tables view.
+  var _perfT1 = (performance && performance.now) ? performance.now() : Date.now();
+  var _perfMs = Math.round(_perfT1 - _perfT0);
+  console.log('[PERF] tap→openTable resolved:', _perfMs, 'ms');
+  // Use requestAnimationFrame to measure after browser paints.
+  requestAnimationFrame(function(){
+    var _perfT2 = (performance && performance.now) ? performance.now() : Date.now();
+    var _perfPaint = Math.round(_perfT2 - _perfT0);
+    console.log('[PERF] tap→first paint after openTable:', _perfPaint, 'ms');
+    // Show in table label for 2.5s so user sees it without DevTools
+    var lbl = document.getElementById('orderTableLabel');
+    if (lbl) {
+      var orig = lbl.textContent;
+      lbl.dataset.perfTimer && clearTimeout(lbl.dataset.perfTimer);
+      lbl.textContent = orig + ' · ⏱ ' + _perfPaint + 'ms';
+      var _t = setTimeout(function(){ lbl.textContent = orig; }, 2500);
+      lbl.dataset.perfTimer = _t;
+    }
+  });
+
   if (typeof requestIdleCallback === 'function') {
     requestIdleCallback(function(){ renderFloor(); }, { timeout: 800 });
   } else {
@@ -475,19 +494,24 @@ async function openTable(id){
   const t=TABLES.find(x=>x.id===id);
   document.getElementById('orderTableLabel').textContent=t?t.name:'';
 
-  // OPTIMISTIC UI: switch view + render BEFORE awaiting data fetch.
-  // User vidi products grid + order panel cca ~30ms po tape namiesto
-  // 250-500ms cakania na loadTableOrder. Pri cache-hit (99% pripadov)
-  // su orders uz v tableOrders[id], renderOrder() ich zobrazí. Pri
-  // cache-miss zobrazime to čo mame lokalne (možno empty) a po fetch
-  // panel sa re-render-ne s freshmi dátami.
+  // PERF instrumentation — meria casy vnutornych krokov.
+  var _t0 = performance.now();
   switchView('products');
+  var _t1 = performance.now();
   renderOrder();
+  var _t2 = performance.now();
   updateQtyBadges();
+  var _t3 = performance.now();
+  console.log('[PERF] openTable sync block:',
+    'switchView:', Math.round(_t1-_t0), 'ms,',
+    'renderOrder:', Math.round(_t2-_t1), 'ms,',
+    'updateQtyBadges:', Math.round(_t3-_t2), 'ms,',
+    'total sync:', Math.round(_t3-_t0), 'ms');
 
-  // Now load fresh data; if it changes anything, re-render. Multi-account
-  // case still opens picker AFTER fetch (need to know all accounts).
   await loadTableOrder(id);
+  var _t4 = performance.now();
+  console.log('[PERF] loadTableOrder:', Math.round(_t4-_t3), 'ms');
+
   if (tableOrdersList.length > 1) {
     showAccountPicker(id, true);
   } else {
