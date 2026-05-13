@@ -2904,3 +2904,73 @@ body.edit-mode #editToggle { background: var(--color-warning, #E0A830); color: #
   .skeleton,
   .loading-skeleton { animation: none !important; opacity: .6; }
 }
+
+/* ================================================================
+   TABLET PERF MODE — touch devices (pointer:coarse) — ARM GPU has 5-10x
+   less fillrate than desktop GPU. Multi-layer shadows + gradients +
+   backdrop-filter + pseudo highlights paint cost adds up to perceptible
+   tap latency. Drop GPU-heavy effects here; desktop keeps full visual.
+   ================================================================ */
+@media (pointer: coarse) {
+  /* Single-layer shadow on all cards (was 3-layer paper drop) — ~3x
+     paint cost reduction per card. Multi-layer needed for visual depth
+     on desktop; tablet GPU prefers cheap single shadow. */
+  .product-card,
+  .table-chip,
+  .order-row,
+  .order-item-wrap,
+  .order-item-inner,
+  .stat-card,
+  .u-modal,
+  .modal-island,
+  .toast {
+    box-shadow: 0 2px 6px rgba(30, 24, 18, .10) !important;
+  }
+
+  /* Solid background instead of linear-gradient — gradient rasterization
+     bound on tablet. Same visual feel on cream for individual cards. */
+  .product-card { background: var(--color-bg-elevated) !important; }
+  .table-chip   { background: var(--color-bg-elevated) !important; }
+  .order-item-inner { background: var(--color-bg-elevated) !important; }
+
+  /* Decorative gradient highlight on pebble chips — invisible from
+     normal viewing distance on tablet anyway, remove for paint win. */
+  .table-chip::before { display: none !important; }
+
+  /* Backdrop-filter Gaussian blur is bandwidth-intensive on tablet GPU.
+     Replace with solid semi-opaque background — same UX intent (sticky
+     header is visible above scrolled content). */
+  .order-tabs,
+  .u-modal,
+  .mob-tab-bar,
+  .mob-order-footer {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background: var(--color-bg-elevated) !important;
+  }
+  .u-overlay {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  /* Paper-grain noise overlay — extra paint pass on every viewport
+     update. On tablet GPU this is real cost. Drop entirely; cream
+     background is fine. */
+  body::after { display: none !important; }
+  body::before { display: none !important; }
+
+  /* Disable hover transforms — tablet doesn't have hover anyway, but
+     CSS rule still gets style-recalculated for every card. */
+  .product-card:hover,
+  .table-chip:hover,
+  .order-item-wrap:hover,
+  .order-row:hover {
+    transform: none !important;
+    box-shadow: 0 2px 6px rgba(30, 24, 18, .10) !important;
+  }
+
+  /* The "::after" highlight on order-item-inner.sent (ink stamp) keeps
+     animation but on tablet the scale+rotate is GPU-cost. Make it
+     instant. */
+  .order-item-inner.sent::before { animation: none !important; }
+}
