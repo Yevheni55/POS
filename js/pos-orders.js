@@ -1252,7 +1252,9 @@ function _splitItemRowHtml(it){
   var bg = isSelected ? 'rgba(139,124,246,.12)' : 'var(--color-bg-surface)';
   var border = isSelected ? 'var(--color-accent,#8b7cf6)' : 'var(--color-border)';
   var checkBg = isSelected ? 'var(--color-accent,#8b7cf6)' : 'transparent';
-  var checkContent = isSelected ? '✓' : '';
+  var checkContent = isSelected
+    ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="svg-icon"><polyline points="20 6 9 17 4 12"/></svg>'
+    : '';
   // Ked qty>1 a vybrate ciastocne, pridame badge "selectedQty/total".
   var qtyBadge = '';
   if (it.qty > 1) {
@@ -1518,7 +1520,11 @@ function _showMoveQtyPicker(item, callback) {
   overlay.innerHTML =
     '<div class="u-modal mqp-modal" role="dialog" aria-modal="true" aria-labelledby="mqpTitle">' +
       '<div class="mqp-header">' +
-        '<div class="mqp-icon" aria-hidden="true">↗</div>' +
+        '<div class="mqp-icon" aria-hidden="true">' +
+          '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="svg-icon">' +
+            '<line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/>' +
+          '</svg>' +
+        '</div>' +
         '<div class="mqp-title-block">' +
           '<div class="mqp-title" id="mqpTitle">Koľko presunúť?</div>' +
           '<div class="mqp-item">' + escAttr((item.emoji || '') + ' ' + (item.name || '')) + '</div>' +

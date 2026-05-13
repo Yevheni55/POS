@@ -307,9 +307,10 @@ function renderMobOrder() {
     container.innerHTML = order.map(o => {
       const esc = o.name.replace(/'/g, "\\'");
       const isSent = o.sent;
+      const pencilSvg = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="svg-icon" style="vertical-align:-2px;margin-right:4px"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
       const noteBlock = o.note
         ? `<div class="mob-oi-note">${escHtml(o.note)}</div>`
-        : `<div class="mob-oi-add-note">${isSent ? '✎ poznamka' : '+ poznamka'}</div>`;
+        : `<div class="mob-oi-add-note">${isSent ? pencilSvg + 'poznamka' : '+ poznamka'}</div>`;
       const row2 = isSent
         ? `<div class="mob-oi-qty-readonly">${o.qty}x &middot; ${fmt(o.price * o.qty)}</div>`
         : `
@@ -324,7 +325,7 @@ function renderMobOrder() {
         <div class="mob-oi-row1">
           <span class="mob-oi-emoji">${escHtml(o.emoji)}</span>
           <div class="mob-oi-info" onclick="openNoteModal('${esc}', ${o.id});"><div class="mob-oi-name">${escHtml(o.name)}</div>${noteBlock}</div>
-          <button type="button" class="mob-oi-move" onclick="event.stopPropagation();enterMoveMode(${o.id})" aria-label="Presunut polozku" title="Presunut">&#8599;</button>
+          <button type="button" class="mob-oi-move" onclick="event.stopPropagation();enterMoveMode(${o.id})" aria-label="Presunut polozku" title="Presunut"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="svg-icon"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg></button>
           <button type="button" class="mob-oi-del" onclick="event.stopPropagation();removeItem('${esc}');renderMobOrder();updateMobBadge()" aria-label="${isSent ? 'Storno polozky' : 'Odstranit polozku'}" title="${isSent ? 'Storno' : 'Odstranit'}">${isSent ? '⌫' : '×'}</button>
         </div>
         <div class="mob-oi-row2">${row2}</div>

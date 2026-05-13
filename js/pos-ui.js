@@ -11,7 +11,14 @@ function showConfirm(title, text, onConfirm, opts) {
   opts = opts || {};
   captureModalTrigger();
   var type = opts.type || 'info';
-  var icon = opts.icon || (type==='danger'?'\u26A0\uFE0F':type==='warning'?'\u2753':'\u2139\uFE0F');
+  // Monochrome SVG markers \u2014 alert-triangle / help-circle / info-circle.
+  // Stroke inherits modal text tone via currentColor.
+  var _confirmIcons = {
+    danger:  '<svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="svg-icon"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+    warning: '<svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="svg-icon"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+    info:    '<svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="svg-icon"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>'
+  };
+  var icon = opts.icon || _confirmIcons[type] || _confirmIcons.info;
   var confirmText = opts.confirmText || 'Potvrdit';
   var cancelText = opts.cancelText || 'Zrusit';
   var btnClass = type==='danger'?'u-btn-rose':type==='warning'?'u-btn-lavender':'u-btn-mint';
@@ -55,8 +62,10 @@ function showPrompt(title, placeholder, onSubmit, opts) {
   var overlay = document.createElement('div');
   overlay.className = 'u-overlay';
   overlay.id = 'promptModal';
+  // Prompt default icon \u2014 pencil SVG (monochrome). Override via opts.icon if needed.
+  var _promptDefaultIcon = '<svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="svg-icon"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
   overlay.innerHTML = '<div class="u-modal" role="dialog" aria-modal="true" aria-labelledby="promptModalTitle">' +
-    '<span class="u-modal-icon">' + (opts.icon || '\u270F\uFE0F') + '</span>' +
+    '<span class="u-modal-icon">' + (opts.icon || _promptDefaultIcon) + '</span>' +
     '<div class="u-modal-title" id="promptModalTitle">' + title + '</div>' +
     '<div class="u-modal-body"><div class="u-modal-field"><label for="promptInput" class="sr-only">' + title + '</label><input type="' + (opts.inputType || 'text') + '" id="promptInput" placeholder="' + (placeholder || '') + '" value="' + (opts.defaultValue || '') + '"></div></div>' +
     '<div class="u-modal-btns">' +
@@ -125,7 +134,7 @@ function showStornoReason(itemName, qty, callback) {
   ov.innerHTML = ''
     + '<div class="u-modal" role="dialog" aria-modal="true" aria-labelledby="stornoModalTitle" style="max-width:460px;text-align:left">'
     +   '<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">'
-    +     '<div style="font-size:36px;line-height:1">❌</div>'
+    +     '<div style="display:flex;align-items:center;justify-content:center;width:36px;height:36px;line-height:1;color:var(--color-danger,#ef4444)"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="svg-icon"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div>'
     +     '<div>'
     +       '<div id="stornoModalTitle" style="font-size:24px;font-weight:700;color:var(--color-text);margin:0;line-height:1.15">' + qty + '× ' + itemName + '</div>'
     +       '<div style="font-size:13px;color:var(--color-danger,#ef4444);margin:2px 0 0;text-transform:uppercase;letter-spacing:.5px;font-weight:600">Storno</div>'
@@ -284,7 +293,11 @@ function showSauceSelector(comboName, callback) {
   var repeatCta = '';
   if (hasPrevious) {
     repeatCta = '<button type="button" class="sauce-repeat-btn" id="sauceRepeat">'
-      + '<span class="sauce-repeat-icon" aria-hidden="true">↻</span>'
+      + '<span class="sauce-repeat-icon" aria-hidden="true">'
+      +   '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="svg-icon">'
+      +     '<polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>'
+      +   '</svg>'
+      + '</span>'
       + '<span class="sauce-repeat-text">'
       +   '<span class="sauce-repeat-eyebrow">Opakovať omáčku</span>'
       +   '<span class="sauce-repeat-value">' + (previousLabel || '—') + '</span>'

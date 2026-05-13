@@ -335,8 +335,13 @@ function initiatePayment(method) {
   }
   pendingPaymentMethod = method;
   const labels = { hotovost: 'Hotovost', karta: 'Karta', zaplatit: 'Univerzalna platba' };
-  const icons = { hotovost: '\uD83D\uDCB5', karta: '\uD83D\uDCB3', zaplatit: '\uD83D\uDCB0' };
-  document.getElementById('modalIcon').textContent = icons[method];
+  // Monochrome SVG markers \u2014 banknote / card / wallet. Stroke uses currentColor
+  // so the icon inherits the modal's text tone instead of color-emoji noise.
+  const banknoteSvg = '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="svg-icon"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01"/><path d="M18 12h.01"/></svg>';
+  const cardSvg = '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="svg-icon"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>';
+  const universalSvg = '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="svg-icon"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/></svg>';
+  const icons = { hotovost: banknoteSvg, karta: cardSvg, zaplatit: universalSvg };
+  document.getElementById('modalIcon').innerHTML = icons[method];
   document.getElementById('modalTitle').textContent = 'Potvrdenie platby';
   document.getElementById('modalAmount').textContent = fmt(total);
   document.getElementById('modalMethod').textContent = 'Sposob: ' + labels[method];
