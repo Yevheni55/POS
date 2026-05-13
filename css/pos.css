@@ -897,8 +897,8 @@ body::after{
 .btn-pay:hover{opacity:.97;transform:translateY(-1px);box-shadow:inset 0 1px 0 rgba(255,255,255,.26),0 3px 10px -1px rgba(184,84,42,.28),0 6px 18px -2px rgba(184,84,42,.22)}
 .btn-pay:active{transform:translateY(0);box-shadow:inset 0 1px 0 rgba(255,255,255,.16),0 1px 3px rgba(184,84,42,.18)}
 .extra-row{display:flex;gap:6px;border-top:1px solid var(--border-default);padding-top:4px;margin-top:2px}
-/* Rozdelit (split bill) — purple/accent identifies split mode + matches
-   accent across UI (active tab color). */
+/* Rozdelit (split bill) — Daylight terra accent identifies split mode +
+   matches accent across UI (active tab color). */
 .btn-split{
   background:rgba(184,84,42,.12);
   color:var(--color-accent);
@@ -1789,7 +1789,7 @@ body::after{
     -webkit-tap-highlight-color:transparent;touch-action:manipulation;
   }
   /* Admin panel shortcut on mobile — same touch-target size as logout
-     so the header doesn't go ragged. Accent color (purple) keeps it
+     so the header doesn't go ragged. Daylight terra accent keeps it
      visually distinct from the red logout. */
   .mob-admin-btn{
     min-width:44px;min-height:44px;width:44px;height:44px;border-radius:10px;
@@ -1829,7 +1829,7 @@ body::after{
     padding-left:max(0px,env(safe-area-inset-left,0px));
     padding-right:max(0px,env(safe-area-inset-right,0px));
     padding-bottom:env(safe-area-inset-bottom);
-    background:rgba(8,14,20,.92);backdrop-filter:blur(24px);
+    background:color-mix(in srgb, var(--color-bg-elevated) 92%, transparent);backdrop-filter:blur(24px);
     border-top:1px solid var(--color-border);
   }
   .mob-tab{
@@ -1955,7 +1955,7 @@ body::after{
   .mob-product:active{transform:scale(.98);background:rgba(184,84,42,.1)}
   .mob-product-emoji{font-size:20px;margin-bottom:4px}
   .mob-product-name{font-size:13px;font-weight:700;line-height:1.2;margin-bottom:auto}
-  .mob-product-price{font-family:var(--font-display);font-weight:700;font-size:14px;color:#B4A9F8;margin-top:6px}
+  .mob-product-price{font-family:var(--font-display);font-weight:700;font-size:14px;color:var(--color-accent);margin-top:6px}
   .mob-product-badge{
     position:absolute;top:6px;right:6px;
     min-width:20px;height:20px;border-radius:10px;padding:0 6px;
@@ -2159,7 +2159,7 @@ body::after{
     min-height:var(--btn-h-lg);-webkit-tap-highlight-color:transparent;
   }
   .mob-btn-pay.cash{background:linear-gradient(135deg,#4a7a3a,#42C490);color:#041a10}
-  .mob-btn-pay.card{background:linear-gradient(135deg,#5F54A8,#6358AD);color:#fff}
+  .mob-btn-pay.card{background:linear-gradient(135deg, var(--color-accent-secondary), var(--color-accent-secondary-strong));color:#f5efe3}
   .mob-btn-pay:active{transform:scale(.97)}
   .mob-btn-secondary{
     width:100%;
