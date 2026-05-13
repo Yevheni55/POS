@@ -309,12 +309,13 @@ body::after{
 
 /* TABLE CHIP — pebble shape (organic asymmetric radius), Atelier feel.
    Information hierarchy: top row = status-dot + name, middle = state value
-   (suma/time/label), bottom = seats. */
+   (suma/time/label), bottom = seats.
+   Compact size — fits viac stolov v zóne bez scrollu. */
 .table-chip{
-  position:absolute;width:120px;height:118px;
+  position:absolute;width:96px;height:92px;
   display:flex;flex-direction:column;align-items:stretch;justify-content:space-between;gap:0;
   /* Asymmetric radius — every chip looks slightly different, organic. */
-  border-radius:22px 18px 20px 16px;
+  border-radius:18px 14px 16px 12px;
   border:1.5px solid var(--color-border-hover);
   background:linear-gradient(180deg, var(--color-bg), var(--color-bg-elevated));
   cursor:pointer;
@@ -325,9 +326,8 @@ body::after{
              transform var(--t-paper) var(--ease-soft);
   user-select:none;z-index:1;
   box-shadow:var(--shadow-md);
-  padding:10px 12px 10px 12px;
+  padding:7px 9px 7px 9px;
   overflow:hidden;
-  /* Subtle gradient highlight catching "light from above" */
 }
 /* Faint top-edge highlight that simulates light catching the pebble surface */
 .table-chip::before{
@@ -396,7 +396,7 @@ body::after{
 .table-chip.round::before{display:none}
 
 /* Large tables — wider pebble */
-.table-chip.large{width:158px;height:118px;border-radius:24px 18px 22px 16px}
+.table-chip.large{width:128px;height:92px;border-radius:20px 14px 18px 12px}
 
 /* === CHIP CONTENT — new information hierarchy ===
    Row 1: status dot + name (left aligned, name dominant)
@@ -404,12 +404,12 @@ body::after{
    Row 3: seat count (bottom-right) */
 
 .table-chip .chip-top{
-  display:flex;align-items:center;gap:7px;
+  display:flex;align-items:center;gap:5px;
   min-width:0;
 }
 .table-chip .chip-name{
   font-family:var(--font-display);
-  font-size:24px;
+  font-size:19px;
   font-weight:var(--weight-extrabold);
   line-height:1;
   letter-spacing:var(--tracking-tight);
@@ -420,7 +420,7 @@ body::after{
   color:var(--text-primary);
 }
 .table-chip .chip-status-dot{
-  width:8px;height:8px;
+  width:7px;height:7px;
   border-radius:50%;
   flex-shrink:0;
   background:var(--color-text-dim);
@@ -432,7 +432,7 @@ body::after{
 
 .table-chip .chip-amount{
   font-family:var(--font-mono);
-  font-size:18px;
+  font-size:15px;
   font-weight:var(--weight-bold);
   color:var(--text-primary);
   font-variant-numeric:tabular-nums;
@@ -441,7 +441,7 @@ body::after{
 }
 .table-chip .chip-time{
   font-family:var(--font-mono);
-  font-size:15px;
+  font-size:13px;
   font-weight:var(--weight-bold);
   color:var(--accent-amber);
   font-variant-numeric:tabular-nums;
@@ -449,11 +449,11 @@ body::after{
   line-height:1;
 }
 .table-chip .chip-state-label{
-  font-size:11px;
+  font-size:10px;
   font-weight:var(--weight-semibold);
   color:var(--text-secondary);
   text-transform:uppercase;
-  letter-spacing:.06em;
+  letter-spacing:.05em;
   line-height:1;
 }
 .table-chip.s-dirty .chip-state-label{color:var(--color-danger)}
@@ -1743,16 +1743,16 @@ body::after{
   .floor-title{font-size:35px}
   .floor-stat,.legend-item{font-size:17px}
   .floor-legend{display:flex}
-  /* Stoly na tablete — pebble shape, organic feel. Bumpnute pre 10.1"
-     touch — chipy 132x130 fitnu cca 6-8 stolov v zone bez scrollu. */
-  .table-chip{width:132px;height:130px;padding:12px 14px;gap:0}
-  .table-chip.large{width:170px;height:130px;border-radius:26px 20px 24px 18px}
-  .chip-name{font-size:24px}
-  .chip-amount{font-size:20px}
-  .chip-time{font-size:17px}
-  .chip-state-label{font-size:12px}
-  .chip-guests{font-size:13px}
-  .chip-status-dot{width:10px;height:10px}
+  /* Stoly na tablete — pebble shape, organic feel. Compact aby fitlo viac
+     stolov v zóne bez scrollu. */
+  .table-chip{width:108px;height:100px;padding:9px 11px;gap:0}
+  .table-chip.large{width:140px;height:100px;border-radius:22px 16px 20px 14px}
+  .chip-name{font-size:20px}
+  .chip-amount{font-size:16px}
+  .chip-time{font-size:14px}
+  .chip-state-label{font-size:11px}
+  .chip-guests{font-size:12px}
+  .chip-status-dot{width:8px;height:8px}
   /* Floor summary bigger on tablet */
   .floor-summary{padding:14px 20px;min-width:200px}
   .fs-label{font-size:11px}

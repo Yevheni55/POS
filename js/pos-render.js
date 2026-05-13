@@ -135,8 +135,9 @@ function renderFloor(){
     if(filtered[i].x>maxX)maxX=filtered[i].x;
     if(filtered[i].y>maxY)maxY=filtered[i].y;
   }
-  canvas.style.minWidth=Math.max(maxX+220,600)+'px';
-  canvas.style.minHeight=Math.max(maxY+180,400)+'px';
+  // Chip reaches ~140x110 beyond its top-left anchor (large tablet chip + padding).
+  canvas.style.minWidth=Math.max(maxX+170,600)+'px';
+  canvas.style.minHeight=Math.max(maxY+140,400)+'px';
 
   // Detect "forgotten" tables — occupied for > 20 min without payment activity
   // (we use createdAt of the first open order on this table to compute age).
