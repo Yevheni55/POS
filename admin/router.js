@@ -145,8 +145,32 @@ function parseHash() {
   return { page: parts[0] || 'dashboard', sub: parts.slice(1).join('/') || null };
 }
 
+/**
+ * Sidebar active-state update — POVINNE volat z kazdej navigate() vetvy
+ * + z hashchange listener priamo. Defensive: vzdy iteruje VSETKY nav-items
+ * a explicitne nastavi active=true LEN na jednom (matchesPage || matchesAlias).
+ * Ostatne dostanu active=false. Bez tejto funkcie staras nezmizla pri
+ * early-return (ked page === currentPage).
+ */
+function updateSidebarActiveState(page) {
+  document.querySelectorAll('#sidebarNav .nav-item').forEach(function (a) {
+    const matchesPage = a.dataset.page === page;
+    const matchesAlias = a.dataset.activeFor && a.dataset.activeFor.split(',').indexOf(page) >= 0;
+    const active = matchesPage || matchesAlias;
+    a.classList.toggle('active', active);
+    if (active) a.setAttribute('aria-current', 'page');
+    else a.removeAttribute('aria-current');
+  });
+}
+
 async function navigate(page, sub) {
   if (!routes[page]) page = 'dashboard';
+
+  // DEFENSIVE: vzdy refresh sidebar + title PRED early-returnom — sluzi
+  // ako safety net ak by sa medzitym .active class niekde rozsipala.
+  updateSidebarActiveState(page);
+  const titleEl0 = document.getElementById('pageTitle');
+  if (titleEl0) titleEl0.textContent = pageTitles[page] || page;
 
   // Same top-level page + sub change → call onSubChange instead of re-init.
   if (page === currentPage && pendingPage === null) {
@@ -169,17 +193,9 @@ async function navigate(page, sub) {
   }
   currentModule = null;
 
-  // Update sidebar active state — match data-page; data-active-for is bonus alias.
-  document.querySelectorAll('#sidebarNav .nav-item').forEach(function (a) {
-    const matchesPage = a.dataset.page === page;
-    const matchesAlias = a.dataset.activeFor && a.dataset.activeFor.split(',').indexOf(page) >= 0;
-    const active = matchesPage || matchesAlias;
-    a.classList.toggle('active', active);
-    if (active) a.setAttribute('aria-current', 'page');
-    else a.removeAttribute('aria-current');
-  });
-
-  // Page title
+  // Sidebar + title uz boli aktualizovane na vrchu funkcie — refresh-neme
+  // este raz pre istotu (race-safe).
+  updateSidebarActiveState(page);
   titleEl.textContent = pageTitles[page] || page;
 
   // Load + init module
