@@ -581,15 +581,16 @@ function setCategory(key){activeCategory=key;searchQuery='';document.getElementB
 
 (function(){var searchTimer=null;document.getElementById('searchInput').addEventListener('input',function(e){searchQuery=e.target.value.toLowerCase().trim();clearTimeout(searchTimer);searchTimer=setTimeout(function(){renderProducts()},200)})})();
 
-// PERF cache: skip full grid rebuild ak sa nezmenila category / search /
-// menu version / table-order (for qty badges). 100+ produkt karty s
-// gradient + shadow ich rebuild kazdy tap = 100-200ms paint cost.
+// PERF cache: skip full grid rebuild ak sa nezmenila category / search.
+// HLAVNÁ NÁPRAVA: predtým kluč obsahoval qtyHash z getOrder() — to
+// znamenalo ze tap na druhy stol s rovnakou kategoriou cache MISS
+// (qtyHash sa lisi medzi stolmi) -> ~150ms rebuild kazdy raz.
+// Teraz: grid HTML zavisi LEN od search + category. Badges per-card
+// updatujem osobne cez updateQtyBadges() po renderProducts. Tap na
+// rozny stol s rovnakou kategoriou = cache HIT (~5ms) + badge sync.
 var _lastProductsRenderKey = null;
 function _productsRenderKey(){
-  var order = getOrder() || [];
-  // Iba qty + name pairs su dolezite pre badge-y; ostatne ignorujeme.
-  var qtyHash = order.map(function(o){ return o.name + ':' + o.qty; }).join('|');
-  return (searchQuery || '') + '|' + (activeCategory || '') + '|' + qtyHash;
+  return (searchQuery || '') + '|' + (activeCategory || '');
 }
 
 function renderProducts(){
