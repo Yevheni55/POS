@@ -5,65 +5,47 @@ export const PAYMENT_METHOD_LABELS = {
   karta: 'Karta',
 };
 
-/** CHDU / staršie fiškálne tlačiarne často nezvládnu UTF-8 ani emoji — výsledok sú náhodné symboly. */
-// Slovak/Czech complete diacritic fold map. Used BEFORE NFD so we don't depend
-// on Unicode-version-specific decomposition tables (some legacy Node builds
-// can fail to decompose less common letters). Slovak fiscal law requires
-// ASCII on receipt body — "dlhe o sa zmeni na obycajne o" etc.
-const FOLD_EXTRA = {
-  // Long vowels (acute)
-  'á': 'a', 'Á': 'A',
-  'é': 'e', 'É': 'E',
-  'í': 'i', 'Í': 'I',
-  'ó': 'o', 'Ó': 'O',
-  'ú': 'u', 'Ú': 'U',
-  'ý': 'y', 'Ý': 'Y',
-  // Caron (haček)
-  'š': 's', 'Š': 'S',
-  'č': 'c', 'Č': 'C',
-  'ž': 'z', 'Ž': 'Z',
-  'ť': 't', 'Ť': 'T',
-  'ď': 'd', 'Ď': 'D',
-  'ň': 'n', 'Ň': 'N',
-  'ľ': 'l', 'Ľ': 'L',
-  'ř': 'r', 'Ř': 'R',
-  'ě': 'e', 'Ě': 'E',
-  // Circumflex
-  'ô': 'o', 'Ô': 'O',
-  // Long L/R (Slovak vibrants)
-  'ĺ': 'l', 'Ĺ': 'L',
-  'ŕ': 'r', 'Ŕ': 'R',
-  // Umlaut / diaeresis
-  'ä': 'a', 'Ä': 'A',
-  'ö': 'o', 'Ö': 'O',
-  'ü': 'u', 'Ü': 'U',
-  'ë': 'e', 'Ë': 'E',
-  'ï': 'i', 'Ï': 'I',
-  // Other Latin extensions
-  'đ': 'd', 'Đ': 'D',
-  'ł': 'l', 'Ł': 'L',
-  'ß': 'ss',
-  'æ': 'ae', 'Æ': 'AE',
-  'œ': 'oe', 'Œ': 'OE',
-  // Currency symbol — explicit so '€' becomes 'EUR' instead of stripped
-  '€': 'EUR',
-};
-
+/**
+ * Sanitize item name pre Portos REST API.
+ *
+ * **História:** Predtým sme strip-li všetku diakritiku na čistý ASCII (čapované → capovane).
+ * Bol to mylný predpoklad: § 3 ods. 1 zákona o ERP požaduje len **čitateľnosť**, nie ASCII.
+ * Empiricky: údaje firmy (názov, adresa) tlačí Portos s plnou diakritikou, takže printer
+ * + CHDU pipeline ju vie. Strippovanie bolo prehnaná obrana.
+ *
+ * **Oficiálna NineDigit špec** (z PHP klienta `ReceiptItemDto.php`):
+ *   > Označenie tovaru alebo služby.
+ *   > Neprázdny textový reťazec s maximálnou dĺžkou 255 znakov.
+ *
+ * Žiadne obmedzenie na ASCII. JSON over HTTP nesie UTF-8 (Content-Type
+ * `application/json; charset=utf-8`) natívne.
+ *
+ * **Čo (stále) strippujeme:**
+ *   - Emoji + Extended_Pictographic (thermal printer ich nevykreslí, niekedy crashne)
+ *   - Variation selectors + zero-width joiners (artefakty z mobilného vstupu)
+ *   - Kontrolné znaky (\\x00-\\x1F, \\x7F) — môžu rozbiť ESC/POS stream
+ *   - DEL + ostatné neprintableable
+ *
+ * **Čo zachovávame:**
+ *   - Slovenská + česká diakritika (č š ť ž á é í ó ú ý ä ô ľ ĺ ŕ ď ň ř ě)
+ *   - Bežné latin-1 extra (æ, ø, ñ, ü...) — pre cudzojazyčné menu položky
+ *   - Symbol € (printer ho vie, na fiškálnom bloku je často potreba)
+ *   - Štandardná interpunkcia (. , - ' " ( ) / atď.)
+ *
+ * **Limit:** capujeme na 120 znakov (safe pod NineDigit limitom 255).
+ */
 export function sanitizeForFiscalPrinter(text) {
   if (text == null || text === '') return 'Polozka';
   let s = String(text).normalize('NFKC');
+  // Emoji + Extended_Pictographic — thermal printer ich nevykreslí.
   s = s.replace(/\p{Extended_Pictographic}/gu, '');
-  s = s.replace(/[️‍]/g, '');
-  // FIRST pass — explicit Slovak/Czech fold table (deterministic, doesn't
-  // depend on NFD decomposition tables). Guarantees long-o → o etc.
-  for (const [from, to] of Object.entries(FOLD_EXTRA)) {
-    s = s.split(from).join(to);
-  }
-  // SECOND pass — NFD + combining-marks strip catches anything not in the
-  // explicit map (other locale letters with combining marks).
-  s = s.normalize('NFD').replace(/\p{M}/gu, '');
-  // FINAL safety — strip any remaining non-ASCII printable. Belt-and-suspenders.
-  s = s.replace(/[^ -~]/g, '');
+  // Variation selectors (U+FE00-U+FE0F) + ZWJ (U+200D) + ZWNJ (U+200C) +
+  // ostatné format chars (\p{Cf}) — artefakty z mobilného / emoji vstupu.
+  s = s.replace(/\p{Cf}/gu, '');
+  // Kontrolné znaky + DEL (\x00-\x1F, \x7F) — môžu rozbiť ESC/POS stream
+  // alebo Portos JSON parser. Nahradíme medzerou, ďalej whitespace-collapse.
+  s = s.replace(/[\x00-\x1F\x7F]/g, ' ');
+  // Whitespace collapse + trim
   s = s.replace(/\s+/g, ' ').trim();
   const out = s.slice(0, 120);
   return out.length ? out : 'Polozka';
