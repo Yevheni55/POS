@@ -748,6 +748,13 @@ export function init(container) {
   loadIngredients().then(function () {
     loadWriteOffs();
   });
+
+  // Cmd+K action hook
+  if (window.cmdPalette && window.cmdPalette.consumeActionFlag) {
+    if (window.cmdPalette.consumeActionFlag() === 'new-writeoff') {
+      setTimeout(function () { openNewModal(); }, 120);
+    }
+  }
 }
 
 export function destroy() {

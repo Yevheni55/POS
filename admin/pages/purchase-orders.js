@@ -1293,6 +1293,13 @@ export function init(container) {
   Promise.all([loadSuppliers(), loadIngredients()]).then(function () {
     loadOrders();
   });
+
+  // Cmd+K action hook
+  if (window.cmdPalette && window.cmdPalette.consumeActionFlag) {
+    if (window.cmdPalette.consumeActionFlag() === 'new-po') {
+      setTimeout(function () { openNewOrderModal(); }, 120);
+    }
+  }
 }
 
 export function destroy() {

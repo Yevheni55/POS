@@ -261,6 +261,13 @@ export function init(container) {
 
   // Load data
   loadSuppliers();
+
+  // Cmd+K action hook
+  if (window.cmdPalette && window.cmdPalette.consumeActionFlag) {
+    if (window.cmdPalette.consumeActionFlag() === 'new-supplier') {
+      setTimeout(function () { openModal(); }, 120);
+    }
+  }
 }
 
 export function destroy() {

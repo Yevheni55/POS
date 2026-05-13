@@ -591,6 +591,13 @@ export function init(container) {
   // Load data
   loadAssets();
   loadSummary();
+
+  // Cmd+K action hook
+  if (window.cmdPalette && window.cmdPalette.consumeActionFlag) {
+    if (window.cmdPalette.consumeActionFlag() === 'new-asset') {
+      setTimeout(function () { openAddEditModal(); }, 120);
+    }
+  }
 }
 
 export function destroy() {

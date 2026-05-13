@@ -402,6 +402,13 @@ export function init(container) {
 
   renderLayout();
   loadAudits();
+
+  // Cmd+K action hook
+  if (window.cmdPalette && window.cmdPalette.consumeActionFlag) {
+    if (window.cmdPalette.consumeActionFlag() === 'new-audit') {
+      setTimeout(function () { createAudit(); }, 120);
+    }
+  }
 }
 
 export function destroy() {

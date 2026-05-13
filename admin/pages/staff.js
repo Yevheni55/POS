@@ -360,6 +360,16 @@ export function init(container) {
 
   // Load data
   loadStaff();
+
+  // Cmd+K action hook
+  if (window.cmdPalette && window.cmdPalette.consumeActionFlag) {
+    if (window.cmdPalette.consumeActionFlag() === 'new-staff') {
+      setTimeout(function () {
+        const b = document.getElementById('addStaffBtn');
+        if (b) b.click();
+      }, 120);
+    }
+  }
 }
 
 export function destroy() {

@@ -310,6 +310,14 @@ export function init(container) {
 
   // Load data
   loadIngredients();
+
+  // Cmd+K action hook — if user picked "Pridať surovinu" from palette,
+  // open the modal automatically after page mounts.
+  if (window.cmdPalette && window.cmdPalette.consumeActionFlag) {
+    if (window.cmdPalette.consumeActionFlag() === 'new-ingredient') {
+      setTimeout(function () { openModal(); }, 120);
+    }
+  }
 }
 
 export function destroy() {

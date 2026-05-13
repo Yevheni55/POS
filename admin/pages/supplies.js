@@ -177,6 +177,13 @@ export function init(container) {
   });
 
   loadSupplies();
+
+  // Cmd+K action hook
+  if (window.cmdPalette && window.cmdPalette.consumeActionFlag) {
+    if (window.cmdPalette.consumeActionFlag() === 'new-supply') {
+      setTimeout(function () { openModal(); }, 120);
+    }
+  }
 }
 
 export function destroy() {
