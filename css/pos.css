@@ -497,7 +497,7 @@ body::after{
   opacity:.55;
 }
 .order-header{padding:var(--space-2) var(--space-4) 4px;border-bottom:1px solid var(--border-default);display:flex;align-items:center;justify-content:space-between}
-.order-tabs{display:flex;gap:var(--space-1);padding:var(--space-1) var(--space-4);border-bottom:1px solid var(--color-border);overflow-x:auto;flex-shrink:0;position:sticky;top:0;z-index:5;background:linear-gradient(180deg, rgba(245, 239, 227, .95) 0%, rgba(245, 239, 227, .85) 100%);backdrop-filter:blur(8px) saturate(120%);-webkit-backdrop-filter:blur(8px) saturate(120%)}
+.order-tabs{display:flex;gap:var(--space-1);padding:var(--space-1) var(--space-4);border-bottom:1px solid var(--color-border);overflow-x:auto;flex-shrink:0;position:sticky;top:0;z-index:5;background:linear-gradient(180deg, color-mix(in srgb, var(--color-bg) 95%, transparent) 0%, color-mix(in srgb, var(--color-bg) 85%, transparent) 100%);backdrop-filter:blur(8px) saturate(120%);-webkit-backdrop-filter:blur(8px) saturate(120%)}
 .order-tab{display:flex;flex-direction:column;align-items:flex-start;padding:6px 12px;border-radius:var(--radius-sm);border:1px solid var(--action-primary-border);background:transparent;color:var(--text-secondary);font-family:var(--font-body);font-size:var(--text-sm);font-weight:var(--weight-semibold);cursor:pointer;white-space:nowrap;transition:all .15s;position:relative}
 .order-tab.active{background:var(--action-primary-bg);color:var(--action-primary);border-color:var(--action-primary)}
 .tab-label{font-weight:700;font-size:13px;line-height:1.2}
@@ -1381,21 +1381,26 @@ body::after{
   outline:none;border-color:var(--color-accent);box-shadow:var(--shadow-inset),0 0 0 3px var(--color-accent-glow);background:rgba(30,24,18,.05);
 }
 .u-modal-field input::placeholder,.u-modal-field textarea::placeholder{color:var(--color-text-dim);font-weight:var(--weight-normal)}
-/* Phase 3 — paper-pressed override pre #noteInput a #cashGivenInput,
-   ktore maju inline-style (border/background) priamo v HTML. Bez
-   !important by inline-style vyhralo specificitu. */
+/* Phase 3 cleanup — paper-pressed styling pre #noteInput a #cashGivenInput.
+   Inline style attrs su strippnute v HTML, takze ID-selektor (1-0-0) vyhrava
+   nad .u-modal-field input (0-2-1) bez !important. */
 #noteInput, #cashGivenInput{
-  background:rgba(30,24,18,.03) !important;
-  border:1px solid var(--color-border) !important;
-  box-shadow:var(--shadow-inset) !important;
-  transition:border-color .15s, box-shadow .15s, background .15s !important;
+  background:rgba(30,24,18,.03);
+  border:1px solid var(--color-border);
+  box-shadow:var(--shadow-inset);
+  border-radius:6px;
+  padding:10px;
+  color:var(--color-text);
+  box-sizing:border-box;
+  caret-color:transparent;
+  transition:border-color .15s, box-shadow .15s, background .15s;
 }
 #noteInput:focus, #noteInput:focus-visible,
 #cashGivenInput:focus, #cashGivenInput:focus-visible{
-  outline:none !important;
-  border-color:var(--color-accent) !important;
-  box-shadow:var(--shadow-inset), 0 0 0 3px var(--color-accent-glow) !important;
-  background:rgba(30,24,18,.05) !important;
+  outline:none;
+  border-color:var(--color-accent);
+  box-shadow:var(--shadow-inset), 0 0 0 3px var(--color-accent-glow);
+  background:rgba(30,24,18,.05);
 }
 .u-modal-btns{display:flex;gap:10px}
 .u-btn{

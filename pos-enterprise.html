@@ -251,7 +251,7 @@
       <div style="font-size:13px;color:var(--color-text-sec);margin-bottom:8px;text-align:center">Dostal som od zákazníka:</div>
       <div id="cashQuickBtns" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;justify-content:center"></div>
       <input type="text" id="cashGivenInput" readonly placeholder="0,00 €" inputmode="none"
-        style="width:100%;font-size:26px;font-weight:700;text-align:center;padding:10px;border-radius:6px;border:1px solid var(--color-border);background:var(--color-bg-surface);color:var(--color-text);box-sizing:border-box;caret-color:transparent">
+        style="width:100%;font-size:26px;font-weight:700;text-align:center">
       <!-- Numpad 3×4: digits 1-9, decimal, 0, backspace. Grid sa škáluje
            na šírku modalu, na desktope aj na touchpad funkcuje rovnako. -->
       <div id="cashNumpad" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px"></div>
@@ -289,8 +289,7 @@
              #noteKeyboard nizsie. Rovnaky pattern ako cash helper numpad. -->
         <input id="noteInput" type="text" readonly inputmode="none"
           placeholder="Napr. bez cibule, extra ostra..."
-          maxlength="200"
-          style="caret-color:transparent">
+          maxlength="200">
       </div>
       <!-- Vlastna klavesnica — buduje sa JS-om v openNoteModal pre flexibilne
            pridanie diakritiky / numerickej vrstvy. Trasieme cez tap-zone
