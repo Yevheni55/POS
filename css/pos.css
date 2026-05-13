@@ -1300,6 +1300,153 @@ body::after{
    incident. Bump na 48 + vacsi padding + gap medzi chipmi. */
 @media (pointer:coarse){.note-preset-chip{min-height:48px;padding:12px 18px;font-size:15px} .note-presets{gap:10px}}
 
+/* === RECEIPT PREVIEW — pred fiskalnou tlacou v payment modale ===
+   Thermal-printer aesthetic na Daylight cream paper. Mono font na vsetkych
+   cislach, dashed perforacie medzi sekciami (ako tear-off na reálnom blockom),
+   SPOLU big mono pre customer-facing read-from-1m.
+   Operator vidi presne co pojde na bon PRED Portos roundtripom = chyti
+   preklep / zamenu polozky pred fiskalnym storno round-tripom. */
+.receipt-preview{
+  margin:14px 0 8px;
+  padding:14px 16px;
+  background:linear-gradient(180deg,
+    color-mix(in srgb, var(--color-bg) 96%, white) 0%,
+    var(--color-bg-elevated) 100%);
+  border:1px solid var(--color-border);
+  border-radius:10px 8px 10px 8px;
+  font-family:var(--font-mono);
+  font-size:13px;
+  color:var(--text-primary);
+  text-align:left;
+  position:relative;
+  box-shadow:var(--shadow-sm);
+  max-height:40vh;
+  overflow-y:auto;
+  /* Receipt-block torn-edge top */
+}
+.receipt-preview::before{
+  content:'';
+  position:absolute;
+  top:-1px;left:8%;right:8%;height:2px;
+  background-image:repeating-linear-gradient(90deg,
+    var(--color-border-strong) 0 5px,
+    transparent 5px 10px);
+  pointer-events:none;
+}
+
+.receipt-preview .rp-header{
+  display:flex;flex-direction:column;gap:4px;
+  margin-bottom:8px;
+}
+.receipt-preview .rp-meta-row{
+  display:flex;justify-content:space-between;align-items:baseline;
+  font-size:12px;
+  font-family:var(--font-mono);
+  font-variant-numeric:tabular-nums;
+  letter-spacing:0;
+  color:var(--text-primary);
+}
+.receipt-preview .rp-meta-row--dim{color:var(--text-secondary);font-size:11px}
+.receipt-preview .rp-mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+
+.receipt-preview .rp-perforation{
+  margin:8px -16px;
+  height:1px;
+  background-image:repeating-linear-gradient(90deg,
+    var(--color-border-strong) 0 4px,
+    transparent 4px 8px);
+}
+
+.receipt-preview .rp-rows{
+  display:flex;flex-direction:column;gap:6px;
+}
+.receipt-preview .rp-row{
+  display:flex;align-items:baseline;justify-content:space-between;
+  gap:10px;
+}
+.receipt-preview .rp-row-main{flex:1;min-width:0}
+.receipt-preview .rp-name{
+  font-family:var(--font-body);
+  font-size:14px;
+  font-weight:var(--weight-semibold);
+  color:var(--text-primary);
+  line-height:1.25;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.receipt-preview .rp-meta{
+  font-family:var(--font-mono);
+  font-size:11px;
+  color:var(--text-secondary);
+  margin-top:2px;
+  font-variant-numeric:tabular-nums;
+}
+.receipt-preview .rp-note{
+  font-family:var(--font-body);
+  font-size:11px;
+  color:var(--color-accent);
+  margin-top:2px;
+  font-style:italic;
+}
+.receipt-preview .rp-amt{
+  font-family:var(--font-mono);
+  font-size:14px;
+  font-weight:var(--weight-bold);
+  color:var(--text-primary);
+  font-variant-numeric:tabular-nums;
+  letter-spacing:-0.01em;
+  flex-shrink:0;
+  min-width:64px;
+  text-align:right;
+}
+.receipt-preview .rp-amt--dim{color:var(--text-secondary);font-weight:var(--weight-medium)}
+.receipt-preview .rp-amt--discount{color:var(--color-success);font-weight:var(--weight-bold)}
+
+.receipt-preview .rp-total-row{
+  display:flex;justify-content:space-between;align-items:baseline;
+  margin-top:8px;
+  padding-top:8px;
+}
+.receipt-preview .rp-total-label{
+  font-family:var(--font-body);
+  font-size:11px;
+  font-weight:var(--weight-bold);
+  color:var(--text-secondary);
+  letter-spacing:0.08em;
+  text-transform:uppercase;
+}
+.receipt-preview .rp-total-amt{
+  font-family:var(--font-mono);
+  font-size:22px;
+  font-weight:var(--weight-bold);
+  color:var(--color-accent);
+  font-variant-numeric:tabular-nums;
+  letter-spacing:-0.02em;
+  line-height:1;
+}
+.receipt-preview .rp-method-line{
+  font-family:var(--font-mono);
+  font-size:10px;
+  color:var(--text-secondary);
+  text-align:center;
+  margin-top:8px;
+  padding-top:8px;
+  border-top:1px dashed var(--color-border);
+  text-transform:uppercase;
+  letter-spacing:0.05em;
+}
+
+/* Tablet bump — bigger touch-readable text */
+@media (pointer:coarse){
+  .receipt-preview{font-size:15px;padding:16px 18px;max-height:36vh}
+  .receipt-preview .rp-name{font-size:15px}
+  .receipt-preview .rp-amt{font-size:15px;min-width:72px}
+  .receipt-preview .rp-total-amt{font-size:26px}
+  .receipt-preview .rp-total-label{font-size:12px}
+  .receipt-preview .rp-meta-row{font-size:13px}
+}
+
 /* Sauce-repeat CTA — pri "+" na sent combe (alebo Kuracie hranolky)
    sa zachyti minula omacka. Big tap target s eyebrow + value. Operator
    nemusi znova prechadzkovat checkboxy.

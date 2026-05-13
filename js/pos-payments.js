@@ -345,8 +345,88 @@ function initiatePayment(method) {
   document.getElementById('modalTitle').textContent = 'Potvrdenie platby';
   document.getElementById('modalAmount').textContent = fmt(total);
   document.getElementById('modalMethod').textContent = 'Sposob: ' + labels[method];
+  _renderReceiptPreview(order, total, method);
   document.getElementById('paymentModal').classList.add('show');
   _setupCashHelper(method, total);
+}
+
+// Receipt preview — zobrazi zoznam poloziek pred fiskalnou tlacou.
+// Casnik vidi presne co pojde na bon: meno + qty x cena + spolu. Chyti
+// chybu (zlu polozku, zly qty) PRED Portos roundtripom. Render je
+// thermal-printer-styled (mono font, kompaktny riadok, dashed perforation
+// hore aj dole).
+function _renderReceiptPreview(order, total, method) {
+  var host = document.getElementById('receiptPreview');
+  if (!host) return;
+
+  // Aggregate companion + sauce annotation rows visually — do not show
+  // 0 EUR "Omáčka (combo)" rows separately. Note inline under primary
+  // item instead.
+  var primaries = [];
+  var annotations = {};
+  for (var i = 0; i < order.length; i++) {
+    var it = order[i];
+    if (it.name === 'Omáčka (combo)' && it._companionOf) {
+      annotations[it._companionOf] = it.note || '';
+      continue;
+    }
+    primaries.push(it);
+  }
+
+  var table = TABLES.find(function(t){ return t.id === selectedTableId; });
+  var tableName = table ? table.name : ('Stol ' + selectedTableId);
+  var user = api.getUser();
+  var staffName = user ? user.name : '';
+  var now = new Date();
+  var timeStr = (typeof Intl !== 'undefined' && Intl.DateTimeFormat)
+    ? new Intl.DateTimeFormat('sk-SK', { timeZone: 'Europe/Bratislava', hour: '2-digit', minute: '2-digit' }).format(now)
+    : (String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0'));
+  var dateStr = now.toLocaleDateString('sk-SK', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+  // Discount detection — getOrderTotal already applied; show line if discount > 0.
+  var subtotal = primaries.reduce(function(s, o){ return s + o.price * o.qty; }, 0);
+  var discount = subtotal - total;
+  var hasDiscount = discount > 0.005;
+
+  var rowsHtml = primaries.map(function(it){
+    var safeName = (typeof escHtml === 'function') ? escHtml(it.name) : it.name;
+    var lineTotal = it.price * it.qty;
+    var unitLabel = it.qty > 1 ? (it.qty + '× ' + fmt(it.price)) : fmt(it.price);
+    var ann = annotations[it.id];
+    var annHtml = ann ? '<div class="rp-note">+ ' + (typeof escHtml === 'function' ? escHtml(ann) : ann) + '</div>' : '';
+    return ''
+      + '<div class="rp-row">'
+      +   '<div class="rp-row-main">'
+      +     '<div class="rp-name">' + safeName + '</div>'
+      +     '<div class="rp-meta">' + unitLabel + '</div>'
+      +     annHtml
+      +   '</div>'
+      +   '<div class="rp-amt">' + fmt(lineTotal) + '</div>'
+      + '</div>';
+  }).join('');
+
+  var methodLabel = method === 'hotovost' ? 'Hotovosť' : (method === 'karta' ? 'Karta' : 'Platba');
+
+  host.innerHTML = ''
+    + '<div class="rp-header">'
+    +   '<div class="rp-meta-row"><span>' + (typeof escHtml === 'function' ? escHtml(tableName) : tableName) + '</span><span class="rp-mono">' + dateStr + ' · ' + timeStr + '</span></div>'
+    +   (staffName ? '<div class="rp-meta-row rp-meta-row--dim"><span>Obsluha</span><span>' + (typeof escHtml === 'function' ? escHtml(staffName) : staffName) + '</span></div>' : '')
+    + '</div>'
+    + '<div class="rp-perforation"></div>'
+    + '<div class="rp-rows">' + rowsHtml + '</div>'
+    + (hasDiscount
+        ? '<div class="rp-perforation"></div>'
+          + '<div class="rp-rows">'
+          +   '<div class="rp-row"><div class="rp-row-main"><div class="rp-name">Medzisúčet</div></div><div class="rp-amt rp-amt--dim">' + fmt(subtotal) + '</div></div>'
+          +   '<div class="rp-row"><div class="rp-row-main"><div class="rp-name">Zľava</div></div><div class="rp-amt rp-amt--discount">−' + fmt(discount) + '</div></div>'
+          + '</div>'
+        : '')
+    + '<div class="rp-perforation"></div>'
+    + '<div class="rp-total-row">'
+    +   '<span class="rp-total-label">SPOLU</span>'
+    +   '<span class="rp-total-amt">' + fmt(total) + '</span>'
+    + '</div>'
+    + '<div class="rp-method-line">' + methodLabel + ' · ' + primaries.length + ' ' + (primaries.length === 1 ? 'položka' : (primaries.length < 5 ? 'položky' : 'položiek')) + '</div>';
 }
 
 // Cash helper \u2014 vlastn\u00FD numpad pre hotovostn\u00FA platbu. Input je READONLY

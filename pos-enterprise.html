@@ -245,6 +245,9 @@
     <div class="u-modal-title" id="modalTitle">Platba</div>
     <div class="u-modal-amount" id="modalAmount"></div>
     <div class="u-modal-method" id="modalMethod"></div>
+    <!-- Receipt preview — pred fiskalnou tlacou ukaze polozky uctu.
+         Casnik chyti preklep / zamenu pred Portos roundtripom. -->
+    <div id="receiptPreview" class="receipt-preview" aria-label="Nahlad uctu"></div>
     <!-- Cash helper: viditeľný iba pri hotovostnej platbe. Input je READONLY
          + vlastný numpad — natívna klávesnica už nevyskočí a nezakryje modal
          s výmenkom. Klasický POS pattern. -->
