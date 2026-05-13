@@ -1,34 +1,71 @@
+// admin/router.js
+//
+// Hash-based router pre admin SPA. Hash format:
+//   #dashboard
+//   #reporty/tyzden       ← wrapper page s sub-route
+//   #sklad-materialy/dodavatelia
+//
+// Pre wrapper pages router odovzdava sub-route do mod.init(container, sub).
+// Ak sa zmeni len sub a top-level pageu ostane rovnaky, volame mod.onSubChange(sub)
+// namiesto re-init aby sa nestracal stav.
+
 const routes = {
-  dashboard: () => import('./pages/dashboard.js'),
-  menu: () => import('./pages/menu.js'),
-  tables: () => import('./pages/tables.js'),
-  staff: () => import('./pages/staff.js'),
-  dochadzka: () => import('./pages/dochadzka.js'),
-  reports: () => import('./pages/reports.js'),
-  season: () => import('./pages/season.js'),
-  weekly: () => import('./pages/weekly.js'),
-  payments: () => import('./pages/payments.js'),
-  'fiscal-documents': () => import('./pages/fiscal-documents.js'),
-  settings: () => import('./pages/settings.js'),
-  recipes: () => import('./pages/recipes.js'),
-  'inventory-dashboard': () => import('./pages/inventory-dashboard.js'),
-  suppliers: () => import('./pages/suppliers.js'),
-  ingredients: () => import('./pages/ingredients.js'),
-  'purchase-orders': () => import('./pages/purchase-orders.js'),
-  'supplies': () => import('./pages/supplies.js'),
-  'stock-movements': () => import('./pages/stock-movements.js'),
-  'inventory-audit': () => import('./pages/inventory-audit.js'),
-  assets: () => import('./pages/assets.js'),
-  'write-offs': () => import('./pages/write-offs.js'),
-  shisha: () => import('./pages/shisha.js'),
-  audit: () => import('./pages/audit.js'),
-  cashflow: () => import('./pages/cashflow.js'),
+  // Top-level standalone pages
+  dashboard: function () { return import('./pages/dashboard.js'); },
+  menu: function () { return import('./pages/menu.js'); },
+  tables: function () { return import('./pages/tables.js'); },
+  recipes: function () { return import('./pages/recipes.js'); },
+  cashflow: function () { return import('./pages/cashflow.js'); },
+  settings: function () { return import('./pages/settings.js'); },
+
+  // Wrapper pages (tab-shell)
+  reporty: function () { return import('./pages/reporty.js'); },
+  historia: function () { return import('./pages/historia.js'); },
+  ludia: function () { return import('./pages/ludia.js'); },
+  'sklad-materialy': function () { return import('./pages/sklad-materialy.js'); },
+  'sklad-pohyby': function () { return import('./pages/sklad-pohyby.js'); },
+
+  // Sklad — top-level inventory section (sub-items in sidebar)
+  'inventory-dashboard': function () { return import('./pages/inventory-dashboard.js'); },
+  'purchase-orders': function () { return import('./pages/purchase-orders.js'); },
+  assets: function () { return import('./pages/assets.js'); },
+  shisha: function () { return import('./pages/shisha.js'); },
+
+  // Standalone legacy routes — still callable, but sidebar links removed.
+  // Direct nav (#payments etc.) gets redirected via LEGACY_REDIRECTS below.
+  staff: function () { return import('./pages/staff.js'); },
+  dochadzka: function () { return import('./pages/dochadzka.js'); },
+  reports: function () { return import('./pages/reports.js'); },
+  season: function () { return import('./pages/season.js'); },
+  weekly: function () { return import('./pages/weekly.js'); },
+  payments: function () { return import('./pages/payments.js'); },
+  'fiscal-documents': function () { return import('./pages/fiscal-documents.js'); },
+  audit: function () { return import('./pages/audit.js'); },
+  suppliers: function () { return import('./pages/suppliers.js'); },
+  ingredients: function () { return import('./pages/ingredients.js'); },
+  supplies: function () { return import('./pages/supplies.js'); },
+  'stock-movements': function () { return import('./pages/stock-movements.js'); },
+  'inventory-audit': function () { return import('./pages/inventory-audit.js'); },
+  'write-offs': function () { return import('./pages/write-offs.js'); },
 };
 
 const pageTitles = {
   dashboard: 'Dashboard',
   menu: 'Menu',
   tables: 'Stoly',
+  recipes: 'Receptúry',
+  reporty: 'Reporty',
+  historia: 'História',
+  ludia: 'Ľudia',
+  cashflow: 'Cashflow',
+  'inventory-dashboard': 'Prehľad skladu',
+  'sklad-materialy': 'Materiály',
+  'sklad-pohyby': 'Pohyby skladu',
+  'purchase-orders': 'Objednávky skladu',
+  assets: 'Majetok',
+  shisha: 'Shisha',
+  settings: 'Nastavenia',
+  // Legacy titles preserved for direct navigation
   staff: 'Zamestnanci',
   dochadzka: 'Dochádzka',
   reports: 'Reporty',
@@ -36,32 +73,41 @@ const pageTitles = {
   weekly: 'Týždeň',
   payments: 'História platieb',
   'fiscal-documents': 'Fiškálne doklady',
-  settings: 'Nastavenia',
-  recipes: 'Receptúry',
-  'inventory-dashboard': 'Prehľad skladu',
+  audit: 'História objednávok',
   suppliers: 'Dodávatelia',
   ingredients: 'Suroviny',
-  'purchase-orders': 'Objednávky skladu',
-  'supplies': 'Tovar',
+  supplies: 'Tovar',
   'stock-movements': 'Pohyby skladu',
   'inventory-audit': 'Inventúra',
-  assets: 'Majetok',
   'write-offs': 'Odpisy zásob',
-  shisha: 'Shisha',
-  audit: 'História objednávok',
-  cashflow: 'Cashflow',
+};
+
+// Bookmark / direct-nav redirects: stare URLs sa transparentne preklopia
+// na nove tab-route URLs. Mapuje: stary slug → 'nova-page/sub-slug'.
+const LEGACY_REDIRECTS = {
+  payments: 'historia/platby',
+  'fiscal-documents': 'historia/fiskalne',
+  audit: 'historia/audit',
+  weekly: 'reporty/tyzden',
+  season: 'reporty/sezona',
+  reports: 'reporty/denny',
+  staff: 'ludia/zamestnanci',
+  dochadzka: 'ludia/dochadzka',
+  suppliers: 'sklad-materialy/dodavatelia',
+  ingredients: 'sklad-materialy/suroviny',
+  supplies: 'sklad-materialy/tovar',
+  'stock-movements': 'sklad-pohyby/pohyby',
+  'inventory-audit': 'sklad-pohyby/inventura',
+  'write-offs': 'sklad-pohyby/odpisy',
 };
 
 let currentPage = null;
+let currentSub = null;
 let currentModule = null;
-/** Target of the in-flight navigate; null when the last navigation finished. */
 let pendingPage = null;
-/** Monotonic id so only the latest in-flight navigation may paint (avoids race when imports finish out of order). */
 let navigationSeq = 0;
-
 let venuePortosSynced = false;
 
-/** Jednorazovo: aktuálna identita z Portos → DB + pos_settings (po zmene firmy / eKasa). */
 async function ensureVenueFromPortosOnce() {
   if (venuePortosSynced) return;
   const u = typeof api !== 'undefined' && api.getUser ? api.getUser() : null;
@@ -73,8 +119,8 @@ async function ensureVenueFromPortosOnce() {
   try {
     const profile = await Promise.race([
       api.syncCompanyProfileFromPortos(),
-      new Promise(function(_, reject) {
-        setTimeout(function() {
+      new Promise(function (_, reject) {
+        setTimeout(function () {
           reject(new Error('Portos sync timeout'));
         }, SYNC_MS);
       }),
@@ -89,11 +135,27 @@ async function ensureVenueFromPortosOnce() {
   }
 }
 
-async function navigate(page) {
+function parseHash() {
+  const raw = window.location.hash.replace(/^#/, '');
+  if (!raw) return { page: 'dashboard', sub: null };
+  // Resolve legacy redirect (transparent for bookmarks)
+  const legacy = LEGACY_REDIRECTS[raw];
+  const effective = legacy || raw;
+  const parts = effective.split('/');
+  return { page: parts[0] || 'dashboard', sub: parts.slice(1).join('/') || null };
+}
+
+async function navigate(page, sub) {
   if (!routes[page]) page = 'dashboard';
-  // Skip redundant clicks only when this page is already shown and nothing else is loading.
-  // If currentPage still reflects the old route while another import is in flight, pendingPage is set — do not skip.
-  if (page === currentPage && pendingPage === null) return;
+
+  // Same top-level page + sub change → call onSubChange instead of re-init.
+  if (page === currentPage && pendingPage === null) {
+    if (sub !== currentSub && currentModule && typeof currentModule.onSubChange === 'function') {
+      currentSub = sub;
+      try { currentModule.onSubChange(sub); } catch (e) { console.warn('onSubChange:', e); }
+    }
+    return;
+  }
 
   pendingPage = page;
   const seq = ++navigationSeq;
@@ -101,34 +163,38 @@ async function navigate(page) {
   const container = document.getElementById('pageContent');
   const titleEl = document.getElementById('pageTitle');
 
-  // Destroy current page
-  if (currentModule && currentModule.destroy) {
-    currentModule.destroy();
+  // Destroy current page module
+  if (currentModule && typeof currentModule.destroy === 'function') {
+    try { currentModule.destroy(); } catch (e) { console.warn('destroy:', e); }
   }
+  currentModule = null;
 
-  // Update sidebar active state + aria-current
-  document.querySelectorAll('#sidebarNav .nav-item').forEach(function(a) {
-    var active = a.dataset.page === page;
+  // Update sidebar active state — match data-page; data-active-for is bonus alias.
+  document.querySelectorAll('#sidebarNav .nav-item').forEach(function (a) {
+    const matchesPage = a.dataset.page === page;
+    const matchesAlias = a.dataset.activeFor && a.dataset.activeFor.split(',').indexOf(page) >= 0;
+    const active = matchesPage || matchesAlias;
     a.classList.toggle('active', active);
     if (active) a.setAttribute('aria-current', 'page');
     else a.removeAttribute('aria-current');
   });
 
-  // Update header title
+  // Page title
   titleEl.textContent = pageTitles[page] || page;
 
-  // Load new page module
+  // Load + init module
   try {
     await ensureVenueFromPortosOnce();
     const mod = await routes[page]();
     if (seq !== navigationSeq) return;
     pendingPage = null;
     currentPage = page;
+    currentSub = sub;
     currentModule = mod;
     container.innerHTML = '';
     container.className = 'content';
     container.removeAttribute('style');
-    const initResult = mod.init(container);
+    const initResult = mod.init(container, sub);
     if (initResult && typeof initResult.then === 'function') await initResult;
   } catch (err) {
     if (seq !== navigationSeq) return;
@@ -140,15 +206,23 @@ async function navigate(page) {
   }
 }
 
-function getPageFromHash() {
-  const hash = window.location.hash.replace('#', '');
-  return hash || 'dashboard';
-}
-
-// Listen for hash changes
-window.addEventListener('hashchange', function() {
-  navigate(getPageFromHash());
+// Hash change → parse + navigate. parseHash() resolves legacy redirects too.
+window.addEventListener('hashchange', function () {
+  const parsed = parseHash();
+  // If legacy redirect was applied, normalize URL silently so user sees the new hash.
+  const raw = window.location.hash.replace(/^#/, '');
+  if (LEGACY_REDIRECTS[raw]) {
+    try { history.replaceState(null, '', '#' + LEGACY_REDIRECTS[raw]); } catch (_) {}
+  }
+  navigate(parsed.page, parsed.sub);
 });
 
 // Initial navigation
-navigate(getPageFromHash());
+(function () {
+  const parsed = parseHash();
+  const raw = window.location.hash.replace(/^#/, '');
+  if (LEGACY_REDIRECTS[raw]) {
+    try { history.replaceState(null, '', '#' + LEGACY_REDIRECTS[raw]); } catch (_) {}
+  }
+  navigate(parsed.page, parsed.sub);
+})();

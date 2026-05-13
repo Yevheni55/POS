@@ -7,7 +7,7 @@
 <title>POS Admin</title>
 <link rel="stylesheet" href="/tokens.css">
 <link rel="stylesheet" href="/fonts/fonts.css">
-<link rel="stylesheet" href="admin.css?v=13">
+<link rel="stylesheet" href="admin.css?v=14">
 </head>
 <body>
 <div class="bg-scene"></div>
@@ -19,11 +19,12 @@
       <span class="logo-text">POS Admin</span>
     </div>
     <nav class="nav" id="sidebarNav" aria-label="Hlavná navigácia">
+      <!-- Prevadzka (denne) -->
       <a class="nav-item active" data-page="dashboard" href="#dashboard" title="Dashboard" aria-current="page">
         <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
         Dashboard
       </a>
-      <a class="nav-item" data-page="menu" href="#menu" title="Menu">
+      <a class="nav-item" data-page="menu" href="#menu" title="Menu (produkty a kategórie)">
         <svg aria-hidden="true" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
         Menu
       </a>
@@ -35,85 +36,69 @@
         <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="9" y1="4" x2="9" y2="20"/></svg>
         Stoly
       </a>
-      <a class="nav-item" data-page="staff" href="#staff" title="Zamestnanci">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-        Zamestnanci
-      </a>
-      <a class="nav-item" data-page="dochadzka" href="#dochadzka" title="Dochádzka">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>
-        Dochádzka
-      </a>
-      <a class="nav-item" data-page="reports" href="#reports" title="Reporty">
+
+      <div class="nav-divider" aria-hidden="true"></div>
+
+      <!-- Predaj a financie -->
+      <a class="nav-item" data-page="reporty" data-active-for="reports,weekly,season" href="#reporty" title="Reporty — denné, týždenné, sezóna">
         <svg aria-hidden="true" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
         Reporty
       </a>
-      <a class="nav-item" data-page="season" href="#season" title="Sezóna od otvorenia">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 18 Q 8 14 12 16 T 21 18"/><path d="M3 14 Q 8 10 12 12 T 21 14"/><circle cx="18" cy="6" r="3"/></svg>
-        Sezóna
-      </a>
-      <a class="nav-item" data-page="weekly" href="#weekly" title="Týždenné štatistiky podľa hodín">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><circle cx="8" cy="14" r="1.2" fill="currentColor"/><circle cx="12" cy="14" r="1.2" fill="currentColor"/><circle cx="16" cy="14" r="1.2" fill="currentColor"/></svg>
-        Týždeň
-      </a>
-      <a class="nav-item" data-page="payments" href="#payments" title="História platieb">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><line x1="6" y1="14" x2="10" y2="14"/></svg>
-        Platby
-      </a>
-      <a class="nav-item" data-page="fiscal-documents" href="#fiscal-documents" title="Fiškálne doklady">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 3h8l4 4v14H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M15 3v5h5"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="15" y2="16"/></svg>
-        Fiškálne doklady
-      </a>
-      <a class="nav-item" data-page="audit" href="#audit" title="História operácií nad objednávkami">
+      <a class="nav-item" data-page="historia" data-active-for="payments,fiscal-documents,audit" href="#historia" title="História — platby, fiškálne doklady, audit objednávok">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 8v5l3 2"/><circle cx="12" cy="12" r="9"/></svg>
-        História objednávok
+        História
       </a>
-      <a class="nav-item" data-page="cashflow" href="#cashflow" title="Cashflow — príjmy a výdavky">
+      <a class="nav-item" data-page="cashflow" href="#cashflow" title="Cashflow — manuálne vklady, výbery, výdavky">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 1v22M5 8h14a3 3 0 0 1 0 6H5a3 3 0 0 0 0 6h14"/></svg>
         Cashflow
       </a>
+
       <div class="nav-divider" aria-hidden="true"></div>
-      <span class="nav-section-label">Sklad</span>
-      <a class="nav-item" data-page="inventory-dashboard" href="#inventory-dashboard" title="Prehľad skladu">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
-        Prehľad
+
+      <!-- Ludia -->
+      <a class="nav-item" data-page="ludia" data-active-for="staff,dochadzka" href="#ludia" title="Ľudia — zamestnanci a dochádzka">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Ľudia
       </a>
-      <a class="nav-item" data-page="ingredients" href="#ingredients" title="Suroviny">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-        Suroviny
-      </a>
-      <a class="nav-item" data-page="supplies" href="#supplies" title="Tovar">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
-        Tovar
-      </a>
-      <a class="nav-item" data-page="suppliers" href="#suppliers" title="Dodávatelia">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
-        Dodávatelia
-      </a>
-      <a class="nav-item" data-page="purchase-orders" href="#purchase-orders" title="Objednávky skladu">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
-        Objednávky
-      </a>
-      <a class="nav-item" data-page="stock-movements" href="#stock-movements" title="Pohyby skladu">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
-        Pohyby
-      </a>
-      <a class="nav-item" data-page="inventory-audit" href="#inventory-audit" title="Inventúra">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-        Inventúra
-      </a>
-      <a class="nav-item" data-page="write-offs" href="#write-offs" title="Odpisy">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
-        Odpisy
-      </a>
-      <a class="nav-item" data-page="assets" href="#assets" title="Majetok">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
-        Majetok
-      </a>
-      <a class="nav-item" data-page="shisha" href="#shisha" title="Shisha">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2C8 6 8 10 12 14c4-4 4-8 0-12z"/><path d="M5 16c0 4 3 6 7 6s7-2 7-6"/></svg>
-        Shisha
-      </a>
+
       <div class="nav-divider" aria-hidden="true"></div>
+
+      <!-- Sklad — collapsible section -->
+      <div class="nav-group" id="navGroupSklad">
+        <button type="button" class="nav-section-toggle" id="navSkladToggle" aria-expanded="true" aria-controls="navSkladItems">
+          <svg class="nav-section-chevron" aria-hidden="true" viewBox="0 0 24 24"><polyline points="9 6 15 12 9 18"/></svg>
+          <span>Sklad</span>
+        </button>
+        <div class="nav-section-items" id="navSkladItems">
+          <a class="nav-item nav-item--sub" data-page="inventory-dashboard" href="#inventory-dashboard" title="Prehľad skladu">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+            Prehľad
+          </a>
+          <a class="nav-item nav-item--sub" data-page="sklad-materialy" data-active-for="ingredients,supplies,suppliers" href="#sklad-materialy" title="Materiály — suroviny, tovar, dodávatelia">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+            Materiály
+          </a>
+          <a class="nav-item nav-item--sub" data-page="sklad-pohyby" data-active-for="stock-movements,inventory-audit,write-offs" href="#sklad-pohyby" title="Pohyby — log, inventúra, odpisy">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+            Pohyby
+          </a>
+          <a class="nav-item nav-item--sub" data-page="purchase-orders" href="#purchase-orders" title="Objednávky skladu">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
+            Objednávky
+          </a>
+          <a class="nav-item nav-item--sub" data-page="assets" href="#assets" title="Majetok">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+            Majetok
+          </a>
+          <a class="nav-item nav-item--sub" data-page="shisha" href="#shisha" title="Shisha">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2C8 6 8 10 12 14c4-4 4-8 0-12z"/><path d="M5 16c0 4 3 6 7 6s7-2 7-6"/></svg>
+            Shisha
+          </a>
+        </div>
+      </div>
+
+      <div class="nav-divider" aria-hidden="true"></div>
+
       <a class="nav-item" data-page="settings" href="#settings" title="Nastavenia">
         <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         Nastavenia
@@ -274,6 +259,29 @@ function goBackToPOS(e){
 }
 document.getElementById('backToPOS').addEventListener('click',goBackToPOS);
 document.getElementById('headerBackToPOS').addEventListener('click',goBackToPOS);
+
+// Sklad nav group — collapsible toggle with localStorage persistence.
+// Default: expanded (manager uses sklad daily). Stav ulozeny v
+// localStorage.adminSidebarSklad ('open' | 'closed').
+(function(){
+  var toggle = document.getElementById('navSkladToggle');
+  var items = document.getElementById('navSkladItems');
+  if (!toggle || !items) return;
+  var KEY = 'adminSidebarSklad';
+  var savedState = null;
+  try { savedState = localStorage.getItem(KEY); } catch(_) {}
+  var isOpen = savedState !== 'closed'; // default open
+  applyState(isOpen);
+  toggle.addEventListener('click', function() {
+    isOpen = !isOpen;
+    applyState(isOpen);
+    try { localStorage.setItem(KEY, isOpen ? 'open' : 'closed'); } catch(_) {}
+  });
+  function applyState(open) {
+    toggle.setAttribute('aria-expanded', String(open));
+    items.classList.toggle('collapsed', !open);
+  }
+})();
 
 function escapeHtml(str){
   if(str==null)return'';
