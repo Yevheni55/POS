@@ -1,4 +1,6 @@
 // Inventory audit page module
+import { mountEmptyState } from '../components/empty-state.js';
+
 let audits = [];
 let currentAudit = null;
 let currentView = 'list'; // 'list' | 'detail'
@@ -57,11 +59,13 @@ function renderList() {
   if (!wrap) return;
 
   if (!audits.length) {
-    wrap.innerHTML = '<div class="empty-state">'
-      + '<div class="empty-state-icon">&#128203;</div>'
-      + '<div class="empty-state-title">Ziadne inventury</div>'
-      + '<div class="empty-state-text">Vytvorte prvu inventuru kliknutim na tlacidlo vyssie.</div>'
-      + '</div>';
+    mountEmptyState(wrap, {
+      icon: '📋',
+      title: 'Žiadne inventúry',
+      text: 'Inventúra zafixuje aktuálny stav skladu a porovná ho s reálnym stavom. Začnite prvú.',
+      ctaLabel: 'Nová inventúra',
+      onCta: function () { createAudit(); },
+    });
     return;
   }
 

@@ -1,4 +1,6 @@
 // Write-offs (odpisy) page module
+import { mountEmptyState } from '../components/empty-state.js';
+
 let writeOffs = [];
 let ingredients = [];
 let summary = null;
@@ -112,14 +114,22 @@ function renderTable() {
   if (!panel) return;
 
   if (!writeOffs || writeOffs.length === 0) {
-    var emptyLabel = activeStatus || activeReason
-      ? 'Ziadne odpisy pre zvoleny filter'
-      : 'Ziadne odpisy. Vytvorte novy odpis.';
-    panel.innerHTML = '<div class="empty-state">'
-      + '<div class="empty-state-icon">&#128203;</div>'
-      + '<div class="empty-state-title">Ziadne odpisy</div>'
-      + '<div class="empty-state-text">' + emptyLabel + '</div>'
-      + '</div>';
+    var filtered = activeStatus || activeReason;
+    if (filtered) {
+      mountEmptyState(panel, {
+        icon: '🔍',
+        title: 'Žiadne výsledky',
+        text: 'Pre zvolený filter sa nenašli žiadne odpisy.',
+      });
+    } else {
+      mountEmptyState(panel, {
+        icon: '📋',
+        title: 'Žiadne odpisy',
+        text: 'Odpis zaznamenáva straty (rozliatie, exspirovaný tovar, krádež) a znižuje stav skladu. Vytvor prvý.',
+        ctaLabel: 'Nový odpis',
+        onCta: function () { openNewModal(); },
+      });
+    }
     return;
   }
 

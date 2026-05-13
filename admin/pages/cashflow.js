@@ -1,5 +1,7 @@
 'use strict';
 
+import { softDelete } from '../components/toast-undo.js';
+
 // Admin → Cashflow. Manual income / expense ledger combined with the
 // auto-tracked POS + shisha revenue for the same period. Read-only for
 // the auto sources; manual entries are CRUD via the modal in Task 7.
@@ -351,24 +353,31 @@ function bind() {
   });
 
   _container.querySelectorAll('button[data-del]').forEach((b) => {
-    b.addEventListener('click', () => {
+    b.addEventListener('click', async () => {
       const id = parseInt(b.getAttribute('data-del'), 10);
-      const entry = _entries.find((e) => e.id === id);
-      if (!entry) return;
-      showConfirm(
-        'Vymazať záznam?',
-        'Toto natrvalo zmaže záznam ' + (CAT_LABEL[entry.category] || entry.category) + ' za ' + fmtEur(entry.amount) + '. Súčty sa prepočítajú.',
-        async () => {
-          try {
-            await api.del('/cashflow/' + id);
-            showToast('Záznam vymazaný', true);
-            await loadAll();
-          } catch (err) {
-            showToast(err.message || 'Mazanie zlyhalo', 'error');
-          }
-        },
-        { type: 'danger', confirmText: 'Vymazať' },
-      );
+      const idx = _entries.findIndex((e) => e.id === id);
+      if (idx < 0) return;
+      const snapshot = _entries[idx];
+
+      // Optimistic remove
+      _entries.splice(idx, 1);
+      render();
+
+      const result = await softDelete({
+        label: (CAT_LABEL[snapshot.category] || snapshot.category) + ' za ' + fmtEur(snapshot.amount) + ' zmazané',
+        deleteFn: () => api.del('/cashflow/' + id),
+      });
+      if (result.undone) {
+        _entries.splice(idx, 0, snapshot);
+        render();
+        showToast('Vratene', true);
+      } else if (result.error) {
+        _entries.splice(idx, 0, snapshot);
+        render();
+      } else {
+        // Commited — reload to refresh totals/breakdown
+        await loadAll();
+      }
     });
   });
 }

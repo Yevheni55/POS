@@ -1,4 +1,7 @@
 // Purchase orders page module
+import { softDelete } from '../components/toast-undo.js';
+import { mountEmptyState } from '../components/empty-state.js';
+
 let orders = [];
 let suppliers = [];
 let ingredients = [];
@@ -76,12 +79,21 @@ function renderTable() {
   if (!panel) return;
 
   if (!orders || orders.length === 0) {
-    var emptyLabel = activeStatus ? 'Ziadne objednavky pre zvoleny filter' : 'Ziadne objednavky. Vytvorte novu objednavku.';
-    panel.innerHTML = '<div class="empty-state">'
-      + '<div class="empty-state-icon">&#128230;</div>'
-      + '<div class="empty-state-title">Ziadne objednavky</div>'
-      + '<div class="empty-state-text">' + emptyLabel + '</div>'
-      + '</div>';
+    if (activeStatus) {
+      mountEmptyState(panel, {
+        icon: '🔍',
+        title: 'Žiadne výsledky',
+        text: 'Pre zvolený filter sa nenašli žiadne objednávky skladu.',
+      });
+    } else {
+      mountEmptyState(panel, {
+        icon: '📦',
+        title: 'Žiadne objednávky',
+        text: 'Objednávka skladu eviduje nákup tovaru/surovín od dodávateľa. Po prijatí sa stav skladu automaticky aktualizuje.',
+        ctaLabel: 'Nová objednávka',
+        onCta: function () { openNewOrderModal(); },
+      });
+    }
     return;
   }
 
@@ -182,21 +194,30 @@ function cancelOrder(id) {
   );
 }
 
-function deleteOrder(id) {
-  showConfirm(
-    'Vymazat objednavku',
-    'Naozaj chcete vymazat objednavku #' + id + '? Tato akcia sa neda vratit.',
-    async function () {
-      try {
-        await api.del('/inventory/purchase-orders/' + id);
-        showToast('Objednavka #' + id + ' vymazana', true);
-        await loadOrders();
-      } catch (err) {
-        showToast(err.message || 'Chyba pri mazani', 'error');
-      }
-    },
-    { type: 'danger', confirmText: 'Vymazat' }
-  );
+async function deleteOrder(id) {
+  const idx = orders.findIndex(function (o) { return o.id === id; });
+  if (idx < 0) return;
+  const snapshot = orders[idx];
+
+  // Optimistic remove
+  orders.splice(idx, 1);
+  renderTable();
+
+  const result = await softDelete({
+    label: 'Objednávka #' + id + ' vymazaná',
+    deleteFn: function () { return api.del('/inventory/purchase-orders/' + id); },
+  });
+  if (result.undone) {
+    orders.splice(idx, 0, snapshot);
+    renderTable();
+    showToast('Vratene', true);
+  } else if (result.error) {
+    orders.splice(idx, 0, snapshot);
+    renderTable();
+  } else {
+    // Committed — reload to refresh totals/status counts
+    await loadOrders();
+  }
 }
 
 async function showInvoiceImage(id) {

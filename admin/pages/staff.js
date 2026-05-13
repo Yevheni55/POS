@@ -1,4 +1,6 @@
 // Staff page module
+import { mountEmptyState } from '../components/empty-state.js';
+
 let staff = [];
 let editingId = null;
 let revealedPins = new Set();
@@ -35,7 +37,13 @@ async function loadStaff() {
     staff = await api.get('/staff');
     if (grid) hideLoading(grid);
     if (!staff || staff.length === 0) {
-      if (grid) grid.innerHTML = '<div class="empty-state"><div class="empty-state-icon">\uD83D\uDC65</div><div class="empty-state-title">Ziadni zamestnanci</div><div class="empty-state-text">Pridajte prveho zamestnanca do systemu</div><button class="btn-outline-accent" onclick="document.getElementById(\'addStaffBtn\').click()">Pridat zamestnanca</button></div>';
+      if (grid) mountEmptyState(grid, {
+        icon: '\uD83D\uDC65',
+        title: '\u017Diadni zamestnanci',
+        text: 'Tu sa zobrazuj\u00FA \u010Da\u0161n\u00EDci, mana\u017E\u00E9ri a admin pou\u017E\u00EDvatelia. Pridajte prv\u00E9ho zamestnanca.',
+        ctaLabel: 'Prida\u0165 zamestnanca',
+        onCta: function () { const b = document.getElementById('addStaffBtn'); if (b) b.click(); },
+      });
       return;
     }
     renderStaff();
@@ -58,7 +66,19 @@ function renderStaff() {
 
   const grid = $('#staffGrid');
   if (filtered.length === 0) {
-    grid.innerHTML = '<div class="empty-state"><div class="empty-state-icon">\uD83D\uDD0D</div><div class="empty-state-title">Ziadne vysledky</div><div class="empty-state-text">Pre zadany filter sa nenasli ziadni zamestnanci</div><button class="btn-outline-accent" onclick="document.getElementById(\'staffSearch\').value=\'\';document.getElementById(\'roleFilter\').value=\'\';document.getElementById(\'staffSearch\').dispatchEvent(new Event(\'input\'))">Zrusit filter</button></div>';
+    mountEmptyState(grid, {
+      icon: '\uD83D\uDD0D',
+      title: '\u017Diadne v\u00FDsledky',
+      text: 'Pre zadan\u00FD filter sa nena\u0161li \u017Eiadni zamestnanci. Sk\u00FAs zru\u0161i\u0165 filter.',
+      ctaLabel: 'Zru\u0161i\u0165 filter',
+      onCta: function () {
+        const s = document.getElementById('staffSearch');
+        const r = document.getElementById('roleFilter');
+        if (s) s.value = '';
+        if (r) r.value = '';
+        if (s) s.dispatchEvent(new Event('input'));
+      },
+    });
     return;
   }
 

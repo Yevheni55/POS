@@ -1,3 +1,5 @@
+import { softDelete } from '../components/toast-undo.js';
+
 let MENU_DATA = [];
 let activeCatId = null;
 let editingProductId = null;
@@ -181,28 +183,45 @@ function renderCategories() {
   });
 }
 
-function deleteCategory(cat) {
+async function deleteCategory(cat) {
   const hasItems = cat.items && cat.items.length > 0;
-  const title = 'Zmazat kategoriu';
-  const text = hasItems
-    ? 'Kategoria "' + cat.label + '" obsahuje ' + cat.items.length + ' produktov. Najprv ich zmaz alebo presun do inej kategorie.'
-    : 'Naozaj zmazat kategoriu "' + cat.label + '"? Tato akcia sa neda vratit.';
   if (hasItems) {
-    showToast(text, 'error');
+    // Cannot delete non-empty category — show error toast, navigate to it.
+    showToast('Kategória „' + cat.label + '" obsahuje ' + cat.items.length + ' produktov. Najprv ich zmaž alebo presuň.', 'error');
     selectCategory(cat.id);
     return;
   }
-  showConfirm(title, text, async function () {
-    try {
-      await api.del('/menu/categories/' + cat.id);
-      if (activeCatId === cat.id) activeCatId = null;
-      await loadMenu();
-      showToast('Kategoria zmazana', true);
-    } catch (err) {
-      const msg = (err && err.data && (err.data.hint || err.data.error)) || err.message || 'Chyba mazania';
-      showToast(msg, 'error');
-    }
-  }, { type: 'danger', confirmText: 'Zmazat' });
+
+  // Optimistic remove from MENU_DATA + UI
+  const idx = MENU_DATA.findIndex((c) => c.id === cat.id);
+  if (idx < 0) return;
+  const snapshot = MENU_DATA[idx];
+  const wasActive = activeCatId === cat.id;
+  MENU_DATA.splice(idx, 1);
+  if (wasActive) activeCatId = MENU_DATA.length ? MENU_DATA[0].id : null;
+  renderCategories();
+  renderItemsForActiveCategory();
+
+  const result = await softDelete({
+    label: 'Kategória „' + cat.label + '" zmazaná',
+    deleteFn: () => api.del('/menu/categories/' + cat.id),
+  });
+  if (result.undone) {
+    MENU_DATA.splice(idx, 0, snapshot);
+    if (wasActive) activeCatId = cat.id;
+    renderCategories();
+    renderProducts();
+    showToast('Vratene', true);
+  } else if (result.error) {
+    // Server rejected (e.g. concurrent items added) — restore + show error
+    MENU_DATA.splice(idx, 0, snapshot);
+    if (wasActive) activeCatId = cat.id;
+    renderCategories();
+    renderProducts();
+  } else {
+    // Committed — refresh from server to catch concurrent edits
+    await loadMenu();
+  }
 }
 
 function selectCategory(id) {
@@ -808,19 +827,39 @@ async function saveProduct() {
   }
 }
 
-function deleteProduct(id) {
+async function deleteProduct(id) {
+  // Find item + its parent category for optimistic restore
   let item = null;
-  MENU_DATA.forEach(cat => { cat.items.forEach(it => { if (it.id === id) item = it; }); });
-  if (!item) return;
-  showConfirm('Zmazat', 'Tato akcia sa neda vratit.', async function () {
-    try {
-      await api.del('/menu/items/' + id);
-      await loadMenu();
-      showToast('Produkt odstraneny', true);
-    } catch (err) {
-      showToast('Chyba: ' + err.message);
-    }
-  }, { type: 'danger' });
+  let parentCat = null;
+  let itemIdx = -1;
+  for (const cat of MENU_DATA) {
+    const i = cat.items.findIndex((it) => it.id === id);
+    if (i >= 0) { item = cat.items[i]; parentCat = cat; itemIdx = i; break; }
+  }
+  if (!item || !parentCat) return;
+
+  // Optimistic remove from local data + re-render
+  parentCat.items.splice(itemIdx, 1);
+  renderProducts();
+  renderCategories();
+
+  const result = await softDelete({
+    label: '„' + item.label + '" odstránené',
+    deleteFn: () => api.del('/menu/items/' + id),
+  });
+  if (result.undone) {
+    parentCat.items.splice(itemIdx, 0, item);
+    renderProducts();
+    renderCategories();
+    showToast('Vratene', true);
+  } else if (result.error) {
+    parentCat.items.splice(itemIdx, 0, item);
+    renderProducts();
+    renderCategories();
+  } else {
+    // Committed — reload from server (server-side stock/cost recalc may apply)
+    await loadMenu();
+  }
 }
 
 // === Keyboard handler ===
