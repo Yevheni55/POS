@@ -84,11 +84,19 @@ function toggleEdit(){
   renderFloor();
 }
 
-// Floor zones
+// Floor zones — pills with table count + occupied count per zone.
+// Operator vidí na prvý pohľad „terasa 8/12, interier 4/16" — kam ísť.
 function renderFloorZones(){
-  document.getElementById('floorZones').innerHTML=ZONES.map(z=>
-    `<button class="zone-btn ${z.id===activeZone?'active':''}" onclick="setZone('${escAttr(z.id)}')">${escHtml(z.label)}</button>`
-  ).join('');
+  document.getElementById('floorZones').innerHTML=ZONES.map(z=>{
+    var zoneTables = TABLES.filter(function(t){ return t.zone === z.id; });
+    var total = zoneTables.length;
+    var occupied = zoneTables.filter(function(t){ return t.status === 'occupied' || t.status === 'reserved'; }).length;
+    var meta = total > 0 ? (occupied + '/' + total) : '';
+    return '<button class="zone-btn ' + (z.id===activeZone?'active':'') + '" onclick="setZone(\'' + escAttr(z.id) + '\')">' +
+      '<span class="zone-label">' + escHtml(z.label) + '</span>' +
+      (meta ? '<span class="zone-meta">' + meta + '</span>' : '') +
+    '</button>';
+  }).join('');
 }
 function setZone(id){activeZone=id;renderFloorZones();renderFloor();if(typeof persistUIState==='function')persistUIState();}
 
@@ -101,7 +109,24 @@ function renderFloor(){
   const filtered=TABLES.filter(t=>t.zone===activeZone);
   const sl={free:'Volny',occupied:'Obsad.',reserved:'Rez.',dirty:'Cistit'};
   const titles={free:'Otvorit objednavku',occupied:'Zobrazit ucet',reserved:'Otvorit rezervaciu',dirty:'Oznacit ako volny'};
-  const personIcon='<svg aria-hidden="true" viewBox="0 0 16 16" width="10" height="10"><path d="M8 7a3 3 0 100-6 3 3 0 000 6zm-5 9a5 5 0 0110 0H3z" fill="currentColor"/></svg>';
+  // Person icon — uses currentColor so it inherits chip-guests text tone.
+  const personIcon='<svg aria-hidden="true" viewBox="0 0 16 16" width="11" height="11"><path d="M8 7a3 3 0 100-6 3 3 0 000 6zm-5 9a5 5 0 0110 0H3z" fill="currentColor"/></svg>';
+
+  // EMPTY ZONE state — show helpful illustration + copy instead of empty canvas.
+  if (!filtered.length && !editMode) {
+    canvas.innerHTML = ''
+      + '<div class="floor-empty">'
+      +   '<svg viewBox="0 0 64 64" width="80" height="80" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      +     '<rect x="8" y="20" width="22" height="22" rx="3"/>'
+      +     '<rect x="34" y="20" width="22" height="22" rx="3"/>'
+      +     '<path d="M16 12v8M22 12v8M40 12v8M50 12v8"/>'
+      +   '</svg>'
+      +   '<div class="floor-empty-title">Žiadne stoly v tejto zóne</div>'
+      +   '<div class="floor-empty-text">Pridaj stoly cez admin → Stoly, alebo prepni zónu vyššie.</div>'
+      + '</div>';
+    if (typeof renderStornoChip === 'function') renderStornoChip();
+    return;
+  }
 
   // Grow the canvas so the rightmost / bottom-most chip isn't clipped. Chip reaches
   // roughly 150x110 beyond its top-left anchor, plus breathing room.
@@ -113,40 +138,113 @@ function renderFloor(){
   canvas.style.minWidth=Math.max(maxX+220,600)+'px';
   canvas.style.minHeight=Math.max(maxY+180,400)+'px';
 
+  // Detect "forgotten" tables — occupied for > 20 min without payment activity
+  // (we use createdAt of the first open order on this table to compute age).
+  // Useful signal: čašníčka vie ktorý stôl chce platiť ale „zabudnutý". Tu len
+  // jednoduchá heuristika podľa časového trvania objednávky.
+  function isForgottenTable(tableId){
+    var orders = (typeof allOrdersCache !== 'undefined' && allOrdersCache[tableId]) || [];
+    if (!orders.length) return false;
+    var oldest = orders[0];
+    if (!oldest || !oldest.createdAt) return false;
+    var age = Date.now() - new Date(oldest.createdAt).getTime();
+    return age > 20 * 60 * 1000; // 20 min
+  }
+
   canvas.innerHTML=filtered.map(t=>{
     const ord=tableOrders[t.id]||[];
     const total=ord.reduce((s,o)=>s+o.price*o.qty,0);
     const isSel=t.id===selectedTableId;
+    const isForgotten = t.status==='occupied' && isForgottenTable(t.id);
     const shapeClass=t.shape==='round'?'round':t.shape==='large'?'large':'';
     const posStyle=`left:${t.x}px;top:${t.y}px`;
 
     const ariaParts=[escHtml(t.name),sl[t.status]||t.status,t.seats+' miest'];
     if(t.status==='occupied'&&total>0)ariaParts.push(fmt(total));
     if(t.status==='reserved'&&t.time)ariaParts.push(t.time);
+    if(isForgotten)ariaParts.push('zabudnuty - cas > 20 min');
     const ariaLabel=ariaParts.join(', ');
 
-    let chipBody=`<div class="chip-name">${escHtml(t.name)}</div>`;
-    chipBody+=`<span class="chip-badge ${t.status}">${sl[t.status]||t.status}</span>`;
-    chipBody+=`<div class="chip-guests">${personIcon} ${t.seats}</div>`;
-    if(t.status==='occupied'&&total>0){
-      chipBody+=`<div class="chip-amount">${fmt(total)}</div>`;
-    }
-    if(t.status==='reserved'&&t.time){
-      chipBody+=`<div class="chip-time">${t.time}</div>`;
+    // Information hierarchy — top: name + status dot, mid: amount/time, bottom: seats.
+    var classes = [
+      'table-chip',
+      's-' + t.status,
+      shapeClass,
+      isSel ? 'selected' : '',
+      isForgotten ? 'is-forgotten' : '',
+    ].filter(Boolean).join(' ');
+
+    var bodyHtml = ''
+      + '<div class="chip-top">'
+      +   '<span class="chip-status-dot ' + t.status + '" aria-hidden="true"></span>'
+      +   '<div class="chip-name">' + escHtml(t.name) + '</div>'
+      + '</div>';
+
+    if (t.status === 'occupied' && total > 0) {
+      bodyHtml += '<div class="chip-amount">' + fmt(total) + '</div>';
+    } else if (t.status === 'reserved' && t.time) {
+      bodyHtml += '<div class="chip-time">' + escHtml(t.time) + '</div>';
+    } else if (t.status === 'dirty') {
+      bodyHtml += '<div class="chip-state-label">vyčistiť</div>';
+    } else {
+      bodyHtml += '<div class="chip-state-label">' + (sl[t.status] || '') + '</div>';
     }
 
-    return `<div class="table-chip s-${t.status} ${shapeClass} ${isSel?'selected':''}"
-      data-id="${t.id}" style="${posStyle}" tabindex="0" role="button"
-      aria-label="${ariaLabel}" title="${titles[t.status]||''}"
-      ${editMode?`onmousedown="startDrag(event,${t.id})"`:`onclick="chipClick(${t.id})"`}>
-      ${chipBody}
-    </div>`;
+    bodyHtml += '<div class="chip-guests">' + personIcon + ' ' + t.seats + '</div>';
+
+    return '<div class="' + classes + '"'
+      + ' data-id="' + t.id + '"'
+      + ' style="' + posStyle + '"'
+      + ' tabindex="0" role="button"'
+      + ' aria-label="' + ariaLabel + '"'
+      + ' title="' + (titles[t.status] || '') + '"'
+      + (editMode ? ' onmousedown="startDrag(event,' + t.id + ')"' : ' onclick="chipClick(' + t.id + ')"')
+      + '>' + bodyHtml + '</div>';
   }).join('');
 
   // Always-visible Storno chip in the top-right corner of the floor canvas.
   // Renders separately so renderStornoChip() can refresh badge/value without
   // re-rendering the whole floor.
   if (typeof renderStornoChip === 'function') renderStornoChip();
+
+  // Floor summary widget — total revenue for this zone today (sum of all
+  // currently-open table totals). Pomáha manažérovi/owner-ovi na prvý pohľad.
+  if (typeof renderFloorSummary === 'function') renderFloorSummary(filtered);
+}
+
+// Floor summary — bottom-left of canvas, shows zone occupancy + total revenue.
+// Operator vidí "12 stolov · 7 obsadených · 245,80 €" priamo na floor mape.
+function renderFloorSummary(filteredTables){
+  var canvas = document.getElementById('floorCanvas');
+  if (!canvas) return;
+  var existing = document.getElementById('floorSummary');
+  if (existing) existing.remove();
+
+  var total = (filteredTables || []).reduce(function(s, t){
+    var ord = tableOrders[t.id] || [];
+    return s + ord.reduce(function(s2, o){ return s2 + o.price * o.qty; }, 0);
+  }, 0);
+  var occupied = (filteredTables || []).filter(function(t){ return t.status === 'occupied'; }).length;
+  var totalCount = (filteredTables || []).length;
+
+  // Nothing meaningful to show? Skip.
+  if (!totalCount) return;
+
+  var el = document.createElement('div');
+  el.id = 'floorSummary';
+  el.className = 'floor-summary';
+  el.innerHTML = ''
+    + '<div class="fs-row">'
+    +   '<span class="fs-label">Stoly</span>'
+    +   '<span class="fs-val">' + occupied + ' / ' + totalCount + '</span>'
+    + '</div>'
+    + (total > 0
+        ? '<div class="fs-row fs-row--accent">'
+          + '<span class="fs-label">V predaji</span>'
+          + '<span class="fs-val">' + fmt(total) + '</span>'
+        + '</div>'
+        : '');
+  canvas.appendChild(el);
 }
 
 // Storno chip — fixed-position badge in floor canvas. Click opens overlay.

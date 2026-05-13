@@ -307,13 +307,15 @@ body::after{
 .storno-suggest.suggest-noprep{color:var(--color-success);border-color:rgba(92,196,158,.30)}
 .floor-canvas.edit-mode{cursor:default;background:radial-gradient(circle at 1px 1px, rgba(184,84,42,.06) 1px, transparent 0) 0 0 / 40px 40px}
 
-/* TABLE CHIP — compact draggable */
+/* TABLE CHIP — pebble shape (organic asymmetric radius), Atelier feel.
+   Information hierarchy: top row = status-dot + name, middle = state value
+   (suma/time/label), bottom = seats. */
 .table-chip{
-  position:absolute;width:110px;height:110px;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
-  border-radius:14px;
+  position:absolute;width:120px;height:118px;
+  display:flex;flex-direction:column;align-items:stretch;justify-content:space-between;gap:0;
+  /* Asymmetric radius — every chip looks slightly different, organic. */
+  border-radius:22px 18px 20px 16px;
   border:1.5px solid var(--color-border-hover);
-  border-left:4px solid var(--color-border);
   background:linear-gradient(180deg, var(--color-bg), var(--color-bg-elevated));
   cursor:pointer;
   /* Phase 5 — unified curve so chip-lift matches product-card body */
@@ -323,48 +325,229 @@ body::after{
              transform var(--t-paper) var(--ease-soft);
   user-select:none;z-index:1;
   box-shadow:var(--shadow-md);
-  padding:8px 6px;
+  padding:10px 12px 10px 12px;
+  overflow:hidden;
+  /* Subtle gradient highlight catching "light from above" */
+}
+/* Faint top-edge highlight that simulates light catching the pebble surface */
+.table-chip::before{
+  content:'';
+  position:absolute;
+  top:0;left:14%;right:14%;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);
+  pointer-events:none;
+  border-radius:inherit;
 }
 .table-chip:hover{background:linear-gradient(180deg, var(--color-bg-elevated), var(--color-bg-sunken));border-color:var(--color-border-strong);z-index:2;transform:translateY(-2px);box-shadow:var(--shadow-lg)}
 .table-chip:active{transform:translateY(0) scale(.97);background:linear-gradient(180deg, var(--color-bg-elevated), var(--color-bg-sunken));box-shadow:var(--shadow-sm)}
-.table-chip.selected{border-color:var(--color-accent);border-left-color:var(--color-accent);background:rgba(184,84,42,.12);box-shadow:0 0 0 2px rgba(184,84,42,.25),0 2px 10px rgba(0,0,0,.25);z-index:3}
+.table-chip.selected{
+  border-color:var(--color-accent);
+  background:linear-gradient(180deg, color-mix(in oklab, var(--color-accent) 12%, var(--color-bg-elevated)), color-mix(in oklab, var(--color-accent) 18%, var(--color-bg-elevated)));
+  box-shadow:0 0 0 3px color-mix(in oklab, var(--color-accent) 35%, transparent), var(--shadow-lg);
+  z-index:3;
+  transform:translateY(-2px);
+}
 .table-chip.dragging{opacity:.8;z-index:10;box-shadow:0 8px 24px rgba(0,0,0,.4);transition:none}
 
 /* Edit mode chip styling */
 .floor-canvas.edit-mode .table-chip{cursor:grab;border-style:dashed}
 .floor-canvas.edit-mode .table-chip:active{cursor:grabbing}
 
-/* Status colors — strong left stripe + tinted fill */
-.table-chip.s-free{border-left-color:var(--color-success);background:rgba(92,196,158,.08);border-color:rgba(92,196,158,.30);border-left-color:var(--color-success)}
-.table-chip.s-free:hover{border-color:rgba(92,196,158,.45);border-left-color:var(--color-success)}
-.table-chip.s-occupied{border-left-color:var(--color-accent);background:rgba(184,84,42,.08);border-color:rgba(184,84,42,.30);box-shadow:0 2px 10px rgba(0,0,0,.25),0 0 6px rgba(184,84,42,.05)}
-.table-chip.s-occupied:hover{border-color:rgba(184,84,42,.45);border-left-color:var(--color-accent)}
-.table-chip.s-reserved{border-left-color:var(--accent-amber);background:rgba(232,184,74,.08);border-color:rgba(232,184,74,.35)}
-.table-chip.s-reserved:hover{border-color:rgba(232,184,74,.50);border-left-color:var(--accent-amber)}
-.table-chip.s-dirty{border-left-color:var(--color-danger);background:rgba(224,112,112,.08);border-color:rgba(224,112,112,.30)}
-.table-chip.s-dirty:hover{border-color:rgba(224,112,112,.45);border-left-color:var(--color-danger)}
+/* Status — free is QUIET (recedes — no work needed), occupied is WARM glow
+   (operator's eye lands here, that's where work is), reserved is amber notice,
+   dirty is rust alert. */
+.table-chip.s-free{
+  background:linear-gradient(180deg, var(--color-bg), var(--color-bg-elevated));
+  border-color:var(--color-border);
+}
+.table-chip.s-free:hover{border-color:var(--color-border-strong)}
+.table-chip.s-occupied{
+  background:linear-gradient(180deg, var(--color-bg-elevated), color-mix(in oklab, var(--color-accent) 10%, var(--color-bg-elevated)));
+  border-color:color-mix(in oklab, var(--color-accent) 36%, transparent);
+  box-shadow:var(--shadow-md), 0 0 0 1px color-mix(in oklab, var(--color-accent) 14%, transparent);
+}
+.table-chip.s-occupied:hover{
+  border-color:var(--color-accent);
+  background:linear-gradient(180deg, color-mix(in oklab, var(--color-accent) 6%, var(--color-bg-elevated)), color-mix(in oklab, var(--color-accent) 14%, var(--color-bg-elevated)));
+}
+.table-chip.s-reserved{
+  background:linear-gradient(180deg, var(--color-bg-elevated), color-mix(in oklab, var(--accent-amber) 8%, var(--color-bg-elevated)));
+  border-color:color-mix(in oklab, var(--accent-amber) 42%, transparent);
+}
+.table-chip.s-reserved:hover{border-color:var(--accent-amber)}
+.table-chip.s-dirty{
+  background:linear-gradient(180deg, var(--color-bg-elevated), color-mix(in oklab, var(--color-danger) 8%, var(--color-bg-elevated)));
+  border-color:color-mix(in oklab, var(--color-danger) 40%, transparent);
+}
+.table-chip.s-dirty:hover{border-color:var(--color-danger)}
 
-/* Round tables — uniform thick border instead of left stripe */
-.table-chip.round{border-radius:50%;border-left-width:1.5px;border-width:3px}
-.table-chip.round.s-free{border-color:var(--color-success)}
-.table-chip.round.s-occupied{border-color:var(--color-accent)}
-.table-chip.round.s-reserved{border-color:var(--accent-amber)}
-.table-chip.round.s-dirty{border-color:var(--color-danger)}
+/* Forgotten-table pulse — occupied > 20 min without payment. Drawing attention. */
+@keyframes forgottenPulse {
+  0%, 100% { box-shadow: var(--shadow-md), 0 0 0 1px color-mix(in oklab, var(--color-accent) 14%, transparent); }
+  50%      { box-shadow: var(--shadow-md), 0 0 0 4px color-mix(in oklab, var(--color-accent) 30%, transparent); }
+}
+.table-chip.is-forgotten{
+  animation: forgottenPulse 2.4s ease-in-out infinite;
+}
+.table-chip.is-forgotten .chip-amount{color:var(--color-accent)}
 
-/* Large tables */
-.table-chip.large{width:150px;height:110px;border-radius:16px}
+/* Round tables — keep round shape, no asymmetric radius */
+.table-chip.round{border-radius:50%}
+.table-chip.round::before{display:none}
 
-/* Chip content — information hierarchy */
-.chip-name{font-family:var(--font-display);font-size:var(--text-3xl);font-weight:var(--weight-extrabold);line-height:var(--leading-tight);letter-spacing:var(--tracking-tight)}
-.chip-badge{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;padding:2px 7px;border-radius:var(--radius-full);line-height:1.2}
-.chip-badge.free{background:rgba(92,196,158,.18);color:var(--color-success)}
-.chip-badge.occupied{background:rgba(184,84,42,.18);color:var(--color-accent)}
-.chip-badge.reserved{background:rgba(232,184,74,.18);color:var(--accent-amber)}
-.chip-badge.dirty{background:rgba(224,112,112,.18);color:var(--color-danger)}
-.chip-guests{display:flex;align-items:center;gap:3px;font-size:var(--text-xs);color:var(--color-text-sec);font-weight:var(--weight-semibold)}
-.chip-guests svg{opacity:.7}
-.chip-amount{font-family:var(--font-display);font-size:var(--text-base);font-weight:var(--weight-bold);color:var(--text-primary);margin-top:1px;font-variant-numeric:tabular-nums}
-.chip-time{font-size:var(--text-xs);color:var(--accent-amber);font-weight:var(--weight-semibold)}
+/* Large tables — wider pebble */
+.table-chip.large{width:158px;height:118px;border-radius:24px 18px 22px 16px}
+
+/* === CHIP CONTENT — new information hierarchy ===
+   Row 1: status dot + name (left aligned, name dominant)
+   Row 2: state value (suma / time / "Voľný" label)
+   Row 3: seat count (bottom-right) */
+
+.table-chip .chip-top{
+  display:flex;align-items:center;gap:7px;
+  min-width:0;
+}
+.table-chip .chip-name{
+  font-family:var(--font-display);
+  font-size:24px;
+  font-weight:var(--weight-extrabold);
+  line-height:1;
+  letter-spacing:var(--tracking-tight);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  flex:1;
+  color:var(--text-primary);
+}
+.table-chip .chip-status-dot{
+  width:8px;height:8px;
+  border-radius:50%;
+  flex-shrink:0;
+  background:var(--color-text-dim);
+}
+.table-chip .chip-status-dot.free{background:var(--color-success);box-shadow:0 0 0 2px color-mix(in oklab, var(--color-success) 30%, transparent)}
+.table-chip .chip-status-dot.occupied{background:var(--color-accent);box-shadow:0 0 0 2px color-mix(in oklab, var(--color-accent) 35%, transparent)}
+.table-chip .chip-status-dot.reserved{background:var(--accent-amber);box-shadow:0 0 0 2px color-mix(in oklab, var(--accent-amber) 35%, transparent)}
+.table-chip .chip-status-dot.dirty{background:var(--color-danger);box-shadow:0 0 0 2px color-mix(in oklab, var(--color-danger) 35%, transparent)}
+
+.table-chip .chip-amount{
+  font-family:var(--font-mono);
+  font-size:18px;
+  font-weight:var(--weight-bold);
+  color:var(--text-primary);
+  font-variant-numeric:tabular-nums;
+  letter-spacing:-0.01em;
+  line-height:1;
+}
+.table-chip .chip-time{
+  font-family:var(--font-mono);
+  font-size:15px;
+  font-weight:var(--weight-bold);
+  color:var(--accent-amber);
+  font-variant-numeric:tabular-nums;
+  letter-spacing:-0.01em;
+  line-height:1;
+}
+.table-chip .chip-state-label{
+  font-size:11px;
+  font-weight:var(--weight-semibold);
+  color:var(--text-secondary);
+  text-transform:uppercase;
+  letter-spacing:.06em;
+  line-height:1;
+}
+.table-chip.s-dirty .chip-state-label{color:var(--color-danger)}
+.table-chip.s-free .chip-state-label{color:var(--text-dim)}
+
+.table-chip .chip-guests{
+  display:flex;align-items:center;gap:3px;
+  font-size:11px;color:var(--text-secondary);
+  font-weight:var(--weight-semibold);
+  align-self:flex-end;
+}
+.table-chip .chip-guests svg{opacity:.7}
+
+/* === EMPTY ZONE STATE === */
+.floor-empty{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;
+  padding:60px 40px;
+  color:var(--text-secondary);
+  height:100%;
+  min-height:300px;
+  gap:14px;
+}
+.floor-empty svg{color:var(--text-dim);opacity:.8}
+.floor-empty-title{
+  font-family:var(--font-display);
+  font-size:22px;
+  font-weight:var(--weight-bold);
+  color:var(--text-primary);
+  margin-top:6px;
+}
+.floor-empty-text{
+  font-size:14px;
+  color:var(--text-secondary);
+  max-width:340px;
+  line-height:1.5;
+}
+
+/* === FLOOR SUMMARY WIDGET ===
+   Bottom-left corner of floor canvas. Compact card with zone occupancy +
+   total revenue. Glance-able for owner/manager. */
+.floor-summary{
+  position:absolute;
+  bottom:14px;
+  left:14px;
+  z-index:5;
+  background:linear-gradient(180deg, var(--color-bg-elevated), color-mix(in oklab, var(--color-bg-sunken) 60%, var(--color-bg-elevated)));
+  border:1px solid var(--color-border);
+  border-radius:14px 12px 14px 10px;
+  padding:10px 16px;
+  box-shadow:var(--shadow-md);
+  display:flex;flex-direction:column;gap:4px;
+  min-width:160px;
+  font-family:var(--font-body);
+  pointer-events:none; /* don't block clicks on tables underneath */
+}
+.fs-row{
+  display:flex;justify-content:space-between;align-items:baseline;gap:14px;
+}
+.fs-label{
+  font-size:10px;
+  font-weight:var(--weight-semibold);
+  color:var(--text-secondary);
+  text-transform:uppercase;
+  letter-spacing:.06em;
+}
+.fs-val{
+  font-family:var(--font-mono);
+  font-size:16px;
+  font-weight:var(--weight-bold);
+  color:var(--text-primary);
+  font-variant-numeric:tabular-nums;
+}
+.fs-row--accent .fs-val{color:var(--color-accent);font-size:18px}
+
+/* === ZONE STRIP IMPROVEMENTS ===
+   Zone buttons get a meta count "occupied/total" — quick glance. */
+.zone-btn{
+  display:inline-flex;align-items:center;gap:8px;
+}
+.zone-btn .zone-meta{
+  font-family:var(--font-mono);
+  font-size:10px;
+  font-weight:var(--weight-bold);
+  padding:2px 7px;
+  border-radius:999px;
+  background:color-mix(in oklab, var(--text-secondary) 16%, transparent);
+  color:var(--text-secondary);
+  font-variant-numeric:tabular-nums;
+}
+.zone-btn.active .zone-meta{
+  background:color-mix(in oklab, var(--color-accent) 24%, transparent);
+  color:var(--color-accent);
+}
 
 /* Zone labels on canvas */
 .zone-label{
@@ -1560,16 +1743,21 @@ body::after{
   .floor-title{font-size:35px}
   .floor-stat,.legend-item{font-size:17px}
   .floor-legend{display:flex}
-  /* Stoly na tablete — operator chce 10.1" displej s velkymi chipmi.
-     Po ručnom 1.15× bumpovani: 100→115, 130→150. Stale ~6–8 stolov v
-     zone bez scrollu pri normalnej hustote, dlhe prsty pohodlne. */
-  .table-chip{width:115px;height:115px;padding:9px 7px;gap:3px}
-  .table-chip.large{width:150px;height:115px}
-  .chip-name{font-size:21px}
-  .chip-badge{font-size:10px;padding:2px 7px}
-  .chip-amount{font-size:16px}
+  /* Stoly na tablete — pebble shape, organic feel. Bumpnute pre 10.1"
+     touch — chipy 132x130 fitnu cca 6-8 stolov v zone bez scrollu. */
+  .table-chip{width:132px;height:130px;padding:12px 14px;gap:0}
+  .table-chip.large{width:170px;height:130px;border-radius:26px 20px 24px 18px}
+  .chip-name{font-size:24px}
+  .chip-amount{font-size:20px}
+  .chip-time{font-size:17px}
+  .chip-state-label{font-size:12px}
   .chip-guests{font-size:13px}
-  .chip-time{font-size:13px}
+  .chip-status-dot{width:10px;height:10px}
+  /* Floor summary bigger on tablet */
+  .floor-summary{padding:14px 20px;min-width:200px}
+  .fs-label{font-size:11px}
+  .fs-val{font-size:20px}
+  .fs-row--accent .fs-val{font-size:24px}
   .search-input{font-size:21px;min-height:58px;padding:14px 14px 14px 51px}
   .search-icon{font-size:25px}
   .search-icon .svg-icon{width:24px;height:24px}
