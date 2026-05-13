@@ -6,33 +6,64 @@ export const PAYMENT_METHOD_LABELS = {
 };
 
 /** CHDU / staršie fiškálne tlačiarne často nezvládnu UTF-8 ani emoji — výsledok sú náhodné symboly. */
+// Slovak/Czech complete diacritic fold map. Used BEFORE NFD so we don't depend
+// on Unicode-version-specific decomposition tables (some legacy Node builds
+// can fail to decompose less common letters). Slovak fiscal law requires
+// ASCII on receipt body — "dlhe o sa zmeni na obycajne o" etc.
 const FOLD_EXTRA = {
-  ľ: 'l',
-  Ľ: 'L',
-  ł: 'l',
-  Ł: 'L',
-  ŕ: 'r',
-  Ŕ: 'R',
-  ô: 'o',
-  Ô: 'O',
-  ď: 'd',
-  Ď: 'D',
-  ť: 't',
-  Ť: 'T',
-  ň: 'n',
-  Ň: 'N',
+  // Long vowels (acute)
+  'á': 'a', 'Á': 'A',
+  'é': 'e', 'É': 'E',
+  'í': 'i', 'Í': 'I',
+  'ó': 'o', 'Ó': 'O',
+  'ú': 'u', 'Ú': 'U',
+  'ý': 'y', 'Ý': 'Y',
+  // Caron (haček)
+  'š': 's', 'Š': 'S',
+  'č': 'c', 'Č': 'C',
+  'ž': 'z', 'Ž': 'Z',
+  'ť': 't', 'Ť': 'T',
+  'ď': 'd', 'Ď': 'D',
+  'ň': 'n', 'Ň': 'N',
+  'ľ': 'l', 'Ľ': 'L',
+  'ř': 'r', 'Ř': 'R',
+  'ě': 'e', 'Ě': 'E',
+  // Circumflex
+  'ô': 'o', 'Ô': 'O',
+  // Long L/R (Slovak vibrants)
+  'ĺ': 'l', 'Ĺ': 'L',
+  'ŕ': 'r', 'Ŕ': 'R',
+  // Umlaut / diaeresis
+  'ä': 'a', 'Ä': 'A',
+  'ö': 'o', 'Ö': 'O',
+  'ü': 'u', 'Ü': 'U',
+  'ë': 'e', 'Ë': 'E',
+  'ï': 'i', 'Ï': 'I',
+  // Other Latin extensions
+  'đ': 'd', 'Đ': 'D',
+  'ł': 'l', 'Ł': 'L',
+  'ß': 'ss',
+  'æ': 'ae', 'Æ': 'AE',
+  'œ': 'oe', 'Œ': 'OE',
+  // Currency symbol — explicit so '€' becomes 'EUR' instead of stripped
+  '€': 'EUR',
 };
 
 export function sanitizeForFiscalPrinter(text) {
   if (text == null || text === '') return 'Polozka';
   let s = String(text).normalize('NFKC');
   s = s.replace(/\p{Extended_Pictographic}/gu, '');
-  s = s.replace(/[\uFE0F\u200D]/g, '');
-  s = s.normalize('NFD').replace(/\p{M}/gu, '');
+  s = s.replace(/[️‍]/g, '');
+  // FIRST pass — explicit Slovak/Czech fold table (deterministic, doesn't
+  // depend on NFD decomposition tables). Guarantees long-o → o etc.
   for (const [from, to] of Object.entries(FOLD_EXTRA)) {
     s = s.split(from).join(to);
   }
-  s = s.replace(/[^\x20-\x7E]/g, '');
+  // SECOND pass — NFD + combining-marks strip catches anything not in the
+  // explicit map (other locale letters with combining marks).
+  s = s.normalize('NFD').replace(/\p{M}/gu, '');
+  // FINAL safety — strip any remaining non-ASCII printable. Belt-and-suspenders.
+  s = s.replace(/[^ -~]/g, '');
   s = s.replace(/\s+/g, ' ').trim();
   const out = s.slice(0, 120);
   return out.length ? out : 'Polozka';
