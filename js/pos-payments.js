@@ -792,7 +792,10 @@ async function sendToKitchen() {
     var result = await api.post('/orders/' + currentOrderId + '/send-and-print', {});
 
     if (!result.printed) {
-      showToast('Nie je co odoslat', 'warning');
+      // No-op — pouzivatel nechcel "Nie je co odoslat" notifikaciu.
+      // Tlacidlo Poslat je teraz disabled cez btnSend.disabled = !pending,
+      // takze tap fire-uje iba ked je naozaj co odoslat. Pri race condition
+      // (medzi disable check a sendAndPrint) ticho return.
       return;
     }
     // Phase 5 — confirmation haptic when send actually fires (not on

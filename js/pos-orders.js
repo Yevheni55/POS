@@ -224,30 +224,10 @@ function _normalizeLocalOrder(order) {
 }
 
 function _queueAddToast(emoji, name, qtyAdded) {
-  qtyAdded = qtyAdded || 1;
-  if (!_addToastCount) {
-    _addToastEmoji = emoji;
-    _addToastName = name;
-    _addToastMixed = false;
-  } else if (_addToastEmoji !== emoji || _addToastName !== name) {
-    _addToastMixed = true;
-  }
-
-  _addToastCount += qtyAdded;
-  if (_addToastTimer) clearTimeout(_addToastTimer);
-  _addToastTimer = setTimeout(function() {
-    var message;
-    if (_addToastMixed) message = _addToastCount + ' pol. pridanych';
-    else if (_addToastCount > 1) message = _addToastEmoji + ' ' + _addToastName + ' x' + _addToastCount + ' pridane';
-    else message = _addToastEmoji + ' ' + _addToastName + ' pridane';
-
-    _addToastTimer = null;
-    _addToastCount = 0;
-    _addToastEmoji = '';
-    _addToastName = '';
-    _addToastMixed = false;
-    showToast(message);
-  }, 180);
+  // No-op — pouzivatel si vyziadal aby sa "X pridane" toast nezobrazoval.
+  // Visualny feedback uz dava: badge na product card + qty inkrement v
+  // order paneli (sumar dole). Toast je redundantny.
+  return;
 }
 
 // Bulk add — used by the long-press qty popup so 5x Pivo is one user gesture.
