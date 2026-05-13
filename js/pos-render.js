@@ -419,7 +419,14 @@ async function selectTableAndLoadOrder(id){
 async function chipClick(id){
   if (moveMode) { await handleMoveToTable(id); return; }
   await openTable(id);
-  renderFloor();
+  // PERF: renderFloor() volane TU rebuilduje 30+ chip-ov DOMOM ihneď po
+  // switchView('products') — výsledok je už neviditelne. Defer-neme to
+  // do idle moment; floor sa rebuilduje aj tak pri navrate na tables view.
+  if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback(function(){ renderFloor(); }, { timeout: 800 });
+  } else {
+    setTimeout(renderFloor, 200);
+  }
 }
 
 async function openTable(id){
@@ -527,8 +534,23 @@ function setCategory(key){activeCategory=key;searchQuery='';document.getElementB
 
 (function(){var searchTimer=null;document.getElementById('searchInput').addEventListener('input',function(e){searchQuery=e.target.value.toLowerCase().trim();clearTimeout(searchTimer);searchTimer=setTimeout(function(){renderProducts()},200)})})();
 
+// PERF cache: skip full grid rebuild ak sa nezmenila category / search /
+// menu version / table-order (for qty badges). 100+ produkt karty s
+// gradient + shadow ich rebuild kazdy tap = 100-200ms paint cost.
+var _lastProductsRenderKey = null;
+function _productsRenderKey(){
+  var order = getOrder() || [];
+  // Iba qty + name pairs su dolezite pre badge-y; ostatne ignorujeme.
+  var qtyHash = order.map(function(o){ return o.name + ':' + o.qty; }).join('|');
+  return (searchQuery || '') + '|' + (activeCategory || '') + '|' + qtyHash;
+}
+
 function renderProducts(){
   const grid=document.getElementById('productsGrid');
+  // Cache: ak sa rendrovacie inputs nezmenili od minula, skip celý rebuild.
+  var key = _productsRenderKey();
+  if (key === _lastProductsRenderKey && grid.innerHTML) return;
+  _lastProductsRenderKey = key;
   let items;let itemCats={};
   // Logical sort — defined in pos-state.js. Strips volume suffix to a
   // family key and orders alphabetically, then by volume ascending. So
