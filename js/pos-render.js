@@ -1,6 +1,11 @@
 'use strict';
 // pos-render.js — All rendering/UI functions: clock, views, floor, categories, products, order, discounts
 
+// Module-scope SVG constants — built once, reused across renders.
+// Person icon — uses currentColor so it inherits chip-guests text tone.
+// PERF: hoisted from renderFloor() local var to avoid ~30 string allocations per render.
+const PERSON_ICON_SVG = '<svg aria-hidden="true" viewBox="0 0 16 16" width="11" height="11"><path d="M8 7a3 3 0 100-6 3 3 0 000 6zm-5 9a5 5 0 0110 0H3z" fill="currentColor"/></svg>';
+
 // Clock
 function updateClock(){
   const n=new Date();
@@ -106,11 +111,15 @@ function setZone(id){activeZone=id;renderFloorZones();renderFloor();if(typeof pe
 function renderFloor(){
   const canvas=document.getElementById('floorCanvas');
   if(!canvas)return;
+  // PERF: skip floor rebuild if user is on products view — DOM mutations
+  // are invisible. Floor will be rebuilt when user returns via switchView('tables').
+  if (typeof currentView !== 'undefined' && currentView !== 'tables') return;
   const filtered=TABLES.filter(t=>t.zone===activeZone);
   const sl={free:'Volny',occupied:'Obsad.',reserved:'Rez.',dirty:'Cistit'};
   const titles={free:'Otvorit objednavku',occupied:'Zobrazit ucet',reserved:'Otvorit rezervaciu',dirty:'Oznacit ako volny'};
   // Person icon — uses currentColor so it inherits chip-guests text tone.
-  const personIcon='<svg aria-hidden="true" viewBox="0 0 16 16" width="11" height="11"><path d="M8 7a3 3 0 100-6 3 3 0 000 6zm-5 9a5 5 0 0110 0H3z" fill="currentColor"/></svg>';
+  // Hoisted to module scope (PERSON_ICON_SVG) — reused below.
+  const personIcon = PERSON_ICON_SVG;
 
   // EMPTY ZONE state — show helpful illustration + copy instead of empty canvas.
   if (!filtered.length && !editMode) {
@@ -193,15 +202,37 @@ function renderFloor(){
 
     bodyHtml += '<div class="chip-guests">' + personIcon + ' ' + t.seats + '</div>';
 
+    // PERF: data-table-id replaces inline onclick/onmousedown — single delegated
+    // listener attached below routes events to chipClick / startDrag.
     return '<div class="' + classes + '"'
       + ' data-id="' + t.id + '"'
+      + ' data-table-id="' + t.id + '"'
       + ' style="' + posStyle + '"'
       + ' tabindex="0" role="button"'
       + ' aria-label="' + ariaLabel + '"'
       + ' title="' + (titles[t.status] || '') + '"'
-      + (editMode ? ' onmousedown="startDrag(event,' + t.id + ')"' : ' onclick="chipClick(' + t.id + ')"')
       + '>' + bodyHtml + '</div>';
   }).join('');
+
+  // Attach delegated listeners ONCE on the canvas. Idempotent via dataset flag —
+  // renderFloor() rewrites canvas.innerHTML but dataset survives.
+  if (!canvas.dataset.delegated) {
+    canvas.dataset.delegated = '1';
+    canvas.addEventListener('click', function(e){
+      var chip = e.target.closest('[data-table-id]');
+      if (!chip) return;
+      var id = Number(chip.dataset.tableId);
+      if (!id || !chip.classList.contains('table-chip')) return;
+      if (typeof chipClick === 'function') chipClick(id);
+    });
+    canvas.addEventListener('mousedown', function(e){
+      if (typeof editMode === 'undefined' || !editMode) return;
+      var chip = e.target.closest('[data-table-id]');
+      if (!chip) return;
+      var id = Number(chip.dataset.tableId);
+      if (id && typeof startDrag === 'function') startDrag(e, id);
+    });
+  }
 
   // Always-visible Storno chip in the top-right corner of the floor canvas.
   // Renders separately so renderStornoChip() can refresh badge/value without

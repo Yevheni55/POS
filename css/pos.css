@@ -385,8 +385,10 @@ body::after{
 
 /* Forgotten-table pulse — occupied > 20 min without payment. Drawing attention. */
 @keyframes forgottenPulse {
-  0%, 100% { box-shadow: var(--shadow-md), 0 0 0 1px color-mix(in oklab, var(--color-accent) 14%, transparent); }
-  50%      { box-shadow: var(--shadow-md), 0 0 0 4px color-mix(in oklab, var(--color-accent) 30%, transparent); }
+  /* PERF: pre-computed rgba (terra #b8542a) replaces color-mix(in oklab, ...) —
+     avoids OKlab->sRGB recomputation per animation frame for each forgotten chip. */
+  0%, 100% { box-shadow: var(--shadow-md), 0 0 0 1px rgba(184,84,42,.14); }
+  50%      { box-shadow: var(--shadow-md), 0 0 0 4px rgba(184,84,42,.30); }
 }
 .table-chip.is-forgotten{
   animation: forgottenPulse 2.4s ease-in-out infinite;
