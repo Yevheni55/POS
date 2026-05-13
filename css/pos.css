@@ -1683,7 +1683,6 @@ body::after{
   .mob-tab-content.active{opacity:1;pointer-events:all;transform:translateX(0)}
   @media (prefers-reduced-motion:reduce){
     .mob-tab-content{transition:none}
-    body::after { display: none; }
   }
 
   /* Bottom tab bar */
@@ -2206,4 +2205,12 @@ body.edit-mode #editToggle { background: var(--color-warning, #E0A830); color: #
 @keyframes edit-pulse {
   0%, 100% { box-shadow: 0 0 0 2px var(--color-warning, #E0A830) inset, 0 4px 16px rgba(224,168,48,.25); }
   50%      { box-shadow: 0 0 0 2px var(--color-warning, #E0A830) inset, 0 4px 22px rgba(224,168,48,.45); }
+}
+
+
+/* Global prefers-reduced-motion — hide noise overlay (Phase 1 polish).
+   Mobile media-query had a nested rule; this top-level rule covers
+   desktop/tablet viewports too. */
+@media (prefers-reduced-motion: reduce) {
+  body::after { display: none !important; }
 }
