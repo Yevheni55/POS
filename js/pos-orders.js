@@ -420,6 +420,9 @@ function _addToOrderCore(name, emoji, price, forceNewRow) {
   _scheduleRender();
 
   _queueAddToast(emoji, name, 1);
+  // Phase 5 — barely-perceptible haptic ack on every successful add.
+  // Feature-detect + try/catch because Android embedded WebView can throw.
+  try { if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(10); } catch (_) {}
   return changedItem;
 }
 
@@ -666,6 +669,10 @@ function changeQty(name,d,itemId){
   const order = getOrder();
   const item = _findOrderItemForQtyChange(order, name, itemId);
   if (!item) return;
+
+  // Phase 5 — haptic ack on confirmed qty change. Past the guard above,
+  // every remaining branch mutates state (increment, decrement, storno).
+  try { if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(10); } catch (_) {}
 
   // Combos + Kuracie hranolky: kazdy + (sent ALEBO unsent) otvori sauce-picker
   // pre tu novu porciu. Predtym to bolo len pri sent — unsent silently

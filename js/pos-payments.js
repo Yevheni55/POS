@@ -544,6 +544,8 @@ async function closeAsStaffMeal() {
     }
 
     showToast('Zamestnanecka spotreba zaznamenana — naklad: ' + (typeof fmt === 'function' ? fmt(Number(result.totalCogs) || 0) : result.totalCogs + ' €'), 'success');
+    // Phase 5 — staff meal close-out also gets a confirmation haptic.
+    try { if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15); } catch (_) {}
     // Free table + clear order rovnako ako pri normalnej platbe
     await finalizeSuccessfulPayment('Zamestnanecka spotreba zaznamenana', 'success');
   } catch (e) {
@@ -607,6 +609,9 @@ async function confirmPayment() {
       return;
     }
 
+    // Phase 5 — success haptic. 20ms is a slightly stronger bzik than
+    // the add/qty 10ms — operator feels "transaction done".
+    try { if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(20); } catch (_) {}
     await finalizeSuccessfulPayment(outcome.message, outcome.tone);
   } catch (e) {
     console.error('confirmPayment error:', e);
@@ -705,6 +710,9 @@ async function sendToKitchen() {
       showToast('Nie je co odoslat', 'warning');
       return;
     }
+    // Phase 5 — confirmation haptic when send actually fires (not on
+    // the empty-order early-return above).
+    try { if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15); } catch (_) {}
     var printOutcome = await printKitchenAndBarTickets(result.items, currentOrderId);
 
     await loadTableOrder(selectedTableId, true);
