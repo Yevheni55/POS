@@ -312,17 +312,17 @@ body::after{
   position:absolute;width:110px;height:110px;
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
   border-radius:14px;
-  border:1.5px solid rgba(30,24,18,.12);
+  border:1.5px solid var(--color-border-hover);
   border-left:4px solid var(--color-border);
-  background:rgba(30,24,18,.10);
+  background:linear-gradient(180deg, var(--color-bg), var(--color-bg-elevated));
   cursor:pointer;
   transition:border-color .15s, box-shadow .15s, background .15s, transform .15s;
   user-select:none;z-index:1;
-  box-shadow:0 2px 10px rgba(0,0,0,.25);
+  box-shadow:var(--shadow-md);
   padding:8px 6px;
 }
-.table-chip:hover{background:rgba(30,24,18,.14);border-color:rgba(30,24,18,.20);z-index:2;transform:translateY(-2px);box-shadow:0 4px 16px rgba(0,0,0,.3)}
-.table-chip:active{transform:translateY(0) scale(.97);background:rgba(30,24,18,.16);box-shadow:0 1px 6px rgba(0,0,0,.2)}
+.table-chip:hover{background:linear-gradient(180deg, var(--color-bg-elevated), var(--color-bg-sunken));border-color:var(--color-border-strong);z-index:2;transform:translateY(-2px);box-shadow:var(--shadow-lg)}
+.table-chip:active{transform:translateY(0) scale(.97);background:linear-gradient(180deg, var(--color-bg-elevated), var(--color-bg-sunken));box-shadow:var(--shadow-sm)}
 .table-chip.selected{border-color:var(--color-accent);border-left-color:var(--color-accent);background:rgba(184,84,42,.12);box-shadow:0 0 0 2px rgba(184,84,42,.25),0 2px 10px rgba(0,0,0,.25);z-index:3}
 .table-chip.dragging{opacity:.8;z-index:10;box-shadow:0 8px 24px rgba(0,0,0,.4);transition:none}
 
@@ -373,9 +373,9 @@ body::after{
 .products-panel.active{display:flex}
 
 .search-wrap{position:relative;margin-bottom:6px;flex-shrink:0}
-.search-input{width:100%;padding:var(--space-3) var(--space-3) var(--space-3) 38px;border-radius:var(--radius-sm);border:1px solid var(--color-border);background:rgba(30,24,18,.05);font-family:var(--font-body);font-size:var(--text-lg);font-weight:var(--weight-medium);color:var(--color-text);outline:none;transition:border-color var(--transition-fast),background var(--transition-fast);min-height:var(--btn-h-md)}
+.search-input{width:100%;padding:var(--space-3) var(--space-3) var(--space-3) 38px;border-radius:var(--radius-sm);border:1px solid var(--color-border);background:rgba(30,24,18,.03);box-shadow:var(--shadow-inset);font-family:var(--font-body);font-size:var(--text-lg);font-weight:var(--weight-medium);color:var(--color-text);outline:none;transition:border-color var(--transition-fast),box-shadow var(--transition-fast),background var(--transition-fast);min-height:var(--btn-h-md)}
 .search-input::placeholder{color:var(--color-text-sec)}
-.search-input:focus{border-color:rgba(184,84,42,.35);box-shadow:0 0 0 3px rgba(184,84,42,.08);background:rgba(30,24,18,.09)}
+.search-input:focus,.search-input:focus-visible{outline:none;border-color:var(--color-accent);box-shadow:var(--shadow-inset),0 0 0 3px var(--color-accent-glow);background:rgba(30,24,18,.05)}
 .search-icon{position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:18px;color:var(--color-text-sec);pointer-events:none}
 .search-hint{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:var(--text-2xs);color:var(--color-text-dim);padding:2px 6px;border-radius:var(--radius-xs);border:1px solid var(--color-border);font-weight:var(--weight-semibold);pointer-events:none;font-family:monospace}
 
@@ -398,11 +398,12 @@ body::after{
 
 .product-card{
   --cat-color:125,211,252;
-  background:rgba(30,24,18,.05);border:1px solid var(--color-border);border-radius:var(--radius-sm);
+  background:linear-gradient(180deg, var(--color-bg), var(--color-bg-elevated));
+  border:1px solid var(--color-border);border-radius:var(--radius-sm);
   padding:8px 10px;cursor:pointer;position:relative;overflow:hidden;
-  transition:background .15s,transform .1s,border-color .15s;
+  transition:background .15s,transform .1s,border-color .15s,box-shadow .15s;
   opacity:0;animation:cardIn .15s ease forwards;
-  box-shadow:none;
+  box-shadow:var(--shadow-sm);
   display:flex;flex-direction:column;
 }
 /* Top accent line — subtle */
@@ -420,12 +421,13 @@ body::after{
 .product-card.ripple::after{opacity:1;transition:opacity 0s}
 
 .product-card:hover{
-  background:rgba(30,24,18,.08);
-  border-color:rgba(30,24,18,.16);
+  background:linear-gradient(180deg, var(--color-bg-elevated), var(--color-bg-sunken));
+  border-color:var(--color-border-hover);
   transform:translateY(-1px);
+  box-shadow:var(--shadow-md);
 }
 .product-card:hover::before{background:rgba(var(--cat-color),.15)}
-.product-card:active{transform:scale(.97);background:rgba(30,24,18,.10)}
+.product-card:active{transform:scale(.97);background:linear-gradient(180deg, var(--color-bg-elevated), var(--color-bg-sunken));box-shadow:var(--shadow-sm)}
 
 /* Emoji — smaller, inline icon */
 .product-emoji{
@@ -480,9 +482,22 @@ body::after{
 @keyframes cardIn{to{opacity:1}}
 
 /* ===== ORDER PANEL ===== */
-.order-panel{width:380px;flex-shrink:0;display:flex;flex-direction:column;background:var(--surface-raised);border-left:1px solid var(--border-default)}
+.order-panel{position:relative;width:380px;flex-shrink:0;display:flex;flex-direction:column;background:var(--surface-raised);border-left:1px solid var(--border-default);border-top:2px dashed var(--color-border)}
+/* Receipt perforation — 2px dashed top edge evokes torn-off ledger sheet.
+   Pure decorative; nothing else relies on this border. */
+.order-panel::before{
+  content:'';
+  position:absolute;
+  top:-1px;left:0;right:0;
+  height:2px;
+  background-image:repeating-linear-gradient(90deg,
+    var(--color-border-hover) 0 4px,
+    transparent 4px 8px);
+  pointer-events:none;
+  opacity:.55;
+}
 .order-header{padding:var(--space-2) var(--space-4) 4px;border-bottom:1px solid var(--border-default);display:flex;align-items:center;justify-content:space-between}
-.order-tabs{display:flex;gap:var(--space-1);padding:var(--space-1) var(--space-4);border-bottom:1px solid var(--action-primary-border);overflow-x:auto;flex-shrink:0}
+.order-tabs{display:flex;gap:var(--space-1);padding:var(--space-1) var(--space-4);border-bottom:1px solid var(--color-border);overflow-x:auto;flex-shrink:0;position:sticky;top:0;z-index:5;background:linear-gradient(180deg, rgba(245, 239, 227, .95) 0%, rgba(245, 239, 227, .85) 100%);backdrop-filter:blur(8px) saturate(120%);-webkit-backdrop-filter:blur(8px) saturate(120%)}
 .order-tab{display:flex;flex-direction:column;align-items:flex-start;padding:6px 12px;border-radius:var(--radius-sm);border:1px solid var(--action-primary-border);background:transparent;color:var(--text-secondary);font-family:var(--font-body);font-size:var(--text-sm);font-weight:var(--weight-semibold);cursor:pointer;white-space:nowrap;transition:all .15s;position:relative}
 .order-tab.active{background:var(--action-primary-bg);color:var(--action-primary);border-color:var(--action-primary)}
 .tab-label{font-weight:700;font-size:13px;line-height:1.2}
@@ -802,7 +817,10 @@ body::after{
 .order-footer{border-top:1px solid var(--border-default);padding:8px 12px 12px;background:var(--surface-sunken)}
 .sum-total-wrap{
   display:flex;justify-content:space-between;align-items:baseline;
-  padding:2px 0 6px;
+  padding:var(--space-3) 0 var(--space-4);
+  border-top:1px solid var(--color-border);
+  border-bottom:1px solid var(--color-border-strong);
+  margin-bottom:6px;
 }
 /* "Celkom" eyebrow — kedysi --text-muted (3.2:1 = fail WCAG AA),
    teraz --text-secondary (lepsie cit. z laku ruky cez pult). */
@@ -885,7 +903,7 @@ body::after{
 .discount-line .discount-label{display:flex;align-items:center;gap:6px}
 .discount-line .discount-remove{background:none;border:none;color:var(--color-danger);font-size:14px;cursor:pointer;padding:0 4px;opacity:.6;transition:opacity .2s}
 .discount-line .discount-remove:hover{opacity:1}
-.discount-item{padding:10px 14px;border-radius:10px;border:1px solid rgba(30,24,18,.08);background:rgba(30,24,18,.03);cursor:pointer;transition:all .2s;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}
+.discount-item{padding:10px 14px;border-radius:10px;border:1px solid var(--color-border);background:rgba(30,24,18,.03);cursor:pointer;transition:all .2s;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}
 .discount-item:hover{background:rgba(184,84,42,.08);border-color:rgba(184,84,42,.2)}
 .discount-item.selected{background:rgba(184,84,42,.12);border-color:rgba(184,84,42,.3);color:var(--color-accent)}
 .discount-item-name{font-weight:600;font-size:13px}
@@ -920,12 +938,13 @@ body::after{
   border-radius:var(--radius-sm);
   border:1px solid var(--color-border);
   background:rgba(30,24,18,.03);
+  box-shadow:var(--shadow-inset);
   font-family:var(--font-body);font-size:var(--text-md);font-weight:var(--weight-medium);
   color:var(--color-text);outline:none;
   transition:border-color var(--transition-fast),box-shadow var(--transition-fast),background var(--transition-fast);
 }
 .form-input:hover,.form-select:hover{border-color:var(--color-border-hover);background:rgba(30,24,18,.04)}
-.form-input:focus,.form-select:focus{border-color:rgba(184,84,42,.35);box-shadow:0 0 0 3px rgba(184,84,42,.08),inset 0 1px 4px rgba(0,0,0,.15);background:rgba(30,24,18,.05)}
+.form-input:focus,.form-select:focus,.form-input:focus-visible,.form-select:focus-visible{outline:none;border-color:var(--color-accent);box-shadow:var(--shadow-inset),0 0 0 3px var(--color-accent-glow);background:rgba(30,24,18,.05)}
 .form-input::placeholder{color:var(--color-text-dim);font-weight:var(--weight-normal)}
 
 /* STORNO REASON MODAL — prep choice + reason chips */
@@ -985,13 +1004,16 @@ body::after{
 .u-overlay.show{opacity:1;pointer-events:all}
 
 .u-modal{
-  background:rgba(16,14,36,.95);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);
+  position:relative;
+  background:linear-gradient(180deg, var(--color-bg), var(--color-bg-elevated));
   border:1px solid var(--color-border-strong);border-radius:var(--radius-lg);
   padding:32px;min-width:340px;max-width:420px;width:90%;
   text-align:center;
   transform:scale(.92) translateY(10px);
   transition:transform .3s cubic-bezier(.34,1.56,.64,1);
-  box-shadow:0 24px 80px rgba(0,0,0,.5);
+  box-shadow:var(--shadow-lg),
+             0 24px 64px -16px rgba(30, 24, 18, .20),
+             0 0 0 1px var(--color-accent-glow);
   /* Modal nikdy nesmie pretiect viewport — bez tohoto pri zoomovanom
      payment modale (cash helper s velkym numpadom + quick btns + change
      box + actions) na 10.1" tablete v ne-fullscreen Chrome casti UI
@@ -1007,6 +1029,19 @@ body::after{
   overscroll-behavior:contain;
 }
 .u-overlay.show .u-modal{transform:scale(1) translateY(0)}
+/* Phase 3 — 1px highlight bar at top edge of modal: simulates paper edge
+   catching light. Pure cosmetic — no interaction, pointer-events disabled. */
+.u-modal::before{
+  content:'';
+  position:absolute;
+  top:-1px;left:20%;right:20%;height:1px;
+  background:linear-gradient(90deg,
+    transparent 0%,
+    rgba(255, 255, 255, .6) 50%,
+    transparent 100%);
+  pointer-events:none;
+  border-radius:1px;
+}
 
 .u-modal-icon{font-size:48px;margin-bottom:14px;display:block}
 .u-modal-title{font-family:var(--font-display);font-size:var(--text-4xl);font-weight:var(--weight-bold);margin-bottom:6px}
@@ -1333,6 +1368,7 @@ body::after{
 .u-modal-field input,.u-modal-field textarea,.u-modal-field select{
   width:100%;height:44px;padding:0 var(--space-4);border-radius:var(--radius-sm);
   border:1px solid var(--color-border);background:rgba(30,24,18,.03);
+  box-shadow:var(--shadow-inset);
   font-family:var(--font-body);font-size:var(--text-md);font-weight:var(--weight-medium);
   color:var(--color-text);outline:none;
   transition:border-color var(--transition-fast),box-shadow var(--transition-fast),background var(--transition-fast);
@@ -1340,10 +1376,27 @@ body::after{
 .u-modal-field textarea{height:auto;min-height:72px;padding:var(--space-3) var(--space-4);line-height:var(--leading-normal)}
 .u-modal-field select{cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='7'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='rgba(184,84,42,.5)' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;padding-right:36px}
 .u-modal-field input:hover,.u-modal-field select:hover{border-color:var(--color-border-hover);background:rgba(30,24,18,.04)}
-.u-modal-field input:focus,.u-modal-field textarea:focus,.u-modal-field select:focus{
-  border-color:rgba(184,84,42,.35);box-shadow:0 0 0 3px rgba(184,84,42,.08),inset 0 1px 4px rgba(0,0,0,.15);background:rgba(30,24,18,.05);
+.u-modal-field input:focus,.u-modal-field textarea:focus,.u-modal-field select:focus,
+.u-modal-field input:focus-visible,.u-modal-field textarea:focus-visible,.u-modal-field select:focus-visible{
+  outline:none;border-color:var(--color-accent);box-shadow:var(--shadow-inset),0 0 0 3px var(--color-accent-glow);background:rgba(30,24,18,.05);
 }
 .u-modal-field input::placeholder,.u-modal-field textarea::placeholder{color:var(--color-text-dim);font-weight:var(--weight-normal)}
+/* Phase 3 — paper-pressed override pre #noteInput a #cashGivenInput,
+   ktore maju inline-style (border/background) priamo v HTML. Bez
+   !important by inline-style vyhralo specificitu. */
+#noteInput, #cashGivenInput{
+  background:rgba(30,24,18,.03) !important;
+  border:1px solid var(--color-border) !important;
+  box-shadow:var(--shadow-inset) !important;
+  transition:border-color .15s, box-shadow .15s, background .15s !important;
+}
+#noteInput:focus, #noteInput:focus-visible,
+#cashGivenInput:focus, #cashGivenInput:focus-visible{
+  outline:none !important;
+  border-color:var(--color-accent) !important;
+  box-shadow:var(--shadow-inset), 0 0 0 3px var(--color-accent-glow) !important;
+  background:rgba(30,24,18,.05) !important;
+}
 .u-modal-btns{display:flex;gap:10px}
 .u-btn{
   flex:1;padding:var(--space-3) var(--space-6);border:none;border-radius:var(--radius-sm);
@@ -1364,7 +1417,7 @@ body::after{
 .u-btn-lavender{background:var(--color-accent-bg);color:var(--color-accent-dim);border:1px solid var(--color-accent-glow)}
 .u-btn-lavender:hover{background:rgba(184,84,42,.22);box-shadow:0 4px 16px rgba(184,84,42,.12)}
 .u-modal-method{font-size:12px;color:var(--color-text-sec);margin-bottom:4px}
-.kbd{display:inline-block;padding:1px 5px;border-radius:4px;background:rgba(30,24,18,.06);border:1px solid rgba(30,24,18,.08);font-size:9px;color:var(--color-text-dim);font-weight:700;font-family:monospace;margin-left:4px}
+.kbd{display:inline-block;padding:1px 5px;border-radius:4px;background:rgba(30,24,18,.06);border:1px solid var(--color-border);font-size:9px;color:var(--color-text-dim);font-weight:700;font-family:monospace;margin-left:4px}
 
 /* Utilities — prefer classes over inline styles in HTML/JS templates */
 .pos-hidden{display:none !important}
@@ -1607,7 +1660,7 @@ body::after{
 .qty-popup{
   position:fixed;z-index:100;
   background:rgba(16,14,36,.95);backdrop-filter:blur(30px);
-  border:1px solid rgba(30,24,18,.12);border-radius:16px;
+  border:1px solid var(--color-border-hover);border-radius:16px;
   padding:12px;display:none;
   box-shadow:0 16px 48px rgba(0,0,0,.5);
 }
@@ -2134,7 +2187,7 @@ body::after{
 .swipe-btn-move:active{background:rgba(184,84,42,.35)}
 .swipe-btn-note:active{background:rgba(184,84,42,.35)}
 .swipe-btn-del:active{background:rgba(239,68,68,.35)}
-.order-item-inner{position:relative;z-index:1;background:var(--surface-app);transition:transform .2s;display:flex;align-items:center;gap:8px;padding:6px 10px;min-height:46px}
+.order-item-inner{position:relative;z-index:1;background:linear-gradient(180deg, var(--color-bg), var(--color-bg-elevated));transition:transform .2s;display:flex;align-items:center;gap:8px;padding:6px 10px;min-height:46px}
 /* Sent vs unsent — kedysi border 3px @ 15% alpha = neviditelne, .04 bg
    = uplne plocha. Teraz: hrubsi 4px solid stripe v plnej success farbe
    + vyssia bg tint (.10) — cisty signal "uz je v kuchyni" bez double-tap
