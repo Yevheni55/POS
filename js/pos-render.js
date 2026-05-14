@@ -632,59 +632,73 @@ function renderProducts(){
     '<div class="products-empty-hint">Skuste iny nazov alebo kategoriu</div>' +
     '</div>';return}
   const order=getOrder();
+  // Aggregate qty per name (skip companion-mirror rows) so the initial render
+  // paints .in-cart synchronously — no 1-frame flash before updateQtyBadges().
+  const _qtyByName={};
+  for(let oi=0;oi<order.length;oi++){
+    const _o=order[oi];
+    if(_o._companionOf) continue;
+    const _k=String(_o.name);
+    _qtyByName[_k]=(_qtyByName[_k]||0)+_o.qty;
+  }
   grid.innerHTML=items.map((item)=>{
     const cat=itemCats[item.name]||activeCategory;
     const cc=CAT_COLORS[cat]||'125,211,252';
-    const inOrder=order.find(o=>o.name===item.name);
-    const qtyBadge=inOrder?`<span class="product-qty-badge">${inOrder.qty}</span>`:'';
+    const q=_qtyByName[item.name]||0;
+    const qtyBadge=q>0?`<span class="product-qty-badge">${q}</span>`:'';
     // Photo above name when set; emoji is the fallback when there's no photo.
     const visualHtml = item.imageUrl
       ? `<div class="product-photo" style="background-image:url('${escAttr(item.imageUrl)}')"></div>`
       : `<span class="product-emoji">${escHtml(item.emoji)}</span>`;
     var _esc = escAttr(item.name.replace(/'/g, "\\'"));
     var _emoji = escAttr(item.emoji);
-    return `<div class="product-card${item.imageUrl?' has-photo':''}" data-name="${escAttr(item.name)}" tabindex="0" role="button" style="--cat-color:${cc}" onclick="addToOrderClick('${_esc}','${_emoji}',${item.price})" onpointerdown="ripple(event);_lpStart(event,'${_esc}','${_emoji}',${item.price})" onpointerup="_lpCancel()" onpointerleave="_lpCancel()" onpointercancel="_lpCancel()" oncontextmenu="event.preventDefault()">
+    return `<div class="product-card${item.imageUrl?' has-photo':''}${q>0?' in-cart':''}" data-name="${escAttr(item.name)}" tabindex="0" role="button" style="--cat-color:${cc}" onclick="addToOrderClick('${_esc}','${_emoji}',${item.price})" onpointerdown="ripple(event);_lpStart(event,'${_esc}','${_emoji}',${item.price})" onpointerup="_lpCancel()" onpointerleave="_lpCancel()" onpointercancel="_lpCancel()" oncontextmenu="event.preventDefault()">
       ${qtyBadge}${visualHtml}<div class="product-name">${escHtml(item.name)}</div><div class="product-desc">${escHtml(item.desc)}</div><div class="product-price">${fmt(item.price)}</div></div>`;
   }).join('');
 }
 
 // Update only qty badges without re-rendering entire grid
 // When menuItemId is provided, update only that item's card for O(1) performance
+// Spec 1.6 + 2.6 — toggle .in-cart on the card too, so cashier sees terra
+// border + tint, not just a small corner number. Companion rows (sauce
+// auto-mirror) are skipped so their qty doesn't double-count the primary.
 function updateQtyBadges(menuItemId){
   const order=getOrder();
+  // Aggregate qty per product name, skipping companion-mirror rows.
+  var totals={};
+  for(var i=0;i<order.length;i++){
+    var o=order[i];
+    if(o._companionOf) continue;
+    var k=String(o.name);
+    totals[k]=(totals[k]||0)+o.qty;
+  }
+  function applyToCard(card){
+    var name=card.getAttribute('data-name');
+    var q=totals[name]||0;
+    var badge=card.querySelector('.product-qty-badge');
+    if(q>0){
+      card.classList.add('in-cart');
+      if(badge){badge.textContent=q}
+      else{badge=document.createElement('span');badge.className='product-qty-badge';badge.textContent=q;card.prepend(badge)}
+    } else {
+      card.classList.remove('in-cart');
+      if(badge)badge.remove();
+    }
+  }
   if(menuItemId){
     // Targeted update — find the specific card by data-name
     var itemName=null;
-    for(var i=0;i<order.length;i++){if(order[i].menuItemId===menuItemId){itemName=order[i].name;break}}
+    for(var j=0;j<order.length;j++){if(order[j].menuItemId===menuItemId){itemName=order[j].name;break}}
     // Also check MENU_ID_MAP reverse lookup if item was just removed
     if(!itemName){MENU_ID_MAP.forEach(function(id,name){if(id===menuItemId)itemName=name})}
     if(itemName){
       var card=document.querySelector('.product-card[data-name="'+itemName.replace(/"/g,'\\"')+'"]');
-      if(card){
-        var inOrder=order.find(function(o){return o.name===itemName});
-        var badge=card.querySelector('.product-qty-badge');
-        if(inOrder){
-          if(badge){badge.textContent=inOrder.qty}
-          else{badge=document.createElement('span');badge.className='product-qty-badge';badge.textContent=inOrder.qty;card.prepend(badge)}
-        } else {
-          if(badge)badge.remove();
-        }
-      }
+      if(card)applyToCard(card);
       return;
     }
   }
   // Full update fallback (used after sync, table switch, etc.)
-  document.querySelectorAll('.product-card').forEach(card=>{
-    const name=card.getAttribute('data-name');
-    const inOrder=order.find(o=>o.name===name);
-    let badge=card.querySelector('.product-qty-badge');
-    if(inOrder){
-      if(badge){badge.textContent=inOrder.qty}
-      else{badge=document.createElement('span');badge.className='product-qty-badge';badge.textContent=inOrder.qty;card.prepend(badge)}
-    } else {
-      if(badge)badge.remove();
-    }
-  });
+  document.querySelectorAll('.product-card').forEach(applyToCard);
 }
 
 function ripple(e){
