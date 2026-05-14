@@ -872,7 +872,33 @@ function confirmRemoveItem(name, id) {
   );
 }
 window.confirmRemoveItem = confirmRemoveItem;
-async function clearOrder(){
+// Spec 1.5 + 2.5 — clearOrder uz nevykonava destruktivnu akciu priamo.
+// Otvori confirm modal; potvrdenie vola _clearOrderImmediate.
+function clearOrder() {
+  var order = getOrder();
+  if (!order.length) return;  // empty order — silent no-op
+  // If everything is already sent and there's nothing pending, treat as
+  // "release table" — still confirm because it abandons unpaid items.
+  var pendingCount = order.filter(function (o) { return !o.sent; }).length;
+  var sentCount = order.length - pendingCount;
+  var summary;
+  if (pendingCount && sentCount) {
+    summary = pendingCount + ' nové + ' + sentCount + ' odoslaných položiek bude zrušených.';
+  } else if (pendingCount) {
+    summary = pendingCount + ' nových položiek bude zrušených.';
+  } else {
+    summary = sentCount + ' odoslaných položiek bude zrušených (zatiaľ nezaplatených).';
+  }
+  showConfirm(
+    'Zrušiť objednávku?',
+    summary,
+    _clearOrderImmediate,
+    { type: 'danger', confirmText: 'Áno, zrušiť', cancelText: 'Nie, späť' }
+  );
+}
+window.clearOrder = clearOrder;
+
+async function _clearOrderImmediate(){
   try {
     if(!getOrder().length)return;
 
