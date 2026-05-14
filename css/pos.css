@@ -1011,46 +1011,41 @@ body::after{
 }
 .ap-card-new:active{background:rgba(184,84,42,.06);border-color:rgba(184,84,42,.25);color:var(--color-accent)}
 
-/* Primary CTA rule (desktop + mobile): "Pošli" is the in-between action — not destructive
-   and not the final purchase. Phase 4 paints it AMBER to distinguish from final-tx terra
-   (.btn-cash/.btn-pay) and the secondary navy outline (.btn-card). Amber = "send to kitchen
-   pipeline". Inset top highlight + warm drop shadow give it filled-amber identity. */
+/* === SUMMARY + ACTIONS (Spec 1.3 + 1.4 + 2.2) ==============================
+   Task 3: Send button (amber) — kept distinct from payment buttons.
+   "Poslat" is the in-between action (send-to-kitchen) — non-payment, amber.
+   Compact 44px touch target. Cf. canonical .sum-total-wrap rule below. */
 .btn-send{
   background:var(--accent-amber);color:#f5efe3;border:none;
-  font-size:var(--text-lg);font-weight:var(--weight-extrabold);padding:var(--space-3);width:100%;margin-bottom:2px;
-  position:relative;overflow:hidden;min-height:var(--btn-h-md);letter-spacing:var(--tracking-wide);
-  text-transform:uppercase;
-  transition:transform var(--transition-fast),box-shadow var(--transition-fast),opacity var(--transition-fast),background var(--transition-fast);
+  font-size:14px;font-weight:800;padding:0 var(--space-3);
+  min-height:var(--btn-h-md);border-radius:var(--radius-sm);
+  letter-spacing:.02em;text-transform:uppercase;
+  display:flex;align-items:center;justify-content:center;gap:6px;
+  cursor:pointer;-webkit-tap-highlight-color:transparent;
+  transition:transform var(--transition-fast),background var(--transition-fast);
+  position:relative;overflow:hidden;
 }
-.btn-send:not(:disabled){box-shadow:inset 0 1px 0 rgba(255,255,255,.22),0 2px 6px -1px rgba(184,124,26,.30),0 4px 12px -2px rgba(184,124,26,.18)}
-.btn-send:hover:not(:disabled){transform:translateY(-1px);background:#c98a22;box-shadow:inset 0 1px 0 rgba(255,255,255,.26),0 3px 10px -1px rgba(184,124,26,.35),0 6px 18px -2px rgba(184,124,26,.22)}
-.btn-send:active:not(:disabled){transform:translateY(0);box-shadow:inset 0 1px 0 rgba(255,255,255,.18),0 1px 3px rgba(184,124,26,.20)}
-.btn-send:disabled{opacity:.12;background:var(--surface-card);border:1px solid var(--border-default);color:var(--text-muted);cursor:default;transform:none;box-shadow:none}
+.btn-send:hover:not(:disabled){background:#c98a22}
+.btn-send:active:not(:disabled){transform:translateY(1px)}
+.btn-send:disabled{opacity:.4;cursor:not-allowed;transform:none;box-shadow:none}
 
-/* Pred-ucet — secondary akcia medzi Poslat a Pay row. Tonalita = navy
-   accent-secondary (informacny, kludny ton, nie urgent ako Send/Pay).
-   Outline + soft fill kombinacia: dost vyrazny aby si casnik vsimol pri
-   "Ucet prosim", ale slabsi vizualny doraz nez Pay buttons. Plna sirka. */
+/* Pred-ucet — navy outline, secondary action (informacny tlac pred fiskalnou platbou). */
 .btn-prebill{
-  width:100%;
   background:var(--color-accent-secondary-soft);
   color:var(--color-accent-secondary);
-  border:1px solid color-mix(in oklab, var(--color-accent-secondary) 35%, transparent);
-  font-size:var(--text-md);
-  font-weight:var(--weight-semibold);
-  padding:var(--space-2) var(--space-3);
-  min-height:var(--btn-h-sm);
-  margin-bottom:2px;
-  letter-spacing:.02em;
-  transition:background var(--transition-fast),color var(--transition-fast),border-color var(--transition-fast),transform var(--transition-fast);
+  border:1px solid color-mix(in oklab, var(--color-accent-secondary) 30%, transparent);
+  font-weight:600;font-size:13px;
+  padding:0 var(--space-3);min-height:var(--btn-h-md);
+  border-radius:var(--radius-sm);
+  display:flex;align-items:center;justify-content:center;gap:6px;
+  cursor:pointer;-webkit-tap-highlight-color:transparent;
+  transition:background var(--transition-fast),border-color var(--transition-fast);
 }
 .btn-prebill:hover:not(:disabled){
-  background:color-mix(in oklab, var(--color-accent-secondary) 14%, transparent);
+  background:color-mix(in oklab, var(--color-accent-secondary) 12%, transparent);
   border-color:var(--color-accent-secondary);
-  transform:translateY(-1px);
 }
-.btn-prebill:active:not(:disabled){transform:translateY(0)}
-.btn-prebill:disabled{opacity:.4;cursor:default;transform:none}
+.btn-prebill:disabled{opacity:.4;cursor:not-allowed;transform:none;box-shadow:none}
 
 .item-status{font-size:8px;font-weight:700;padding:3px 7px;border-radius:var(--radius-xs);text-transform:uppercase;letter-spacing:.5px;display:inline-flex;align-items:center;gap:3px}
 .item-status::before{content:'';width:5px;height:5px;border-radius:50%;flex-shrink:0}
@@ -1072,36 +1067,53 @@ body::after{
 /* Spec 1.2 + 2.7 — footer pinned bottom via flex:0 0 auto on .order-panel
    flex column. Padding 8/12/12 per canonical block (was 16/12/12). */
 .order-footer{flex:0 0 auto;padding:8px 12px 12px;border-top:1px solid var(--color-border);background:var(--color-bg-elevated)}
+/* Spec 1.3 — Compact single-row total. Was hero block 64px in tablet override;
+   now stays compact across all viewports. Tinted terra background = ceremonial
+   identity without dominating screen real-estate. */
 .sum-total-wrap{
-  display:flex;justify-content:space-between;align-items:baseline;
-  padding:var(--space-3) 0 var(--space-4);
-  border-top:1px solid var(--color-border);
-  border-bottom:1px solid var(--color-border-strong);
-  margin-bottom:6px;
+  display:flex;align-items:baseline;justify-content:space-between;
+  padding:6px 10px;margin:0 0 8px;
+  background:rgba(184,84,42,.06);border:1px solid rgba(184,84,42,.18);
+  border-radius:var(--radius-sm);
 }
-/* "Celkom" eyebrow — kedysi --text-muted (3.2:1 = fail WCAG AA),
-   teraz --text-secondary (lepsie cit. z laku ruky cez pult). */
-.sum-total-label{font-family:var(--font-display);font-size:var(--text-md);font-weight:var(--weight-semibold);color:var(--text-secondary);text-transform:uppercase;letter-spacing:var(--tracking-wide)}
+.sum-total-label{
+  font-family:var(--font-body);font-weight:700;font-size:11px;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--color-text-sec);
+}
 .sum-total-val{
-  font-family:var(--font-display);font-size:var(--text-5xl);font-weight:var(--weight-extrabold);letter-spacing:var(--tracking-tight);
-  color:var(--text-primary);
-  font-variant-numeric:tabular-nums;
+  font-family:var(--font-mono),'JetBrains Mono Variable',ui-monospace,monospace;
+  font-feature-settings:'tnum' 1;
+  font-size:22px;font-weight:800;color:var(--color-accent);
+  letter-spacing:-.01em;
 }
-.actions{display:flex;flex-direction:column;gap:4px}
-/* Separator between send and payment actions */
-.actions .pay-row{border-top:1px solid var(--border-default);padding-top:4px;margin-top:2px}
-.pay-row{display:flex;gap:8px}
+
+/* Spec 1.4 — Hotovost + Karta rovnaké, rozdiel iba ikona/text. */
+.actions{display:flex;flex-direction:column;gap:6px}
+.pay-row{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .btn{flex:1;padding:var(--space-4);border:none;border-radius:var(--radius-sm);font-family:var(--font-body);font-weight:var(--weight-bold);font-size:var(--text-xl);cursor:pointer;transition:all var(--transition-fast);display:flex;align-items:center;justify-content:center;gap:6px;min-height:var(--btn-h-md)}
-/* Phase 4: Primary CTA shape language — filled terra background, white-cream text,
-   inset top highlight + warm drop shadow. Cash is the dominant final-transaction action. */
-.btn-cash{background:var(--action-primary);color:#f5efe3;border:none;font-size:var(--text-md);padding:var(--space-3) var(--space-4);font-weight:var(--weight-bold);min-height:var(--btn-h-md);letter-spacing:var(--tracking-normal);box-shadow:inset 0 1px 0 rgba(255,255,255,.20),0 2px 6px -1px var(--color-accent-glow),0 4px 12px -2px rgba(184,84,42,.18);transition:transform var(--transition-fast),box-shadow var(--transition-fast),background var(--transition-fast)}
-.btn-cash:hover{background:#c4612f;transform:translateY(-1px);box-shadow:inset 0 1px 0 rgba(255,255,255,.24),0 3px 10px -1px rgba(184,84,42,.28),0 6px 18px -2px rgba(184,84,42,.22)}
-.btn-cash:active{transform:translateY(0);box-shadow:inset 0 1px 0 rgba(255,255,255,.16),0 1px 3px rgba(184,84,42,.18)}
-/* Phase 4: Secondary CTA shape language — navy ink 2px outline, no fill,
-   navy text. Inverse of primary; hover lightly fills navy at 8%. */
-.btn-card{background:transparent;color:var(--color-accent-secondary);border:2px solid var(--color-accent-secondary);font-size:var(--text-md);padding:var(--space-3) var(--space-4);font-weight:var(--weight-bold);min-height:var(--btn-h-md);letter-spacing:var(--tracking-normal);box-shadow:none;transition:transform var(--transition-fast),box-shadow var(--transition-fast),background var(--transition-fast)}
-.btn-card:hover{background:var(--color-accent-secondary-soft);transform:translateY(-1px);box-shadow:0 4px 14px -2px color-mix(in srgb, var(--color-accent-secondary) 18%, transparent)}
-.btn-card:active{transform:translateY(0);box-shadow:none;background:color-mix(in srgb, var(--color-accent-secondary) 14%, transparent)}
+.btn-cash,.btn-card{
+  display:flex;align-items:center;justify-content:center;gap:6px;
+  background:var(--color-accent);
+  color:#fff;border:1px solid var(--color-accent-dim);
+  font-family:var(--font-display);font-weight:700;font-size:14px;
+  padding:0 var(--space-3);
+  min-height:var(--btn-h-md);
+  border-radius:var(--radius-sm);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.22),0 2px 6px -1px rgba(184,84,42,.26);
+  cursor:pointer;-webkit-tap-highlight-color:transparent;
+  transition:transform var(--transition-fast),box-shadow var(--transition-fast),opacity var(--transition-fast);
+}
+.btn-cash:hover:not(:disabled),.btn-card:hover:not(:disabled){
+  transform:translateY(-1px);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.26),0 3px 10px -1px rgba(184,84,42,.32);
+}
+.btn-cash:active:not(:disabled),.btn-card:active:not(:disabled){
+  transform:translateY(0);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.16),0 1px 3px rgba(184,84,42,.20);
+}
+.btn-cash:disabled,.btn-card:disabled{
+  opacity:.4;cursor:not-allowed;transform:none;box-shadow:none;
+}
 /* Zamestnanecka spotreba — vlastny look (amber tint), aby pripomenul, ze
    to NIE JE platba ale benefit/naklad. Phase 4: amber-tint shape language
    aligned with .btn-send (filled-amber). Here we go softer (tint not fill)
@@ -1174,16 +1186,28 @@ body::after{
 .discount-item.selected{background:rgba(184,84,42,.12);border-color:rgba(184,84,42,.3);color:var(--color-accent)}
 .discount-item-name{font-weight:600;font-size:13px}
 .discount-item-value{font-family:var(--font-display);font-weight:var(--weight-bold);font-size:var(--text-md);color:var(--action-primary);font-variant-numeric:tabular-nums}
-/* "Zrusit objednavku" — predtym opacity:.5 + 9px text vyzeralo ako
-   disabled placeholder. Bud casnik tlacidlo nevidi, alebo omylom klepne
-   lebo nevie ci je live. Teraz: full opacity, danger tint hned (nie az
-   na hover), --text-sm font, dashed border = "destrukivne ale uvazene". */
-/* Phase 4: Danger CTA shape language — dashed rust border, uppercase, tracking,
-   no fill. Tactical/deliberate signal: "destrukivne ale uvazene". Hover strengthens
-   border to solid + light tint, never fills strongly. */
-.btn-cancel{background:transparent;color:var(--action-danger);border:1px dashed var(--action-danger-border);font-size:var(--text-sm);font-weight:var(--weight-semibold);padding:var(--space-2) var(--space-3);min-height:var(--btn-h-sm,36px);letter-spacing:var(--tracking-wide);text-transform:uppercase;transition:background var(--transition-fast),border-color var(--transition-fast),border-style var(--transition-fast),color var(--transition-fast)}
-.btn-cancel:hover{background:var(--action-danger-bg);border-color:var(--action-danger);border-style:solid;color:var(--action-danger)}
-.btn-cancel:active{background:rgba(176,56,48,.14)}
+/* Spec 1.5 — less aggressive Cancel: ghost outline by default, danger
+   tone only on hover. Task 4 will wrap clearOrder() in a confirm modal
+   as the real destructive-action safety net. */
+.btn-cancel{
+  width:100%;background:transparent;
+  color:var(--color-text-sec);border:1px solid var(--color-border);
+  font-size:12px;font-weight:600;
+  padding:0 var(--space-3);min-height:36px;
+  border-radius:var(--radius-sm);
+  cursor:pointer;-webkit-tap-highlight-color:transparent;
+  transition:background var(--transition-fast),color var(--transition-fast),border-color var(--transition-fast);
+}
+.btn-cancel:hover:not(:disabled){
+  background:var(--color-danger-bg);color:var(--color-danger);border-color:var(--color-danger-border);
+}
+
+/* Focus-visible rings on all action buttons (DESIGN-CODE.md §6). */
+.btn-cash:focus-visible,.btn-card:focus-visible,.btn-send:focus-visible,.btn-prebill:focus-visible,.btn-cancel:focus-visible{
+  outline:none;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.22),0 0 0 3px rgba(184,84,42,.28);
+}
+
 @media (pointer:coarse){.btn-cancel{min-height:48px;font-size:14px;padding:10px 16px}}
 
 /* TOAST — legacy .toast (Daylight redesign at end-of-file, Phase 4).
@@ -1968,39 +1992,11 @@ body::after{
   .qty-popup-btn{width:55px;height:55px;font-size:28px}
   .order-tab{font-size:18px;padding:14px 18px}
   .pos-subtotal-row{font-size:21px}
-  /* Spec 1.2 — tablet keeps canonical 360px order panel (was 437px).
-     Wider panel ate horizontal product grid space; 360px is tuned for
-     1280×800 landscape so items column fits 9 rows @ 56px without scroll. */
-  /* Order total — must dominate the screen so the customer reads it
-     instantly when the cashier turns the tablet ("koľko platím?"). */
-  .sum-total-wrap{
-    border-top:2px solid var(--border-default);
-    padding:16px 0 9px;
-    margin-top:7px;
-    align-items:baseline;
-  }
-  .sum-total-label{
-    /* Drop opacity:.7 z predchadzajucej verzie — base sum-total-label
-       uz pouziva --text-secondary (~6:1 contrast), opacity:.7 by to
-       znova zhorsila pod WCAG AA threshold. */
-    font-size:16px;
-    text-transform:uppercase;
-    letter-spacing:1px;
-  }
-  /* Phase 2 — Big Number ceremonial bump (46→64 px) + gradient text fill.
-     Customer reads grand total from 2m when cashier turns tablet. Gradient
-     uses terra accent → dim for warm ceremony; at 0,00 € the gradient still
-     reads cleanly on cream. */
-  #total,.sum-total-val{
-    font-size:64px;
-    font-weight:var(--weight-extrabold);
-    font-variant-numeric:tabular-nums;
-    line-height:1.0;
-    background:linear-gradient(180deg,var(--color-accent),var(--color-accent-dim));
-    -webkit-background-clip:text;
-    background-clip:text;
-    -webkit-text-fill-color:transparent;
-  }
+  /* Spec 1.3 — total stays compact on tablet (was 64px hero). Bump font
+     a touch for arm's-length readability but keep the single-row box
+     identity from canonical .sum-total-wrap rule. */
+  .sum-total-label{font-size:12px;letter-spacing:.18em}
+  #total,.sum-total-val{font-size:26px}
   .form-input,.form-select,.u-modal-field input,.u-modal-field textarea,.u-modal-field select{height:60px;font-size:20px}
   .u-btn{font-size:20px;min-height:60px;padding:14px 23px}
   .u-modal{padding:41px;min-width:437px;max-width:598px}
