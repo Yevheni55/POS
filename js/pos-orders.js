@@ -855,6 +855,23 @@ async function doRemoveItem(name){
     await _autoDeleteEmptyOrderIfApplicable();
   }
 }
+// Spec 2.1: tap × na riadku → priatelsky inline confirm.
+// Pri qty == 1 maze priamo (rovnaky pocit ako predtym).
+// Pri qty > 1 ukaze potvrdenie aby sa nestratilo 5x pivo jedinym omylom.
+// Pouziva existujuci showConfirm(title, text, onConfirm, opts) z pos-ui.js.
+function confirmRemoveItem(name, id) {
+  var order = getOrder();
+  var item = order.find(function (o) { return o.id === id; });
+  if (!item) { removeItem(name); return; }
+  if (item.qty <= 1) { removeItem(name); return; }
+  showConfirm(
+    'Odstránit položku',
+    '„' + escHtml(item.name) + '" × ' + item.qty + ' bude odobrané z účtu.',
+    function () { removeItem(name); },
+    { type: 'danger', confirmText: 'Odstránit', cancelText: 'Späť' }
+  );
+}
+window.confirmRemoveItem = confirmRemoveItem;
 async function clearOrder(){
   try {
     if(!getOrder().length)return;

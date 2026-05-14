@@ -752,11 +752,8 @@ body::after{
   font-size:var(--text-base);font-weight:var(--weight-semibold);color:var(--action-primary);
 }
 
-.order-item-info{flex:1;min-width:0}
 .order-item-row{display:flex;align-items:center;gap:5px}
 .order-item-meta{font-size:10px;color:var(--color-text-dim);display:flex;align-items:center;gap:4px}
-.qty-btn:hover{background:rgba(30,24,18,.06);color:var(--text-primary)}
-.qty-btn:active{background:rgba(184,84,42,.12);color:var(--action-primary)}
 /* (move-item-row, move-check, move-banner removed — replaced by inline move mode) */
 
 /* === INLINE MOVE MODE ===
@@ -883,9 +880,8 @@ body::after{
 .move-mode .order-item-wrap.move-selected .move-sel{background:var(--color-accent);border-color:var(--color-accent);color:#fff}
 .move-mode .order-item-qty,.move-mode .order-item-move{display:none}
 
-/* Visible move button on each item */
-.order-item-move{width:28px;height:28px;border-radius:7px;border:1px solid rgba(184,84,42,.1);background:transparent;color:var(--text-muted);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s}
-.order-item-move:hover{background:rgba(184,84,42,.1);color:var(--color-accent);border-color:rgba(184,84,42,.25)}
+/* Standalone .order-item-move button removed in tablet-compact refresh —
+   move is now accessible via swipe-left or per-tab move target. */
 
 /* Move count badge in tab bar */
 .move-count-badge{position:absolute;top:-4px;right:-4px;min-width:16px;height:16px;border-radius:8px;background:var(--color-success);color:#fff;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 4px}
@@ -1318,11 +1314,8 @@ body::after{
 .u-modal-hint{font-size:var(--text-sm);color:var(--color-text-sec);margin:-8px 0 16px;line-height:var(--leading-relaxed)}
 .order-item-info--note{cursor:pointer;border-radius:var(--radius-sm);outline:none}
 .order-item-info--note:focus-visible{box-shadow:0 0 0 2px rgba(184,84,42,.4)}
-/* "+ Pridať poznámku" placeholder — was 9px italic 50% opacity (invisible
-   on tablet for new cashiers). Now styled as a small dashed chip so it
-   reads as a tappable button, not just label text. */
-.order-item-note-placeholder{display:inline-block;font-size:12px;color:var(--color-accent,#b8542a);font-style:normal;font-weight:600;opacity:.9;padding:2px 8px;border:1px dashed rgba(184,84,42,.45);border-radius:8px;margin-top:4px}
-@media (pointer:coarse){.order-item-note-placeholder{font-size:14px;padding:4px 12px;border-style:solid;background:rgba(184,84,42,.08)}}
+/* "+ Pridat poznamku" placeholder rules removed — note is now triggered
+   via .order-item-note-btn (pencil chip), not inline placeholder text. */
 .u-modal-amount{
   font-family:var(--font-display);font-size:var(--text-7xl);font-weight:var(--weight-bold);letter-spacing:var(--tracking-tight);
   background:linear-gradient(135deg,var(--color-accent),var(--color-accent-dim));
@@ -1893,8 +1886,8 @@ body::after{
   .table-chip{width:130px;height:120px}
   .table-chip.large{width:170px;height:120px}
   .chip-name{font-size:20px}.chip-badge{font-size:10px}.chip-amount{font-size:14px}.chip-guests{font-size:11px}
-  .order-item-name{font-size:15px;font-weight:var(--weight-bold)}
-  .order-item-total{font-size:17px;font-weight:var(--weight-extrabold)}
+  /* .order-item-name / -total font overrides removed — compact 56px row
+     keeps canonical 14px name + 14px mono price across all breakpoints. */
 }
 @media(max-width:1100px){
   .order-panel{width:280px}
@@ -1953,27 +1946,10 @@ body::after{
   .product-name{font-size:17px;line-height:var(--leading-snug)}
   .product-desc{font-size:13px}
   .product-price{font-size:21px}
-  /* Order list — DENSITY OPTIMIZED for tablet. Operator si vyziadal aby
-     sa zmestilo aspon 6 poloziek bez scrolu. Predtym bolo iba 2.
-     Riadkova vyska teraz ~46-50px (predtym 86+). Dlhe nazvy ellipsis-uju
-     na 1 riadok namiesto wrapovania (Combo Vegetarian Halloumi → 'Combo
-     Vegetarian Hal…' — full name vidies na tap, kuchar na bone tiez). */
-  .order-item-wrap{padding:6px 12px}
-  .order-item-inner{min-height:38px;align-items:center;gap:8px}
-  .order-item-emoji{
-    font-size:22px;
-    width:32px;height:32px;
-    flex-shrink:0;
-  }
-  .order-item-name{
-    font-size:17px;font-weight:var(--weight-bold);
-    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-    max-width:200px;line-height:1.2;
-  }
-  .order-item-total{font-size:19px;font-weight:var(--weight-extrabold)}
-  .order-item-qty{gap:5px}
-  .order-item-qty .qty-btn{width:38px;height:38px;font-size:20px}
-  .qty-btn,.qty-popup-btn{width:55px;height:55px;font-size:28px}
+  /* Order list — canonical compact 56px row (see ORDER ROW block ~line 2625)
+     is shared across breakpoints. Tablet keeps qty-popup oversized for
+     arm's-length use; row metrics inherited from the base rule. */
+  .qty-popup-btn{width:55px;height:55px;font-size:28px}
   .order-tab{font-size:18px;padding:14px 18px}
   .pos-subtotal-row{font-size:21px}
   .order-panel{width:437px}
@@ -2041,10 +2017,11 @@ body::after{
   .storno-row-actions .storno-action-delete{
     min-height:48px;padding:12px 18px;margin-left:16px;font-size:18px;
   }
-  /* Order panel typography — comfortable arm's-length read */
-  .order-item-name{font-size:24px;font-weight:600}
+  /* Order panel typography — compact 56px row owns its own metrics
+     (.order-item-name 14px, .order-item-total 14px mono) for consistency
+     across breakpoints. Only the legacy .order-item-price selector kept
+     in case some non-row screen still uses it. */
   .order-item-price{font-size:20px;font-variant-numeric:tabular-nums}
-  .order-item-wrap{min-height:56px}
 
   /* === TABLET CATEGORIES SIDEBAR ===
      Flip cat-grid-wrap to a horizontal row so .categories becomes a
@@ -2621,8 +2598,7 @@ body::after{
     .mob-order-footer{padding-bottom:calc(8px + 52px + env(safe-area-inset-bottom,0px))}
   }
 }
-/* ===== SWIPE ORDER ITEMS ===== */
-.order-item-wrap{position:relative;overflow:hidden;border-radius:var(--radius-sm);margin:2px 4px}
+/* ===== SWIPE ORDER ITEMS (positioning + swipe panel only) ===== */
 .order-item-swipe-left{position:absolute;top:0;right:0;height:100%;display:flex;transform:translateX(100%);transition:transform .2s}
 .order-item-swipe-left .swipe-btn{height:100%;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;padding:0 18px;transition:opacity .15s}
 .swipe-btn-move{background:rgba(184,84,42,.2);color:var(--color-accent)}
@@ -2631,67 +2607,80 @@ body::after{
 .swipe-btn-move:active{background:rgba(184,84,42,.35)}
 .swipe-btn-note:active{background:rgba(184,84,42,.35)}
 .swipe-btn-del:active{background:rgba(239,68,68,.35)}
-.order-item-inner{position:relative;z-index:1;background:linear-gradient(180deg, var(--color-bg), var(--color-bg-elevated));transition:transform var(--t-paper) var(--ease-soft),box-shadow var(--t-paper) var(--ease-soft);display:flex;align-items:center;gap:8px;padding:6px 10px;min-height:46px}
-/* Phase 5 — hover lift on order rows (desktop / hybrid only; pure
-   touch never fires :hover). Skipped in move-mode / when row is in
-   swiped state — those have their own visual signals. */
-.order-item-wrap:not(.swiped):hover .order-item-inner{transform:translateY(-2px);box-shadow:var(--shadow-md)}
-.move-mode .order-item-wrap:hover .order-item-inner{transform:none;box-shadow:none}
-/* Sent vs unsent — kedysi border 3px @ 15% alpha = neviditelne, .04 bg
-   = uplne plocha. Teraz: hrubsi 4px solid stripe v plnej success farbe
-   + vyssia bg tint (.10) — cisty signal "uz je v kuchyni" bez double-tap
-   risku. Padding-left vyrovnava, aby text nepreliezol cez stripe. */
-.order-item-inner.sent{background:rgba(92,196,158,.10);border-left:4px solid var(--color-success);padding-left:8px}
 .order-item-wrap.swiped .order-item-inner{transform:translateX(-160px)}
 .order-item-wrap.swiped .order-item-swipe-left{transform:translateX(0)}
-.order-item-emoji{font-size:18px;flex-shrink:0;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:6px;background:rgba(30,24,18,.03)}
-.order-item-name{font-size:var(--text-lg);font-weight:var(--weight-semibold);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;margin-bottom:1px;color:var(--text-primary)}
-/* Actual note when set — prominent chip so cashier (and the sent path)
-   sees what's on the item at a glance, not 9px italic muted ellipsis. */
-.order-item-note{display:inline-block;font-size:12px;color:#fff;font-style:normal;font-weight:600;background:rgba(184,84,42,.35);border:1px solid rgba(184,84,42,.5);padding:2px 8px;border-radius:8px;margin-top:3px;white-space:normal;max-width:100%;line-height:1.25}
-@media (pointer:coarse){.order-item-note{font-size:14px;padding:4px 12px}}
-.order-item-total{font-family:var(--font-display);font-weight:var(--weight-bold);font-size:var(--text-lg);min-width:48px;text-align:right;color:var(--text-primary);letter-spacing:var(--tracking-tight);font-variant-numeric:tabular-nums}
-/* Stepper — unified compact control */
-.order-item-qty{display:flex;align-items:center;gap:0;background:var(--surface-card);border:1px solid var(--border-default);border-radius:var(--radius-sm);overflow:hidden}
-.qty-btn{width:32px;height:32px;border-radius:0;border:none;border-right:1px solid var(--border-default);background:transparent;color:var(--text-secondary);font-size:var(--text-2xl);font-weight:var(--weight-bold);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all var(--transition-fast);-webkit-tap-highlight-color:transparent}
-.qty-btn:last-child{border-right:none;border-left:1px solid var(--border-default)}
-.qty-val{font-family:var(--font-display);font-weight:var(--weight-bold);font-size:var(--text-lg);min-width:24px;text-align:center;font-variant-numeric:tabular-nums;padding:0 2px}
-.order-item-actions{display:none}
 
-/* === TABLET ORDER LIST OVERRIDES — placed at end so they win over base rules ===
-   DENSITY OPTIMIZED: 6+ poloziek bez scrolu (predtym len 2 cez 2-row grid).
-   Single-row inline: [emoji] [name s ellipsis] [qty -/+] [suma]. Dlhe nazvy
-   ("Combo Vegetarian Halloumi") ellipsis-uju na 1 riadok — full text vidies
-   na tap (note modal) a kuchar na bone tiez. Trade: max ~200 px name space
-   za 3× viac viditelnych poloziek. */
+/* === ORDER ROW — Tablet-compact (Spec 1.1 + 2.1) ============================
+   Target row height: 56px (was ~78px). 5 rows visible @ 1280x800 without scroll.
+   Layout: [emoji 28] [name+note flex] [note-pencil 36] [- qty +] [price] [x]
+   Touch targets >= 44px wide on actionable buttons (qty +/-).
+   ============================================================================ */
+.order-item-wrap{position:relative;margin:2px 0;overflow:hidden;border-radius:var(--radius-sm)}
+.order-item-inner{
+  display:grid;
+  grid-template-columns:28px 1fr 36px 132px 64px 36px;
+  align-items:center;
+  gap:8px;
+  padding:6px 8px;
+  background:var(--color-bg-elevated);
+  border:1px solid var(--color-border);
+  border-radius:var(--radius-sm);
+  min-height:56px;
+  position:relative;
+  z-index:1;
+  transition:transform var(--t-paper) var(--ease-soft),box-shadow var(--t-paper) var(--ease-soft);
+}
+.order-item-wrap:not(.swiped):hover .order-item-inner{transform:translateY(-2px);box-shadow:var(--shadow-md)}
+.move-mode .order-item-wrap:hover .order-item-inner{transform:none;box-shadow:none}
+.order-item-inner.sent{background:rgba(74,122,58,.06);border-color:rgba(74,122,58,.18)}
+.order-item-emoji{font-size:20px;line-height:1;text-align:center}
+.order-item-info{min-width:0;display:flex;flex-direction:column;justify-content:center;cursor:pointer}
+.order-item-name{font-family:var(--font-display);font-size:14px;font-weight:600;color:var(--color-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.2}
+.order-item-note{font-size:11px;color:var(--color-accent);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.order-item-note-placeholder{font-size:11px;color:var(--color-text-dim);margin-top:2px}
+.order-item-note-btn{
+  appearance:none;background:transparent;border:1px solid var(--color-border);
+  width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+  color:var(--color-text-sec);cursor:pointer;-webkit-tap-highlight-color:transparent;
+  transition:background var(--transition-fast),border-color var(--transition-fast),color var(--transition-fast);
+}
+.order-item-note-btn:hover{background:var(--color-accent-bg);border-color:var(--color-accent-border);color:var(--color-accent)}
+.order-item-note-btn.has-note{background:var(--color-accent-bg-hover);border-color:var(--color-accent);color:var(--color-accent)}
+.order-item-qty{display:flex;align-items:center;gap:4px}
+.qty-btn{
+  appearance:none;background:var(--color-bg-elevated);border:1px solid var(--color-border);
+  width:44px;height:44px;border-radius:10px;font-size:20px;font-weight:700;line-height:1;
+  color:var(--color-text);cursor:pointer;display:flex;align-items:center;justify-content:center;
+  -webkit-tap-highlight-color:transparent;
+  transition:background var(--transition-fast),border-color var(--transition-fast),transform var(--transition-fast);
+}
+.qty-btn:hover{background:var(--color-accent-bg);border-color:var(--color-accent-border);color:var(--color-accent)}
+.qty-btn:active{transform:scale(.94)}
+.qty-val{
+  min-width:32px;text-align:center;font-family:var(--font-mono),'JetBrains Mono Variable',ui-monospace,monospace;
+  font-size:16px;font-weight:700;color:var(--color-text);font-feature-settings:'tnum' 1;
+}
+.order-item-total{
+  text-align:right;
+  font-family:var(--font-mono),'JetBrains Mono Variable',ui-monospace,monospace;
+  font-feature-settings:'tnum' 1;
+  font-size:14px;font-weight:700;color:var(--color-text);
+  white-space:nowrap;
+}
+.order-item-remove{
+  appearance:none;background:transparent;border:1px solid transparent;
+  width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+  color:var(--color-text-dim);font-size:18px;line-height:1;cursor:pointer;-webkit-tap-highlight-color:transparent;
+  transition:background var(--transition-fast),color var(--transition-fast),border-color var(--transition-fast);
+}
+.order-item-remove:hover{background:var(--color-danger-bg);border-color:var(--color-danger-border);color:var(--color-danger)}
+
+/* === TABLET ORDER LIST OVERRIDES ===
+   Canonical compact 56px row (see ORDER ROW block ~line 2625) now serves
+   tablet directly — single source of truth. Tablet only keeps wider order
+   panel so the 6-column grid fits comfortably. */
 @media (min-width:769px) and (max-width:1366px) and (pointer:coarse){
   .order-panel{width:480px}
-  .order-item-wrap{overflow:visible;padding:6px 10px;min-height:46px}
-  .order-item-inner{
-    display:flex;
-    align-items:center;
-    gap:8px;
-    min-height:38px;
-    padding:6px 8px;
-  }
-  .order-item-info{flex:1;min-width:0;max-width:none}
-  .order-item-name{
-    font-size:17px;font-weight:var(--weight-bold);
-    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-    max-width:none;line-height:1.2;
-    color:var(--text-primary);
-    -webkit-line-clamp:initial;
-    display:block;
-  }
-  .order-item-emoji{font-size:22px;line-height:1;flex-shrink:0;width:30px;height:30px}
-  .order-item-qty{flex-shrink:0;gap:5px}
-  .order-item-qty .qty-btn{width:38px;height:38px;font-size:20px}
-  .order-item-total{font-size:19px;font-weight:var(--weight-extrabold);white-space:nowrap;flex-shrink:0;font-variant-numeric:tabular-nums}
-  /* Move-tlacidlo v polozke — taktiez kompaktnejsie */
-  .order-item-move{width:32px;height:32px;font-size:14px}
-  /* Note chip menes pod nazvom — neexpanduje vysku polozky */
-  .order-item-note{font-size:11px;padding:2px 8px;margin-top:2px}
-  .order-item-note-placeholder{font-size:11px;padding:2px 8px}
 }
 
 /* Floor edit mode — make it obvious a tap will drag, not select */

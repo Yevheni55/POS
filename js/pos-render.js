@@ -939,11 +939,23 @@ function renderOrder(){
 </div>`;
     }
     return `<div class="order-item-wrap" data-item-id="${o.id}"${_companionTitleAttr} ontouchstart="swipeStart(event,this)" ontouchmove="swipeMove(event,this)" ontouchend="swipeEnd(event,this)" onmousedown="swipeStart(event,this)" onmousemove="swipeMove(event,this)" onmouseup="swipeEnd(event,this)">
-  <div class="order-item-inner${_isSent?' sent':''}"><span class="order-item-emoji">${escHtml(o.emoji)}</span>
-  <div class="order-item-info order-item-info--note" role="button" tabindex="0" onclick="openNoteModal('${esc}', ${o.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openNoteModal('${esc}', ${o.id});}"><div class="order-item-name">${escHtml(o.name)}</div>${o.note?`<div class="order-item-note">&#9998; ${escHtml(o.note)}</div>`:'<div class="order-item-note-placeholder">&#9998; Pridať poznámku</div>'}</div>
-  <button class="order-item-move" onclick="enterMoveMode(${o.id})" aria-label="Presunut">&#8599;</button>
-  <div class="order-item-qty"><button class="qty-btn" onclick="changeQty('${esc}', -1, ${o.id})" onpointerdown="startQtyHold('${esc}', -1, ${o.id})">&minus;</button><span class="qty-val">${o.qty}</span>${_companionBadge}<button class="qty-btn" onclick="changeQty('${esc}', 1, ${o.id})" onpointerdown="startQtyHold('${esc}', 1, ${o.id})">+</button></div>
-  <div class="order-item-total">${fmt(o.price*o.qty)}</div></div>
+  <div class="order-item-inner${_isSent?' sent':''}">
+    <span class="order-item-emoji" aria-hidden="true">${escHtml(o.emoji)}</span>
+    <div class="order-item-info" role="button" tabindex="0" onclick="openNoteModal('${esc}', ${o.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openNoteModal('${esc}', ${o.id});}">
+      <div class="order-item-name">${escHtml(o.name)}</div>
+      ${o.note?`<div class="order-item-note">&#9998; ${escHtml(o.note)}</div>`:''}
+    </div>
+    <button type="button" class="order-item-note-btn${o.note?' has-note':''}" onclick="event.stopPropagation();openNoteModal('${esc}', ${o.id})" aria-label="${o.note?'Upravit poznamku':'Pridat poznamku'}" title="${o.note?'Upravit poznamku':'Pridat poznamku'}">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+    </button>
+    <div class="order-item-qty">
+      <button type="button" class="qty-btn" onclick="event.stopPropagation();changeQty('${esc}', -1, ${o.id})" onpointerdown="startQtyHold('${esc}', -1, ${o.id})" aria-label="Znizit pocet">&minus;</button>
+      <span class="qty-val">${o.qty}</span>${_companionBadge}
+      <button type="button" class="qty-btn" onclick="event.stopPropagation();changeQty('${esc}', 1, ${o.id})" onpointerdown="startQtyHold('${esc}', 1, ${o.id})" aria-label="Zvysit pocet">+</button>
+    </div>
+    <div class="order-item-total">${fmt(o.price*o.qty)}</div>
+    <button type="button" class="order-item-remove" onclick="event.stopPropagation();confirmRemoveItem('${esc}', ${o.id})" aria-label="Odstranit polozku">&times;</button>
+  </div>
   <div class="order-item-swipe-left"><button class="swipe-btn swipe-btn-move" onclick="enterMoveMode(${o.id})" aria-label="Presunut polozku">&#8599;</button><button class="swipe-btn swipe-btn-note" onclick="openNoteModal('${esc}', ${o.id})" aria-label="Poznamka">&#9998;</button><button class="swipe-btn swipe-btn-del" onclick="removeItem('${esc}')" aria-label="Odstranit polozku">&#10005;</button></div>
 </div>`}).join('')}
   // Update send button state
