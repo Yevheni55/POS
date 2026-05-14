@@ -2681,7 +2681,12 @@ body::after{
 .order-item-wrap{position:relative;margin:2px 0;overflow:hidden;border-radius:var(--radius-sm)}
 .order-item-inner{
   display:grid;
-  grid-template-columns:28px 1fr 44px 132px 64px 44px;
+  /* FIX: 5 columns, not 6 — pencil note-btn removed (duplicit with info-click).
+     Math: 360px panel − 12px items-padding = 348px available
+           28 + 132 + 64 + 44 = 268 fixed + 4×8 gap = 300 → 1fr name = 48px.
+     Predtym 6 stĺpcov s pencilom totalom 352 px → 1fr collapsed to 0 → názov
+     položky nebol viditeľný v košíku (iba ikonka). Bug nahlásený 14.5.2026. */
+  grid-template-columns:28px 1fr 132px 64px 44px;
   align-items:center;
   gap:8px;
   padding:6px 8px;
