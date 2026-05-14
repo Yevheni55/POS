@@ -696,7 +696,7 @@ function renderProducts(){
     // Photo above name when set; emoji is the fallback when there's no photo.
     const visualHtml = item.imageUrl
       ? `<div class="product-photo" style="background-image:url('${escAttr(item.imageUrl)}')"></div>`
-      : `<span class="product-emoji">${escHtml(item.emoji)}</span>`;
+      : `<span class="product-emoji" aria-hidden="true">${(typeof productIconSVG==='function'?productIconSVG(item.name,item.categorySlug):escHtml(item.emoji||''))}</span>`;
     var _esc = escAttr(item.name.replace(/'/g, "\\'"));
     var _emoji = escAttr(item.emoji);
     return `<div class="product-card${item.imageUrl?' has-photo':''}${q>0?' in-cart':''}" data-name="${escAttr(item.name)}" tabindex="0" role="button" style="--cat-color:${cc}" onclick="addToOrderClick('${_esc}','${_emoji}',${item.price})" onpointerdown="ripple(event);_lpStart(event,'${_esc}','${_emoji}',${item.price})" onpointerup="_lpCancel()" onpointerleave="_lpCancel()" onpointercancel="_lpCancel()" oncontextmenu="event.preventDefault()">
@@ -994,14 +994,14 @@ function renderOrder(){
     const _companionTitleAttr=_isCompanion?` title="Auto: viazane na ${escHtml(_parentName)}"`:'';
     if(moveMode){
       return `<div class="order-item-wrap${_moveSelected?' move-selected':''}" data-item-id="${o.id}"${_companionTitleAttr} onclick="toggleMoveSelection(${o.id})">
-  <div class="order-item-inner${_isSent?' sent':''}"><div class="move-sel">${_moveSelected?'&#10003;':''}</div><span class="order-item-emoji">${escHtml(o.emoji)}</span>
+  <div class="order-item-inner${_isSent?' sent':''}"><div class="move-sel">${_moveSelected?'&#10003;':''}</div><span class="order-item-emoji" aria-hidden="true">${(typeof productIconSVG==='function'?productIconSVG(o.name,o.categorySlug):escHtml(o.emoji||''))}</span>
   <div class="order-item-info"><div class="order-item-name">${escHtml(o.name)}${_movePartialBadge}</div>${o.note?`<div class="order-item-note">${escHtml(o.note)}</div>`:''}</div>
   <span class="order-item-total">${o.qty}x${_companionBadge} &middot; ${fmt(o.price*o.qty)}</span></div>
 </div>`;
     }
     return `<div class="order-item-wrap" data-item-id="${o.id}"${_companionTitleAttr} ontouchstart="swipeStart(event,this)" ontouchmove="swipeMove(event,this)" ontouchend="swipeEnd(event,this)" onmousedown="swipeStart(event,this)" onmousemove="swipeMove(event,this)" onmouseup="swipeEnd(event,this)">
   <div class="order-item-inner${_isSent?' sent':''}">
-    <span class="order-item-emoji" aria-hidden="true">${escHtml(o.emoji)}</span>
+    <span class="order-item-emoji" aria-hidden="true">${(typeof productIconSVG==='function'?productIconSVG(o.name,o.categorySlug):escHtml(o.emoji||''))}</span>
     <div class="order-item-info" role="button" tabindex="0" onclick="openNoteModal('${esc}', ${o.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openNoteModal('${esc}', ${o.id});}">
       <div class="order-item-name">${escHtml(o.name)}</div>
       ${o.note?`<div class="order-item-note">&#9998; ${escHtml(o.note)}</div>`:''}

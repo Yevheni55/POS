@@ -172,7 +172,7 @@ function renderMobMenu() {
     const badge = inOrder ? `<span class="mob-product-badge">${inOrder.qty}</span>` : '';
     var prodLabel = escHtml(item.name) + ', ' + escHtml(fmt(item.price));
     return `<button type="button" class="mob-product" onclick="mobAddItem('${item.name.replace(/'/g, "\\'")}','${item.emoji}',${item.price})" aria-label="${prodLabel}">
-      ${badge}<span class="mob-product-emoji" aria-hidden="true">${escHtml(item.emoji)}</span>
+      ${badge}<span class="mob-product-emoji" aria-hidden="true">${(typeof productIconSVG==='function'?productIconSVG(item.name,item.categorySlug):escHtml(item.emoji||''))}</span>
       <div class="mob-product-name">${escHtml(item.name)}</div>
       <div class="mob-product-price">${fmt(item.price)}</div>
     </button>`;
@@ -287,7 +287,7 @@ function renderMobOrder() {
       return `<button type="button" class="mob-order-item mob-order-item-pick${o.sent ? ' sent' : ''}${selected ? ' move-selected' : ''}" onclick="toggleMoveSelection(${o.id})" aria-pressed="${selected ? 'true' : 'false'}">
         <div class="mob-oi-row1">
           <span class="mob-move-check" aria-hidden="true">${selected ? '&#10003;' : ''}</span>
-          <span class="mob-oi-emoji">${escHtml(o.emoji)}</span>
+          <span class="mob-oi-emoji" aria-hidden="true">${(typeof productIconSVG==='function'?productIconSVG(o.name,o.categorySlug):escHtml(o.emoji||''))}</span>
           <div class="mob-oi-info"><div class="mob-oi-name">${escHtml(o.name)}${partialBadge}</div>${o.note ? `<div class="mob-oi-note">${escHtml(o.note)}</div>` : ''}</div>
         </div>
         <div class="mob-oi-row2">
@@ -323,7 +323,7 @@ function renderMobOrder() {
         `;
       return `<div class="mob-order-item${isSent ? ' sent' : ''}">
         <div class="mob-oi-row1">
-          <span class="mob-oi-emoji">${escHtml(o.emoji)}</span>
+          <span class="mob-oi-emoji" aria-hidden="true">${(typeof productIconSVG==='function'?productIconSVG(o.name,o.categorySlug):escHtml(o.emoji||''))}</span>
           <div class="mob-oi-info" onclick="openNoteModal('${esc}', ${o.id});"><div class="mob-oi-name">${escHtml(o.name)}</div>${noteBlock}</div>
           <button type="button" class="mob-oi-move" onclick="event.stopPropagation();enterMoveMode(${o.id})" aria-label="Presunut polozku" title="Presunut"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="svg-icon"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg></button>
           <button type="button" class="mob-oi-del" onclick="event.stopPropagation();removeItem('${esc}');renderMobOrder();updateMobBadge()" aria-label="${isSent ? 'Storno polozky' : 'Odstranit polozku'}" title="${isSent ? 'Storno' : 'Odstranit'}">${isSent ? '⌫' : '×'}</button>
