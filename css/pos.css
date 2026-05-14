@@ -2679,25 +2679,26 @@ body::after{
    Touch targets >= 44px wide on actionable buttons (qty +/-).
    ============================================================================ */
 .order-item-wrap{position:relative;margin:2px 0;overflow:hidden;border-radius:var(--radius-sm)}
+/* STACKED 2-row layout — full product name visibility (Bug fix 14.5.2026).
+   Row 1: emoji + name+note (názov dostane CELÚ šírku stack-u, ~280px @ 360 panel).
+   Row 2: qty stepper [vľavo] + total [tlačí vpravo] + × remove [úplne vpravo].
+   Outer .order-item-inner = flex-row [emoji, stack].
+   Stack = flex-column [info, controls]. Trade-off vs predošlý 1-row 56px grid:
+   stratíme 1 viditeľný riadok (72-80px = 4-5 položek) ale ZÍSKAME plný názov. */
 .order-item-inner{
-  display:grid;
-  /* FIX: 5 columns, not 6 — pencil note-btn removed (duplicit with info-click).
-     Math: 360px panel − 12px items-padding = 348px available
-           28 + 132 + 64 + 44 = 268 fixed + 4×8 gap = 300 → 1fr name = 48px.
-     Predtym 6 stĺpcov s pencilom totalom 352 px → 1fr collapsed to 0 → názov
-     položky nebol viditeľný v košíku (iba ikonka). Bug nahlásený 14.5.2026. */
-  grid-template-columns:28px 1fr 132px 64px 44px;
-  align-items:center;
-  gap:8px;
-  padding:6px 8px;
+  display:flex;align-items:stretch;gap:8px;
+  padding:8px 10px;
   background:var(--color-bg-elevated);
   border:1px solid var(--color-border);
   border-radius:var(--radius-sm);
-  min-height:56px;
+  min-height:72px;
   position:relative;
   z-index:1;
   transition:transform var(--t-paper) var(--ease-soft),box-shadow var(--t-paper) var(--ease-soft);
 }
+.order-item-stack{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;justify-content:center}
+.order-item-controls{display:flex;align-items:center;gap:8px}
+.order-item-qty{display:flex;align-items:center;gap:4px;margin-right:auto}
 .order-item-wrap:not(.swiped):hover .order-item-inner{transform:translateY(-2px);box-shadow:var(--shadow-md)}
 .move-mode .order-item-wrap:hover .order-item-inner{transform:none;box-shadow:none}
 .order-item-inner.sent{background:rgba(74,122,58,.06);border-color:rgba(74,122,58,.18)}
@@ -2714,7 +2715,6 @@ body::after{
 }
 .order-item-note-btn:hover{background:var(--color-accent-bg);border-color:var(--color-accent-border);color:var(--color-accent)}
 .order-item-note-btn.has-note{background:var(--color-accent-bg-hover);border-color:var(--color-accent);color:var(--color-accent)}
-.order-item-qty{display:flex;align-items:center;gap:4px}
 .qty-btn{
   appearance:none;background:var(--color-bg-elevated);border:1px solid var(--color-border);
   width:44px;height:44px;border-radius:10px;font-size:20px;font-weight:700;line-height:1;
