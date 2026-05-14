@@ -582,13 +582,40 @@ body::after{
    before this wrapper existed). On tablet it flips to a horizontal row,
    turning the categories strip into a left-side sidebar. */
 .cat-grid-wrap{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden}
-.categories{display:flex;gap:3px;margin-bottom:6px;flex-shrink:0;overflow-x:auto;scrollbar-width:none}
+/* Spec 1.7 — category rail: 48px tap target, 14px label, terra accent on active.
+   Active marker: terra inset 3px bar + bold terra label + soft cream-terra tint.
+   Note: DOM container is .categories (not .cat-list); icon span is .cat-icon
+   (not .cat-emoji); .cat-key is a keybind hint preserved as a sibling pill.
+   Base .categories stays horizontal scroll-strip for desktop fallback; tablet
+   override below (line ~2106) flips it to a vertical left sidebar. */
+.categories{display:flex;gap:4px;margin-bottom:6px;flex-shrink:0;overflow-x:auto;scrollbar-width:none}
 .categories::-webkit-scrollbar{display:none}
-.cat-btn{padding:var(--space-2) var(--space-4);border-radius:var(--radius-sm);border:1px solid var(--color-border);background:transparent;color:var(--text-secondary);font-family:var(--font-body);font-size:var(--text-md);font-weight:var(--weight-semibold);cursor:pointer;white-space:nowrap;transition:all var(--transition-fast)}
-.cat-btn:hover{color:var(--text-primary);background:rgba(30,24,18,.06)}
-.cat-btn.active{color:#fff;background:var(--action-primary);border-color:var(--action-primary);box-shadow:none}
-.cat-icon{margin-right:3px;font-size:12px}
-.cat-key{display:inline-block;font-size:7px;color:var(--color-text-dim);background:rgba(30,24,18,.06);border-radius:3px;padding:1px 4px;margin-left:3px;font-weight:700;font-family:monospace}
+.cat-btn{
+  appearance:none;background:transparent;border:none;
+  display:inline-flex;align-items:center;gap:10px;
+  min-height:48px;padding:8px 14px;
+  border-radius:10px;
+  font-family:var(--font-body);font-weight:600;font-size:14px;
+  color:var(--color-text);text-align:left;cursor:pointer;
+  white-space:nowrap;flex-shrink:0;
+  -webkit-tap-highlight-color:transparent;
+  border-left:3px solid transparent;
+  transition:background var(--transition-fast),border-color var(--transition-fast),color var(--transition-fast);
+}
+.cat-btn:hover{background:rgba(30,24,18,.04)}
+.cat-btn.active{
+  background:rgba(184,84,42,.10);
+  color:var(--color-accent);
+  font-weight:800;
+  border-left-color:var(--color-accent);
+  box-shadow:inset 3px 0 0 var(--color-accent);
+}
+.cat-btn:focus-visible{
+  outline:none;
+  box-shadow:inset 3px 0 0 var(--color-accent),0 0 0 3px rgba(184,84,42,.28);
+}
+.cat-btn .cat-icon{font-size:18px;line-height:1;flex-shrink:0;width:22px;text-align:center;margin-right:0}
+.cat-key{display:inline-block;font-size:7px;color:var(--color-text-dim);background:rgba(30,24,18,.06);border-radius:3px;padding:1px 4px;margin-left:auto;font-weight:700;font-family:monospace;flex-shrink:0}
 
 .products-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:6px;overflow-y:auto;flex:1;padding:2px;align-content:start;scrollbar-width:thin;scrollbar-color:rgba(30,24,18,.06) transparent}
 .products-grid::-webkit-scrollbar{width:3px}
@@ -1986,7 +2013,7 @@ body::after{
   .header-title{font-size:30px}
   .header-clock{font-size:25px}
   .header-subtitle,.header-date{font-size:15px}
-  .view-btn,.zone-btn,.cat-btn{font-size:18px;padding:12px 18px}
+  .view-btn,.zone-btn{font-size:18px;padding:12px 18px}
   .floor-title{font-size:35px}
   .floor-stat,.legend-item{font-size:17px}
   .floor-legend{display:flex}
@@ -2066,38 +2093,32 @@ body::after{
   .order-item-price{font-size:20px;font-variant-numeric:tabular-nums}
 
   /* === TABLET CATEGORIES SIDEBAR ===
-     Flip cat-grid-wrap to a horizontal row so .categories becomes a
-     fixed-width vertical sidebar on the left of the products grid.
+     Spec 1.7 (tablet) — flip cat-grid-wrap to a horizontal row so .categories
+     becomes a fixed-width vertical sidebar on the left of the products grid.
+     Inherits base .cat-btn metrics (48px min-height, 14px label, terra active
+     marker) and only bumps tap target + font slightly for arm's-length use.
      Search bar stays full-width above (untouched). */
   .cat-grid-wrap{flex-direction:row;gap:8px;align-items:stretch}
   .categories{
-    flex:0 0 140px;
+    flex:0 0 156px;
     flex-direction:column;
     margin-bottom:0;
-    overflow-y:auto;
-    overflow-x:hidden;
-    gap:6px;
-    padding-right:4px;
+    padding:8px 6px;
+    overflow-y:auto;overflow-x:hidden;
+    -webkit-overflow-scrolling:touch;
     scrollbar-width:thin;
-    scrollbar-color:rgba(30,24,18,.06) transparent;
+    scrollbar-color:rgba(122,100,80,.18) transparent;
   }
-  .categories::-webkit-scrollbar{display:block;width:3px}
-  .categories::-webkit-scrollbar-thumb{background:rgba(30,24,18,.06);border-radius:8px}
+  .categories::-webkit-scrollbar{display:block;width:4px}
+  .categories::-webkit-scrollbar-thumb{background:rgba(122,100,80,.18);border-radius:6px}
   .cat-btn{
+    display:flex;
     width:100%;
     min-height:64px;
-    padding:8px 4px;
-    display:flex;
-    flex-direction:column;
-    align-items:center;
-    justify-content:center;
-    gap:4px;
-    white-space:normal;
-    text-align:center;
-    line-height:1.15;
-    font-size:12px;
+    padding:10px 14px;
+    font-size:16px;
   }
-  .cat-btn .cat-icon{margin-right:0;font-size:22px}
+  .cat-btn .cat-icon{font-size:22px;width:26px}
   .cat-btn .cat-key{display:none}
   /* Narrower cards so 4–5 columns fit in the reduced-width grid area */
   .products-grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
