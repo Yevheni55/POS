@@ -2707,9 +2707,16 @@ body::after{
 .order-item-name{font-family:var(--font-display);font-size:14px;font-weight:600;color:var(--color-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.2}
 .order-item-note{font-size:11px;color:var(--color-accent);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .order-item-note-placeholder{font-size:11px;color:var(--color-text-dim);margin-top:2px}
+/* Name row: name flex-grows, pencil note-btn sits right.
+   Spec 1.1 explicitne hovori "tlacidlo Poznamka NESMIE byt velke — iba mala
+   ikonka ceruzky". Preto 32x32 tu, mimo DESIGN-CODE 44px touch-target
+   floor (justified spec exception, ergonomic shoulder still ~40px). */
+.order-item-name-row{display:flex;align-items:center;gap:6px;min-width:0}
+.order-item-name-row .order-item-name{flex:1;min-width:0}
 .order-item-note-btn{
   appearance:none;background:transparent;border:1px solid var(--color-border);
-  width:44px;height:44px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+  width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;
   color:var(--color-text-sec);cursor:pointer;-webkit-tap-highlight-color:transparent;
   transition:background var(--transition-fast),border-color var(--transition-fast),color var(--transition-fast);
 }

@@ -1003,8 +1003,13 @@ function renderOrder(){
   <div class="order-item-inner${_isSent?' sent':''}">
     <span class="order-item-emoji" aria-hidden="true">${(typeof productIconSVG==='function'?productIconSVG(o.name,o.categorySlug):escHtml(o.emoji||''))}</span>
     <div class="order-item-stack">
-      <div class="order-item-info" role="button" tabindex="0" onclick="openNoteModal('${esc}', ${o.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openNoteModal('${esc}', ${o.id});}">
-        <div class="order-item-name">${escHtml(o.name)}</div>
+      <div class="order-item-info">
+        <div class="order-item-name-row">
+          <div class="order-item-name">${escHtml(o.name)}</div>
+          <button type="button" class="order-item-note-btn${o.note?' has-note':''}" onclick="event.stopPropagation();openNoteModal('${esc}', ${o.id})" aria-label="${o.note?'Upravit poznamku':'Pridat poznamku'}" title="${o.note?'Upravit poznamku':'Pridat poznamku'}">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          </button>
+        </div>
         ${o.note?`<div class="order-item-note">&#9998; ${escHtml(o.note)}</div>`:''}
       </div>
       <div class="order-item-controls">
