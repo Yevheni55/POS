@@ -20,6 +20,7 @@ import { startWeatherHourlyCron } from './lib/weather.js';
 import { isVatRegisteredBusiness } from './lib/vat-registration.js';
 import { startIdempotencyCleanup } from './middleware/idempotency.js';
 import { startPrintQueue } from './routes/print.js';
+import { startParagonSync } from './jobs/paragon-sync.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3080;
@@ -98,6 +99,7 @@ httpServer.listen(PORT, () => {
   );
   startIdempotencyCleanup();
   startPrintQueue();
+  startParagonSync();
   // Hourly weather fetch from Open-Meteo (Drazdiak coordinates).
   // Boot fetch + each 60 min. Errors are logged but don't crash boot.
   startWeatherHourlyCron();

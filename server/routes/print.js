@@ -474,6 +474,120 @@ router.post('/receipt', async (req, res) => {
   }
 });
 
+// Paragón ticket — manuálny náhradný doklad pri výpadku ERP / Portos.
+// § 10 z. 289/2008: musí obsahovať slovo "PARAGÓN" + povinné náležitosti
+// + poznámku že doklad bude dodatočne zaregistrovaný v eKasa systéme.
+//
+// Po obnove Portos: background worker zaregistruje doklad cez
+// /api/v1/requests/receipts/paragon → CHDU vytlačí oficiálnu kópiu.
+// Tento ticket je IBA prvotná manuálna náhrada — zákazník dostane KÓPIU
+// z eKasa portálu cez QR po sync-u.
+function buildParagonTicket({ paragonNumber, tableName, staffName, items, total, vatRate, method, time, dateStr, companyName }) {
+  let ticket = '';
+  ticket += CMD.INIT;
+
+  // Header — výrazne odlíšené "PARAGÓN" tak aby kontrolór hneď videl
+  ticket += CMD.ALIGN_CENTER;
+  ticket += CMD.DOUBLE_SIZE;
+  ticket += 'PARAGON\n';
+  ticket += CMD.NORMAL_SIZE;
+  ticket += CMD.BOLD_ON;
+  ticket += 'Nahradny doklad pri vypadku ERP\n';
+  ticket += CMD.BOLD_OFF;
+  ticket += CMD.LINE;
+
+  if (companyName) {
+    ticket += s(companyName) + '\n';
+  }
+
+  // Meta — paragón číslo, dátum, čas, stôl, čašník
+  ticket += CMD.ALIGN_LEFT;
+  ticket += CMD.BOLD_ON;
+  ticket += 'Cislo paragonu: ' + paragonNumber + '\n';
+  ticket += CMD.BOLD_OFF;
+  ticket += 'Datum: ' + (dateStr || localDateTime()) + '\n';
+  if (tableName) ticket += s(tableName) + '\n';
+  if (staffName) ticket += 'Cisnik: ' + s(staffName) + '\n';
+  ticket += CMD.LINE;
+
+  // Items
+  items.forEach((item) => {
+    if (item.name === 'Omáčka (combo)') return;
+    const lineTotal = item.price * item.qty;
+    const price = lineTotal.toFixed(2).replace('.', ',') + ' E';
+    const line = ' ' + item.qty + 'x ' + s(item.name);
+    const pad = 32 - line.length - price.length;
+    ticket += line + (pad > 0 ? ' '.repeat(pad) : '  ') + price + '\n';
+  });
+
+  ticket += CMD.LINE;
+
+  // Total + VAT note
+  ticket += CMD.ALIGN_CENTER;
+  ticket += CMD.BOLD_ON;
+  ticket += CMD.DOUBLE_SIZE;
+  ticket += 'SPOLU: ' + total.toFixed(2).replace('.', ',') + ' EUR\n';
+  ticket += CMD.NORMAL_SIZE;
+  ticket += CMD.BOLD_OFF;
+
+  if (typeof vatRate === 'number') {
+    ticket += 'DPH ' + vatRate.toFixed(0) + '% zapocitana v cene\n';
+  }
+  ticket += 'Sposob platby: ' + s(method).toUpperCase() + '\n';
+  ticket += CMD.DASHED;
+
+  // Mandatory disclaimer per § 10
+  ticket += CMD.ALIGN_LEFT;
+  ticket += CMD.BOLD_ON;
+  ticket += 'Doklad vystaveny manualne pri\n';
+  ticket += 'vypadku elektronickej pokladnice.\n';
+  ticket += CMD.BOLD_OFF;
+  ticket += 'Po obnoveni funkcnosti bude\n';
+  ticket += 'doklad dodatocne zaregistrovany\n';
+  ticket += 'v systeme eKasa cez Portos.\n';
+  ticket += 'Zakaznik si moze vyziadat\n';
+  ticket += 'kopiu fiskalneho dokladu po\n';
+  ticket += 'registracii.\n';
+  ticket += CMD.DASHED;
+
+  ticket += CMD.ALIGN_CENTER;
+  ticket += 'Dakujeme za pochopenie!\n';
+  ticket += CMD.FEED;
+  ticket += CMD.CUT;
+
+  return ticket;
+}
+
+// POST /api/print/paragon — print manual paragón po jeho vystavení
+router.post('/paragon', async (req, res) => {
+  try {
+    const { paragonNumber, tableName, staffName, items, total, vatRate, method, companyName } = req.body || {};
+    if (!paragonNumber || !Array.isArray(items) || !items.length) {
+      return res.status(400).json({ error: 'Chyba paragonNumber alebo items' });
+    }
+    const time = localTimeHHMM();
+    const dateStr = localDateTime();
+    const printer = await getPrinterForDest('uctenka');
+    const ticket = buildParagonTicket({
+      paragonNumber,
+      tableName,
+      staffName,
+      items,
+      total: Number(total) || 0,
+      vatRate: typeof vatRate === 'number' ? vatRate : null,
+      method: method || 'hotovost',
+      time,
+      dateStr,
+      companyName,
+    });
+    const result = await sendOrQueue('paragon', ticket, printer.ip, printer.port);
+    res.json({ ok: true, queued: !!result.queued });
+  } catch (e) {
+    console.error('Paragon print error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // POST /api/print/pre-bill — informatívny predúčet, NIE fiškálny blocek.
 // Volá sa keď zákazník chce vidieť účet pred platbou (klasický restauračný
 // flow: "Účet prosím" → čašník donesie predúčet → zákazník skontroluje +

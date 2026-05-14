@@ -550,3 +550,49 @@ export const weatherObservations = pgTable("weather_observations", {
 }, (t) => [
   uniqueIndex("weather_observed_at_uniq").on(t.observedAt),
 ]);
+
+// ===================== OFFLINE PARAGÓNY (eKasa fallback) =====================
+//
+// § 10 z. 289/2008: pri poškodení ERP / výpadku Portos / CHDU musí prevádzkovateľ
+// vystaviť PARAGÓN — manuálny náhradný doklad s monotónne číslovanou poradovkou
+// (žiadne medzery v sekvencii). Po obnove ERP musí byť každý paragón
+// zaregistrovaný v eKasa systéme cez Portos `/api/v1/requests/receipts/paragon`
+// bez zbytočného odkladu (typicky do 48 h).
+//
+// Táto tabuľka uchováva *lokálne snapshot-y* vystavených paragónov pred ich
+// úspešnou registráciou v Portos. Po `registered` stave linkujeme cez
+// `fiscal_document_id` na štandardný fiscal_documents záznam (paper-trail
+// pre kontrolu / audit).
+export const offlineParagons = pgTable('offline_paragons', {
+  id: serial('id').primaryKey(),
+  orderId: integer('order_id').references(() => orders.id),
+  paymentId: integer('payment_id').references(() => payments.id),
+  // Lokálne poradové číslo, formát "P-000001". Monotónne, no-gap (legálne).
+  paragonNumber: varchar('paragon_number', { length: 16 }).notNull(),
+  // Frozen Portos request payload v čase vystavenia. JSON-stringified.
+  // Slúži aj na neskoršiu registráciu cez /receipts/paragon (resync),
+  // aj na re-tlač duplicate dokladu.
+  requestPayloadJson: text('request_payload_json').notNull(),
+  totalAmount: numeric('total_amount', { precision: 10, scale: 2 }).notNull(),
+  paymentMethod: varchar('payment_method', { length: 20 }).notNull(),
+  // Lifecycle: 'pending' (vystavený, čaká registráciu) → 'registered'
+  // (úspešne v eKasa) | 'failed' (Portos vrátil chybu pri registrácii,
+  // potrebné manuálne riešenie) | 'abandoned' (cashier vystavil omylom,
+  // následne ručne zrušil).
+  status: varchar('status', { length: 20 }).notNull().default('pending'),
+  // Dôvod vystavenia: portos_unavailable | chdu_error | manual_offline | ...
+  reason: varchar('reason', { length: 40 }).notNull().default('portos_unavailable'),
+  // FK na fiscal_documents po úspešnej registrácii — single source of truth
+  // pre auditovateľnosť (paragón doklad existuje ako fiscal_document).
+  fiscalDocumentId: integer('fiscal_document_id').references(() => fiscalDocuments.id),
+  attempts: integer('attempts').notNull().default(0),
+  lastAttemptAt: timestamp('last_attempt_at'),
+  lastError: text('last_error'),
+  staffId: integer('staff_id').references(() => staff.id),
+  issuedAt: timestamp('issued_at').defaultNow(),
+  registeredAt: timestamp('registered_at'),
+}, (t) => [
+  uniqueIndex('offline_paragons_number_uidx').on(t.paragonNumber),
+  index('offline_paragons_status_idx').on(t.status, t.issuedAt),
+  index('offline_paragons_order_idx').on(t.orderId),
+]);

@@ -237,6 +237,60 @@ export function buildFiscalReceiptItems(items, discountAmount = 0, { forceZeroVa
   return receiptItems.concat(allocateDiscountAcrossVatGroups(normalizedItems, discountAmount));
 }
 
+/** Paragón externalId — prefix `paragon-` + lokálne poradové číslo + salt. */
+export function buildParagonExternalId(paragonNumber, opts) {
+  const salt = opts && opts.salt;
+  return salt ? `paragon-${paragonNumber}-${salt}` : `paragon-${paragonNumber}`;
+}
+
+/**
+ * Build Portos request context pre paragón (manuálny náhradný doklad).
+ *
+ * Vystavuje sa LOKÁLNE pri Portos/CHDU výpadku — request payload sa zmrazí
+ * do `offline_paragons.request_payload_json` a neskôr (po obnove eKasa
+ * konektivity) sa táto presná štruktúra POST-ne na /receipts/paragon.
+ *
+ * Rozdiely voči buildCashRegisterRequestContext:
+ *   - receiptType: 'Paragon' (nie 'CashRegister')
+ *   - paragonNumber: lokálne poradové číslo (P-000001)
+ *   - externalId má prefix 'paragon-'
+ */
+export function buildParagonRequestContext({
+  paragonNumber,
+  items,
+  discountAmount,
+  method,
+  expectedTotal,
+  cashRegisterCode,
+  forceZeroVat = false,
+  externalIdSalt,
+}) {
+  const config = getPortosConfig();
+  const effectiveCashRegisterCode = String(cashRegisterCode || config.cashRegisterCode || '').trim();
+
+  return {
+    request: {
+      data: {
+        items: buildFiscalReceiptItems(items, discountAmount, { forceZeroVat }),
+        payments: [{
+          name: sanitizeForFiscalPrinter(PAYMENT_METHOD_LABELS[method] || method),
+          amount: roundMoney(expectedTotal),
+        }],
+        roundingAmount: 0,
+        receiptType: 'Paragon',
+        paragonNumber: String(paragonNumber),
+        headerText: null,
+        footerText: null,
+        cashRegisterCode: effectiveCashRegisterCode,
+      },
+      externalId: buildParagonExternalId(paragonNumber, { salt: externalIdSalt }),
+    },
+    print: {
+      printerName: config.printerName,
+    },
+  };
+}
+
 export function buildCashRegisterRequestContext({
   orderId,
   items,

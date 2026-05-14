@@ -642,6 +642,87 @@ async function closeAsStaffMeal() {
   }
 }
 
+// Paragón offline fallback — § 10 z. 289/2008.
+// Volane keď platba zlyhá lebo Portos/eKasa je nedostupné. Zobrazí confirm
+// modal "eKasa nedostupná — vystaviť paragón?". Na potvrdenie:
+//   1. Vystaví paragón cez POST /api/paragons (lokálne, monotonic číslo)
+//   2. Vytlačí ESC/POS doklad cez POST /api/print/paragon (so slovom „PARAGÓN")
+//   3. Background worker neskôr (po obnove Portos) registruje cez eKasa
+//
+// Returns true ak paragón vystavený (caller pokračuje ako pri success),
+// false ak user odmietol alebo error (caller pokračuje s pôvodným error
+// toastom).
+async function offerParagonFallback(reason) {
+  return new Promise(function (resolve) {
+    if (typeof showConfirm !== 'function') {
+      console.warn('offerParagonFallback: showConfirm helper not available');
+      return resolve(false);
+    }
+    showConfirm(
+      'eKasa nedostupná',
+      'Portos / eKasa nereaguje. Môžete vystaviť PARAGÓN (náhradný doklad). Po obnove sa automaticky zaregistruje v eKasa systéme.',
+      async function () {
+        // User confirmed → issue paragón
+        try {
+          var order = getOrder();
+          var items = order
+            .filter(function (o) { return o && o.name && o.name !== 'Omáčka (combo)'; })
+            .map(function (it) {
+              return { id: it.id, name: it.name, qty: it.qty, price: it.price, vatRate: it.vatRate || 0, note: it.note || '' };
+            });
+          var total = getOrderTotal();
+          var method = pendingPaymentMethod || 'hotovost';
+
+          var issueRes = await api.post('/paragons', {
+            orderId: currentOrderId,
+            items: items,
+            paymentMethod: method,
+            totalAmount: total,
+            reason: reason || 'portos_unavailable',
+          });
+
+          if (!issueRes || !issueRes.paragonNumber) {
+            showToast('Paragón sa nepodarilo vystaviť', 'error');
+            return resolve(false);
+          }
+
+          // Print paragón ESC/POS ticket (best-effort — keď tlačiareň offline,
+          // printQueue ho dohne)
+          try {
+            var user = (typeof api !== 'undefined' && api.getUser) ? api.getUser() : null;
+            var table = (typeof TABLES !== 'undefined') ? TABLES.find(function (t) { return t.id === selectedTableId; }) : null;
+            await api.post('/print/paragon', {
+              paragonNumber: issueRes.paragonNumber,
+              tableName: table ? table.name : null,
+              staffName: user ? user.name : '',
+              items: items,
+              total: total,
+              method: method,
+              vatRate: null, // non-payer DPH (forceZeroVat) → no VAT row
+              companyName: null,
+            });
+          } catch (printErr) {
+            console.warn('paragon print failed:', printErr);
+            showToast('Paragón #' + issueRes.paragonNumber + ' vystavený, ale tlač zlyhala. Vytlačte cez admin → História.', 'warning');
+          }
+
+          showToast('Paragón ' + issueRes.paragonNumber + ' vystavený. Po obnove eKasa sa automaticky zaregistruje.', 'success');
+          resolve(true);
+        } catch (err) {
+          console.error('offerParagonFallback error:', err);
+          showToast('Vystavenie paragónu zlyhalo: ' + (err.message || 'neznáma chyba'), 'error');
+          resolve(false);
+        }
+      },
+      {
+        type: 'danger',
+        confirmText: 'Vystaviť paragón',
+        cancelText: 'Zrušiť'
+      }
+    );
+  });
+}
+
 async function confirmPayment() {
   var btn = document.querySelector('#paymentModal .u-btn-mint');
   if (btn) btnLoading(btn);
@@ -690,6 +771,12 @@ async function confirmPayment() {
     setPaymentFeedback(outcome.message, outcome.tone, outcome.title);
 
     if (outcome.kind === 'blocked' || outcome.kind === 'ambiguous') {
+      // Portos blokuje → ponúkni paragón fallback (§ 10 ERP zákon).
+      var issued = await offerParagonFallback('portos_blocked');
+      if (issued) {
+        await finalizeSuccessfulPayment('Paragón vystavený. eKasa sa dohne neskôr.', 'warning');
+        return;
+      }
       showToast(outcome.message, outcome.tone);
       return;
     }
@@ -702,6 +789,19 @@ async function confirmPayment() {
     console.error('confirmPayment error:', e);
     var outcome = normalizeFiscalOutcome(null, e);
     setPaymentFeedback(outcome.message, outcome.tone, outcome.title);
+
+    // Portos transport error / network down → ponúkni paragón fallback.
+    var isOfflineCase = (e && e.code === 'OFFLINE_NO_QUEUE')
+      || (e && e.name === 'TypeError' && /fetch/i.test(e.message || ''))
+      || outcome.kind === 'blocked'
+      || outcome.kind === 'offline_queued';
+    if (isOfflineCase) {
+      var issued = await offerParagonFallback(e && e.code === 'OFFLINE_NO_QUEUE' ? 'no_connection' : 'portos_error');
+      if (issued) {
+        await finalizeSuccessfulPayment('Paragón vystavený. eKasa sa dohne neskôr.', 'warning');
+        return;
+      }
+    }
     showToast(outcome.message, outcome.tone);
   } finally {
     if (btn) btnReset(btn);

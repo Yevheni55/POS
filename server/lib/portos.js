@@ -314,6 +314,25 @@ export async function registerCashReceipt(input) {
 }
 
 /**
+ * Registrácia paragónu — manuálneho náhradného dokladu vystaveného pri
+ * výpadku ERP/Portos/CHDU. § 10 z. 289/2008: paragón musí byť dodatočne
+ * zaevidovaný v eKasa do 48 hodín po obnove funkčnosti ERP.
+ *
+ * Body shape (rovnaký ako cash_register, len receiptType: 'Paragon'):
+ *   { request: { data: { items, payments, roundingAmount, receiptType: 'Paragon',
+ *     cashRegisterCode, paragonNumber }, externalId } }
+ *
+ * @param {object} input — full request context z buildParagonRequestContext
+ * @returns {Promise<RegisterResult>} same shape ako registerCashReceipt
+ */
+export async function registerParagon(input) {
+  const response = await portosRequest('POST', '/api/v1/requests/receipts/paragon', {
+    body: input,
+  });
+  return normalizeRegisterResult(response.status, response.data, input);
+}
+
+/**
  * Vklad hotovosti do pokladne — fiškálny doklad typu "Príjem nehotovostnej operácie".
  * NineDigit endpoint: POST /api/v1/requests/receipts/deposit
  * Body shape: { request: { data: { cashRegisterCode, amount } } }

@@ -30,6 +30,7 @@ import companyProfileRoutes from './routes/company-profile.js';
 import fiscalDocumentsRoutes from './routes/fiscal-documents.js';
 import shishaRoutes from './routes/shisha.js';
 import stornoBasketRoutes from './routes/storno-basket.js';
+import paragonsRoutes from './routes/paragons.js';
 import {
   publicRouter as attendancePublicRouter,
   adminRouter as attendanceAdminRouter,
@@ -196,6 +197,7 @@ app.use('/api/company-profile', auth, companyProfileRoutes);
 app.use('/api/fiscal-documents', auth, fiscalDocumentsRoutes);
 app.use('/api/shisha', auth, shishaRoutes);
 app.use('/api/storno-basket', auth, stornoBasketRoutes);
+app.use('/api/paragons', auth, paragonsRoutes);
 // Admin attendance — same /api/attendance prefix, but JWT-gated. Express
 // matches the more specific routes from the public router first; admin
 // paths only fall through to here. Routes are added in Task 5.
