@@ -1126,6 +1126,22 @@ body::after{
 .btn-cash:disabled,.btn-card:disabled{
   opacity:.4;cursor:not-allowed;transform:none;box-shadow:none;
 }
+/* Spec 2.3 — primary akcia podla stavu objednavky.
+   Visual cue: subtle outer glow on hover and rest.
+   .is-primary signaluje "to klikni teraz". */
+.btn-send.is-primary,
+.btn-cash.is-primary,
+.btn-card.is-primary,
+.btn-prebill.is-primary{
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.26),0 4px 14px -2px rgba(184,84,42,.30),0 8px 22px -4px rgba(184,84,42,.22);
+}
+.btn-send.is-primary{
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.26),0 4px 14px -2px rgba(184,124,26,.36),0 8px 22px -4px rgba(184,124,26,.22);
+}
+.btn-prebill.is-primary{
+  /* Predúčet primary = bolder navy fill instead of just outline. */
+  background:var(--color-accent-secondary);color:#fff;border-color:var(--color-accent-secondary);
+}
 /* Zamestnanecka spotreba — vlastny look (amber tint), aby pripomenul, ze
    to NIE JE platba ale benefit/naklad. Phase 4: amber-tint shape language
    aligned with .btn-send (filled-amber). Here we go softer (tint not fill)

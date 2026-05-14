@@ -393,8 +393,8 @@ function _addToOrderCore(name, emoji, price, forceNewRow) {
   // Flash the product card to confirm addition
   var addedCard=document.querySelector('.product-card[data-name="'+name.replace(/"/g,'\\"')+'"]');
   if(addedCard){addedCard.classList.remove('just-added');void addedCard.offsetWidth;addedCard.classList.add('just-added');setTimeout(function(){addedCard.classList.remove('just-added')},400)}
-  var btnSend = document.getElementById('btnSend');
-  if (btnSend) btnSend.disabled = false;
+  // btnSend enable/disable je teraz centralizovany v _applyActionButtonState,
+  // ktore sa zavola z updateTotals() vyssie. Ziadne manualne `disabled = false` netreba.
 
   // Schedule a full render to fix sort order and send-button state after rapid adds settle
   _scheduleRender();

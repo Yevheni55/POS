@@ -6,6 +6,53 @@
 // PERF: hoisted from renderFloor() local var to avoid ~30 string allocations per render.
 const PERSON_ICON_SVG = '<svg aria-hidden="true" viewBox="0 0 16 16" width="11" height="11"><path d="M8 7a3 3 0 100-6 3 3 0 000 6zm-5 9a5 5 0 0110 0H3z" fill="currentColor"/></svg>';
 
+// Spec 2.3 — single source of truth pre buttons disabled/visible state.
+// Vracia jeden zo stringov: 'empty' | 'new' | 'partial' | 'sent' | 'paid'.
+//   empty   = no items
+//   new     = at least one item, NONE sent yet
+//   partial = some sent, some pending — send button still shines
+//   sent    = all sent, nothing paid yet — payments + predúčet are primary
+//   paid    = order has been paid (rare in this UI since paid orders close)
+function _computeOrderState() {
+  var order = (typeof getOrder === 'function') ? getOrder() : [];
+  if (!order.length) return 'empty';
+  var hasPending = order.some(function (o) { return !o.sent; });
+  var hasSent = order.some(function (o) { return o.sent; });
+  if (hasPending && hasSent) return 'partial';
+  if (hasPending) return 'new';
+  if (hasSent) return 'sent';
+  return 'empty';
+}
+window._computeOrderState = _computeOrderState;
+
+function _applyActionButtonState() {
+  var state = _computeOrderState();
+  var btnSend    = document.getElementById('btnSend');
+  var btnPreBill = document.getElementById('btnPreBill');
+  var btnCash    = document.querySelector('.btn-cash');
+  var btnCard    = document.querySelector('.btn-card');
+  var btnCancel  = document.querySelector('.actions .btn-cancel');
+
+  // Disabled in 'empty' state (Spec 2.4)
+  if (btnSend)    btnSend.disabled    = (state === 'empty' || state === 'sent');
+  if (btnPreBill) btnPreBill.disabled = (state === 'empty');
+  if (btnCash)    btnCash.disabled    = (state === 'empty');
+  if (btnCard)    btnCard.disabled    = (state === 'empty');
+  if (btnCancel) {
+    btnCancel.disabled = (state === 'empty');
+    btnCancel.classList.toggle('pos-hidden', state === 'empty');
+  }
+
+  // Primary emphasis swaps per state.
+  // 'new' / 'partial' → Poslat je hlavna akcia.
+  // 'sent'            → Hotovost/Karta a Preducet su hlavne; Poslat disabled.
+  if (btnSend)    btnSend.classList.toggle('is-primary',    state === 'new' || state === 'partial');
+  if (btnCash)    btnCash.classList.toggle('is-primary',    state === 'sent' || state === 'partial');
+  if (btnCard)    btnCard.classList.toggle('is-primary',    state === 'sent' || state === 'partial');
+  if (btnPreBill) btnPreBill.classList.toggle('is-primary', state === 'sent');
+}
+window._applyActionButtonState = _applyActionButtonState;
+
 // Clock
 function updateClock(){
   const n=new Date();
@@ -972,10 +1019,12 @@ function renderOrder(){
   </div>
   <div class="order-item-swipe-left"><button class="swipe-btn swipe-btn-move" onclick="enterMoveMode(${o.id})" aria-label="Presunut polozku">&#8599;</button><button class="swipe-btn swipe-btn-note" onclick="openNoteModal('${esc}', ${o.id})" aria-label="Poznamka">&#9998;</button><button class="swipe-btn swipe-btn-del" onclick="removeItem('${esc}')" aria-label="Odstranit polozku">&#10005;</button></div>
 </div>`}).join('')}
-  // Update send button state
+  // has-pending toggles a subtle CSS animation on btnSend (line 2832).
+  // Disabled/primary-emphasis is now governed centrally by _applyActionButtonState below.
   const btnSend=document.getElementById('btnSend');
-  if(btnSend){btnSend.disabled=!order.length;btnSend.classList.toggle('has-pending',order.some(function(o){return o&&!o.sent;}));}
+  if(btnSend){btnSend.classList.toggle('has-pending',order.some(function(o){return o&&!o.sent;}));}
   updateTotals();
+  _applyActionButtonState();
 }
 function updateTotals(){
   const order=getOrder(),subtotal=order.reduce((s,o)=>s+o.price*o.qty,0);
@@ -1000,6 +1049,7 @@ function updateTotals(){
     if(discDisplay)discDisplay.classList.add('pos-hidden');
     document.getElementById('total').textContent=fmt(subtotal);
   }
+  _applyActionButtonState();
 }
 
 // ===== DISCOUNT SYSTEM =====
