@@ -713,9 +713,10 @@ body::after{
   pointer-events:none;
   opacity:.55;
 }
-/* Phase 7: asymmetric spacing — order-header dostane viac vertikalneho
-   priestoru (golden-ratio rhythm namiesto rigid uniform grid).
-   Hornu padding 18px (predtym ~8px), spodny ~14px pre breathing. */
+/* Spec 1.2 + 2.7 — order-header zostane natural-size v flex-column
+   layoute (flex:0 0 auto). Padding 10/14/6 zladene s tabs (6/8/4) a
+   footer (8/12/12) pre konzistentny vertikalny rytmus aj v stiesnenom
+   tablet panely (360px sirka). */
 .order-header{flex:0 0 auto;padding:10px 14px 6px;border-bottom:1px solid var(--color-border);display:flex;align-items:center;justify-content:space-between}
 .order-tabs{flex:0 0 auto;display:flex;gap:var(--space-1);padding:6px 8px 4px;border-bottom:1px solid var(--color-border);overflow-x:auto;position:sticky;top:0;z-index:5;background:linear-gradient(180deg, color-mix(in srgb, var(--color-bg) 95%, transparent) 0%, color-mix(in srgb, var(--color-bg) 85%, transparent) 100%);backdrop-filter:blur(4px) saturate(120%);-webkit-backdrop-filter:blur(4px) saturate(120%)}
 .order-tabs.pos-hidden{display:none}
