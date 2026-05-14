@@ -17,3 +17,4 @@ server/.env.ttlock
 /test-results/
 /playwright-report/
 /playwright/.cache/
+.playwright-mcp/
