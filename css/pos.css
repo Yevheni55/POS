@@ -1313,7 +1313,6 @@ body::after{
 .u-modal-text{font-size:var(--text-md);color:var(--color-text-sec);margin-bottom:24px;line-height:var(--leading-relaxed)}
 .u-modal-hint{font-size:var(--text-sm);color:var(--color-text-sec);margin:-8px 0 16px;line-height:var(--leading-relaxed)}
 .order-item-info--note{cursor:pointer;border-radius:var(--radius-sm);outline:none}
-.order-item-info--note:focus-visible{box-shadow:0 0 0 2px rgba(184,84,42,.4)}
 /* "+ Pridat poznamku" placeholder rules removed — note is now triggered
    via .order-item-note-btn (pencil chip), not inline placeholder text. */
 .u-modal-amount{
@@ -2618,7 +2617,7 @@ body::after{
 .order-item-wrap{position:relative;margin:2px 0;overflow:hidden;border-radius:var(--radius-sm)}
 .order-item-inner{
   display:grid;
-  grid-template-columns:28px 1fr 36px 132px 64px 36px;
+  grid-template-columns:28px 1fr 44px 132px 64px 44px;
   align-items:center;
   gap:8px;
   padding:6px 8px;
@@ -2640,7 +2639,7 @@ body::after{
 .order-item-note-placeholder{font-size:11px;color:var(--color-text-dim);margin-top:2px}
 .order-item-note-btn{
   appearance:none;background:transparent;border:1px solid var(--color-border);
-  width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+  width:44px;height:44px;border-radius:8px;display:flex;align-items:center;justify-content:center;
   color:var(--color-text-sec);cursor:pointer;-webkit-tap-highlight-color:transparent;
   transition:background var(--transition-fast),border-color var(--transition-fast),color var(--transition-fast);
 }
@@ -2669,11 +2668,20 @@ body::after{
 }
 .order-item-remove{
   appearance:none;background:transparent;border:1px solid transparent;
-  width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+  width:44px;height:44px;border-radius:8px;display:flex;align-items:center;justify-content:center;
   color:var(--color-text-dim);font-size:18px;line-height:1;cursor:pointer;-webkit-tap-highlight-color:transparent;
   transition:background var(--transition-fast),color var(--transition-fast),border-color var(--transition-fast);
 }
 .order-item-remove:hover{background:var(--color-danger-bg);border-color:var(--color-danger-border);color:var(--color-danger)}
+/* Spec: visible focus rings on all interactive row elements (DESIGN-CODE.md §6).
+   3px terra glow ring matches the project-wide focus pattern. */
+.order-item-info:focus-visible,
+.order-item-note-btn:focus-visible,
+.qty-btn:focus-visible,
+.order-item-remove:focus-visible{
+  outline:none;
+  box-shadow:0 0 0 3px rgba(184, 84, 42, .28);
+}
 
 /* === TABLET ORDER LIST OVERRIDES ===
    Canonical compact 56px row (see ORDER ROW block ~line 2625) now serves
