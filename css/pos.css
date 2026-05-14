@@ -686,7 +686,20 @@ body::after{
 @keyframes cardIn{to{opacity:1}}
 
 /* ===== ORDER PANEL ===== */
-.order-panel{position:relative;width:380px;flex-shrink:0;display:flex;flex-direction:column;background:var(--surface-raised);border-left:1px solid var(--border-default);border-top:2px dashed var(--color-border-strong)}
+/* Spec 1.2 + 2.7 — order panel je flex column: header + tabs auto, items grow, footer sticky bottom.
+   On 1280×800 tablet landscape the items area is ~520px tall → 9 rows @ 56px height.
+   Inner layout (display:flex on header for title↔count, display:flex+sticky on tabs for h-strip)
+   is preserved on top of the spec's panel-level flex sizing. */
+.order-panel{
+  position:relative;
+  display:flex;flex-direction:column;
+  flex:0 0 360px;
+  max-width:360px;
+  height:100%;
+  background:var(--color-bg-elevated);
+  border-left:1px solid var(--color-border);
+  border-top:2px dashed var(--color-border-strong);
+}
 /* Receipt perforation — 2px dashed top edge evokes torn-off ledger sheet.
    Pure decorative; nothing else relies on this border. */
 .order-panel::before{
@@ -703,8 +716,9 @@ body::after{
 /* Phase 7: asymmetric spacing — order-header dostane viac vertikalneho
    priestoru (golden-ratio rhythm namiesto rigid uniform grid).
    Hornu padding 18px (predtym ~8px), spodny ~14px pre breathing. */
-.order-header{padding:18px var(--space-4) 14px;border-bottom:1px solid var(--border-default);display:flex;align-items:center;justify-content:space-between}
-.order-tabs{display:flex;gap:var(--space-1);padding:var(--space-1) var(--space-4);border-bottom:1px solid var(--color-border);overflow-x:auto;flex-shrink:0;position:sticky;top:0;z-index:5;background:linear-gradient(180deg, color-mix(in srgb, var(--color-bg) 95%, transparent) 0%, color-mix(in srgb, var(--color-bg) 85%, transparent) 100%);backdrop-filter:blur(4px) saturate(120%);-webkit-backdrop-filter:blur(4px) saturate(120%)}
+.order-header{flex:0 0 auto;padding:10px 14px 6px;border-bottom:1px solid var(--color-border);display:flex;align-items:center;justify-content:space-between}
+.order-tabs{flex:0 0 auto;display:flex;gap:var(--space-1);padding:6px 8px 4px;border-bottom:1px solid var(--color-border);overflow-x:auto;position:sticky;top:0;z-index:5;background:linear-gradient(180deg, color-mix(in srgb, var(--color-bg) 95%, transparent) 0%, color-mix(in srgb, var(--color-bg) 85%, transparent) 100%);backdrop-filter:blur(4px) saturate(120%);-webkit-backdrop-filter:blur(4px) saturate(120%)}
+.order-tabs.pos-hidden{display:none}
 .order-tab{display:flex;flex-direction:column;align-items:flex-start;padding:6px 12px;border-radius:var(--radius-sm);border:1px solid var(--action-primary-border);background:transparent;color:var(--text-secondary);font-family:var(--font-body);font-size:var(--text-sm);font-weight:var(--weight-semibold);cursor:pointer;white-space:nowrap;transition:all .15s;position:relative}
 .order-tab.active{background:var(--action-primary-bg);color:var(--action-primary);border-color:var(--action-primary)}
 .tab-label{font-weight:700;font-size:13px;line-height:1.2}
@@ -730,7 +744,7 @@ body::after{
 .order-count.bump{transform:scale(1.2)}
 .order-count.zero{background:var(--surface-card);color:var(--text-muted)}
 
-.order-items{flex:1;overflow-y:auto;padding:2px 6px;scrollbar-width:thin;scrollbar-color:rgba(30,24,18,.05) transparent;-webkit-overflow-scrolling:touch}
+.order-items{flex:1 1 auto;min-height:0;overflow-y:auto;padding:4px 6px;scrollbar-width:thin;scrollbar-color:rgba(30,24,18,.05) transparent;-webkit-overflow-scrolling:touch}
 .order-items::-webkit-scrollbar{width:3px}
 .order-items::-webkit-scrollbar-thumb{background:rgba(30,24,18,.05);border-radius:8px}
 
@@ -1054,10 +1068,9 @@ body::after{
 .btn-serve{font-size:var(--text-2xs);padding:var(--space-1) var(--space-2);border-radius:6px;border:1px solid var(--color-success-border);background:var(--color-success-bg);color:var(--color-success);cursor:pointer;font-weight:var(--weight-bold);margin-left:3px;min-height:var(--btn-h-xs);line-height:var(--leading-snug)}
 .btn-serve:hover{background:rgba(92,196,158,.2)}
 
-/* Phase 7: asymmetric spacing — order-footer dostane vacsi padding-top
-   (16px namiesto 8px) aby sum-total label/value mali breathing room.
-   Lower third visual weight cez ~1:1.6 ratio horny:bottom padding. */
-.order-footer{border-top:1px solid var(--border-default);padding:16px 12px 12px;background:var(--surface-sunken)}
+/* Spec 1.2 + 2.7 — footer pinned bottom via flex:0 0 auto on .order-panel
+   flex column. Padding 8/12/12 per canonical block (was 16/12/12). */
+.order-footer{flex:0 0 auto;padding:8px 12px 12px;border-top:1px solid var(--color-border);background:var(--color-bg-elevated)}
 .sum-total-wrap{
   display:flex;justify-content:space-between;align-items:baseline;
   padding:var(--space-3) 0 var(--space-4);
@@ -1880,7 +1893,9 @@ body::after{
 .discount-list-error{text-align:center;color:var(--action-danger);padding:var(--space-3);font-size:var(--text-base)}
 
 @media(min-width:1600px){
-  .order-panel{width:420px}
+  /* Wider desktop — bump order panel to 420px. Must override BOTH flex
+     basis and max-width because base rule uses flex:0 0 360px;max-width:360px. */
+  .order-panel{flex:0 0 420px;max-width:420px}
   .products-grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
   .table-chip{width:130px;height:120px}
   .table-chip.large{width:170px;height:120px}
@@ -1889,7 +1904,8 @@ body::after{
      keeps canonical 14px name + 14px mono price across all breakpoints. */
 }
 @media(max-width:1100px){
-  .order-panel{width:280px}
+  /* Narrow desktop — shrink order panel to 280px. Override flex + max-width. */
+  .order-panel{flex:0 0 280px;max-width:280px}
   .products-grid{grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:4px}
   .table-chip{width:90px;height:90px}
   .table-chip.large{width:120px;height:90px}
@@ -1951,7 +1967,9 @@ body::after{
   .qty-popup-btn{width:55px;height:55px;font-size:28px}
   .order-tab{font-size:18px;padding:14px 18px}
   .pos-subtotal-row{font-size:21px}
-  .order-panel{width:437px}
+  /* Spec 1.2 — tablet keeps canonical 360px order panel (was 437px).
+     Wider panel ate horizontal product grid space; 360px is tuned for
+     1280×800 landscape so items column fits 9 rows @ 56px without scroll. */
   /* Order total — must dominate the screen so the customer reads it
      instantly when the cashier turns the tablet ("koľko platím?"). */
   .sum-total-wrap{
@@ -2685,11 +2703,9 @@ body::after{
 
 /* === TABLET ORDER LIST OVERRIDES ===
    Canonical compact 56px row (see ORDER ROW block ~line 2625) now serves
-   tablet directly — single source of truth. Tablet only keeps wider order
-   panel so the 6-column grid fits comfortably. */
-@media (min-width:769px) and (max-width:1366px) and (pointer:coarse){
-  .order-panel{width:480px}
-}
+   tablet directly — single source of truth. Order panel width is also
+   canonical (360px from base rule, Spec 1.2) — previous 480px tablet override
+   was reconciled away so 1280×800 landscape fits 9 rows @ 56px. */
 
 /* Floor edit mode — make it obvious a tap will drag, not select */
 body.edit-mode .table-chip {
