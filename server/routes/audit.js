@@ -16,6 +16,15 @@ import { requireRole } from '../middleware/requireRole.js';
 const router = Router();
 const mgr = requireRole('manazer', 'admin');
 
+// Mirror of cashflow.js guard — without it bogus from/to hit the
+// `::timestamp` cast and surface a Postgres 500 instead of a clean 400.
+const ISO_DATE_RE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+function isValidIsoDate(s) {
+  if (typeof s !== 'string' || !ISO_DATE_RE.test(s)) return false;
+  const d = new Date(s + 'T00:00:00Z');
+  return Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === s;
+}
+
 // GET /api/audit/order-events?from=YYYY-MM-DD&to=YYYY-MM-DD&staffId=&type=&orderId=&limit=
 //
 // Defaults to today. Joins staff (actor) and orders→tables (context) so
@@ -25,6 +34,9 @@ router.get('/order-events', mgr, async (req, res) => {
   const TZ = 'Europe/Bratislava';
   const to = req.query.to || new Date().toISOString().slice(0, 10);
   const from = req.query.from || to;
+  if (!isValidIsoDate(from) || !isValidIsoDate(to)) {
+    return res.status(400).json({ error: 'Neplatný formát dátumu (očakávame YYYY-MM-DD)' });
+  }
 
   const fromBoundary = sql`(${from + ' 00:00:00'})::timestamp AT TIME ZONE ${TZ}`;
   const toBoundary = sql`(${to + ' 23:59:59'})::timestamp AT TIME ZONE ${TZ}`;

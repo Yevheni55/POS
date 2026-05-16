@@ -43,7 +43,6 @@ import { ALLOWED_ORIGINS, corsOriginCallback } from './lib/cors-origin.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
-app.set('trust proxy', 'loopback');
 
 // PR-2.3: allow req.ip to honour X-Forwarded-For when running behind a
 // reverse proxy (Docker, nginx, etc). Must be set BEFORE any middleware.

@@ -7,7 +7,10 @@ export function auth(req, res, next) {
   const header = req.headers.authorization;
   if (!header) return res.status(401).json({ error: 'Token chyba' });
 
-  const token = header.replace('Bearer ', '');
+  // RFC 7235 §2.1: scheme is case-insensitive. Plain string `.replace('Bearer ', '')`
+  // silently passes the raw header value to jwt.verify on `bearer xyz`, breaking
+  // clients that lowercase the scheme.
+  const token = header.replace(/^bearer\s+/i, '');
   try {
     req.user = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
     next();
