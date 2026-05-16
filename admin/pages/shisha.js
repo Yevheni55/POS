@@ -1,11 +1,13 @@
 // Shisha — interný counter mimo fiškálneho obehu.
 // Tlačidlo +1 pri každom predaji shishy. Štatistiky podľa dní pre účtovníctvo.
 
+import { fmtCost } from '../../components/fmt.js';
+
 let _container = null;
 let _refreshing = false;
 
 function fmtMoney(n) {
-  return Number(n || 0).toFixed(2).replace('.', ',') + ' €';
+  return fmtCost(n) + ' €';
 }
 
 function fmtDate(iso) {

@@ -255,7 +255,7 @@ function renderItemList() {
         else if (pct < 35) fcColor = 'background:rgba(245,158,11,.15);color:#f59e0b';
         else fcColor = 'background:rgba(239,68,68,.18);color:#ef4444';
         var pctLabel = (price > 0) ? ' · ' + pct.toFixed(0) + '%' : '';
-        foodCostBadge = '<span title="Food cost na 1 porciu (' + (price>0?(pct.toFixed(1)+'% z ceny ' + price.toFixed(2) + '€'):'cena 0') + ')"'
+        foodCostBadge = '<span title="Food cost na 1 porciu (' + (price>0?(pct.toFixed(1)+'% z ceny ' + fmtCost(price) + '€'):'cena 0') + ')"'
           + ' style="margin-left:6px;font-size:11px;padding:1px 6px;border-radius:4px;font-weight:700;'
           + fcColor + '">' + fmtCost(foodCost) + ' €' + pctLabel + '</span>';
       }

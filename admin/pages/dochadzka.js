@@ -1,5 +1,7 @@
 'use strict';
 
+import { fmtCost } from '../../components/fmt.js';
+
 // Admin -> Dochadzka. Reuses the existing design system:
 //  - .panel / .panel-title for sections
 //  - .data-table for the staff list and the per-staff event log
@@ -33,7 +35,7 @@ function fmtMinutes(m) {
   const mm = m % 60;
   return h + 'h ' + mm + 'm';
 }
-function fmtEur(n) { return Number(n || 0).toFixed(2) + ' €'; }
+function fmtEur(n) { return fmtCost(n) + ' €'; }
 function escapeHtml(v) {
   return String(v == null ? '' : v)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')

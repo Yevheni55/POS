@@ -1,3 +1,5 @@
+import { fmtCost } from '../../components/fmt.js';
+
 let _container = null;
 let items = [];
 let filter = { method: '', q: '', scope: 'current' };
@@ -20,7 +22,7 @@ function escapeHtml(value) {
 function fmtEur(value) {
   var n = Number(value);
   if (!Number.isFinite(n)) return '-';
-  return n.toFixed(2) + ' €';
+  return fmtCost(n) + ' €';
 }
 
 function fmtDate(value) {

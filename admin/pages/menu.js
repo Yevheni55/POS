@@ -1,4 +1,5 @@
 import { softDelete } from '../components/toast-undo.js';
+import { fmtCost } from '../../components/fmt.js';
 
 let MENU_DATA = [];
 let activeCatId = null;
@@ -35,7 +36,7 @@ function qsAll(sel) { return _container.querySelectorAll(sel); }
 function byId(id) { return _container.querySelector('#' + id); }
 
 // === Helpers ===
-function fmt(n) { return n.toFixed(2).replace('.', ',') + ' \u20AC'; }
+function fmt(n) { return fmtCost(n) + ' \u20AC'; }
 function getCat(id) { return MENU_DATA.find(c => c.id === id); }
 function getActiveCat() { return getCat(activeCatId); }
 function normalizeText(value) { return String(value || '').trim().toLowerCase(); }

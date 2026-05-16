@@ -1,6 +1,7 @@
 'use strict';
 
 import { softDelete } from '../components/toast-undo.js';
+import { fmtCost } from '../../components/fmt.js';
 
 // Admin → Cashflow. Manual income / expense ledger combined with the
 // auto-tracked POS + shisha revenue for the same period. Read-only for
@@ -53,7 +54,7 @@ function todayMinusDaysIso(n) {
   d.setUTCDate(d.getUTCDate() - n);
   return d.toISOString().slice(0, 10);
 }
-function fmtEur(n) { return Number(n || 0).toFixed(2) + ' €'; }
+function fmtEur(n) { return fmtCost(n) + ' €'; }
 function escapeHtml(v) {
   return String(v == null ? '' : v)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')

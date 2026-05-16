@@ -1,6 +1,7 @@
 // Purchase orders page module
 import { softDelete } from '../components/toast-undo.js';
 import { mountEmptyState } from '../components/empty-state.js';
+import { fmtCost } from '../../components/fmt.js';
 
 let orders = [];
 let suppliers = [];
@@ -907,7 +908,7 @@ function openScanReviewModal(scanResult) {
     return s + (tot > 0 ? tot : q * uc);
   }, 0);
   html += '<div id="scanGrandTotal" style="text-align:right;font-weight:700;font-size:var(--text-lg);padding-top:10px;border-top:1px solid var(--color-border)">';
-  html += 'Celkom: <span id="scanGrandTotalValue" style="color:var(--color-accent);font-family:var(--font-display);font-size:var(--text-2xl)">' + grandTotal.toFixed(2) + ' \u20AC</span>';
+  html += 'Celkom: <span id="scanGrandTotalValue" style="color:var(--color-accent);font-family:var(--font-display);font-size:var(--text-2xl)">' + fmtCost(grandTotal) + ' \u20AC</span>';
   html += '<div style="font-size:var(--text-xs);color:var(--color-text-dim);margin-top:4px">Suma sa prepocita po uprave mnozstiev. Skontroluj, ci zodpoveda sume na fakture (bez DPH).</div>';
   html += '</div>';
 
@@ -969,7 +970,7 @@ function openScanReviewModal(scanResult) {
         var qty = parseFloat(card.querySelector('.scan-qty')?.value) || 0;
         var cost = parseFloat(card.querySelector('.scan-cost')?.value) || 0;
         var totalEl = card.querySelector('.scan-total-display');
-        if (totalEl) totalEl.textContent = (qty * cost).toFixed(2) + ' \u20AC';
+        if (totalEl) totalEl.textContent = fmtCost(qty * cost) + ' \u20AC';
       }
       updateGrandTotal();
     }
@@ -984,7 +985,7 @@ function openScanReviewModal(scanResult) {
       sum += qty * cost;
     });
     var el = ov.querySelector('#scanGrandTotalValue');
-    if (el) el.textContent = sum.toFixed(2) + ' \u20AC';
+    if (el) el.textContent = fmtCost(sum) + ' \u20AC';
   }
 
   function updateConversionLabel(card, ingId) {
@@ -1160,7 +1161,7 @@ function buildScanItemCard(item, idx) {
   });
   h += '</select>';
   h += '<input type="number" class="form-input form-input-sm scan-cost" data-idx="' + idx + '" value="' + (item.unitCost || 0) + '" step="0.01" min="0" style="width:80px;text-align:right" placeholder="Cena">';
-  h += '<span class="scan-total-display" style="font-family:var(--font-display);font-weight:700;color:var(--color-accent);min-width:90px;text-align:right">' + Number(item.totalCost || 0).toFixed(2) + ' \u20AC</span>';
+  h += '<span class="scan-total-display" style="font-family:var(--font-display);font-weight:700;color:var(--color-accent);min-width:90px;text-align:right">' + fmtCost(item.totalCost) + ' \u20AC</span>';
   h += '</div>';
 
   // Row 3: conversion factor (e.g. 1 ks = 500g)

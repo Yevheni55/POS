@@ -1,4 +1,6 @@
 // Reports page module
+import { fmtCost } from '../../components/fmt.js';
+
 let _container = null;
 let _lastZData = null;
 // Produkty tab sorting — clicking any column header re-sorts client-side
@@ -593,7 +595,7 @@ async function printZReport() {
     // toaste videl či sa Portos paragón fakticky vytlačil.
     var w = res && res.withdrawal;
     var pw = res && res.portosWithdraw;
-    var amt = w && w.amount != null ? Number(w.amount).toFixed(2).replace('.', ',') + ' €' : '';
+    var amt = w && w.amount != null ? fmtCost(w.amount) + ' €' : '';
     if (w && w.reason === 'no_cash') {
       showToast('Z-report vytlačený. Žiadna hotovosť na výber.', true);
     } else if (pw && pw.ok) {

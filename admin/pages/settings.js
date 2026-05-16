@@ -1,4 +1,6 @@
 /* Settings page module */
+import { fmtCost } from '../../components/fmt.js';
+
 let _container = null;
 
 const DEFAULTS = {
@@ -1019,7 +1021,7 @@ function renderDiscounts() {
   html += '</tr></thead><tbody>';
 
   adminDiscounts.forEach(function (d) {
-    var valLabel = d.type === 'percent' ? d.value + '%' : d.value.toFixed(2) + ' EUR';
+    var valLabel = d.type === 'percent' ? d.value + '%' : fmtCost(d.value) + ' EUR';
     var typeLabel = d.type === 'percent' ? 'Percento' : 'Pevna suma';
     var activeClass = d.active ? 'on' : '';
     html += '<tr class="data-row">';

@@ -1,5 +1,6 @@
 // Staff page module
 import { mountEmptyState } from '../components/empty-state.js';
+import { fmtCost } from '../../components/fmt.js';
 
 let staff = [];
 let editingId = null;
@@ -91,8 +92,8 @@ function renderStaff() {
     const fullName = ((e.name || '') + (e.surname ? ' ' + e.surname : '')).trim() || '—';
     const roleLabel = ({ admin: 'Admin', manazer: 'Manažér', cisnik: 'Čašník' })[e.role] || e.role || '';
     const positionLine = e.position
-      ? `<div class="staff-stats">${escapeHtml(e.position)}${e.hourlyRate != null ? ' · <strong>' + Number(e.hourlyRate).toFixed(2) + ' €/h</strong>' : ''}</div>`
-      : (e.hourlyRate != null ? `<div class="staff-stats"><strong>${Number(e.hourlyRate).toFixed(2)} €/h</strong></div>` : '');
+      ? `<div class="staff-stats">${escapeHtml(e.position)}${e.hourlyRate != null ? ' · <strong>' + fmtCost(e.hourlyRate) + ' €/h</strong>' : ''}</div>`
+      : (e.hourlyRate != null ? `<div class="staff-stats"><strong>${fmtCost(e.hourlyRate)} €/h</strong></div>` : '');
     const dochBadge = e.hasAttendancePin
       ? '<span class="badge badge-success" style="font-size:11px;padding:2px 6px">Dochádzka PIN</span>'
       : '';
