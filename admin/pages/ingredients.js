@@ -1,6 +1,7 @@
 // Ingredients page module
 import { mountEmptyState } from '../components/empty-state.js';
 import { softDelete } from '../components/toast-undo.js';
+import { fmtCost, fmtNum } from '../../components/fmt.js';
 
 let ingredients = [];
 let editingId = null;
@@ -11,24 +12,6 @@ let _escHandler = null;
 
 function $(sel) {
   return _container.querySelector(sel);
-}
-
-function fmtNum(n) {
-  return Number(n).toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-// fmtCost — adaptívny formát ceny podľa jej veľkosti.
-// Predtým fmtNum (2 desatinné) zobrazoval sub-centové ceny per-gram ako
-// "0,00 €" (napr. múka 0,00075 €/g) a operátor mal pocit že cena sa
-// stratila / nedelila sa. Teraz: ≥1€ → 2 desatinné, ≥0,01€ → 2-4
-// desatinné, sub-cent → 4-5 desatinných miest.
-function fmtCost(n) {
-  var x = Number(n);
-  if (!isFinite(x) || x === 0) return '0,00';
-  var abs = Math.abs(x);
-  if (abs >= 1) return x.toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  if (abs >= 0.01) return x.toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
-  return x.toLocaleString('sk-SK', { minimumFractionDigits: 4, maximumFractionDigits: 5 });
 }
 
 function getStatusBadge(item) {

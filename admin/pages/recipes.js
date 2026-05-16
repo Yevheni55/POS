@@ -1,4 +1,6 @@
 // Recipes page module — two-panel recipe editor
+import { fmtCost } from '../../components/fmt.js';
+
 let menuItems = [];
 let ingredientsList = [];
 let selectedItemId = null;
@@ -36,17 +38,6 @@ async function loadRecipeSummary() {
   } catch (_) {
     recipeSummary = {};
   }
-}
-
-// Adaptive € formatter — sub-cent food costs (drinky / kávy s lacnými
-// surovinami) potrebujú 4 desatinné, väčšie burgre stačia 2.
-function _fmtCost(n) {
-  var x = Number(n);
-  if (!isFinite(x) || x === 0) return '0,00';
-  var abs = Math.abs(x);
-  if (abs >= 1) return x.toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  if (abs >= 0.01) return x.toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
-  return x.toLocaleString('sk-SK', { minimumFractionDigits: 4, maximumFractionDigits: 5 });
 }
 
 // Per-menu predaje od začiatku aktuálnej sezóny (default 25.04). Bez tohto
@@ -266,7 +257,7 @@ function renderItemList() {
         var pctLabel = (price > 0) ? ' · ' + pct.toFixed(0) + '%' : '';
         foodCostBadge = '<span title="Food cost na 1 porciu (' + (price>0?(pct.toFixed(1)+'% z ceny ' + price.toFixed(2) + '€'):'cena 0') + ')"'
           + ' style="margin-left:6px;font-size:11px;padding:1px 6px;border-radius:4px;font-weight:700;'
-          + fcColor + '">' + _fmtCost(foodCost) + ' €' + pctLabel + '</span>';
+          + fcColor + '">' + fmtCost(foodCost) + ' €' + pctLabel + '</span>';
       }
       // "Predalo sa Xx" badge \u2014 \u017Elt\u00FD ak nem\u00E1 recept (oper\u00E1tor vid\u00ED \u010Do
       // ch\u00FDba v evidencii); \u0161ed\u00FD ak recept existuje (informa\u010Dn\u00FD).
@@ -352,16 +343,16 @@ function renderEditor() {
   html += '<div class="prod-header" style="border-bottom:1px solid rgba(255,255,255,.05);display:flex;flex-direction:column;gap:8px">';
   html += '<div class="prod-header-title">' + (item.emoji || '') + ' ' + escHtml(item.name) + '</div>';
   html += '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:13px">';
-  html += '<span style="color:var(--color-text-sec)">Cena: <strong style="color:var(--color-text)">' + _fmtCost(price) + ' €</strong></span>';
+  html += '<span style="color:var(--color-text-sec)">Cena: <strong style="color:var(--color-text)">' + fmtCost(price) + ' €</strong></span>';
   if (liveFoodCost > 0) {
-    html += '<span style="color:var(--color-text-sec)">Food cost: <strong style="color:' + fcColor + '">' + _fmtCost(liveFoodCost) + ' €</strong></span>';
+    html += '<span style="color:var(--color-text-sec)">Food cost: <strong style="color:' + fcColor + '">' + fmtCost(liveFoodCost) + ' €</strong></span>';
     if (fcPct > 0) {
       html += '<span style="padding:3px 10px;border-radius:6px;font-weight:700;background:' + fcColor + '22;color:' + fcColor + '">'
         + fcPct.toFixed(1) + ' % z ceny</span>';
     }
     if (price > 0) {
       var marza = price - liveFoodCost;
-      html += '<span style="color:var(--color-text-sec)">Marža: <strong style="color:var(--color-text)">+' + _fmtCost(marza) + ' €</strong></span>';
+      html += '<span style="color:var(--color-text-sec)">Marža: <strong style="color:var(--color-text)">+' + fmtCost(marza) + ' €</strong></span>';
     }
   } else {
     html += '<span style="color:var(--color-text-dim);font-style:italic">Food cost: nie je recept</span>';

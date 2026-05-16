@@ -157,7 +157,7 @@ function showStornoReason(itemName, qty, callback) {
     +   '<div class="storno-reasons-row">' + reasonBtns + '</div>'
     +   '<div class="u-modal-field" style="margin-top:14px">'
     +     '<label for="stornoNote" class="sr-only">Poznamka</label>'
-    +     '<input id="stornoNote" class="form-input" placeholder="Poznamka (volitelna)">'
+    +     '<input id="stornoNote" class="form-input" maxlength="200" placeholder="Poznamka (volitelna)">'
     +   '</div>'
     +   '<div class="u-modal-btns" style="margin-top:16px">'
     +     '<button type="button" class="u-btn u-btn-ghost" id="stornoCancel">Zrusit</button>'
