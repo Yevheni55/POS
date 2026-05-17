@@ -105,6 +105,13 @@ let currentPage = null;
 let currentSub = null;
 let currentModule = null;
 let pendingPage = null;
+// intendedPage = autoritativny "kam smeruje aktualna navigacia". Aktualizovany
+// na zaciatku KAZDEJ navigate() volania, pred prvym updateSidebarActiveState.
+// MutationObserver guard pouziva PRAVE TO ako zdroj pravdy — currentPage je
+// stara hodnota az kym sa nedokonci await routes[page]() (čo môže trvať pre
+// HTTP load modulu), takze pocas tohto okna by guard omylom odstranil .active
+// z noveho page item-u myslejuc si ze patri starej page.
+let intendedPage = null;
 let navigationSeq = 0;
 let venuePortosSynced = false;
 
@@ -219,8 +226,10 @@ function installSidebarActiveGuard() {
       const el = m.target;
       if (!el.matches || !el.matches('.nav-item')) continue;
       if (!el.classList.contains('active')) continue;
-      // Tento item ma .active. Skontroluj ci by ho mal mat podla currentPage.
-      const expectedPage = currentPage || pendingPage;
+      // Tento item ma .active. Skontroluj ci by ho mal mat podla intendedPage.
+      // intendedPage je aktualizovany ESTE PRED tym ako navigate() prida .active
+      // na novy page item, takze guard nikdy nevidi "stary" page-context.
+      const expectedPage = intendedPage;
       if (!expectedPage) continue; // este nepoznal page, neriesime
       const matchesPage = el.dataset.page === expectedPage;
       const matchesAlias = el.dataset.activeFor && el.dataset.activeFor.split(',').indexOf(expectedPage) >= 0;
@@ -236,6 +245,11 @@ function installSidebarActiveGuard() {
 
 async function navigate(page, sub) {
   if (!routes[page]) page = 'dashboard';
+
+  // KRITICKE: intendedPage musi byt nastaveny PRED prvym updateSidebarActiveState
+  // pretoze MutationObserver guard ho pouziva ako zdroj pravdy. Bez toho by guard
+  // pouzil stary currentPage a omylom odstranil .active z noveho page item-u.
+  intendedPage = page;
 
   // DEFENSIVE: vzdy refresh sidebar + title PRED early-returnom — sluzi
   // ako safety net ak by sa medzitym .active class niekde rozsipala.
