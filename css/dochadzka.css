@@ -1,48 +1,398 @@
-:root { color-scheme: dark; }
-body { margin: 0; padding: 0; background: var(--surface-bg, #0e0e12); color: var(--text-primary, #e9e9f0); font-family: var(--font-body, system-ui); -webkit-tap-highlight-color: transparent; }
-.doch-shell { max-width: 460px; margin: 0 auto; padding: 24px 20px env(safe-area-inset-bottom, 16px); }
-.doch-title { text-align: center; margin: 8px 0 16px; font-size: 28px; letter-spacing: .02em; }
-.doch-status { min-height: 110px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 16px 12px; border-radius: 14px; background: var(--surface-card, #1a1a22); margin-bottom: 16px; }
-.doch-status-empty { opacity: .55; font-size: 18px; }
-.doch-status-name { font-size: 26px; font-weight: 700; }
-.doch-status-pos { opacity: .7; font-size: 14px; }
-.doch-status-state { font-size: 16px; padding: 4px 12px; border-radius: 999px; margin-top: 6px; }
-.doch-status-state.clocked_in  { background: rgba(95, 200, 130, .18); color: #6ed599; }
-.doch-status-state.clocked_out { background: rgba(180, 180, 200, .14); color: #b9b9c7; }
-.doch-status-today { opacity: .8; font-size: 14px; }
-.doch-pin-display { display: flex; gap: 12px; justify-content: center; min-height: 28px; margin: 8px 0 14px; }
-.doch-pin-display .dot { width: 16px; height: 16px; border-radius: 50%; background: var(--text-primary, #fff); display: inline-block; }
-.doch-pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.doch-key { font-size: 26px; font-weight: 600; padding: 18px 0; border-radius: 12px; border: 1px solid rgba(255, 255, 255, .08); background: var(--surface-card, #1a1a22); color: inherit; cursor: pointer; min-height: 64px; }
-.doch-key:active { transform: scale(.97); background: rgba(255, 255, 255, .06); }
-.doch-key-clr { background: rgba(224, 112, 112, .18); }
-.doch-key-bk  { background: rgba(180, 180, 200, .12); }
-.doch-actions { display: flex; gap: 12px; margin-top: 18px; flex-wrap: wrap; }
-.doch-actions[hidden] { display: none !important; }
-.doch-btn[hidden] { display: none !important; }
-.doch-btn { flex: 1; padding: 22px 0; font-size: 22px; font-weight: 700; border-radius: 14px; border: 0; color: #07120a; cursor: pointer; min-height: 72px; }
-.doch-btn-in  { background: linear-gradient(135deg, #5edba8, #42c490); }
-.doch-btn-out { background: linear-gradient(135deg, #f1a47a, #e08a5b); color: #2a0e02; }
-/* "Moje smeny" otvorí self-service overlay s rozpisom hodín a zárobkov.
-   Štýl: cyan/blue (rovnaká paleta ako brand), aby sa odlíšilo od zelenej
-   "Príchod" a oranžovej "Odchod". */
-.doch-btn-myshifts {
-  flex: 0 0 auto;
-  padding: 22px 26px;
-  background: linear-gradient(135deg, #6ae0e2, #1f64a3);
-  color: #fdf9f3;
+/* ============================================================================
+   dochadzka.css — DAYLIGHT THEME (mirror login.html)
+   ============================================================================
+   Atelier Daylight palette: cream + terra primary, navy secondary, espresso
+   text. Identický feeling ako login obrazovka — paper grain bg, soft shadows,
+   gradient logo, stagger fadeInUp na vrchu, numpad s cream gradient.
+   ============================================================================ */
+
+:root {
+  --color-bg-sunken:   #ece4d2;
+  --color-bg:          #f5efe3;
+  --color-bg-elevated: #ece4d2;
+  --color-bg-surface:  rgba(30, 24, 18, .04);
+  --color-bg-hover:    rgba(30, 24, 18, .08);
+
+  --color-border:        rgba(122, 100, 80, .20);
+  --color-border-strong: rgba(122, 100, 80, .42);
+
+  --color-accent:           #b8542a;
+  --color-accent-dim:       #a04920;
+  --color-accent-bg:        rgba(184, 84, 42, .08);
+  --color-accent-secondary: #1f3a5c;
+
+  --color-success: #4a7a3a;
+  --color-success-bg: rgba(74, 122, 58, .12);
+  --color-success-border: rgba(74, 122, 58, .35);
+  --color-danger: #b03830;
+  --color-danger-bg: rgba(176, 56, 48, .10);
+  --accent-amber: #b87c1a;
+  --accent-amber-bg: rgba(184, 124, 26, .12);
+
+  --color-text:     #1e1812;
+  --color-text-sec: #5a4f3c;
+  --color-text-dim: #8a7d65;
+
+  --font-display: 'Outfit', system-ui, sans-serif;
+  --font-body:    'Outfit', system-ui, sans-serif;
+  --font-mono:    'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, monospace;
+
+  color-scheme: light;
 }
 
-/* === Moje smeny overlay ===
-   POZN.: HTML `hidden` atribút má v UA stylesheete `display:none`,
-   no `display: flex` v autorskej CSS bez explicitnej priority by ho
-   prepísal. Riešenie: druhý selektor s `[hidden]` má vyššiu špecificitu
-   a !important, aby `el.hidden = true` z JS skutočne skrylo overlay. */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+button, a, input { touch-action: manipulation; -webkit-touch-callout: none; }
+
+html, body {
+  height: 100%;
+  overflow-x: hidden;
+  font-family: var(--font-body);
+  color: var(--color-text);
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  /* Dual radial + linear cream — identical to login.html */
+  background:
+    radial-gradient(ellipse 80% 60% at 30% 10%, rgba(184, 84, 42, .05) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 80% at 80% 90%, rgba(31, 58, 92, .04) 0%, transparent 50%),
+    linear-gradient(180deg, #f5efe3 0%, #ece4d2 100%);
+}
+
+/* Paper grain noise overlay — subtle textile feel */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  pointer-events: none; z-index: 0;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' seed='3'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='.05'/></svg>");
+  mix-blend-mode: multiply;
+  opacity: .35;
+}
+
+/* === SHELL — vertically centered card on cream paper === */
+.doch-shell {
+  position: relative; z-index: 1;
+  min-height: 100vh; min-height: 100dvh;
+  max-width: 460px;
+  margin: 0 auto;
+  padding: 24px 20px env(safe-area-inset-bottom, 24px);
+  padding-top: calc(24px + env(safe-area-inset-top, 0));
+  display: flex; flex-direction: column;
+  gap: 18px;
+}
+
+/* === TITLE — Daylight display === */
+.doch-title {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -.01em;
+  text-align: center;
+  margin: 8px 0 4px;
+  color: var(--color-text);
+  opacity: 0; animation: fadeInUp .5s ease forwards;
+}
+.doch-title::after {
+  content: '';
+  display: block;
+  width: 40px; height: 3px;
+  margin: 8px auto 0;
+  background: var(--color-accent);
+  border-radius: 2px;
+}
+
+/* === STATUS CARD — kto je v práci / čo bolo poslednie === */
+.doch-status {
+  min-height: 110px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px;
+  padding: 18px 14px;
+  border-radius: 20px;
+  background: linear-gradient(180deg, var(--color-bg), var(--color-bg-elevated));
+  border: 1px solid var(--color-border-strong);
+  box-shadow:
+    0 1px 3px rgba(30, 24, 18, .06),
+    0 8px 24px -8px rgba(30, 24, 18, .12);
+  position: relative;
+  opacity: 0; animation: fadeInUp .5s ease .08s forwards;
+}
+.doch-status::before {
+  content: ''; position: absolute;
+  top: -1px; left: 22%; right: 22%; height: 1px;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, .6) 50%, transparent 100%);
+  border-radius: 1px;
+}
+.doch-status-empty {
+  font-size: 16px;
+  color: var(--color-text-sec);
+  font-weight: 500;
+}
+.doch-status-name {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -.01em;
+  color: var(--color-text);
+}
+.doch-status-pos {
+  font-size: 13px;
+  color: var(--color-text-sec);
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  font-weight: 700;
+}
+.doch-status-state {
+  font-family: var(--font-body);
+  font-size: 12px; font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  padding: 4px 12px;
+  border-radius: 999px;
+  margin-top: 4px;
+  border: 1px solid currentColor;
+}
+.doch-status-state.clocked_in  {
+  color: var(--color-success);
+  background: var(--color-success-bg);
+}
+.doch-status-state.clocked_out {
+  color: var(--color-text-sec);
+  background: var(--color-bg-surface);
+}
+.doch-status-today {
+  font-family: var(--font-mono);
+  font-feature-settings: 'tnum' 1;
+  font-size: 14px;
+  color: var(--color-text-sec);
+}
+
+/* === PIN section === */
+.doch-pin {
+  display: flex; flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  opacity: 0; animation: fadeInUp .5s ease .14s forwards;
+}
+
+.doch-pin-display {
+  display: flex; gap: 18px;
+  justify-content: center;
+  min-height: 24px;
+  padding: 4px 0;
+}
+/* JS emituje <span class="dot"></span> iba pre KAZDE zadanu cislicu —
+   takze default styling = filled terra. Prazdne sloty nie su renderovane. */
+.doch-pin-display .dot {
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  border: 2px solid var(--color-accent);
+  display: inline-block;
+  box-shadow: 0 2px 8px rgba(184, 84, 42, .30);
+  transition: transform .2s ease;
+}
+.doch-pin-display.shake { animation: shake .5s ease; }
+
+/* === Numpad — 3×4 grid, cream gradient buttons === */
+.doch-pad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  width: 100%;
+  max-width: 320px;
+}
+.doch-key {
+  height: 68px;
+  border-radius: 16px;
+  border: 1px solid var(--color-border);
+  background: linear-gradient(180deg, var(--color-bg), var(--color-bg-elevated));
+  color: var(--color-text);
+  font-family: var(--font-display);
+  font-size: 26px; font-weight: 700;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow:
+    0 1px 2px rgba(30, 24, 18, .06),
+    0 2px 6px -1px rgba(30, 24, 18, .08);
+  transition: transform .12s ease, background .12s ease, box-shadow .12s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.doch-key:hover { background: rgba(30, 24, 18, .04); }
+.doch-key:active {
+  transform: scale(.94);
+  background: rgba(30, 24, 18, .08);
+  box-shadow: inset 0 1px 3px rgba(30, 24, 18, .12);
+}
+.doch-key-clr {
+  background: linear-gradient(180deg, rgba(176, 56, 48, .08), rgba(176, 56, 48, .14));
+  border-color: rgba(176, 56, 48, .25);
+  color: var(--color-danger);
+}
+.doch-key-clr:hover { background: rgba(176, 56, 48, .18); }
+.doch-key-bk {
+  font-size: 22px;
+  color: var(--color-text-sec);
+}
+
+/* === Action buttons — Príchod / Odchod / Moje smeny === */
+.doch-actions {
+  display: flex; gap: 10px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+  opacity: 0; animation: fadeInUp .5s ease .22s forwards;
+}
+.doch-actions[hidden] { display: none !important; }
+.doch-btn[hidden] { display: none !important; }
+.doch-btn {
+  flex: 1;
+  padding: 18px 16px;
+  font-family: var(--font-display);
+  font-size: 18px; font-weight: 800;
+  letter-spacing: .02em;
+  border-radius: 16px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  min-height: 64px;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform .12s ease, box-shadow .12s ease, background .15s ease;
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 8px;
+}
+.doch-btn-in {
+  background: linear-gradient(135deg, var(--color-success), #3d6630);
+  color: #f5efe3;
+  border-color: var(--color-success);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .18),
+    0 4px 12px -2px rgba(74, 122, 58, .35);
+}
+.doch-btn-in:active {
+  transform: translateY(1px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .14), 0 1px 4px rgba(74, 122, 58, .25);
+}
+.doch-btn-out {
+  background: linear-gradient(135deg, var(--accent-amber), #9c6612);
+  color: #f5efe3;
+  border-color: var(--accent-amber);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .18),
+    0 4px 12px -2px rgba(184, 124, 26, .35);
+}
+.doch-btn-out:active {
+  transform: translateY(1px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .14), 0 1px 4px rgba(184, 124, 26, .25);
+}
+.doch-btn-myshifts {
+  flex: 1 0 100%;
+  background: var(--color-bg-surface);
+  color: var(--color-accent-secondary);
+  border-color: rgba(31, 58, 92, .30);
+  font-size: 15px;
+  padding: 14px 16px;
+  min-height: 52px;
+}
+.doch-btn-myshifts:hover {
+  background: rgba(31, 58, 92, .08);
+  border-color: var(--color-accent-secondary);
+}
+.doch-btn-myshifts:active { transform: translateY(1px); }
+
+/* === Splash — pulse stamp after successful prichod/odchod === */
+.doch-splash {
+  position: fixed; inset: 0; z-index: 50;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(30, 24, 18, .55);
+  backdrop-filter: blur(6px);
+  opacity: 0; pointer-events: none;
+  transition: opacity .2s;
+}
+.doch-splash.show { opacity: 1; pointer-events: auto; }
+.doch-splash[hidden] { display: none !important; }
+.doch-splash-card {
+  text-align: center;
+  padding: 32px 36px;
+  border-radius: 22px;
+  background: linear-gradient(180deg, var(--color-bg), var(--color-bg-elevated));
+  border: 2px solid var(--color-success);
+  color: var(--color-success);
+  min-width: 280px;
+  box-shadow:
+    0 4px 12px rgba(30, 24, 18, .12),
+    0 24px 64px -16px rgba(30, 24, 18, .28),
+    0 0 0 4px rgba(74, 122, 58, .18);
+  transform: scale(.92) rotate(-2deg);
+  transition: transform .3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.doch-splash.show .doch-splash-card {
+  transform: scale(1) rotate(0);
+}
+.doch-splash.out .doch-splash-card {
+  border-color: var(--accent-amber);
+  color: var(--accent-amber);
+  box-shadow:
+    0 4px 12px rgba(30, 24, 18, .12),
+    0 24px 64px -16px rgba(30, 24, 18, .28),
+    0 0 0 4px rgba(184, 124, 26, .18);
+}
+.doch-splash-icon {
+  font-size: 56px; line-height: 1;
+  margin-bottom: 10px;
+  font-weight: 700;
+}
+.doch-splash-title {
+  font-family: var(--font-display);
+  font-size: 26px; font-weight: 800;
+  letter-spacing: -.01em;
+  margin-bottom: 4px;
+}
+.doch-splash-name {
+  font-family: var(--font-mono);
+  font-feature-settings: 'tnum' 1;
+  font-size: 18px; font-weight: 600;
+  color: var(--color-text-sec);
+  letter-spacing: .02em;
+}
+
+/* === Toast — bottom-anchored cream pill === */
+.doch-toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0));
+  transform: translateX(-50%) translateY(40px);
+  opacity: 0;
+  padding: 12px 20px;
+  border-radius: 999px;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 14px;
+  background: var(--color-bg-elevated);
+  color: var(--color-text);
+  border: 1px solid var(--color-border-strong);
+  box-shadow:
+    0 1px 3px rgba(30, 24, 18, .06),
+    0 12px 32px -6px rgba(30, 24, 18, .18);
+  transition: opacity .2s, transform .2s;
+  z-index: 100;
+}
+.doch-toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+.doch-toast.ok {
+  background: var(--color-success);
+  color: #f5efe3;
+  border-color: var(--color-success);
+}
+.doch-toast.err {
+  background: var(--color-danger);
+  color: #f5efe3;
+  border-color: var(--color-danger);
+}
+
+/* === Moje smeny overlay — Daylight cream paper sheet === */
 .doch-myshifts-overlay[hidden] { display: none !important; }
 .doch-myshifts-overlay {
   position: fixed; inset: 0;
-  background: rgba(4, 18, 42, .92);
-  backdrop-filter: blur(8px);
+  background: rgba(30, 24, 18, .55);
+  backdrop-filter: blur(6px);
   z-index: 1000;
   display: flex;
   align-items: stretch;
@@ -54,60 +404,81 @@ body { margin: 0; padding: 0; background: var(--surface-bg, #0e0e12); color: var
   width: 100%;
   max-width: 720px;
   margin: auto;
-  background: #0c3768;
-  border-radius: 18px;
-  border: 1px solid rgba(106, 224, 226, .25);
-  padding: 22px;
-  color: #fdf9f3;
-  box-shadow: 0 20px 60px rgba(4,18,42,.6);
+  background: linear-gradient(180deg, var(--color-bg), var(--color-bg-elevated));
+  border: 1px solid var(--color-border-strong);
+  border-radius: 22px;
+  padding: 24px;
+  color: var(--color-text);
+  box-shadow:
+    0 4px 12px rgba(30, 24, 18, .12),
+    0 24px 64px -16px rgba(30, 24, 18, .28);
+  position: relative;
+}
+.doch-myshifts-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 50%; transform: translateX(-50%);
+  width: 48px; height: 3px;
+  background: var(--color-accent);
+  border-radius: 0 0 3px 3px;
 }
 .doch-myshifts-head {
   display: flex; justify-content: space-between; align-items: center;
   margin-bottom: 18px;
   padding-bottom: 14px;
-  border-bottom: 1px solid rgba(255,255,255,.1);
+  border-bottom: 1px solid var(--color-border);
 }
 .doch-myshifts-title {
-  font-family: Georgia, 'Times New Roman', serif;
-  font-style: italic;
+  font-family: var(--font-display);
   font-size: 22px;
-  font-weight: 400;
+  font-weight: 800;
+  letter-spacing: -.01em;
+  color: var(--color-text);
 }
 .doch-myshifts-close {
   width: 44px; height: 44px;
   border-radius: 50%;
-  background: rgba(255,255,255,.08);
-  color: #fdf9f3;
-  border: none;
+  background: var(--color-bg-surface);
+  color: var(--color-text-sec);
+  border: 1px solid var(--color-border);
   font-size: 22px;
   cursor: pointer;
   line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s, color .15s;
 }
-.doch-myshifts-close:hover { background: rgba(255,255,255,.16); }
+.doch-myshifts-close:hover {
+  background: rgba(176, 56, 48, .12);
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
 
 .doch-myshifts-period {
   display: flex; gap: 6px;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
   padding: 4px;
-  background: rgba(255,255,255,.05);
+  background: var(--color-bg-surface);
   border-radius: 12px;
+  border: 1px solid var(--color-border);
 }
 .ms-period {
   flex: 1;
   padding: 12px;
   border: none;
   background: transparent;
-  color: rgba(253,249,243,.65);
-  font-size: 14px;
+  color: var(--color-text-sec);
+  font-family: var(--font-body);
+  font-size: 13px;
   font-weight: 600;
   border-radius: 9px;
   cursor: pointer;
   transition: background .15s, color .15s;
 }
-.ms-period:hover { color: #fdf9f3; }
+.ms-period:hover { color: var(--color-text); background: rgba(30, 24, 18, .04); }
 .ms-period.active {
-  background: linear-gradient(135deg, #6ae0e2, #18b5bc);
-  color: #04122a;
+  background: var(--color-accent);
+  color: #f5efe3;
+  box-shadow: 0 2px 8px rgba(184, 84, 42, .22);
 }
 
 .doch-myshifts-summary {
@@ -117,108 +488,118 @@ body { margin: 0; padding: 0; background: var(--surface-bg, #0e0e12); color: var
   margin-bottom: 18px;
 }
 .ms-stat {
-  background: rgba(255,255,255,.04);
-  border: 1px solid rgba(255,255,255,.06);
-  border-radius: 12px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
   padding: 14px;
   text-align: center;
 }
 .ms-stat-label {
-  font-size: 11px;
+  font-family: var(--font-body);
+  font-size: 10px;
   letter-spacing: .15em;
   text-transform: uppercase;
-  color: rgba(253,249,243,.55);
-  margin-bottom: 4px;
+  color: var(--color-text-dim);
+  margin-bottom: 6px;
+  font-weight: 700;
 }
 .ms-stat-num {
-  font-family: Georgia, serif;
+  font-family: var(--font-mono);
+  font-feature-settings: 'tnum' 1;
   font-size: 22px;
-  font-weight: 400;
+  font-weight: 700;
+  letter-spacing: -.02em;
   line-height: 1.1;
+  color: var(--color-text);
 }
-.ms-stat-num.primary {
-  background: linear-gradient(120deg, #6ae0e2, #ffc857);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-.ms-stat-num.paid { color: #5edba8; }
+.ms-stat-num.primary { color: var(--color-accent); }
+.ms-stat-num.paid    { color: var(--color-success); }
 .ms-stat-foot {
   font-size: 10px;
-  color: rgba(253,249,243,.55);
+  color: var(--color-text-dim);
   margin-top: 4px;
 }
 
 .doch-myshifts-list { display: flex; flex-direction: column; gap: 8px; }
 .ms-shift {
   display: grid;
-  grid-template-columns: 60px 1fr 80px 130px;
+  grid-template-columns: 70px 1fr 80px 130px;
   gap: 10px;
   align-items: center;
-  padding: 12px;
-  background: rgba(255,255,255,.04);
-  border: 1px solid rgba(255,255,255,.06);
-  border-radius: 10px;
+  padding: 12px 14px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
   font-size: 13px;
 }
 .ms-shift-open {
-  background: rgba(255,184,0,.08);
-  border-color: rgba(255,184,0,.3);
+  background: var(--accent-amber-bg);
+  border-color: rgba(184, 124, 26, .35);
 }
 .ms-shift-date {
-  font-family: Georgia, serif;
-  font-style: italic;
-  color: rgba(253,249,243,.85);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--color-text);
 }
 .ms-shift-times {
-  font-variant-numeric: tabular-nums;
-  color: rgba(253,249,243,.7);
+  font-family: var(--font-mono);
+  font-feature-settings: 'tnum' 1;
+  color: var(--color-text-sec);
+  font-size: 13px;
 }
 .ms-shift-hours {
   text-align: right;
-  font-weight: 600;
-  color: rgba(253,249,243,.85);
+  font-family: var(--font-mono);
+  font-feature-settings: 'tnum' 1;
+  font-weight: 700;
+  color: var(--color-text);
 }
 .ms-shift-eur {
   text-align: right;
-  font-family: Georgia, serif;
-  font-size: 16px;
+  font-family: var(--font-mono);
+  font-feature-settings: 'tnum' 1;
+  font-size: 15px;
+  font-weight: 700;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 3px;
+  gap: 4px;
 }
 .ms-paid {
+  font-family: var(--font-body);
   font-size: 9px;
   font-weight: 700;
-  letter-spacing: .1em;
+  letter-spacing: .12em;
   text-transform: uppercase;
-  color: #5edba8;
-  background: rgba(94, 219, 168, .15);
+  color: var(--color-success);
+  background: var(--color-success-bg);
+  border: 1px solid var(--color-success-border);
   padding: 2px 8px;
   border-radius: 6px;
-  font-family: -apple-system, system-ui, sans-serif;
 }
 .ms-unpaid {
+  font-family: var(--font-body);
   font-size: 9px;
   font-weight: 700;
-  letter-spacing: .1em;
+  letter-spacing: .12em;
   text-transform: uppercase;
-  color: #ffc857;
-  background: rgba(255, 200, 87, .12);
+  color: var(--accent-amber);
+  background: var(--accent-amber-bg);
+  border: 1px solid rgba(184, 124, 26, .35);
   padding: 2px 8px;
   border-radius: 6px;
-  font-family: -apple-system, system-ui, sans-serif;
 }
 .ms-running {
   font-size: 11px;
-  color: #ffc857;
+  color: var(--accent-amber);
   font-style: italic;
+  font-weight: 600;
 }
 .ms-empty {
   text-align: center;
-  padding: 30px;
-  color: rgba(253,249,243,.5);
+  padding: 32px;
+  color: var(--color-text-dim);
   font-style: italic;
 }
 
@@ -237,37 +618,8 @@ body { margin: 0; padding: 0; background: var(--surface-bg, #0e0e12); color: var
   .ms-shift-hours { grid-area: hours; text-align: left; font-size: 12px; }
   .ms-shift-eur { grid-area: eur; }
 }
-.doch-toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(40px); opacity: 0; transition: opacity .2s, transform .2s; padding: 12px 18px; border-radius: 999px; background: #222; font-weight: 600; }
-.doch-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-.doch-toast.ok  { background: rgba(95, 200, 130, .9); color: #07120a; }
-.doch-toast.err { background: rgba(224, 112, 112, .92); color: #2a0707; }
 
-.doch-splash{
-  position:fixed;inset:0;z-index:50;
-  display:flex;align-items:center;justify-content:center;
-  background:rgba(0,0,0,.45);
-  opacity:0;pointer-events:none;transition:opacity .2s;
-}
-.doch-splash.show{opacity:1;pointer-events:auto}
-.doch-splash-card{
-  text-align:center;padding:28px 32px;border-radius:18px;
-  background:linear-gradient(135deg,#5edba8,#42c490);
-  color:#07120a;min-width:280px;
-  box-shadow:0 12px 48px rgba(0,0,0,.4);
-  transform:scale(.95);transition:transform .2s;
-}
-.doch-splash.show .doch-splash-card{transform:scale(1)}
-.doch-splash.out .doch-splash-card{
-  background:linear-gradient(135deg,#f1a47a,#e08a5b);color:#2a0e02;
-}
-.doch-splash-icon{font-size:64px;line-height:1;margin-bottom:6px;font-weight:700}
-.doch-splash-title{font-size:28px;font-weight:700}
-.doch-splash-name{font-size:20px;font-weight:600;opacity:.9;margin-top:4px}
-
-/* Phase 7: Clock-in stamp impression — ink-stamp aesthetic pre uspesny
-   prichod/odchod. Dashed border + terra/forest farby + spring scale-rotate
-   keyframe simuluje skutocnu peciatku padajucu na papier. Utility class;
-   wrap success span do <div class="doch-stamp-success">…</div>. */
+/* === Existing stamp aesthetic (preserved) — already Daylight-friendly === */
 @keyframes stampImpression {
   0%   { transform: scale(1.4) rotate(-4deg); opacity: 0; }
   60%  { transform: scale(0.92) rotate(2deg); opacity: 1; }
@@ -276,17 +628,31 @@ body { margin: 0; padding: 0; background: var(--surface-bg, #0e0e12); color: var
 .doch-stamp-success {
   display: inline-block;
   padding: 12px 24px;
-  background: rgba(74, 122, 58, .12);
-  border: 2px dashed var(--color-success, #4a7a3a);
-  border-radius: var(--radius-md, 14px);
-  color: var(--color-success, #4a7a3a);
-  font-family: var(--font-display, 'Outfit', sans-serif);
-  font-weight: 700;
+  background: var(--color-success-bg);
+  border: 2px dashed var(--color-success);
+  border-radius: 14px;
+  color: var(--color-success);
+  font-family: var(--font-display);
+  font-weight: 800;
   font-size: 22px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   animation: stampImpression .5s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
 }
+
+/* === Animations === */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-6px); }
+  40%, 80% { transform: translateX(6px); }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .doch-stamp-success { animation: none; }
+  .doch-title, .doch-status, .doch-pin, .doch-actions,
+  .doch-stamp-success, .doch-splash-card,
+  .doch-pin-display.shake { animation: none !important; }
 }
