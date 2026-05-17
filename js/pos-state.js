@@ -518,9 +518,17 @@ function loadPersistedUIState() {
 }
 
 function savePositions(){
-  // Save positions to API
+  // Save positions + size overrides to API. Width/height su null pre stoly
+  // bez explicitneho resize (server-side validacia akceptuje nullable).
   TABLES.forEach(t => {
-    api.put('/tables/' + t.id, { x: t.x, y: t.y }).catch(e => console.error('savePositions error:', e));
+    const payload = { x: t.x, y: t.y };
+    // Iba ak su nastavene — neposielame `null` zbytocne pre stoly co nikdy
+    // neboli resize-nute (drzime sa shape default na CSS strane).
+    if (typeof t.width === 'number' && typeof t.height === 'number') {
+      payload.width = t.width;
+      payload.height = t.height;
+    }
+    api.put('/tables/' + t.id, payload).catch(e => console.error('savePositions error:', e));
   });
 }
 

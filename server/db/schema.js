@@ -90,6 +90,11 @@ export const tables = pgTable('tables', {
   shape: varchar('shape', { length: 20 }).notNull().default('rect'),
   x: integer('x').notNull().default(0),
   y: integer('y').notNull().default(0),
+  // Optional per-table size override (null = použi default zo shape).
+  // Manažer ich nastaví v POS edit móde dragom za pravý dolný roh.
+  // Min 80×80, max 240×200 (px). Hodnoty sa snapujú na 20px grid.
+  width: integer('width'),
+  height: integer('height'),
   status: varchar('status', { length: 20 }).notNull().default('free'),
 });
 

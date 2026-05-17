@@ -353,6 +353,38 @@ body::after{
 
 /* Edit mode chip styling */
 .floor-canvas.edit-mode .table-chip{cursor:grab;border-style:dashed}
+.table-chip.resizing{transition:none;box-shadow:0 0 0 3px var(--color-accent),var(--shadow-lg);z-index:11}
+
+/* Resize handle — visible iba v edit mode v pravom dolnom rohu chipu.
+   Drag-able SE-corner, snap 20px grid, min 80×80 max 240×200. */
+.table-chip-resize{
+  position:absolute;
+  right:2px;bottom:2px;
+  width:28px;height:28px;
+  border:none;background:transparent;
+  display:none;align-items:center;justify-content:center;
+  color:var(--color-accent);
+  cursor:nwse-resize;
+  border-radius:6px 0 14px 0;
+  opacity:0;
+  transition:opacity var(--transition-fast),background var(--transition-fast);
+  -webkit-tap-highlight-color:transparent;
+  z-index:5;
+}
+.floor-canvas.edit-mode .table-chip-resize{
+  display:flex;
+  opacity:.85;
+  background:color-mix(in oklab,var(--color-accent) 14%,transparent);
+}
+.floor-canvas.edit-mode .table-chip-resize:hover,
+.floor-canvas.edit-mode .table-chip-resize:focus-visible{
+  opacity:1;
+  background:color-mix(in oklab,var(--color-accent) 28%,transparent);
+  outline:none;
+}
+@media (pointer: coarse){
+  .table-chip-resize{width:36px;height:36px}
+}
 .floor-canvas.edit-mode .table-chip:active{cursor:grabbing}
 
 /* Status — free is QUIET (recedes — no work needed), occupied is WARM glow

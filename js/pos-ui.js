@@ -420,13 +420,95 @@ function startDrag(e,id){
   if(!editMode)return;
   e.preventDefault();
   dragId=+id;
-  const el=e.currentTarget;
-  const rect=el.getBoundingClientRect();
+  const el=e.currentTarget && e.currentTarget.querySelector
+    ? e.currentTarget.querySelector('[data-id="'+id+'"]')
+    : document.querySelector('[data-id="'+id+'"]');
+  const rect=(el||e.currentTarget).getBoundingClientRect();
   dragOffX=e.clientX-rect.left;
   dragOffY=e.clientY-rect.top;
-  el.classList.add('dragging');
+  if (el) el.classList.add('dragging');
   document.addEventListener('mousemove',onDrag);
   document.addEventListener('mouseup',endDrag);
+}
+
+// ─── Table resize (edit mode) ─────────────────────────────────────────────
+// Drag za pravy dolny roh chipu meni width/height. Snap 20px grid.
+// Min: 80x80 (tap target + text fit). Max: 240x200 (chip-friendly cap).
+let _resizeId = null;
+let _resizeStartW = 0;
+let _resizeStartH = 0;
+let _resizeStartClientX = 0;
+let _resizeStartClientY = 0;
+const TABLE_W_MIN = 80;
+const TABLE_W_MAX = 240;
+const TABLE_H_MIN = 80;
+const TABLE_H_MAX = 200;
+
+function _snapSize(v, min, max) {
+  var s = Math.round(v / 20) * 20;
+  if (s < min) s = min;
+  if (s > max) s = max;
+  return s;
+}
+
+function startTableResize(e, id) {
+  if (!editMode) return;
+  _resizeId = +id;
+  var chip = document.querySelector('[data-id="' + id + '"]');
+  if (!chip) { _resizeId = null; return; }
+  var rect = chip.getBoundingClientRect();
+  _resizeStartW = rect.width;
+  _resizeStartH = rect.height;
+  var isTouch = e.touches && e.touches[0];
+  _resizeStartClientX = isTouch ? e.touches[0].clientX : e.clientX;
+  _resizeStartClientY = isTouch ? e.touches[0].clientY : e.clientY;
+  chip.classList.add('resizing');
+  if (isTouch) {
+    document.addEventListener('touchmove', _onResizeTouch, { passive: false });
+    document.addEventListener('touchend', _endTableResize);
+    document.addEventListener('touchcancel', _endTableResize);
+  } else {
+    document.addEventListener('mousemove', _onResizeMouse);
+    document.addEventListener('mouseup', _endTableResize);
+  }
+}
+
+function _applyResize(clientX, clientY) {
+  if (!_resizeId) return;
+  var chip = document.querySelector('[data-id="' + _resizeId + '"]');
+  if (!chip) return;
+  var dx = clientX - _resizeStartClientX;
+  var dy = clientY - _resizeStartClientY;
+  var w = _snapSize(_resizeStartW + dx, TABLE_W_MIN, TABLE_W_MAX);
+  var h = _snapSize(_resizeStartH + dy, TABLE_H_MIN, TABLE_H_MAX);
+  chip.style.width = w + 'px';
+  chip.style.height = h + 'px';
+  var t = TABLES.find(function (x) { return x.id === _resizeId; });
+  if (t) { t.width = w; t.height = h; }
+}
+
+function _onResizeMouse(e) { _applyResize(e.clientX, e.clientY); }
+function _onResizeTouch(e) {
+  if (!e.touches[0]) return;
+  e.preventDefault();
+  _applyResize(e.touches[0].clientX, e.touches[0].clientY);
+}
+
+function _endTableResize() {
+  if (_resizeId) {
+    var chip = document.querySelector('[data-id="' + _resizeId + '"]');
+    if (chip) chip.classList.remove('resizing');
+    _resizeId = null;
+  }
+  document.removeEventListener('mousemove', _onResizeMouse);
+  document.removeEventListener('mouseup', _endTableResize);
+  document.removeEventListener('touchmove', _onResizeTouch);
+  document.removeEventListener('touchend', _endTableResize);
+  document.removeEventListener('touchcancel', _endTableResize);
+}
+
+if (typeof window !== 'undefined') {
+  window.startTableResize = startTableResize;
 }
 function onDrag(e){
   if(!dragId)return;

@@ -214,7 +214,13 @@ function renderFloor(){
     const isSel=t.id===selectedTableId;
     const isForgotten = t.status==='occupied' && isForgottenTable(t.id);
     const shapeClass=t.shape==='round'?'round':t.shape==='large'?'large':'';
-    const posStyle=`left:${t.x}px;top:${t.y}px`;
+    // Per-table size override (null/undefined → fallback na CSS default ze shape).
+    // Manazer ich nastavi v edit mode dragom za pravy dolny roh — savePositions
+    // posle width/height na server cez PUT /tables/:id.
+    const sizeStyle = (t.width && t.height)
+      ? `;width:${t.width}px;height:${t.height}px`
+      : '';
+    const posStyle=`left:${t.x}px;top:${t.y}px${sizeStyle}`;
 
     const ariaParts=[escHtml(t.name),sl[t.status]||t.status,t.seats+' miest'];
     if(t.status==='occupied'&&total>0)ariaParts.push(fmt(total));
@@ -249,6 +255,17 @@ function renderFloor(){
 
     bodyHtml += '<div class="chip-guests">' + personIcon + ' ' + t.seats + '</div>';
 
+    // Resize handle — iba v edit móde (visible cez .edit-mode CSS rule).
+    // Po stlačení sa spustí startTableResize() z pos-ui.js.
+    bodyHtml += '<button type="button" class="table-chip-resize"'
+      + ' data-resize-id="' + t.id + '"'
+      + ' aria-label="Zmenit velkost stola ' + escAttr(t.name) + '"'
+      + ' title="Drag za roh — meni velkost stola">'
+      + '<svg viewBox="0 0 16 16" aria-hidden="true" width="14" height="14">'
+      +   '<path d="M14 2 L14 6 M14 2 L10 2 M2 14 L6 14 M2 14 L2 10 M14 14 L8 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>'
+      + '</svg>'
+      + '</button>';
+
     // PERF: data-table-id replaces inline onclick/onmousedown — single delegated
     // listener attached below routes events to chipClick / startDrag.
     return '<div class="' + classes + '"'
@@ -278,11 +295,36 @@ function renderFloor(){
     });
     canvas.addEventListener('mousedown', function(e){
       if (typeof editMode === 'undefined' || !editMode) return;
+      // Resize handle má precedens nad chip drag — ak je klik na handle,
+      // odštartuj resize, nie position drag.
+      var resizeBtn = e.target.closest('[data-resize-id]');
+      if (resizeBtn) {
+        var rid = Number(resizeBtn.dataset.resizeId);
+        if (rid && typeof startTableResize === 'function') {
+          e.stopPropagation();
+          startTableResize(e, rid);
+        }
+        return;
+      }
       var chip = e.target.closest('[data-table-id]');
       if (!chip) return;
       var id = Number(chip.dataset.tableId);
       if (id && typeof startDrag === 'function') startDrag(e, id);
     });
+    // Touch start na resize handle — paralelná cesta pre tablet (touchstart
+    // listener vyssie zachytí mouseDown na chip, ale resize handle si musí
+    // mat vlastny touch handler pre stopPropagation).
+    canvas.addEventListener('touchstart', function(e){
+      if (typeof editMode === 'undefined' || !editMode) return;
+      var resizeBtn = e.target.closest('[data-resize-id]');
+      if (!resizeBtn) return;
+      var rid = Number(resizeBtn.dataset.resizeId);
+      if (rid && typeof startTableResize === 'function') {
+        e.stopPropagation();
+        e.preventDefault();
+        startTableResize(e, rid);
+      }
+    }, { passive: false });
   }
 
   // Always-visible Storno chip in the top-right corner of the floor canvas.
