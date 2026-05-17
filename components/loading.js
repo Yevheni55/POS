@@ -157,8 +157,8 @@
       '<div class="error-state">' +
       '<div class="error-state-icon">&#9888;</div>' +
       '<div class="error-state-title">Chyba</div>' +
-      '<div class="error-state-text">' + (message || 'Neocakavana chyba') + '</div>' +
-      (retryFn ? '<button class="btn-outline-accent error-retry-btn">Skusit znova</button>' : '') +
+      '<div class="error-state-text">' + (message || 'Neočakávaná chyba') + '</div>' +
+      (retryFn ? '<button class="btn-outline-accent error-retry-btn">Skúsiť znova</button>' : '') +
       '</div>';
     if (retryFn) {
       var btn = containerEl.querySelector('.error-retry-btn');

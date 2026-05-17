@@ -2823,3 +2823,157 @@ select:focus-visible{
     -webkit-tap-highlight-color: transparent;
   }
 }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   MOBILE UX HARDENING — applied fixes from 10-expert audit
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── 1. Dashboard middle row collapses na phone (overflow fix) ─────────── */
+@media (max-width: 480px) {
+  .dashboard-page > .stat-grid + .row,
+  .dashboard-page > .row {
+    grid-template-columns: 1fr !important;
+    gap: 14px !important;
+  }
+  .dashboard-page .bar { max-width: 100% !important; }
+  /* Stat grid finally 1-col on phone (collapsing competing rules at line 1013/1044) */
+  .stat-grid { grid-template-columns: 1fr !important; gap: 10px; }
+}
+
+/* ── 2. Sticky last-column = action buttons always reachable ─────────── */
+@media (max-width: 768px) {
+  .data-table th:last-child,
+  .data-table td:last-child {
+    position: sticky;
+    right: 0;
+    background: var(--color-bg-elevated);
+    box-shadow: -8px 0 8px -8px rgba(30, 24, 18, .18);
+    z-index: 2;
+  }
+  .data-table tbody tr:hover td:last-child {
+    background: var(--color-bg-elevated);
+  }
+}
+
+/* ── 3. Modals: dvh + sticky submit + auto-scroll focus ──────────────── */
+@media (max-width: 768px) {
+  .u-modal {
+    max-height: 92dvh; /* override 92vh — iOS keyboard friendly */
+  }
+  .u-modal-btns {
+    position: sticky;
+    bottom: 0;
+    background: rgba(245, 239, 227, .98);
+    padding: 12px 0 0;
+    margin: 12px -18px -18px;
+    padding-left: 18px;
+    padding-right: 18px;
+    padding-bottom: env(safe-area-inset-bottom, 12px);
+    box-shadow: 0 -2px 8px rgba(30, 24, 18, .06);
+  }
+  /* Bottom-sheet drag handle (visual affordance) */
+  .u-modal::after {
+    content: '';
+    display: block;
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(30, 24, 18, .18);
+    position: absolute;
+    top: 8px; left: 50%;
+    transform: translateX(-50%);
+  }
+  .u-modal-title { margin-top: 12px; }
+}
+
+/* ── 4. Universal :active press feedback (na vsetkych buttonoch) ─────── */
+@media (hover: none) {
+  .btn:active,
+  .btn-add:active,
+  .btn-secondary:active,
+  .act-btn:active,
+  .toolbar-btn:active,
+  .empty-state-cta:active,
+  .nav-item:active,
+  .panel-tab:active,
+  .cmdk-row:active,
+  .u-btn:active {
+    background: var(--color-accent-bg-hover) !important;
+    transform: translateY(1px);
+    transition: none;
+  }
+  /* Bump podsajušnie tap targets */
+  .cmdk-row { min-height: 44px !important; }
+  .tip-opt { min-height: 44px !important; padding: 8px 14px !important; }
+}
+
+/* ── 5. Overline labels 11 px min (legibility WCAG 1.4.4) ─────────────── */
+@media (max-width: 480px) {
+  .stat-label,
+  .data-table th,
+  .nav-section-label,
+  .kicker,
+  .eyebrow,
+  .dashboard-section-label {
+    font-size: 11px !important;
+    letter-spacing: .06em !important;
+  }
+  .stat-value {
+    font-size: clamp(20px, 5.5vw, 24px) !important;
+    letter-spacing: 0 !important; /* anti mono-tnum overlap with € sign */
+  }
+}
+
+/* ── 6. Action buttons gap 8px (anti mis-tap delete vs edit) ─────────── */
+.prod-actions { gap: 8px !important; }
+@media (max-width: 768px) {
+  .act-btn { min-width: 44px !important; min-height: 44px !important; }
+}
+
+/* ── 7. Skeleton shimmer paused on prefers-reduced-motion ────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-card,
+  .skeleton-row,
+  .skeleton-block { animation: none !important; }
+}
+
+/* ── 8. Empty-state na phone full-width + bigger ─────────────────────── */
+@media (max-width: 768px) {
+  .empty-state-text { max-width: none !important; }
+  .error-retry-btn,
+  .btn-outline-accent {
+    width: 100%;
+    min-height: 48px !important;
+    font-size: 14px;
+  }
+}
+
+/* ── 9. Toast safe-area iOS home indicator ────────────────────────────── */
+.toast {
+  bottom: calc(30px + env(safe-area-inset-bottom, 0px));
+}
+
+/* ── 10. Sklad sub-items: visual marker v horizontal nav (mobile) ───── */
+@media (max-width: 768px) {
+  .sidebar .nav-item--sub {
+    opacity: .9;
+    font-size: 11.5px;
+  }
+  .sidebar .nav-item--sub::before {
+    content: '›';
+    margin-right: 5px;
+    opacity: .55;
+    color: var(--color-accent);
+    font-weight: 800;
+  }
+}
+
+/* ── 11. Smooth horizontal scroll na vsetkych overflow containers ────── */
+.content,
+.cat-list,
+.cmdk-list,
+.u-modal-body,
+.sidebar .nav,
+.panel-tabs {
+  -webkit-overflow-scrolling: touch;
+}

@@ -15,13 +15,15 @@ function $(sel) {
 }
 
 function getStatusBadge(item) {
+  // Leading glyph carry meaning bez ohladu na farbu — WCAG 1.4.1 fix
+  // pre color-blind users (deuteranopia 8% mužov).
   if (item.currentQty <= 0) {
-    return '<span class="badge badge-danger">Prazdny</span>';
+    return '<span class="badge badge-danger" aria-label="Prázdny">● Prázdny</span>';
   }
   if (item.currentQty <= item.minQty) {
-    return '<span class="badge badge-warning">Nizky</span>';
+    return '<span class="badge badge-warning" aria-label="Nízky">▲ Nízky</span>';
   }
-  return '<span class="badge badge-success">OK</span>';
+  return '<span class="badge badge-success" aria-label="OK">✓ OK</span>';
 }
 
 // === Load data ===

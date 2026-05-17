@@ -119,7 +119,13 @@ function renderTable() {
       mountEmptyState(panel, {
         icon: '🔍',
         title: 'Žiadne výsledky',
-        text: 'Pre zvolený filter sa nenašli žiadne odpisy.',
+        text: 'Pre zvolený filter sa nenašli žiadne odpisy. Skús zrušiť filter.',
+        ctaLabel: 'Zrušiť filter',
+        onCta: function () {
+          activeStatus = '';
+          activeReason = '';
+          loadWriteOffs();
+        },
       });
     } else {
       mountEmptyState(panel, {

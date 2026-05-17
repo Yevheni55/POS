@@ -153,14 +153,33 @@ function parseHash() {
  * early-return (ked page === currentPage).
  */
 function updateSidebarActiveState(page) {
+  let activeEl = null;
   document.querySelectorAll('#sidebarNav .nav-item').forEach(function (a) {
     const matchesPage = a.dataset.page === page;
     const matchesAlias = a.dataset.activeFor && a.dataset.activeFor.split(',').indexOf(page) >= 0;
     const active = matchesPage || matchesAlias;
     a.classList.toggle('active', active);
-    if (active) a.setAttribute('aria-current', 'page');
-    else a.removeAttribute('aria-current');
+    if (active) {
+      a.setAttribute('aria-current', 'page');
+      activeEl = a;
+    } else {
+      a.removeAttribute('aria-current');
+    }
   });
+  // Mobile UX: scroll horizontal nav bar tak aby aktivny chip bol vidno.
+  // Bez toho po loadnuti `#reporty/denny` user vidi iba Dashboard..Stoly,
+  // a active terra chip je off-screen vpravo. scrollIntoView so smooth +
+  // inline:center umiestni aktivny v strede viewportu.
+  if (activeEl && typeof activeEl.scrollIntoView === 'function') {
+    // requestAnimationFrame: dovoli sidebar layoutu (po toggle .active class)
+    // ustalit sa pred scroll prepocitanim → zabranujeme ze v 1 frame scroll
+    // pouzije stary measurement.
+    requestAnimationFrame(function () {
+      try {
+        activeEl.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+      } catch (_) { /* IE11 / legacy → polyfill noop */ }
+    });
+  }
 }
 
 async function navigate(page, sub) {
