@@ -537,6 +537,9 @@ function endDrag(){
 // Touch drag support
 document.addEventListener('touchstart',function(e){
   if(!editMode)return;
+  // Resize handle má precedens — ak je touch na corner grip, nech ho rieši
+  // startTableResize (cez canvas touchstart listener), neštartuj position drag.
+  if (e.target.closest('[data-resize-id]')) return;
   const chip=e.target.closest('.table-chip');
   if(!chip)return;
   e.preventDefault();

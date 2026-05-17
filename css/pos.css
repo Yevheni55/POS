@@ -352,38 +352,50 @@ body::after{
 .table-chip.dragging{opacity:.8;z-index:10;box-shadow:0 8px 24px rgba(0,0,0,.4);transition:none}
 
 /* Edit mode chip styling */
-.floor-canvas.edit-mode .table-chip{cursor:grab;border-style:dashed}
+.floor-canvas.edit-mode .table-chip{
+  cursor:grab;border-style:dashed;
+  /* CRITICAL: prepise base `.table-chip{overflow:hidden}` aby externý
+     resize handle nebol orezany v pravom dolnom rohu. Vstavané dekoratívne
+     prvky chipu (::before highlight) sa stále preserve cez vlastný clip. */
+  overflow:visible !important;
+}
 .table-chip.resizing{transition:none;box-shadow:0 0 0 3px var(--color-accent),var(--shadow-lg);z-index:11}
 
-/* Resize handle — visible iba v edit mode v pravom dolnom rohu chipu.
-   Drag-able SE-corner, snap 20px grid, min 80×80 max 240×200. */
+/* Resize handle — visible iba v edit móde ako externý corner grip
+   vyčnievajúci von z chipu vpravo dole. Tým že je MIMO chip border-box,
+   nemôže byť orezaný overflow ani border-radius.
+   Drag → snap 20px grid, min 80×80 max 240×200. */
 .table-chip-resize{
   position:absolute;
-  right:2px;bottom:2px;
-  width:28px;height:28px;
-  border:none;background:transparent;
+  right:-8px;bottom:-8px;          /* externý — vyčnieva 8 px von z chipu */
+  width:32px;height:32px;
+  border:2px solid var(--color-accent);
+  background:var(--color-bg-elevated);
   display:none;align-items:center;justify-content:center;
   color:var(--color-accent);
   cursor:nwse-resize;
-  border-radius:6px 0 14px 0;
-  opacity:0;
-  transition:opacity var(--transition-fast),background var(--transition-fast);
+  border-radius:50%;
+  box-shadow:0 2px 8px rgba(184,84,42,.32);
   -webkit-tap-highlight-color:transparent;
-  z-index:5;
+  z-index:20;                       /* nad všetkými chipmi, aj selected */
+  transition:transform var(--transition-fast),background var(--transition-fast);
+  padding:0;
 }
-.floor-canvas.edit-mode .table-chip-resize{
-  display:flex;
-  opacity:.85;
-  background:color-mix(in oklab,var(--color-accent) 14%,transparent);
-}
+.floor-canvas.edit-mode .table-chip-resize{display:flex}
 .floor-canvas.edit-mode .table-chip-resize:hover,
 .floor-canvas.edit-mode .table-chip-resize:focus-visible{
-  opacity:1;
-  background:color-mix(in oklab,var(--color-accent) 28%,transparent);
+  background:var(--color-accent);
+  color:#fff;
+  transform:scale(1.10);
   outline:none;
 }
+.floor-canvas.edit-mode .table-chip-resize:active{transform:scale(.95)}
+.table-chip-resize svg{pointer-events:none}
 @media (pointer: coarse){
-  .table-chip-resize{width:36px;height:36px}
+  .table-chip-resize{
+    width:40px;height:40px;
+    right:-10px;bottom:-10px;
+  }
 }
 .floor-canvas.edit-mode .table-chip:active{cursor:grabbing}
 
