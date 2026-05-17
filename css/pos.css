@@ -330,6 +330,10 @@ body::after{
   box-shadow:var(--shadow-md);
   padding:7px 9px 7px 9px;
   overflow:hidden;
+  /* Container query context — vnútorny font-size sa škáluje podľa width
+     chipu pomocou cqi unit. Manažer dragom resize-uje chip → nazov + suma
+     sa automaticky prispôsobia, aby sa zmestili bez orezania. */
+  container-type:inline-size;
 }
 /* Faint top-edge highlight that simulates light catching the pebble surface */
 .table-chip::before{
@@ -457,7 +461,9 @@ body::after{
 }
 .table-chip .chip-name{
   font-family:var(--font-display);
-  font-size:19px;
+  /* Container-relative scaling: 18% sirky chipu, ohranicene 11–22 px.
+     80 px chip → ~14 px · 96 px → ~17 px · 128 px → ~22 px (clamp). */
+  font-size:clamp(11px, 18cqi, 22px);
   font-weight:var(--weight-extrabold);
   line-height:1;
   letter-spacing:var(--tracking-tight);
@@ -465,6 +471,7 @@ body::after{
   overflow:hidden;
   text-overflow:ellipsis;
   flex:1;
+  min-width:0;
   color:var(--text-primary);
 }
 .table-chip .chip-status-dot{
@@ -480,36 +487,45 @@ body::after{
 
 .table-chip .chip-amount{
   font-family:var(--font-mono);
-  font-size:15px;
+  /* 14% chip width, range 10–18 px. */
+  font-size:clamp(10px, 14cqi, 18px);
   font-weight:var(--weight-bold);
   color:var(--text-primary);
   font-variant-numeric:tabular-nums;
   letter-spacing:-0.01em;
   line-height:1;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
 }
 .table-chip .chip-time{
   font-family:var(--font-mono);
-  font-size:13px;
+  font-size:clamp(10px, 13cqi, 16px);
   font-weight:var(--weight-bold);
   color:var(--accent-amber);
   font-variant-numeric:tabular-nums;
   letter-spacing:-0.01em;
   line-height:1;
+  white-space:nowrap;
 }
 .table-chip .chip-state-label{
-  font-size:10px;
+  font-size:clamp(8px, 10cqi, 12px);
   font-weight:var(--weight-semibold);
   color:var(--text-secondary);
   text-transform:uppercase;
   letter-spacing:.05em;
   line-height:1;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
 }
 .table-chip.s-dirty .chip-state-label{color:var(--color-danger)}
 .table-chip.s-free .chip-state-label{color:var(--text-dim)}
 
 .table-chip .chip-guests{
   display:flex;align-items:center;gap:3px;
-  font-size:11px;color:var(--text-secondary);
+  font-size:clamp(9px, 11cqi, 14px);
+  color:var(--text-secondary);
   font-weight:var(--weight-semibold);
   align-self:flex-end;
 }
