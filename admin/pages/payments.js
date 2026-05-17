@@ -121,7 +121,7 @@ function renderTable() {
   html += '<th class="data-th">Kedy</th>';
   html += '<th class="data-th">Stôl / Účet</th>';
   html += '<th class="data-th">Spôsob</th>';
-  html += '<th class="data-th">Suma</th>';
+  html += '<th class="data-th text-right">Suma</th>';
   html += '<th class="data-th">Fiškalizácia</th>';
   html += '<th class="data-th">Akcie</th>';
   html += '</tr></thead><tbody>';
@@ -132,7 +132,7 @@ function renderTable() {
     html += '<td class="data-td">' + escapeHtml(fmtDate(item.createdAt)) + '</td>';
     html += '<td class="data-td">' + escapeHtml(item.tableName || '-') + '<div class="text-muted" style="font-size:12px">' + escapeHtml(item.orderLabel || '') + '</div></td>';
     html += '<td class="data-td">' + escapeHtml(methodLabel(item.method)) + '</td>';
-    html += '<td class="data-td num">' + escapeHtml(fmtEur(item.amount)) + '</td>';
+    html += '<td class="data-td num text-right">' + escapeHtml(fmtEur(item.amount)) + '</td>';
     html += '<td class="data-td">' + fiscalCell(item) + '</td>';
     html += '<td class="data-td">' + actionsCell(item) + '</td>';
     html += '</tr>';

@@ -190,8 +190,8 @@ var TEMPLATE = `
             <tr>
               <th>Názov</th>
               <th>Jednotka</th>
-              <th>Aktuálne</th>
-              <th>Minimum</th>
+              <th class="text-right">Aktuálne</th>
+              <th class="text-right">Minimum</th>
               <th>Stav</th>
             </tr>
           </thead>
@@ -215,8 +215,8 @@ var TEMPLATE = `
             <tr>
               <th>Čas</th>
               <th>Typ</th>
-              <th>Množstvo</th>
-              <th>Pred &rarr; Po</th>
+              <th class="text-right">Množstvo</th>
+              <th class="text-right">Pred &rarr; Po</th>
             </tr>
           </thead>
           <tbody id="movementsBody">

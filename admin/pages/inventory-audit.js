@@ -70,7 +70,7 @@ function renderList() {
   }
 
   var html = '<div class="table-scroll-wrap"><table class="data-table"><thead><tr>'
-    + '<th>ID</th>'
+    + '<th class="text-right">ID</th>'
     + '<th>Dátum</th>'
     + '<th>Stav</th>'
     + '<th>Poznámka</th>'

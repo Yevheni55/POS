@@ -234,10 +234,10 @@ function render() {
           '<thead><tr>' +
             '<th class="data-th">Meno</th>' +
             '<th class="data-th">Pozícia</th>' +
-            '<th class="data-th">Sadzba</th>' +
-            '<th class="data-th">Hodín</th>' +
-            '<th class="data-th">Otv. smeny</th>' +
-            '<th class="data-th">Mzda</th>' +
+            '<th class="data-th text-right">Sadzba</th>' +
+            '<th class="data-th text-right">Hodín</th>' +
+            '<th class="data-th text-right">Otv. smeny</th>' +
+            '<th class="data-th text-right">Mzda</th>' +
             '<th class="data-th"></th>' +
           '</tr></thead>' +
           '<tbody id="dBody"></tbody>' +
@@ -317,10 +317,10 @@ function renderBody() {
       '<td class="data-td">' + (r.position
         ? escapeHtml(r.position)
         : '<span class="text-muted">—</span>') + '</td>' +
-      '<td class="data-td">' + rateCell + '</td>' +
-      '<td class="data-td"><strong>' + escapeHtml(fmtMinutes(r.minutes)) + '</strong></td>' +
-      '<td class="data-td">' + openCell + '</td>' +
-      '<td class="data-td num">' + wageCell + '</td>' +
+      '<td class="data-td num text-right">' + rateCell + '</td>' +
+      '<td class="data-td num text-right"><strong>' + escapeHtml(fmtMinutes(r.minutes)) + '</strong></td>' +
+      '<td class="data-td text-right">' + openCell + '</td>' +
+      '<td class="data-td num text-right">' + wageCell + '</td>' +
       '<td class="data-td">' +
         '<button class="btn-edit doch-detail-btn" data-toggle="' + r.staffId + '">' +
           (isOpen ? 'Skryť' : 'Detail') +
@@ -452,10 +452,10 @@ async function toggleDetail(staffId) {
         }
         return '<tr class="data-row">' +
           '<td class="data-td">' + dateCell + '</td>' +
-          '<td class="data-td">' + startCell + '</td>' +
-          '<td class="data-td">' + endCell + '</td>' +
-          '<td class="data-td">' + durCell + '</td>' +
-          '<td class="data-td num">' + wageCell + '</td>' +
+          '<td class="data-td num text-right">' + startCell + '</td>' +
+          '<td class="data-td num text-right">' + endCell + '</td>' +
+          '<td class="data-td num text-right">' + durCell + '</td>' +
+          '<td class="data-td num text-right">' + wageCell + '</td>' +
           '<td class="data-td">' + paidCell + '</td>' +
           '<td class="data-td">' + (flags.join(' ') || '<span class="text-muted">—</span>') + '</td>' +
         '</tr>';
@@ -489,10 +489,10 @@ async function toggleDetail(staffId) {
         '<table class="data-table">' +
           '<thead><tr>' +
             '<th class="data-th">Dátum</th>' +
-            '<th class="data-th">Príchod</th>' +
-            '<th class="data-th">Odchod</th>' +
-            '<th class="data-th">Trvanie</th>' +
-            '<th class="data-th">Mzda</th>' +
+            '<th class="data-th text-right">Príchod</th>' +
+            '<th class="data-th text-right">Odchod</th>' +
+            '<th class="data-th text-right">Trvanie</th>' +
+            '<th class="data-th text-right">Mzda</th>' +
             '<th class="data-th">Vyplatené</th>' +
             '<th class="data-th">Pozn.</th>' +
           '</tr></thead>' +

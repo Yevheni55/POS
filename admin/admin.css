@@ -1768,6 +1768,23 @@ body::before{
   letter-spacing:-.01em;
   text-align:right;
 }
+/* CSS specificity fix: `.data-table th` (0,1,1) by default text-align:left
+   wins nad `.text-right` (0,1,0). To znamena ze `<th class="text-right">`
+   v tabulkach (Smeny, Hodiny, Sadzba, Mzda atd.) ostal LEFT-aligned napriek
+   tomu ze ma `.text-right`. Tu mu davame priority cez specificity (0,2,1):
+   `.data-table th.text-right` > `.data-table th`. Rovnako pre td bez .num
+   triedy (footer Spolu cells co maju len `.text-right`). */
+.data-table th.text-right,
+.data-table td.text-right,
+.data-table tfoot td.text-right{
+  text-align:right;
+}
+/* Naopak `.text-left` override — niekedy chceme explicitne lavu zarovnano,
+   napr. v zmiesanych tabulkach kde default rule treba prebit. */
+.data-table th.text-left,
+.data-table td.text-left{
+  text-align:left;
+}
 .data-table tfoot td{
   font-family:var(--font-display);
   font-weight:800;

@@ -190,12 +190,12 @@ function renderTrzby(data) {
                       : 'var(--color-text-sec, #94a3b8)';
     tfoot.innerHTML = `<tr>
       <td>Spolu</td>
-      <td>${data.totalOrders || ''}</td>
-      <td class="color-accent">${fmtEur(data.totalRevenue)}</td>
-      <td>${data.totalCogs !== undefined ? fmtEur(data.totalCogs) : ''}</td>
-      <td>${data.totalLabor !== undefined ? fmtEur(data.totalLabor) : ''}</td>
-      <td style="font-weight:700;color:${tProfitColor}">${data.totalProfit !== undefined ? fmtEur(tProfit) : ''}</td>
-      <td>${data.avgCheck !== undefined ? fmtEur(data.avgCheck) : ''}</td>
+      <td class="num text-right">${data.totalOrders || ''}</td>
+      <td class="num text-right color-accent">${fmtEur(data.totalRevenue)}</td>
+      <td class="num text-right">${data.totalCogs !== undefined ? fmtEur(data.totalCogs) : ''}</td>
+      <td class="num text-right">${data.totalLabor !== undefined ? fmtEur(data.totalLabor) : ''}</td>
+      <td class="num text-right" style="font-weight:700;color:${tProfitColor}">${data.totalProfit !== undefined ? fmtEur(tProfit) : ''}</td>
+      <td class="num text-right">${data.avgCheck !== undefined ? fmtEur(data.avgCheck) : ''}</td>
     </tr>`;
   }
 }
@@ -924,12 +924,12 @@ const TEMPLATE = `
         <thead>
           <tr>
             <th>Dátum</th>
-            <th>Obj.</th>
-            <th>Tržby</th>
-            <th>Výroba</th>
-            <th>Mzdy</th>
-            <th>Výsledok</th>
-            <th>Priem. účet</th>
+            <th class="text-right">Obj.</th>
+            <th class="text-right">Tržby</th>
+            <th class="text-right">Výroba</th>
+            <th class="text-right">Mzdy</th>
+            <th class="text-right">Výsledok</th>
+            <th class="text-right">Priem. účet</th>
           </tr>
         </thead>
         <tbody>
@@ -1025,11 +1025,11 @@ const TEMPLATE = `
         <thead>
           <tr>
             <th>Meno</th>
-            <th>Zmeny</th>
-            <th>Objednávky</th>
-            <th>Tržby</th>
-            <th>Priem. účet</th>
-            <th>Hodnotenie</th>
+            <th class="text-right">Zmeny</th>
+            <th class="text-right">Objednávky</th>
+            <th class="text-right">Tržby</th>
+            <th class="text-right">Priem. účet</th>
+            <th class="text-right">Hodnotenie</th>
           </tr>
         </thead>
         <tbody>
@@ -1053,13 +1053,13 @@ const TEMPLATE = `
           <tr>
             <th>Meno</th>
             <th>Rola</th>
-            <th>Objednávky</th>
-            <th>Položky</th>
-            <th>Tržby</th>
-            <th>Priem. účet</th>
-            <th>Hotovosť</th>
-            <th>Karta</th>
-            <th>Storná</th>
+            <th class="text-right">Objednávky</th>
+            <th class="text-right">Položky</th>
+            <th class="text-right">Tržby</th>
+            <th class="text-right">Priem. účet</th>
+            <th class="text-right">Hotovosť</th>
+            <th class="text-right">Karta</th>
+            <th class="text-right">Storná</th>
           </tr>
         </thead>
         <tbody id="staffTableBody">
@@ -1078,10 +1078,10 @@ const TEMPLATE = `
         <thead>
           <tr>
             <th>Hodina</th>
-            <th>Obj.</th>
-            <th>Bar</th>
-            <th>Kuchyňa</th>
-            <th>Spolu</th>
+            <th class="text-right">Obj.</th>
+            <th class="text-right">Bar</th>
+            <th class="text-right">Kuchyňa</th>
+            <th class="text-right">Spolu</th>
             <th></th>
           </tr>
         </thead>
@@ -1158,8 +1158,8 @@ const TEMPLATE = `
           <thead>
             <tr>
               <th>Kategória</th>
-              <th>Tržby</th>
-              <th>Počet</th>
+              <th class="text-right">Tržby</th>
+              <th class="text-right">Počet</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -1173,10 +1173,10 @@ const TEMPLATE = `
         <table class="data-table" id="zTopItemsTable">
           <thead>
             <tr>
-              <th>#</th>
+              <th class="text-right">#</th>
               <th>Položka</th>
-              <th>Počet</th>
-              <th>Tržby</th>
+              <th class="text-right">Počet</th>
+              <th class="text-right">Tržby</th>
             </tr>
           </thead>
           <tbody></tbody>
