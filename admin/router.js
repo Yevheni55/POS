@@ -147,23 +147,40 @@ function parseHash() {
 
 /**
  * Sidebar active-state update — POVINNE volat z kazdej navigate() vetvy
- * + z hashchange listener priamo. Defensive: vzdy iteruje VSETKY nav-items
- * a explicitne nastavi active=true LEN na jednom (matchesPage || matchesAlias).
- * Ostatne dostanu active=false. Bez tejto funkcie staras nezmizla pri
- * early-return (ked page === currentPage).
+ * + z hashchange listener priamo. Defensive: vzdy iteruje VSETKY nav-items,
+ * najprv EXPLICITNE odstrani `.active` zo VSETKYCH, potom ho prida LEN na
+ * tych co matchnu (matchesPage || matchesAlias).
+ *
+ * Bug history: user reportoval ze na #recipes mali aktivne aj dashboard,
+ * menu, recipes, tables (prve 4 items). Diagnostika potvrdila ze 4 items
+ * naozaj mali .active classlist. Hard-reload nepomohlo.
+ *
+ * Predtym sa pouzival `classList.toggle('active', active)` co MA odstranit
+ * triedu ked je 2. argument falsy. V niektorych edge-case (race s page
+ * modulom co re-renderuje sidebar, Sklad collapse toggle co manipuluje
+ * subset items) sa moglo stat ze toggle bezal pred re-renderom alebo na
+ * subset prvkov. Explicit remove-then-add je idempotentne a robi sa nad
+ * KONKRETNYM zoznamom prvkov v jednom synchronnom prechode.
  */
 function updateSidebarActiveState(page) {
+  const items = document.querySelectorAll('#sidebarNav .nav-item');
+  // Phase 1: EXPLICITNE odstran .active a aria-current zo VSETKYCH items.
+  // Bez ohladu na predchadzajuci stav. classList.remove na chybajucu triedu
+  // je no-op (zadarmo), takze cena tohto purge je minimalna.
+  items.forEach(function (a) {
+    a.classList.remove('active');
+    a.removeAttribute('aria-current');
+  });
+  // Phase 2: Najdi VSETKY items co maju matchnut (zvycajne 1, ale data-active-for
+  // moze matchnut aj wrapper page) a oznac ich ako aktivne.
   let activeEl = null;
-  document.querySelectorAll('#sidebarNav .nav-item').forEach(function (a) {
+  items.forEach(function (a) {
     const matchesPage = a.dataset.page === page;
     const matchesAlias = a.dataset.activeFor && a.dataset.activeFor.split(',').indexOf(page) >= 0;
-    const active = matchesPage || matchesAlias;
-    a.classList.toggle('active', active);
-    if (active) {
+    if (matchesPage || matchesAlias) {
+      a.classList.add('active');
       a.setAttribute('aria-current', 'page');
-      activeEl = a;
-    } else {
-      a.removeAttribute('aria-current');
+      if (!activeEl) activeEl = a;
     }
   });
   // Mobile UX: scroll horizontal nav bar tak aby aktivny chip bol vidno.
@@ -180,6 +197,41 @@ function updateSidebarActiveState(page) {
       } catch (_) { /* IE11 / legacy → polyfill noop */ }
     });
   }
+}
+
+/**
+ * Sidebar active-state guard — MutationObserver ktora chrani sidebar pred
+ * tym aby trojejka kod (page modul / cmd-palette / nahodny script) pridala
+ * `.active` na items co by maly byt inactive. Ked nieco prida `.active`
+ * v rozpore s currentPage, observer to okamzite odstrani.
+ *
+ * Toto je belt-and-suspenders fix — updateSidebarActiveState by mala stacit,
+ * ale ked sa bug objavi znova v inom flow, observer ho zachyti za <1 ms.
+ * Bez observer-a by user musel cakat na dalsiu navigaciu kym sa cislo
+ * .active items znormalizuje.
+ */
+function installSidebarActiveGuard() {
+  const navEl = document.getElementById('sidebarNav');
+  if (!navEl || typeof MutationObserver === 'undefined') return;
+  const observer = new MutationObserver(function (mutations) {
+    for (const m of mutations) {
+      if (m.type !== 'attributes' || m.attributeName !== 'class') continue;
+      const el = m.target;
+      if (!el.matches || !el.matches('.nav-item')) continue;
+      if (!el.classList.contains('active')) continue;
+      // Tento item ma .active. Skontroluj ci by ho mal mat podla currentPage.
+      const expectedPage = currentPage || pendingPage;
+      if (!expectedPage) continue; // este nepoznal page, neriesime
+      const matchesPage = el.dataset.page === expectedPage;
+      const matchesAlias = el.dataset.activeFor && el.dataset.activeFor.split(',').indexOf(expectedPage) >= 0;
+      if (!matchesPage && !matchesAlias) {
+        // Nemal by byt active — niekto ho omylom oznacil. Odstran.
+        el.classList.remove('active');
+        el.removeAttribute('aria-current');
+      }
+    }
+  });
+  observer.observe(navEl, { attributes: true, attributeFilter: ['class'], subtree: true });
 }
 
 async function navigate(page, sub) {
@@ -252,8 +304,13 @@ window.addEventListener('hashchange', function () {
   navigate(parsed.page, parsed.sub);
 });
 
-// Initial navigation
+// Initial navigation + sidebar guard install
 (function () {
+  // Install sidebar active-class guard PRED prvou navigaciou. Guard pouziva
+  // currentPage z module scope-u, takze potrebuje byt aktivny pred tym ako
+  // navigate() ho nastavi (inak by mohol odstranit aj korektne pridane
+  // .active na samom prvom navigate call).
+  installSidebarActiveGuard();
   const parsed = parseHash();
   const raw = window.location.hash.replace(/^#/, '');
   if (LEGACY_REDIRECTS[raw]) {
