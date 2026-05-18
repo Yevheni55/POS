@@ -244,6 +244,28 @@ export function buildParagonExternalId(paragonNumber, opts) {
 }
 
 /**
+ * Konvertuj paragonNumber do tvaru ktorý Portos NineDigit prijíma.
+ *
+ * Portos `/api/v1/requests/receipts/paragon` má v JSON schéme `paragonNumber`
+ * typu `System.UInt32` — bezznamienkové 32-bit číslo. Naša DB schéma však
+ * ukladá lokálne paragony s prefix-ovaným formátom "P-000001" (čitatelné
+ * pre čašníka pri zapise do papierového bloku, monotonic per `nextParagonNumber`).
+ *
+ * Funkcia odlúpi "P-" prefix + leading nuly a vráti integer.
+ *
+ *   "P-000001" → 1
+ *   "P-42"     → 42
+ *   "42"       → 42
+ *   ""         → 1   (fallback aby Portos nevracal -900 lebo NaN)
+ */
+export function paragonNumberToUInt32(s) {
+  // Strip only "P-" prefix; parseInt handles leading zeros natively.
+  // Reject negative/NaN — Portos UInt32 vyžaduje >= 0; ako fallback 1.
+  const num = parseInt(String(s ?? '').replace(/^P-?/i, ''), 10);
+  return Number.isFinite(num) && num >= 0 ? num : 1;
+}
+
+/**
  * Build Portos request context pre paragón (manuálny náhradný doklad).
  *
  * Vystavuje sa LOKÁLNE pri Portos/CHDU výpadku — request payload sa zmrazí
@@ -257,6 +279,7 @@ export function buildParagonExternalId(paragonNumber, opts) {
  */
 export function buildParagonRequestContext({
   paragonNumber,
+  issuedAt,
   items,
   discountAmount,
   method,
@@ -278,7 +301,14 @@ export function buildParagonRequestContext({
         }],
         roundingAmount: 0,
         receiptType: 'Paragon',
-        paragonNumber: String(paragonNumber),
+        // Portos NineDigit vyžaduje UInt32 (číslo) — nie string "P-000001".
+        // Pôvodný bug spôsobil validation_error -900 na všetkých sync retries
+        // pre paragón #1 (7,40 €). Helper odlúpi "P-" prefix + leading nuly.
+        paragonNumber: paragonNumberToUInt32(paragonNumber),
+        // Portos vyžaduje issueDate ako povinné — bez neho 400 validation_error.
+        // Hodnota = kedy bol paragón vystavený (nie čas registračného volania —
+        // tie môžu byť hodiny apart kvôli offline-retry queue).
+        issueDate: new Date(issuedAt || Date.now()).toISOString(),
         headerText: null,
         footerText: null,
         cashRegisterCode: effectiveCashRegisterCode,

@@ -93,9 +93,15 @@ router.post('/', anyStaff, async (req, res) => {
     // Atomicky alokuj poradové číslo + vlož snapshot
     const inserted = await db.transaction(async (tx) => {
       const paragonNumber = await nextParagonNumber(tx);
+      // issuedAt = TERAZ — moment kedy čašník vystavil náhradný doklad
+      // pre zákazníka. Tento timestamp ide do Portos payloadu ako issueDate
+      // a zostane konzistentný aj počas neskorších sync retries (Portos
+      // tomu hovorí "spätná registrácia").
+      const issuedAt = new Date();
 
       const ctx = buildParagonRequestContext({
         paragonNumber,
+        issuedAt,
         items,
         discountAmount: Number(discountAmount) || 0,
         method: paymentMethod,
