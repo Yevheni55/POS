@@ -1652,54 +1652,65 @@ body::after{
    Browser support: :has() je podporovany v Chrome 105+, Safari 15.4+,
    Firefox 121+ (vsetky moderne tablety / kasy maju). */
 @media (min-width:720px) and (orientation:landscape){
+  /* Grid s named areas — kazdy element ma explicitnu poziciu, ziadne
+     auto-placement quirks s `grid-row:1/-2`. Pravy stlpec je rezervovany
+     len pre receipt a roztahuje sa cez vsetky controls rady (1..5).
+     Bottom row 6 = buttons full-width. */
   #paymentModal:has(#cashHelper:not(.pos-hidden)) .u-modal{
     max-width:920px;
     width:96vw;
     display:grid;
     grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+    /* 5 controls rows (auto-sized k obsahu) + button row na konci */
+    grid-template-rows:auto auto auto auto 1fr auto;
+    grid-template-areas:
+      "icon    receipt"
+      "title   receipt"
+      "amount  receipt"
+      "method  receipt"
+      "helper  receipt"
+      "btns    btns";
     column-gap:24px;
-    row-gap:6px;
+    row-gap:2px;
     align-items:start;
     padding:24px 28px;
+    text-align:center;
   }
-  /* Vsetky priame deti modalu okrem receipt + btns idu do laveho stlpca. */
-  #paymentModal:has(#cashHelper:not(.pos-hidden)) .u-modal > *{
-    grid-column:1;
-    margin-left:0;
-    margin-right:0;
-  }
-  /* Receipt preview prejde do praveho stlpca a roztiahne sa cez vsetky
-     rady ktore obsahuju lavy stlpec (od 1. do predposledneho — btns su
-     v poslednom rade full-width). align-self:stretch + max-height:none
-     necha receipt vyplnit celu vysku gridu. */
-  #paymentModal:has(#cashHelper:not(.pos-hidden)) .u-modal > #receiptPreview{
-    grid-column:2;
-    grid-row:1 / -2;
-    margin:0;
-    align-self:stretch;
-    max-height:none;
-    height:100%;
-  }
-  /* Buttons spannu obe stlpce naspodok. */
-  #paymentModal:has(#cashHelper:not(.pos-hidden)) .u-modal > .u-modal-btns{
-    grid-column:1 / -1;
-    margin-top:14px;
-  }
-  /* Kompaktnejsie velkosti aby vyssia gradacia (amount 7xl bola dimenzovana
-     pre 1-stlpec) sedela do uzsej polovice. */
+  /* Explicit grid-area pre kazdy element modalu. Bez tohto auto-placement
+     vyhadzoval prvky do nahodnych pozicii lebo receipt mal `grid-row:1/-2`. */
   #paymentModal:has(#cashHelper:not(.pos-hidden)) .u-modal-icon{
-    font-size:36px;margin-bottom:6px;min-height:36px;
+    grid-area:icon;justify-self:center;
+    font-size:36px;margin:0 0 4px;min-height:36px;
   }
   #paymentModal:has(#cashHelper:not(.pos-hidden)) .u-modal-title{
-    font-size:var(--text-2xl);margin-bottom:4px;
+    grid-area:title;
+    font-size:var(--text-2xl);margin:0 0 2px;
   }
   #paymentModal:has(#cashHelper:not(.pos-hidden)) .u-modal-amount{
-    font-size:var(--text-5xl);margin:6px 0;
+    grid-area:amount;
+    font-size:var(--text-5xl);margin:0;
   }
-  /* CashHelper padding redukovany, numpad-button height ostava 44 px+
-     (touch-floor). */
+  #paymentModal:has(#cashHelper:not(.pos-hidden)) .u-modal-method{
+    grid-area:method;margin:0 0 6px;
+  }
   #paymentModal:has(#cashHelper:not(.pos-hidden)) #cashHelper{
-    margin-top:8px;padding:10px;
+    grid-area:helper;
+    margin:0;padding:10px;
+    align-self:start;
+  }
+  /* Receipt v pravom stlpci — span row 1..5 (kompletna vyska controls).
+     align-self:stretch + height:100% by sa snail roztiahnut, ale lebo
+     5. row je `1fr` (cashHelper rastie), receipt sa prirodzene roztiahne. */
+  #paymentModal:has(#cashHelper:not(.pos-hidden)) #receiptPreview{
+    grid-area:receipt;
+    margin:0;
+    max-height:none;
+    height:100%;
+    align-self:stretch;
+  }
+  #paymentModal:has(#cashHelper:not(.pos-hidden)) .u-modal-btns{
+    grid-area:btns;
+    margin-top:14px;
   }
 }
 
