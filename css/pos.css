@@ -1631,6 +1631,78 @@ body::after{
   .receipt-preview .rp-meta-row{font-size:13px}
 }
 
+/* === CASH MODE 2-COLUMN LAYOUT — 10.1" tablet landscape =====================
+   Problem: payment modal pri hotovostnej platbe ma poradie:
+     [icon] → [title] → [amount] → [method] → [receipt] → [cashHelper(numpad)] → [btns]
+   Vsetko vertikalne stackovane. Na 10.1" tablete v landscape (1280x800)
+   sa cely modal nezmesti, user musi scrollovat aby videl numpad ALEBO
+   Potvrdit btn. Pri pokladnicnom UI je scroll = chyba.
+
+   Riesenie: kde-tam priestoru je dost (landscape >=720px), prerozdelime do
+   2-stlpcoveho gridu:
+     - LAVY stlpec: titulok / suma / metoda / cashHelper (numpad, change box)
+     - PRAVY stlpec: receipt preview (rozsireny na celu vysku, nahrad scrolla)
+     - SPODOK: btns (Spat / Potvrdit) full-width
+   Numpad + receipt vidno naraz, ziadny scroll.
+
+   :has() selector aktivuje layout AUTOMATICKY ked je cashHelper viditelny
+   (= len pri hotovostnej platbe). Karta / iné metódy ostavaju 1-stlpcove
+   (centered) lebo nepotrebuju numpad.
+
+   Browser support: :has() je podporovany v Chrome 105+, Safari 15.4+,
+   Firefox 121+ (vsetky moderne tablety / kasy maju). */
+@media (min-width:720px) and (orientation:landscape){
+  #paymentModal:has(#cashHelper:not(.pos-hidden)) .u-modal{
+    max-width:920px;
+    width:96vw;
+    display:grid;
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+    column-gap:24px;
+    row-gap:6px;
+    align-items:start;
+    padding:24px 28px;
+  }
+  /* Vsetky priame deti modalu okrem receipt + btns idu do laveho stlpca. */
+  #paymentModal:has(#cashHelper:not(.pos-hidden)) .u-modal > *{
+    grid-column:1;
+    margin-left:0;
+    margin-right:0;
+  }
+  /* Receipt preview prejde do praveho stlpca a roztiahne sa cez vsetky
+     rady ktore obsahuju lavy stlpec (od 1. do predposledneho — btns su
+     v poslednom rade full-width). align-self:stretch + max-height:none
+     necha receipt vyplnit celu vysku gridu. */
+  #paymentModal:has(#cashHelper:not(.pos-hidden)) .u-modal > #receiptPreview{
+    grid-column:2;
+    grid-row:1 / -2;
+    margin:0;
+    align-self:stretch;
+    max-height:none;
+    height:100%;
+  }
+  /* Buttons spannu obe stlpce naspodok. */
+  #paymentModal:has(#cashHelper:not(.pos-hidden)) .u-modal > .u-modal-btns{
+    grid-column:1 / -1;
+    margin-top:14px;
+  }
+  /* Kompaktnejsie velkosti aby vyssia gradacia (amount 7xl bola dimenzovana
+     pre 1-stlpec) sedela do uzsej polovice. */
+  #paymentModal:has(#cashHelper:not(.pos-hidden)) .u-modal-icon{
+    font-size:36px;margin-bottom:6px;min-height:36px;
+  }
+  #paymentModal:has(#cashHelper:not(.pos-hidden)) .u-modal-title{
+    font-size:var(--text-2xl);margin-bottom:4px;
+  }
+  #paymentModal:has(#cashHelper:not(.pos-hidden)) .u-modal-amount{
+    font-size:var(--text-5xl);margin:6px 0;
+  }
+  /* CashHelper padding redukovany, numpad-button height ostava 44 px+
+     (touch-floor). */
+  #paymentModal:has(#cashHelper:not(.pos-hidden)) #cashHelper{
+    margin-top:8px;padding:10px;
+  }
+}
+
 /* Sauce-repeat CTA — pri "+" na sent combe (alebo Kuracie hranolky)
    sa zachyti minula omacka. Big tap target s eyebrow + value. Operator
    nemusi znova prechadzkovat checkboxy.
