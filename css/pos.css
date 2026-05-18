@@ -613,11 +613,14 @@ body::after{
   color:var(--color-accent);
 }
 
-/* Zone labels on canvas */
-.zone-label{
-  position:absolute;font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;
-  color:rgba(30,24,18,.08);pointer-events:none;
-}
+/* Zone labels on canvas — DEAD CODE removed.
+   Selector `.zone-label` kolidoval s spanom vnutri `.zone-btn`
+   (`<span class="zone-label">…</span>`) ktory ma byt obycajny text v
+   buttone. `position:absolute` ho vytrhol z flow → text "VELKA RESTAURACIA"
+   sa renderoval cez 2/20 + 2/4 pills v toolbare.
+   Povodne tato vrstva pre canvas zone overlay sa uz nepouziva — JS
+   nikde nevkladal `.zone-label` s position:absolute. Ak bude treba
+   znova, premenuj na `.floor-canvas-zone-label`. */
 
 /* ===== PRODUCTS VIEW ===== */
 .products-panel{flex:1;display:none;flex-direction:column;overflow:hidden;padding:10px 14px}
