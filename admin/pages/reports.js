@@ -582,12 +582,33 @@ async function generateZReport() {
 }
 
 async function printZReport() {
+  return doZReport(false);
+}
+
+async function digitalZReport() {
   const date = $('#zReportDate').value;
   if (!date) return;
-  const btn = $('#btnPrintZReport');
+  // Bez potvrdenia? Digitálna uzávierka nemá fiškálny dopad (Portos paragón
+  // výberu sa nevystaví) — ale ide o uzávierku dňa. Spýtaj sa pred odoslaním.
+  if (typeof showConfirm === 'function') {
+    showConfirm(
+      'Digitálna uzávierka',
+      'Uzávierka sa zapíše do cashflow BEZ vytlačenia papiera. Portos paragón výberu (fiškálny doklad) sa NEVYTVORÍ. Pre fiškálnu kompletnosť pokladne treba neskôr buď vytlačiť uzávierku, alebo manuálne registrovať výber v Portos.',
+      function () { doZReport(true); },
+      { type: 'info', confirmText: 'Pokračovať bez papiera' }
+    );
+  } else {
+    doZReport(true);
+  }
+}
+
+async function doZReport(digital) {
+  const date = $('#zReportDate').value;
+  if (!date) return;
+  const btn = $(digital ? '#btnDigitalZReport' : '#btnPrintZReport');
   if (btn) btnLoading(btn);
   try {
-    const res = await api.post('/print/z-report', { date });
+    const res = await api.post('/print/z-report', { date, digital: !!digital });
     // Backend pri tlači uzávierky automaticky:
     //  (1) volá Portos /receipts/withdraw (fiškálny paragón výberu)
     //  (2) vytvorí cashflow_entry pre interný report
@@ -596,23 +617,27 @@ async function printZReport() {
     var w = res && res.withdrawal;
     var pw = res && res.portosWithdraw;
     var amt = w && w.amount != null ? fmtCost(w.amount) + ' €' : '';
+    var prefix = digital ? 'Digitálna uzávierka' : 'Z-report vytlačený';
     if (w && w.reason === 'no_cash') {
-      showToast('Z-report vytlačený. Žiadna hotovosť na výber.', true);
+      showToast(prefix + '. Žiadna hotovosť na výber.', true);
+    } else if (digital && w && (w.created || w.alreadyExists)) {
+      // Digital mode — Portos paragón sa neprerváša
+      showToast(prefix + '. Cashflow výber ' + amt + '. Portos paragón výberu NEvytvorený (bez papiera).', true);
     } else if (pw && pw.ok) {
       // Najlepší scenár: Portos paragón aj cashflow OK
-      showToast('Z-report vytlačený. Portos výber ' + amt + (pw.receiptId ? ' (' + pw.receiptId + ')' : '') + ' OK.', true);
+      showToast(prefix + '. Portos výber ' + amt + (pw.receiptId ? ' (' + pw.receiptId + ')' : '') + ' OK.', true);
     } else if (pw && !pw.ok && pw.skipped) {
       // Portos vypnutý — len cashflow zapísané
-      showToast('Z-report vytlačený. Cashflow výber ' + amt + ' (Portos je vypnutý).', true);
+      showToast(prefix + '. Cashflow výber ' + amt + ' (Portos je vypnutý).', true);
     } else if (pw && !pw.ok) {
       // Portos zlyhal — cashflow OK, ale paragón treba ručne
-      showToast('Z-report OK + cashflow ' + amt + '. ⚠ Portos paragón výberu zlyhal: ' + (pw.error || 'unknown') + ' — vytlač ručne.', 'warning');
+      showToast(prefix + ' + cashflow ' + amt + '. ⚠ Portos paragón výberu zlyhal: ' + (pw.error || 'unknown') + ' — vytlač ručne.', 'warning');
     } else if (w && w.alreadyExists) {
-      showToast('Z-report vytlačený. Výber už evidovaný (' + amt + ').', true);
+      showToast(prefix + '. Výber už evidovaný (' + amt + ').', true);
     } else if (w && w.created) {
-      showToast('Z-report vytlačený. Cashflow výber ' + amt + '.', true);
+      showToast(prefix + '. Cashflow výber ' + amt + '.', true);
     } else {
-      showToast('Z-report odoslany na tlaciaren', true);
+      showToast(digital ? 'Digitálna uzávierka zaznamenaná.' : 'Z-report odoslany na tlaciaren', true);
     }
   } catch (err) {
     showToast('Chyba tlace: ' + err.message, 'error');
@@ -777,6 +802,8 @@ function bindEvents() {
   // Z-report
   $('#btnGenZReport').addEventListener('click', generateZReport);
   $('#btnPrintZReport').addEventListener('click', printZReport);
+  var digBtn = $('#btnDigitalZReport');
+  if (digBtn) digBtn.addEventListener('click', digitalZReport);
 
   // Produkty tab — clickable column headers re-sort the cached dataset.
   // Single delegated listener on the table beats binding per-th and
@@ -1106,6 +1133,10 @@ const TEMPLATE = `
       <button class="btn-outline-accent" id="btnPrintZReport">
         <svg aria-hidden="true" viewBox="0 0 24 24" style="width:14px;height:14px"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
         Tlacit Z-report
+      </button>
+      <button class="btn-outline-accent" id="btnDigitalZReport" title="Bez tlače papiera. Cashflow zápis prebehne, Portos paragón výberu sa nevytvorí.">
+        <svg aria-hidden="true" viewBox="0 0 24 24" style="width:14px;height:14px"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        Digitálna uzávierka
       </button>
     </div>
 

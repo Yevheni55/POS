@@ -9,11 +9,21 @@ import { getPrinterForDest } from './network.js';
 import { sendOrQueue } from './queue.js';
 import { buildZReportTicket } from './tickets.js';
 
-// POST /api/print/z-report — print Z-report
+// POST /api/print/z-report — print Z-report.
+//
+// Body:
+//   - date (required): YYYY-MM-DD
+//   - digital (optional, default false): ak true, preskočí tlač Z-report
+//     ticketu na ESC/POS tlačiarni AJ volanie Portos /receipts/withdraw
+//     (čím sa nevytlačí fiškálny paragón výberu). Cashflow zápis stále
+//     prebehne — uzávierka je internally zaznamenaná, len bez papiera.
+//     Pre fiškálnu kompletnosť (pokladňa balance v Portos) treba neskôr
+//     vytlačiť papierovú uzávierku alebo manuálne registrovať výber.
 export async function zReportHandler(req, res) {
   try {
-    const { date } = req.body;
+    const { date, digital } = req.body;
     if (!date) return res.status(400).json({ error: 'Chyba datum' });
+    const isDigital = digital === true;
 
     // Fetch Z-report data from internal API logic
     const reportRes = await fetch(`http://localhost:${process.env.PORT || 3080}/api/reports/z-report?date=${date}`, {
@@ -25,9 +35,14 @@ export async function zReportHandler(req, res) {
     }
     const data = await reportRes.json();
 
-    const printer = await getPrinterForDest('uctenka');
-    const ticket = buildZReportTicket(data);
-    const result = await sendOrQueue('z-report', ticket, printer.ip, printer.port);
+    // V digital mode neoslovujeme tlačiareň (no paper). Inak — pošli ticket
+    // na ESC/POS tlačiareň ako predtým.
+    let result = { queued: false };
+    if (!isDigital) {
+      const printer = await getPrinterForDest('uctenka');
+      const ticket = buildZReportTicket(data);
+      result = await sendOrQueue('z-report', ticket, printer.ip, printer.port);
+    }
 
     // Po úspešnom vytlačení uzávierky → automaticky zaeviduj výber hotovosti.
     // Dvojstupňový proces:
@@ -55,8 +70,12 @@ export async function zReportHandler(req, res) {
       const shishaCash = data.shisha ? Number(data.shisha.revenue) || 0 : 0;
       const amount = Math.max(0, Math.round(cashAmount * 100) / 100);
       if (amount > 0) {
-        // (a) Portos výber paragón. Best-effort — failure neblokuje cashflow.
-        if (isPortosEnabled()) {
+        // (a) Portos výber paragón. V digital mode preskoč — výber je v
+        // cashflow zaznamenaný, ale fiškálny paragón výberu sa nevytlačí.
+        // Best-effort pre normal mode — failure neblokuje cashflow.
+        if (isDigital) {
+          portosWithdraw = { ok: false, skipped: true, digital: true, error: 'Digital mode — Portos výber preskočený' };
+        } else if (isPortosEnabled()) {
           try {
             const cashRegisterCode = await getActiveCashRegisterCode();
             const portosResult = await registerCashWithdrawal({ cashRegisterCode, amount });
@@ -98,10 +117,12 @@ export async function zReportHandler(req, res) {
             amount: String(amount),
             occurredAt,
             method: 'cash',
-            note: 'Auto výber pri uzávierke ' + date + ' — fiškálna hotovosť'
+            note: (isDigital ? 'Digitálna uzávierka ' : 'Auto výber pri uzávierke ')
+              + date + ' — fiškálna hotovosť'
               + (shishaCash > 0
-                  ? ' (shisha ' + shishaCash.toFixed(2) + ' € viď samostatnú sekciu na tikete)'
-                  : ''),
+                  ? ' (shisha ' + shishaCash.toFixed(2) + ' € viď samostatnú sekciu)'
+                  : '')
+              + (isDigital ? ' [bez papiera, Portos paragón výberu nebol vytvorený]' : ''),
             staffId: req.user.id,
           }).returning({ id: cashflowEntries.id });
           withdrawal = { created: true, amount, cashflowEntryId: row?.id };
@@ -117,7 +138,7 @@ export async function zReportHandler(req, res) {
       withdrawal = { created: false, error: cfErr.message };
     }
 
-    res.json({ ok: true, queued: !!result.queued, withdrawal, portosWithdraw });
+    res.json({ ok: true, digital: isDigital, queued: !!result.queued, withdrawal, portosWithdraw });
   } catch (e) {
     console.error('Z-report print error:', e.message);
     res.status(500).json({ error: e.message });
