@@ -42,19 +42,31 @@ export async function zReportHandler(req, res) {
     let withdrawal = null;
     let portosWithdraw = null;
     try {
+      // POZN: paymentMethods.hotovost už zahŕňa shisha cash (merged v
+      // z-report API). Pre Portos withdraw paragón ale musíme použiť
+      // FISKÁLNU cash — Portos pokladňa nevie o shisha, takže odtiaľ
+      // môžeme odpočítať len to čo tam prišlo cez fiskálne hotovosť
+      // payments. Cashflow zápis naopak používa FYZICKÚ cash z drawer-u
+      // (vrátane shisha) — to zaznamenáva reálny pohyb peňazí.
       const cashRow = (data.paymentMethods || []).find(pm => {
         const m = String(pm.method || '').toLowerCase();
         return m === 'hotovost' || m === 'cash';
       });
-      const cashAmount = cashRow ? Number(cashRow.total) || 0 : 0;
+      const cashPhysical = cashRow ? Number(cashRow.total) || 0 : 0;        // vrátane shisha
       const shishaCash = data.shisha ? Number(data.shisha.revenue) || 0 : 0;
-      const amount = Math.max(0, Math.round((cashAmount - shishaCash) * 100) / 100);
+      const cashFiscalOnly = typeof data.cashFiscal === 'number'
+        ? data.cashFiscal
+        : Math.max(0, cashPhysical - shishaCash); // fallback ak staré API output
+      const portosAmount = Math.max(0, Math.round(cashFiscalOnly * 100) / 100);
+      const cashflowAmount = Math.max(0, Math.round(cashPhysical * 100) / 100);
+      // Použi portosAmount pre Portos paragón, cashflowAmount pre interný zápis.
+      const amount = cashflowAmount;
       if (amount > 0) {
         // (a) Portos výber paragón. Best-effort — failure neblokuje cashflow.
-        if (isPortosEnabled()) {
+        if (isPortosEnabled() && portosAmount > 0) {
           try {
             const cashRegisterCode = await getActiveCashRegisterCode();
-            const portosResult = await registerCashWithdrawal({ cashRegisterCode, amount });
+            const portosResult = await registerCashWithdrawal({ cashRegisterCode, amount: portosAmount });
             portosWithdraw = {
               ok: portosResult.ok,
               status: portosResult.status,
@@ -93,7 +105,10 @@ export async function zReportHandler(req, res) {
             amount: String(amount),
             occurredAt,
             method: 'cash',
-            note: 'Auto výber pri uzávierke ' + date + (shishaCash > 0 ? ' (shisha ' + shishaCash.toFixed(2) + ' € odpočítaná)' : ''),
+            note: 'Auto výber pri uzávierke ' + date
+              + (shishaCash > 0
+                  ? ' (' + cashFiscalOnly.toFixed(2) + ' € fiskal + ' + shishaCash.toFixed(2) + ' € shisha)'
+                  : ''),
             staffId: req.user.id,
           }).returning({ id: cashflowEntries.id });
           withdrawal = { created: true, amount, cashflowEntryId: row?.id };

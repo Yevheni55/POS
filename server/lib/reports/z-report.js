@@ -49,6 +49,18 @@ export async function zReportHandler(req, res) {
       and(gte(payments.createdAt, fromDate), sql`${payments.createdAt} <= ${toDate}`)
     ).groupBy(payments.method);
 
+    // Fiskálna hotovosť z payments (potrebné samostatne pre Portos withdraw paragón —
+    // Portos pokladňa nevie o shisha, takže výber môže odviezť LEN fiskálnu cash).
+    // V API output ju exportujeme ako `cashFiscal`.
+    let cashFiscal = 0;
+    for (const m of methodStats) {
+      const label = String(m.method || '').toLowerCase();
+      if (label === 'hotovost' || label === 'cash') {
+        cashFiscal = parseFloat(m.total) || 0;
+        break;
+      }
+    }
+
     // Category breakdown
     const categoryStats = await db.select({
       category: menuCategories.label,
@@ -122,17 +134,38 @@ export async function zReportHandler(req, res) {
     const totalItems = parseInt(itemStats.totalItems);
     const averageOrder = totalOrders > 0 ? Math.round((totalRevenue / totalOrders) * 100) / 100 : 0;
 
+    // Užívateľská logika: shisha sa predáva len v hotovosti, peniaze idú do
+    // tej istej zásuvky ako fiškálna cash. Preto v Z-report payment methods
+    // pripočítame shisha k Hotovosti — operátor potom vidí v "Hotovost" line
+    // skutočný stav drawer-u a po odpočítaní terminálu nevychádza falošný
+    // "tip". `cashFiscal` zostáva exportovaný separátne pre Portos withdrawal
+    // logic (Portos pokladňa nevie o shisha — môže odpísať LEN fiskal cash).
+    const mergedMethods = methodStats.map(m => ({
+      method: m.method,
+      total: parseFloat(m.total),
+      count: parseInt(m.count),
+    }));
+    if (shishaRevenue > 0) {
+      const hot = mergedMethods.find(m => {
+        const l = String(m.method || '').toLowerCase();
+        return l === 'hotovost' || l === 'cash';
+      });
+      if (hot) {
+        hot.total = Math.round((hot.total + shishaRevenue) * 100) / 100;
+        hot.count = hot.count + shishaCount;
+      } else {
+        mergedMethods.push({ method: 'hotovost', total: shishaRevenue, count: shishaCount });
+      }
+    }
+
     res.json({
       date,
       totalRevenue,
       fiscalRevenue,
+      cashFiscal,
       totalOrders,
       totalItems,
-      paymentMethods: methodStats.map(m => ({
-        method: m.method,
-        total: parseFloat(m.total),
-        count: parseInt(m.count),
-      })),
+      paymentMethods: mergedMethods,
       categoryBreakdown: categoryStats.map(c => ({
         category: c.category,
         total: parseFloat(c.total),
