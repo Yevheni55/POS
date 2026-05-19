@@ -411,14 +411,44 @@ body::after{
   border-color:var(--color-border);
 }
 .table-chip.s-free:hover{border-color:var(--color-border-strong)}
+/* OCCUPIED — visually dominant. User reportoval ze stoly su prilis tlmene
+   a operatorovi z mapy nesvieti ktore su busy. Posilnujeme cez:
+     - silnejsi terra gradient (15% → 32% namiesto 0% → 10%)
+     - solid 2px terra border-left (pripomienka pasu)
+     - solid 1.5px terra border okolo
+     - vyssi shadow + terra glow ring
+     - bolder name text
+   Free stoly zostanu utlmene → kontrast je extremny.  */
 .table-chip.s-occupied{
-  background:linear-gradient(180deg, var(--color-bg-elevated), color-mix(in oklab, var(--color-accent) 10%, var(--color-bg-elevated)));
-  border-color:color-mix(in oklab, var(--color-accent) 36%, transparent);
-  box-shadow:var(--shadow-md), 0 0 0 1px color-mix(in oklab, var(--color-accent) 14%, transparent);
+  background:linear-gradient(180deg,
+    color-mix(in oklab, var(--color-accent) 15%, var(--color-bg-elevated)),
+    color-mix(in oklab, var(--color-accent) 32%, var(--color-bg-elevated)));
+  border:1.5px solid var(--color-accent);
+  border-left-width:5px;
+  box-shadow:
+    var(--shadow-md),
+    0 0 0 2px color-mix(in oklab, var(--color-accent) 28%, transparent),
+    inset 0 1px 0 color-mix(in oklab, #fff 22%, transparent);
+}
+.table-chip.s-occupied .chip-name{
+  color:var(--color-text);
+  font-weight:var(--weight-extrabold);
+  letter-spacing:-.01em;
+}
+.table-chip.s-occupied .chip-amount{
+  color:var(--color-accent);
+  font-weight:var(--weight-extrabold);
 }
 .table-chip.s-occupied:hover{
   border-color:var(--color-accent);
-  background:linear-gradient(180deg, color-mix(in oklab, var(--color-accent) 6%, var(--color-bg-elevated)), color-mix(in oklab, var(--color-accent) 14%, var(--color-bg-elevated)));
+  background:linear-gradient(180deg,
+    color-mix(in oklab, var(--color-accent) 22%, var(--color-bg-elevated)),
+    color-mix(in oklab, var(--color-accent) 40%, var(--color-bg-elevated)));
+  box-shadow:
+    var(--shadow-lg),
+    0 0 0 3px color-mix(in oklab, var(--color-accent) 40%, transparent),
+    inset 0 1px 0 color-mix(in oklab, #fff 28%, transparent);
+  transform:translateY(-2px) scale(1.01);
 }
 .table-chip.s-reserved{
   background:linear-gradient(180deg, var(--color-bg-elevated), color-mix(in oklab, var(--accent-amber) 8%, var(--color-bg-elevated)));
