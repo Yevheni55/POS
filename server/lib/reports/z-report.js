@@ -134,30 +134,9 @@ export async function zReportHandler(req, res) {
     const totalItems = parseInt(itemStats.totalItems);
     const averageOrder = totalOrders > 0 ? Math.round((totalRevenue / totalOrders) * 100) / 100 : 0;
 
-    // Užívateľská logika: shisha sa predáva len v hotovosti, peniaze idú do
-    // tej istej zásuvky ako fiškálna cash. Preto v Z-report payment methods
-    // pripočítame shisha k Hotovosti — operátor potom vidí v "Hotovost" line
-    // skutočný stav drawer-u a po odpočítaní terminálu nevychádza falošný
-    // "tip". `cashFiscal` zostáva exportovaný separátne pre Portos withdrawal
-    // logic (Portos pokladňa nevie o shisha — môže odpísať LEN fiskal cash).
-    const mergedMethods = methodStats.map(m => ({
-      method: m.method,
-      total: parseFloat(m.total),
-      count: parseInt(m.count),
-    }));
-    if (shishaRevenue > 0) {
-      const hot = mergedMethods.find(m => {
-        const l = String(m.method || '').toLowerCase();
-        return l === 'hotovost' || l === 'cash';
-      });
-      if (hot) {
-        hot.total = Math.round((hot.total + shishaRevenue) * 100) / 100;
-        hot.count = hot.count + shishaCount;
-      } else {
-        mergedMethods.push({ method: 'hotovost', total: shishaRevenue, count: shishaCount });
-      }
-    }
-
+    // Hotovosť ostáva LEN fiškálna (z payments). Shisha cash sa vykazuje
+    // v samostatnej SHISHA sekcii na tikete (data.shisha) — operátor presne
+    // vidí čo má v zásuvke z hotovostných platieb a čo zo shisha predajov.
     res.json({
       date,
       totalRevenue,
@@ -165,7 +144,11 @@ export async function zReportHandler(req, res) {
       cashFiscal,
       totalOrders,
       totalItems,
-      paymentMethods: mergedMethods,
+      paymentMethods: methodStats.map(m => ({
+        method: m.method,
+        total: parseFloat(m.total),
+        count: parseInt(m.count),
+      })),
       categoryBreakdown: categoryStats.map(c => ({
         category: c.category,
         total: parseFloat(c.total),

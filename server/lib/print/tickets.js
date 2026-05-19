@@ -309,23 +309,44 @@ export function buildZReportTicket(data) {
   t += 'Datum: ' + dateFormatted + '\n';
   t += '\n';
 
-  // TRZBA section
+  // TRZBA section — FISKÁLNA tržba (z payments). Shisha je samostatne nižšie.
   t += CMD.BOLD_ON;
-  t += 'TRZBA\n';
+  t += 'TRZBA (FISKAL)\n';
   t += CMD.BOLD_OFF;
   t += CMD.LINE;
   t += CMD.ALIGN_LEFT;
-  t += padLine('Celkom:', formatEur(data.totalRevenue) + ' EUR') + '\n';
-  if (data.fiscalRevenue !== undefined && data.shisha && data.shisha.count > 0) {
-    t += padLine(' z toho fiskal:', formatEur(data.fiscalRevenue) + ' EUR') + '\n';
-    t += padLine(' z toho shisha:', formatEur(data.shisha.revenue) + ' EUR (' + data.shisha.count + 'x)') + '\n';
-  }
+  t += padLine('Celkom:', formatEur(data.fiscalRevenue !== undefined ? data.fiscalRevenue : data.totalRevenue) + ' EUR') + '\n';
   (data.paymentMethods || []).forEach(pm => {
     const m = s(pm.method);
     const label = m.charAt(0).toUpperCase() + m.slice(1) + ':';
     t += padLine(label, formatEur(pm.total) + ' EUR') + '\n';
   });
   t += CMD.LINE;
+
+  // SHISHA section — samostatne, off-fiscal. Cash zo shisha sa zúčtuje
+  // mimo Portos uzávierky, operátor podľa tejto sekcie spočíta drawer.
+  if (data.shisha && data.shisha.count > 0) {
+    t += '\n';
+    t += CMD.BOLD_ON;
+    t += 'SHISHA (mimo fiskal)\n';
+    t += CMD.BOLD_OFF;
+    t += CMD.LINE;
+    t += padLine('Predaje:', data.shisha.count + 'x') + '\n';
+    t += padLine('Hotovost:', formatEur(data.shisha.revenue) + ' EUR') + '\n';
+    t += CMD.LINE;
+    t += '\n';
+    t += CMD.BOLD_ON;
+    t += padLine('SPOLU V ZASUVKE:',
+      formatEur(
+        ((data.paymentMethods || []).find(pm => {
+          const m = String(pm.method || '').toLowerCase();
+          return m === 'hotovost' || m === 'cash';
+        })?.total || 0) + (Number(data.shisha.revenue) || 0)
+      ) + ' EUR'
+    ) + '\n';
+    t += CMD.BOLD_OFF;
+    t += CMD.LINE;
+  }
 
   // OBJEDNAVKY section
   t += '\n';
