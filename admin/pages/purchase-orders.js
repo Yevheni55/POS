@@ -663,8 +663,12 @@ function addItemRow() {
   var row = document.createElement('div');
   row.className = 'po-item-row';
   row.id = rowId;
-  row.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap';
+  // Wrapper teraz vertik\u00E1lne \u2014 main row (selectova\u0165 / qty / cost / total /
+  // remove) na vrchu + last-price hint pod \u0148ou. T\u00FDm z\u00EDskame priestor pre
+  // tla\u010Didlo "Pou\u017Ei\u0165 posledn\u00FA cenu" bez stl\u00E1\u010Dania hlavn\u00E9ho layoutu.
+  row.style.cssText = 'display:flex;flex-direction:column;gap:4px;margin-bottom:8px';
   row.innerHTML = ''
+    + '<div class="po-item-main" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
     + '<select class="po-ingredient-select" style="flex:2;min-width:140px;padding:8px 10px;border-radius:var(--radius-sm);border:1px solid var(--color-border);background:rgba(255,255,255,.04);font-family:var(--font-body);font-size:13px;color:var(--color-text);outline:none">'
     + ingredientOpts
     + '</select>'
@@ -674,7 +678,9 @@ function addItemRow() {
     + '<span class="po-line-total" style="flex:0 0 90px;text-align:right;font-family:var(--font-display);font-weight:600;font-size:13px;color:var(--color-text-sec)">0,00 \u20AC</span>'
     + '<button class="act-btn del po-remove-btn" type="button" title="Odstranit" style="flex-shrink:0">'
     + '<svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
-    + '</button>';
+    + '</button>'
+    + '</div>'
+    + '<div class="po-last-price-hint" style="display:none;padding:0 2px;font-size:11.5px;color:var(--color-text-sec);font-family:var(--font-body);align-items:center;gap:8px"></div>';
 
   wrap.appendChild(row);
 
@@ -684,10 +690,8 @@ function addItemRow() {
   var costInput = row.querySelector('.po-cost-input');
   var lineTotal = row.querySelector('.po-line-total');
   var unitHint = row.querySelector('.po-unit-hint');
+  var lastPriceHint = row.querySelector('.po-last-price-hint');
 
-  // Relabel placeholders + show unit suffix once an ingredient is picked, so
-  // the manager always knows whether they are entering ks / L / kg and can't
-  // confuse "cena za fl'asu" with "cena za liter".
   function applyUnitLabels() {
     var id = Number(ingSelect.value);
     var ing = id ? ingredients.find(function (x) { return x.id === id; }) : null;
@@ -712,7 +716,49 @@ function addItemRow() {
     updateGrandTotal();
   }
 
-  ingSelect.addEventListener('change', applyUnitLabels);
+  // Last purchase price lookup \u2014 po v\u00FDbere surovinky fetchne najnov\u0161\u00ED PO
+  // item pre dan\u00FA surovinu a zobraz\u00ED "Posledn\u00E1: X \u20AC/unit od Y (DD.MM)"
+  // + tla\u010Didlo "Pou\u017Ei\u0165". Click \u2192 vypln\u00ED cost input.
+  async function fetchAndShowLastPrice() {
+    var id = Number(ingSelect.value);
+    lastPriceHint.style.display = 'none';
+    lastPriceHint.innerHTML = '';
+    if (!id) return;
+    try {
+      var res = await api.get('/inventory/ingredients/' + id + '/last-purchase');
+      if (!res || !res.found) return;
+      var ing = ingredients.find(function (x) { return x.id === id; });
+      var unit = ing && ing.unit ? ing.unit : '';
+      var dateStr = '';
+      if (res.purchasedAt) {
+        var d = new Date(res.purchasedAt);
+        dateStr = ' (' + d.toLocaleDateString('sk-SK', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ')';
+      }
+      var supplierStr = res.supplierName ? ' od ' + escapeHtml(res.supplierName) : '';
+      var priceStr = Number(res.unitCost).toFixed(4).replace(/\.?0+$/, '').replace('.', ',');
+      lastPriceHint.style.display = 'flex';
+      lastPriceHint.innerHTML = ''
+        + '<span style="color:var(--color-text-dim)">Posledn\u00E1 cena:</span>'
+        + '<strong style="font-family:var(--font-display);color:var(--color-accent);font-size:12px">'
+        + priceStr + ' \u20AC/' + escapeHtml(unit) + '</strong>'
+        + '<span style="color:var(--color-text-dim);font-size:11px">' + supplierStr + dateStr + '</span>'
+        + '<button type="button" class="po-use-last-price" data-price="' + Number(res.unitCost) + '"'
+        + ' style="margin-left:auto;padding:4px 10px;border-radius:var(--radius-xs);border:1px solid var(--color-accent-border);background:var(--color-accent-bg);color:var(--color-accent);font-family:var(--font-body);font-size:11px;font-weight:600;cursor:pointer">'
+        + 'Pou\u017Ei\u0165 posledn\u00FA cenu</button>';
+      var btn = lastPriceHint.querySelector('.po-use-last-price');
+      btn.addEventListener('click', function () {
+        costInput.value = Number(res.unitCost);
+        updateLineTotal();
+        btn.textContent = '\u2713 Pou\u017Eit\u00E9';
+        btn.style.opacity = '0.6';
+      });
+    } catch (_) { /* missing endpoint \u2192 silently skip */ }
+  }
+
+  ingSelect.addEventListener('change', function () {
+    applyUnitLabels();
+    fetchAndShowLastPrice();
+  });
   qtyInput.addEventListener('input', updateLineTotal);
   costInput.addEventListener('input', updateLineTotal);
 

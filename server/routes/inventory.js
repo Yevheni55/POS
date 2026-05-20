@@ -70,6 +70,40 @@ router.get('/ingredients/:id', asyncRoute(async (req, res) => {
   res.json({ ...row, currentQty: parseFloat(row.currentQty), minQty: parseFloat(row.minQty), costPerUnit: parseFloat(row.costPerUnit), movements: mvs });
 }));
 
+// Last purchase price for an ingredient — used by purchase-order modal aby
+// manager mohol stlačiť "Použiť poslednú cenu" namiesto manuálneho zadania.
+// Vracia najnovší PO item pre dané ingredient_id + meta o objednávke +
+// dodávateľovi.
+router.get('/ingredients/:id/last-purchase', asyncRoute(async (req, res) => {
+  const id = Number.parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+  const [row] = await db
+    .select({
+      unitCost: purchaseOrderItems.unitCost,
+      quantity: purchaseOrderItems.quantity,
+      purchaseOrderId: purchaseOrders.id,
+      purchasedAt: purchaseOrders.createdAt,
+      supplierId: purchaseOrders.supplierId,
+      supplierName: suppliers.name,
+    })
+    .from(purchaseOrderItems)
+    .innerJoin(purchaseOrders, eq(purchaseOrders.id, purchaseOrderItems.purchaseOrderId))
+    .leftJoin(suppliers, eq(suppliers.id, purchaseOrders.supplierId))
+    .where(eq(purchaseOrderItems.ingredientId, id))
+    .orderBy(desc(purchaseOrders.createdAt))
+    .limit(1);
+  if (!row) return res.json({ found: false });
+  res.json({
+    found: true,
+    unitCost: parseFloat(row.unitCost),
+    quantity: parseFloat(row.quantity),
+    purchaseOrderId: row.purchaseOrderId,
+    purchasedAt: row.purchasedAt,
+    supplierId: row.supplierId,
+    supplierName: row.supplierName || null,
+  });
+}));
+
 router.post('/ingredients', mgr, validate(createIngredientSchema), asyncRoute(async (req, res) => {
   const [row] = await db.insert(ingredients).values({
     name: req.body.name, unit: req.body.unit, type: req.body.type || 'ingredient',
