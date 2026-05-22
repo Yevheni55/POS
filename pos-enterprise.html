@@ -19,7 +19,7 @@
 <link rel="stylesheet" href="/tokens.css">
 <link rel="stylesheet" href="/a11y.css">
 <link rel="stylesheet" href="/fonts/fonts.css">
-<link rel="stylesheet" href="/css/pos.css?v=37">
+<link rel="stylesheet" href="/css/pos.css?v=38">
 <!-- POZN: defer NEPOUZIVAT na tieto subory. Body scripts (pos-state.js,
      pos-init.js, atd.) bezia hned ako sa parser k nim dostane a OCEKAVAJU
      ze showToast / escHtml / posIcons su uz k dispozicii. defer by ich
@@ -63,6 +63,24 @@
       <div class="header-user"><div class="header-avatar">…</div>…</div>
     </div>
   </header>
+
+  <div class="shift-strip" id="shiftStrip" aria-live="polite">
+    <span class="shift-strip-item">
+      <span class="shift-strip-dot dot-active" aria-hidden="true"></span>
+      <span class="shift-strip-label">Zmena:</span>
+      <span class="shift-strip-value" id="ssShiftDuration">—</span>
+    </span>
+    <span class="shift-strip-sep" aria-hidden="true">·</span>
+    <span class="shift-strip-item">
+      <span class="shift-strip-label">Tržby dnes:</span>
+      <span class="shift-strip-value shift-strip-revenue" id="ssRevenue">—</span>
+    </span>
+    <span class="shift-strip-sep" aria-hidden="true">·</span>
+    <span class="shift-strip-item">
+      <span class="shift-strip-label">Otvorené stoly:</span>
+      <span class="shift-strip-value" id="ssOpenTables">—</span>
+    </span>
+  </div>
 
   <div class="main" id="main">
     <!-- TABLE VIEW -->

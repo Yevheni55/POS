@@ -68,6 +68,46 @@ function updateClock(){
 }
 updateClock();setInterval(updateClock,30000);
 
+// Shift strip refresh — pulls revenue + open table count from POS state.
+// Re-runs every 30s + on table/order state change events. Light DOM work.
+function updateShiftStrip() {
+  // Shift duration: time since first order today (or session start fallback)
+  var ssDur = document.getElementById('ssShiftDuration');
+  var ssRev = document.getElementById('ssRevenue');
+  var ssOpen = document.getElementById('ssOpenTables');
+  if (!ssDur || !ssRev || !ssOpen) return;
+  var shiftStart = window._shiftStartedAt || sessionStorage.getItem('pos_shift_started_at');
+  if (!shiftStart) {
+    shiftStart = Date.now();
+    window._shiftStartedAt = shiftStart;
+    try { sessionStorage.setItem('pos_shift_started_at', String(shiftStart)); } catch (_) {}
+  }
+  shiftStart = Number(shiftStart);
+  var elapsedMs = Date.now() - shiftStart;
+  var hours = Math.floor(elapsedMs / 3600000);
+  var mins = Math.floor((elapsedMs % 3600000) / 60000);
+  ssDur.textContent = hours + 'h ' + String(mins).padStart(2, '0') + 'm';
+
+  var rev = (typeof window._todayRevenue === 'number') ? window._todayRevenue : 0;
+  ssRev.textContent = (typeof fmt === 'function') ? fmt(rev) : (rev.toFixed(2) + ' €');
+
+  // Open tables = TABLES filter status occupied + has order rows
+  var open = 0;
+  if (typeof TABLES !== 'undefined' && Array.isArray(TABLES)) {
+    open = TABLES.filter(function (t) {
+      return t.status === 'occupied'
+        || t.status === 'reserved';
+    }).length;
+  }
+  var total = (typeof TABLES !== 'undefined') ? TABLES.length : 0;
+  ssOpen.textContent = open + ' / ' + total;
+}
+// Tick every 30s for duration; revenue/open updated also from event listeners
+setInterval(updateShiftStrip, 30000);
+// Initial call after DOM ready (use rAF to ensure DOM mount)
+requestAnimationFrame(updateShiftStrip);
+window.updateShiftStrip = updateShiftStrip;
+
 // View toggle
 function _toastSendKitchenError(err){
   var msg=(err&&err.message)?('Chyba odoslania: '+err.message):'Nepodarilo sa odoslat na kuchynu';

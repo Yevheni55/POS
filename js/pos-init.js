@@ -451,6 +451,20 @@ setTimeout(function(){var lm=document.getElementById('logoutModal');if(lm)lm.add
 
 // === Startup sequence ===
 init();
+
+// Fetch today's revenue on POS startup so shift strip has real number
+// (not 0 until first payment). Best-effort — failure leaves at 0.
+(async function loadTodayRevenue() {
+  try {
+    var today = new Date().toISOString().slice(0, 10);
+    var z = await api.get('/reports/z-report?date=' + today);
+    if (z && typeof z.totalRevenue === 'number') {
+      window._todayRevenue = z.totalRevenue;
+      if (typeof updateShiftStrip === 'function') updateShiftStrip();
+    }
+  } catch (_) { /* admin role required — cashiers will see 0 */ }
+})();
+
 setupLongPress();
 // Hide edit button for cisnik
 if(getUserRole()==='cisnik'){var eb=document.getElementById('editToggle');if(eb)eb.classList.add('pos-hidden');}

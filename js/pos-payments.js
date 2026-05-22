@@ -784,6 +784,13 @@ async function confirmPayment() {
     // Phase 5 — success haptic. 20ms is a slightly stronger bzik than
     // the add/qty 10ms — operator feels "transaction done".
     try { if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(20); } catch (_) {}
+
+    // Bump in-memory today revenue counter so shift strip updates immediately.
+    // Authoritative source is server; this is just optimistic UI.
+    if (typeof window._todayRevenue !== 'number') window._todayRevenue = 0;
+    window._todayRevenue += Number(total) || 0;
+    if (typeof updateShiftStrip === 'function') updateShiftStrip();
+
     await finalizeSuccessfulPayment(outcome.message, outcome.tone);
   } catch (e) {
     console.error('confirmPayment error:', e);
