@@ -514,3 +514,66 @@ document.getElementById('managerPinModal').addEventListener('click',function(e){
   document.addEventListener('touchmove',onMove,{passive:true});
   document.addEventListener('touchend',onEnd,{passive:true});
 })();
+
+// '/' shortcut → quick jump to table by name. Opens floating input,
+// fuzzy-matches chip names, dims non-matching, Enter clicks first match.
+(function () {
+  var overlay = null;
+  var input = null;
+  function open() {
+    if (overlay) return;
+    overlay = document.createElement('div');
+    overlay.className = 'table-search-overlay';
+    overlay.innerHTML = ''
+      + '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--color-text-sec)">'
+      + '<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>'
+      + '<input type="text" class="table-search-overlay-input" placeholder="Skoč na stôl…" autocomplete="off" spellcheck="false">'
+      + '<span class="table-search-overlay-hint">Esc</span>';
+    document.body.appendChild(overlay);
+    input = overlay.querySelector('.table-search-overlay-input');
+    requestAnimationFrame(function () { input.focus(); });
+    input.addEventListener('input', function () { dimNonMatching(input.value); });
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { e.preventDefault(); close(); return; }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        var first = document.querySelector('#floorCanvas .table-chip:not(.dim-search)[data-table-id]');
+        if (first) first.click();
+        close();
+      }
+    });
+  }
+  function close() {
+    if (!overlay) return;
+    overlay.remove(); overlay = null; input = null;
+    document.querySelectorAll('.table-chip.dim-search').forEach(function (el) {
+      el.classList.remove('dim-search');
+    });
+  }
+  function dimNonMatching(q) {
+    var query = String(q || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+    document.querySelectorAll('#floorCanvas .table-chip').forEach(function (el) {
+      var nameEl = el.querySelector('.chip-name');
+      if (!nameEl) return;
+      var name = nameEl.textContent.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+      if (!query || name.indexOf(query) >= 0) el.classList.remove('dim-search');
+      else el.classList.add('dim-search');
+    });
+  }
+  document.addEventListener('keydown', function (e) {
+    if (e.key === '/' && !isTypingInElement(e.target)) {
+      e.preventDefault();
+      open();
+      return;
+    }
+    if (e.key === 'Escape' && overlay) {
+      e.preventDefault();
+      close();
+    }
+  });
+  function isTypingInElement(el) {
+    if (!el) return false;
+    var t = (el.tagName || '').toLowerCase();
+    return t === 'input' || t === 'textarea' || t === 'select' || el.isContentEditable;
+  }
+})();

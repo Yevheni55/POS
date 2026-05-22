@@ -3326,3 +3326,26 @@ body.edit-mode #editToggle { background: var(--color-warning, #E0A830); color: #
   .shift-strip{font-size:11px; padding:6px 12px; gap:8px}
   .shift-strip-label{display:none}
 }
+
+/* === TABLE QUICK-JUMP — '/' shortcut overlay ============================== */
+.table-search-overlay{
+  position:fixed; top:24px; left:50%; transform:translateX(-50%);
+  z-index:90; display:flex; align-items:center; gap:8px;
+  padding:10px 14px; border-radius:var(--radius-lg);
+  background:var(--color-bg-elevated);
+  border:1px solid var(--color-border-strong);
+  box-shadow:var(--shadow-lg);
+  min-width:280px; max-width:90vw;
+}
+.table-search-overlay-input{
+  flex:1; background:transparent; border:none; outline:none;
+  font-family:var(--font-body); font-size:15px; color:var(--color-text);
+  font-weight:var(--weight-medium);
+}
+.table-search-overlay-input::placeholder{color:var(--color-text-dim)}
+.table-search-overlay-hint{
+  font-family:var(--font-mono); font-size:11px;
+  color:var(--color-text-dim); padding:2px 6px;
+  border-radius:var(--radius-xs); background:rgba(0,0,0,.04);
+}
+.table-chip.dim-search{opacity:.18; transition:opacity .12s ease}
