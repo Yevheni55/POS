@@ -249,11 +249,18 @@ function renderFloor(){
       bodyHtml += '<div class="chip-time">' + escHtml(t.time) + '</div>';
     } else if (t.status === 'dirty') {
       bodyHtml += '<div class="chip-state-label">vyčistiť</div>';
-    } else {
-      bodyHtml += '<div class="chip-state-label">' + (sl[t.status] || '') + '</div>';
+    } else if (t.status === 'occupied') {
+      // Occupied but no order amount yet (just-opened) — show "Otvorený" hint
+      bodyHtml += '<div class="chip-state-label">otvorený</div>';
     }
+    // status === 'free' → no label, status dot color suffices
 
-    bodyHtml += '<div class="chip-guests">' + personIcon + ' ' + t.seats + '</div>';
+    // Capacity (seat count) only when chip is occupied/reserved/dirty AND in
+    // edit mode — for empty tables the number is noise. In edit mode it's
+    // useful for layout decisions, so always show there.
+    if (t.status !== 'free' || (typeof editMode !== 'undefined' && editMode)) {
+      bodyHtml += '<div class="chip-guests">' + personIcon + ' ' + t.seats + '</div>';
+    }
 
     // Resize handle — iba v edit móde (visible cez .edit-mode CSS rule).
     // Po stlačení sa spustí startTableResize() z pos-ui.js.

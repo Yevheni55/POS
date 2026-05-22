@@ -406,11 +406,27 @@ body::after{
 /* Status — free is QUIET (recedes — no work needed), occupied is WARM glow
    (operator's eye lands here, that's where work is), reserved is amber notice,
    dirty is rust alert. */
+/* Free chip — muted/recessive. Pri 20+ stoloch z ktorých 90% je voľných
+   chceme aby pozornosť išla na obsadené (s-occupied terra). Free chipy
+   sú vizuálny "papier v pozadí" — dotted border, žiadny shadow, znížený
+   text contrast. Hover ich oživí (terra accent) aby user vedel ze su
+   klikatelne. */
 .table-chip.s-free{
-  background:linear-gradient(180deg, var(--color-bg), var(--color-bg-elevated));
-  border-color:var(--color-border);
+  background:transparent;
+  border:1px dashed var(--color-border);
+  box-shadow:none;
+  opacity:.72;
 }
-.table-chip.s-free:hover{border-color:var(--color-border-strong)}
+.table-chip.s-free .chip-name{
+  color:var(--color-text-sec);
+  font-weight:var(--weight-semibold);
+}
+.table-chip.s-free:hover{
+  opacity:1;
+  border-style:solid;
+  border-color:var(--color-border-strong);
+  background:linear-gradient(180deg, var(--color-bg), var(--color-bg-elevated));
+}
 /* OCCUPIED — visually dominant. User reportoval ze stoly su prilis tlmene
    a operatorovi z mapy nesvieti ktore su busy. Posilnujeme cez:
      - silnejsi terra gradient (15% → 32% namiesto 0% → 10%)
