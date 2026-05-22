@@ -390,26 +390,34 @@ function renderFloorSummary(filteredTables){
   canvas.appendChild(el);
 }
 
-// Storno chip — fixed-position badge in floor canvas. Click opens overlay.
+// Storno koš pill — fixed bottom-right of viewport. Floats over POS UI
+// without ever overlapping floor canvas. Click → opens storno basket modal.
+// Hidden when count = 0 (nothing to show).
 function renderStornoChip() {
-  var canvas = document.getElementById('floorCanvas');
-  if (!canvas) return;
   var c = (typeof _stornoBasketCache !== 'undefined') ? _stornoBasketCache : { count: 0, value: 0 };
-  var existing = document.getElementById('stornoChip');
-  var html =
-    '<div id="stornoChip" class="table-chip storno-chip" role="button" tabindex="0"' +
-    ' aria-label="Storno tabuľa, ' + c.count + ' položiek" onclick="openStornoBasket()">' +
-      '<div class="chip-name">STORNO</div>' +
-      (c.count > 0
-        ? '<span class="chip-badge storno-badge">' + c.count + '</span>' +
-          '<div class="chip-amount">' + fmt(c.value) + '</div>'
-        : '<div class="chip-guests" style="opacity:.55">prázdna</div>') +
-    '</div>';
-  if (existing) {
-    existing.outerHTML = html;
-  } else {
-    canvas.insertAdjacentHTML('beforeend', html);
+  var existing = document.getElementById('stornoPill');
+  if (!c.count || c.count <= 0) {
+    if (existing) existing.remove();
+    return;
   }
+  if (!existing) {
+    existing = document.createElement('button');
+    existing.id = 'stornoPill';
+    existing.type = 'button';
+    existing.className = 'storno-pill';
+    existing.setAttribute('aria-label', 'Otvoriť storno koš');
+    existing.addEventListener('click', function () {
+      if (typeof openStornoBasket === 'function') openStornoBasket();
+    });
+    document.body.appendChild(existing);
+  }
+  existing.innerHTML = ''
+    + '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+    + '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>'
+    + '</svg>'
+    + '<span class="storno-pill-label">Storno koš</span>'
+    + '<span class="storno-pill-count">' + c.count + '</span>'
+    + '<span class="storno-pill-value">' + fmt(c.value || 0) + '</span>';
 }
 
 function openStornoBasket() {

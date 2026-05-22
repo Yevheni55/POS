@@ -263,22 +263,43 @@ body::after{
     radial-gradient(circle at 1px 1px, rgba(30,24,18,.03) 1px, transparent 0) 0 0 / 40px 40px;
 }
 
-/* STORNO chip — anchored to top-right of the floor canvas (NOT viewport).
-   Was position:fixed earlier, but on tablet that pinned it on top of the
-   "Upravit" toolbar button. .floor-canvas is position:relative, so absolute
-   positioning here keeps the chip inside the canvas area, leaving the
-   toolbar button clear. */
-.table-chip.storno-chip{
-  position:absolute; top:12px; right:12px; left:auto; z-index:5;
-  background:linear-gradient(135deg,rgba(224,112,112,.12),rgba(224,112,112,.22));
-  border-color:rgba(224,112,112,.45); border-left-color:var(--color-danger);
-  cursor:pointer; box-shadow:0 4px 14px rgba(224,112,112,.16);
-  display:inline-flex; flex-direction:column; align-items:flex-start;
-  width:auto; min-width:130px; padding:10px 14px;
+/* Storno koš pill — fixed bottom-right, mimo canvas. Nikdy neprekrýva
+   stoly + vždy na rovnakom mieste = svalová pamäť pre operatora.
+   Auto-hides when basket empty (renderStornoChip nerendere keď count=0). */
+.storno-pill{
+  position:fixed; bottom:20px; right:20px; z-index:60;
+  display:inline-flex; align-items:center; gap:10px;
+  padding:10px 16px; border-radius:var(--radius-full);
+  background:var(--color-danger);
+  color:#fff;
+  font-family:var(--font-body); font-size:13px; font-weight:var(--weight-bold);
+  border:none; cursor:pointer;
+  box-shadow:var(--shadow-md), 0 0 0 3px rgba(224,112,112,.18);
+  transition:transform var(--transition-fast), box-shadow var(--transition-fast);
+  min-height:44px;
 }
-.table-chip.storno-chip .chip-name{color:var(--color-danger);font-size:18px}
-.table-chip.storno-chip .chip-badge{background:var(--color-danger);color:#fff;font-size:12px;padding:2px 8px}
-.table-chip.storno-chip .chip-amount{color:var(--color-danger)}
+.storno-pill:hover{
+  transform:translateY(-2px);
+  box-shadow:var(--shadow-lg), 0 0 0 4px rgba(224,112,112,.25);
+}
+.storno-pill:active{transform:translateY(0) scale(.97)}
+.storno-pill svg{flex-shrink:0; opacity:.9}
+.storno-pill-label{letter-spacing:.02em}
+.storno-pill-count{
+  padding:2px 8px; border-radius:var(--radius-full);
+  background:rgba(255,255,255,.22); font-size:12px;
+  font-family:var(--font-mono); font-variant-numeric:tabular-nums;
+}
+.storno-pill-value{
+  font-family:var(--font-mono); font-variant-numeric:tabular-nums;
+  letter-spacing:-.01em;
+}
+@media (max-width: 640px){
+  .storno-pill{
+    bottom:12px; right:12px; padding:8px 12px; font-size:12px;
+  }
+  .storno-pill-label{display:none}
+}
 
 /* Storno basket modal rows */
 .storno-row{
