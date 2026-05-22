@@ -520,6 +520,21 @@ body::after{
   min-width:0;
   color:var(--text-primary);
 }
+.table-chip .chip-glyph{
+  font-family:var(--font-mono),'JetBrains Mono Variable',ui-monospace,monospace;
+  font-size:13px;
+  font-weight:var(--weight-bold);
+  line-height:1;
+  flex-shrink:0;
+  margin-right:2px;
+  /* Default color comes from status-specific override below — fallback dim
+     in case status class missing. */
+  color:var(--color-text-dim);
+}
+.table-chip .chip-glyph.s-free{color:var(--color-success)}
+.table-chip .chip-glyph.s-occupied{color:var(--color-accent)}
+.table-chip .chip-glyph.s-reserved{color:var(--accent-amber)}
+.table-chip .chip-glyph.s-dirty{color:var(--color-danger)}
 .table-chip .chip-status-dot{
   width:7px;height:7px;
   border-radius:50%;

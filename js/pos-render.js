@@ -163,6 +163,15 @@ function renderFloor(){
   if (typeof currentView !== 'undefined' && currentView !== 'tables') return;
   const filtered=TABLES.filter(t=>t.zone===activeZone);
   const sl={free:'Volny',occupied:'Obsad.',reserved:'Rez.',dirty:'Cistit'};
+  // Status glyph — color-independent indicator pre WCAG 1.4.1 compliance.
+  // Deuteranopia (8% mužov) nerozozná zelená vs terra → kombinujeme color
+  // status-dot + glyph leading the name. Glyphs sú unicode geometric
+  // shapes — render bez extra font load, vidno aj v black-and-white.
+  //   ○ free      — empty circle (low-prominence, prázdne miesto)
+  //   ●  occupied  — filled circle (busy, plný)
+  //   ▲ reserved  — triangle (cancelable timeline event)
+  //   ✕ dirty     — cross (needs attention)
+  const GLYPHS = { free: '○', occupied: '●', reserved: '▲', dirty: '✕' };
   const titles={free:'Otvorit objednavku',occupied:'Zobrazit ucet',reserved:'Otvorit rezervaciu',dirty:'Oznacit ako volny'};
   // Person icon — uses currentColor so it inherits chip-guests text tone.
   // Hoisted to module scope (PERSON_ICON_SVG) — reused below.
@@ -237,9 +246,11 @@ function renderFloor(){
       isForgotten ? 'is-forgotten' : '',
     ].filter(Boolean).join(' ');
 
+    var glyph = GLYPHS[t.status] || '';
     var bodyHtml = ''
       + '<div class="chip-top">'
       +   '<span class="chip-status-dot ' + t.status + '" aria-hidden="true"></span>'
+      +   '<span class="chip-glyph s-' + t.status + '" aria-hidden="true">' + glyph + '</span>'
       +   '<div class="chip-name">' + escHtml(t.name) + '</div>'
       + '</div>';
 
