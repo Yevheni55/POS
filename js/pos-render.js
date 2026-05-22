@@ -57,9 +57,14 @@ window._applyActionButtonState = _applyActionButtonState;
 function updateClock(){
   const n=new Date();
   document.getElementById('clock').textContent=String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0');
-  const d=['Nedela','Pondelok','Utorok','Streda','Stvrtok','Piatok','Sobota'];
-  const m=['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
-  document.getElementById('date').textContent=`${d[n.getDay()]}, ${n.getDate()}. ${m[n.getMonth()]}`;
+  const dateEl=document.getElementById('date');
+  if(dateEl){
+    // Slovak genitive date — Intl.DateTimeFormat('sk-SK', month:'long')
+    // produces '23. mája' (correct genitive) instead of '23. maj'.
+    // Capitalize weekday: 'sobota' → 'Sobota'.
+    const s=new Intl.DateTimeFormat('sk-SK',{weekday:'long',day:'numeric',month:'long'}).format(n);
+    dateEl.textContent=s.charAt(0).toUpperCase()+s.slice(1);
+  }
 }
 updateClock();setInterval(updateClock,30000);
 
