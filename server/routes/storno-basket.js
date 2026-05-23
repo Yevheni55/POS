@@ -22,8 +22,11 @@ const router = Router();
 
 const VALID_REASONS = ['order_error', 'complaint', 'breakage', 'staff_meal', 'other'];
 
-// POST /api/storno-basket — cashier zaznamenáva storno
-router.post('/', asyncRoute(async (req, res) => {
+// POST /api/storno-basket — manager/admin zaznamenáva storno poslaných položiek.
+// Role gate: cisnik bol predtým povolený, ale storno sent item má inventory
+// dopad + audit zodpovednosť → len manazer/admin. Cisnik dostane 403,
+// frontend ho cez showManagerPin gate prevedie na manager PIN flow.
+router.post('/', requireRole('manazer', 'admin'), asyncRoute(async (req, res) => {
   const body = req.body || {};
   const menuItemId = +body.menuItemId;
   const qty = +body.qty || 1;

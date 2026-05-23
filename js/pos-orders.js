@@ -645,7 +645,7 @@ function _firePendingStornoReasonPrompt() {
   _promptStornoReasonAndWriteOff({ sName: pending.sName, miId: pending.miId, oid: pending.oid, sQty: sQty });
 }
 
-function changeQty(name,d,itemId){
+function changeQty(name,d,itemId,_managerOverride){
   const order = getOrder();
   const item = _findOrderItemForQtyChange(order, name, itemId);
   if (!item) return;
@@ -673,6 +673,23 @@ function changeQty(name,d,itemId){
     updateQtyBadges(item.menuItemId);
     _scheduleRender();
     return;
+  }
+
+  // Storno sent items vyžaduje manager PIN ak je user cisnik. removeItem +
+  // _clearOrderImmediate už majú rovnaký gate; changeQty(d<0, sent>0) je
+  // 3. cesta ako môže cisnik znížiť poslanú položku — bez gate by
+  // obišiel kontrolu cez −/+ namiesto cez delete row.
+  if (d < 0 && item.sent && !_managerOverride) {
+    var _stUser = api.getUser();
+    if (_stUser && _stUser.role === 'cisnik') {
+      var _stPrice = typeof item.price === 'number' ? item.price : 0;
+      var _stCtx = 'Storno: ' + Math.min(-d, item.qty) + '× ' + item.name
+        + ' (' + (_stPrice * Math.min(-d, item.qty)).toFixed(2) + ' €)';
+      // 4. arg = manager override flag — po PIN authentication preskočíme
+      // tento gate (rovnaký pattern ako removeItem → doRemoveItem).
+      showManagerPin(_stCtx, function () { changeQty(name, d, itemId, true); });
+      return;
+    }
   }
 
   // Track storno for sent items being reduced. The reason popup + write-off

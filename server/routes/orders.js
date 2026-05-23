@@ -505,7 +505,11 @@ router.post('/:id/send-and-print', asyncRoute(async (req, res) => {
 }));
 
 // POST /api/orders/:id/send-storno-and-print — log storno dispatch and return normalized items for printing
-router.post('/:id/send-storno-and-print', validate(stornoSendSchema), asyncRoute(async (req, res) => {
+// Role-gated: storno of sent items je manager-level akcia (kuchyna už recept
+// dostal, kvôli zodpovednosti a inventory dopadu len manazer/admin môže
+// triggerovať). Cisnik dostane 403 — frontend ho cez showManagerPin gate
+// zavedie na PIN prompt.
+router.post('/:id/send-storno-and-print', requireRole('manazer', 'admin'), validate(stornoSendSchema), asyncRoute(async (req, res) => {
   const orderId = +req.params.id;
   const requestedItems = req.body.items || [];
 
