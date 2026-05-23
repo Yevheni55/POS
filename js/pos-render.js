@@ -1024,6 +1024,62 @@ function _renderTableStatus() {
   el.style.color = fg;
 }
 
+/**
+ * Group order rows for DISPLAY by (menuItemId, note) — zlučuje sent +
+ * unsent páry do jedinej radky. Order array sa nemení (sync s serverom
+ * naďalej posiela oddelené rady), iba render layer ich zobrazí ako jednu.
+ *
+ * User UX request: pri klepnutí + na poslanú položku sa nemá zjaviť nová
+ * unsent rada navrchu — má sa zvýšiť qty existujúcej rady a zelená sa
+ * stratí (lebo qty > sentQty). Pri − dolu kým unsent delta > 0 zelená
+ * sa vráti keď qty == sentQty.
+ *
+ * Logika:
+ *   - sent row + unsent twin so zhodným menuItemId+note → 1 display row
+ *   - row.qty = súčet, row._sentQty = sent portion, row.id = sent ID
+ *     (preferujeme stable server id pre routing button clicks)
+ *   - row.sent = true ak any sent (kompatibilita s existujúcim kódom)
+ *   - row._hasUnsentDelta = true ak qty > sentQty
+ *
+ * Companion rows (_companionOf) sa nemerge-ujú — patria k svojmu primary.
+ */
+function _groupOrderForDisplay(order) {
+  if (!order || !order.length) return [];
+  var merged = [];
+  var seenIdx = Object.create(null);
+  for (var i = 0; i < order.length; i++) {
+    var item = order[i];
+    if (item._companionOf) {
+      // Companion (napr. Zaloha flase) ostáva ako separátna rada
+      merged.push(item);
+      continue;
+    }
+    var key = item.menuItemId + '|' + (item.note || '');
+    if (seenIdx[key] === undefined) {
+      // Plytka copy — nemenime original v `order`
+      var clone = {};
+      for (var k in item) if (Object.prototype.hasOwnProperty.call(item, k)) clone[k] = item[k];
+      clone.qty = item.qty;
+      clone._sentQty = item.sent ? item.qty : 0;
+      clone._hasUnsentDelta = !item.sent;
+      seenIdx[key] = merged.length;
+      merged.push(clone);
+    } else {
+      var existing = merged[seenIdx[key]];
+      existing.qty += item.qty;
+      if (item.sent) {
+        existing._sentQty += item.qty;
+        // Prefer sent row's id pre routing — server-stable
+        existing.id = item.id;
+        existing.sent = true;
+      } else {
+        existing._hasUnsentDelta = true;
+      }
+    }
+  }
+  return merged;
+}
+
 function renderOrder(){
   const order=getOrder(),c=document.getElementById('orderItems');
   const countEl=document.getElementById('orderCount');
@@ -1087,9 +1143,15 @@ function renderOrder(){
     else orderPanel.removeAttribute('role');
   }
   if(!order.length){c.innerHTML=`<div class="order-empty"><div class="order-empty-icon"><svg viewBox="0 0 64 64" width="56" height="56" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 18h40v40H12z"/><path d="M18 26h28M18 32h28M18 38h20"/><circle cx="32" cy="10" r="4"/><path d="M28 10h-4M40 10h-4"/></svg></div><div class="order-empty-title">Prazdna objednavka</div><div class="order-empty-text">Pridajte polozky z menu alebo kliknite na stol</div><div class="order-empty-hint"><span>&#8592;</span> Vyberte z menu</div></div>`}
-  else{var sorted=order.slice().sort(function(a,b){return (b.id||0)-(a.id||0)});c.innerHTML=sorted.map(o=>{
+  else{
+    // GROUP display: sent + unsent páry sa zlúčia do jednej rady. Zelená
+    // (sent indikátor) je True iba ak qty == sentQty (všetko poslané).
+    var displayOrder = _groupOrderForDisplay(order);
+    var sorted=displayOrder.sort(function(a,b){return (b.id||0)-(a.id||0)});
+    c.innerHTML=sorted.map(o=>{
     const esc=escAttr(o.name.replace(/'/g,"\\'"));
-    const _isSent=o.sent;
+    // Sent indikator = "all sent" — iba ak qty matches sentQty (no unsent delta)
+    const _isSent = o.sent && !o._hasUnsentDelta;
     // Po refaktore moveSelectedItems = [{id, qty}]. Pomocou _moveSelectionQtyFor
     // zistíme či je item vybraný a aký qty (null = celé). Ak je qty kratšie
     // ako pôvodné, ukážeme badge "qty/total" aby operátor videl o koľko ide.

@@ -304,9 +304,15 @@ function renderMobOrder() {
     // parity with desktop's swipe-reveal panel. removeItem() handles
     // both: simple remove for unsent, queue-into-storno for sent.
     // Note tap (.mob-oi-info) also works regardless of sent state.
-    container.innerHTML = order.map(o => {
+    //
+    // GROUP display: sent + unsent páry sa zlúčia do jednej rady. Zelená
+    // (sent indikátor) sa zobrazí iba ak qty == sentQty.
+    var mobDisplay = (typeof _groupOrderForDisplay === 'function')
+      ? _groupOrderForDisplay(order)
+      : order;
+    container.innerHTML = mobDisplay.map(o => {
       const esc = o.name.replace(/'/g, "\\'");
-      const isSent = o.sent;
+      const isSent = o.sent && !o._hasUnsentDelta;
       const pencilSvg = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="svg-icon" style="vertical-align:-2px;margin-right:4px"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
       const noteBlock = o.note
         ? `<div class="mob-oi-note">${escHtml(o.note)}</div>`

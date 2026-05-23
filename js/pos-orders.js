@@ -680,6 +680,34 @@ function changeQty(name,d,itemId,_managerOverride){
   // 3. cesta ako môže cisnik znížiť poslanú položku — bez gate by
   // obišiel kontrolu cez −/+ namiesto cez delete row.
   if (d < 0 && item.sent && !_managerOverride) {
+    // Display merge: ak existuje unsent twin so zhodným menuItemId+note,
+    // − znižuje TWIN (lokálnu unsent porciu), nie sent porciu. Zelená sa
+    // vráti až keď twin sa zníži na 0 (qty == _sentQty znova). Žiadny
+    // storno + žiadny manager PIN — len lokálna zmena.
+    var unsentTwin = order.find(function (x) {
+      return !x.sent
+        && x.menuItemId === item.menuItemId
+        && (x.note || '') === (item.note || '')
+        && !x._companionOf;
+    });
+    if (unsentTwin) {
+      var dec = Math.min(Math.abs(d), unsentTwin.qty);
+      unsentTwin.qty -= dec;
+      if (unsentTwin.qty <= 0) {
+        var twinIdx = order.indexOf(unsentTwin);
+        if (twinIdx >= 0) order.splice(twinIdx, 1);
+        _removeCompanionOfPrimary(unsentTwin.id);
+      } else {
+        unsentTwin._localQtyChanged = true;
+      }
+      setOrder(order);
+      _orderDirty = true;
+      updateTotals();
+      updateQtyBadges(item.menuItemId);
+      _scheduleRender();
+      return;
+    }
+    // No unsent twin — naozaj reducujeme sent portion → storno cesta
     var _stUser = api.getUser();
     if (_stUser && _stUser.role === 'cisnik') {
       var _stPrice = typeof item.price === 'number' ? item.price : 0;
