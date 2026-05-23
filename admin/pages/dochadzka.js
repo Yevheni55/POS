@@ -205,6 +205,147 @@ function openPayoutAmountModal({ fullAmount, onConfirm }) {
   setTimeout(function () { input.focus(); input.select(); }, 50);
 }
 
+/**
+ * Lump-sum payout modal — manager zadá sumu (napr. 200 €), backend rozloží
+ * cez najstarsie nezaplatene smeny FIFO. Posledná smena môže byť čiastočne
+ * pokrytá.
+ *
+ * @param {object} opts
+ * @param {number} opts.staffId
+ * @param {string} opts.staffName
+ * @param {number} opts.hourlyRate
+ */
+function openLumpSumPayoutModal({ staffId, staffName, hourlyRate }) {
+  const existing = document.getElementById('lumpSumPayoutModal');
+  if (existing) existing.remove();
+  const ov = document.createElement('div');
+  ov.id = 'lumpSumPayoutModal';
+  ov.className = 'u-overlay';
+  ov.setAttribute('role', 'dialog');
+  ov.setAttribute('aria-modal', 'true');
+  ov.setAttribute('aria-labelledby', 'lumpSumTitle');
+  ov.innerHTML =
+    '<div class="u-modal" style="max-width:440px">' +
+      '<span class="u-modal-icon" aria-hidden="true">💸</span>' +
+      '<div class="u-modal-title" id="lumpSumTitle">Vyplatiť ' + escapeHtml(staffName) + '</div>' +
+      '<div class="u-modal-text">Zadaj koľko si reálne vyplatil (cash). Systém ti automaticky pokryje najstaršie nezaplatené smeny FIFO. Posledná smena môže byť čiastočne pokrytá ak suma nesedí na celé smeny.</div>' +
+      '<div class="u-modal-body" style="margin-top:8px">' +
+        '<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">' +
+          '<button type="button" class="u-btn u-btn-ghost lump-chip" data-amt="50" style="flex:1;min-width:60px;padding:6px 10px;font-size:12px">50 €</button>' +
+          '<button type="button" class="u-btn u-btn-ghost lump-chip" data-amt="100" style="flex:1;min-width:60px;padding:6px 10px;font-size:12px">100 €</button>' +
+          '<button type="button" class="u-btn u-btn-ghost lump-chip" data-amt="200" style="flex:1;min-width:60px;padding:6px 10px;font-size:12px">200 €</button>' +
+          '<button type="button" class="u-btn u-btn-ghost lump-chip" data-amt="500" style="flex:1;min-width:60px;padding:6px 10px;font-size:12px">500 €</button>' +
+        '</div>' +
+        '<label for="lumpSumInput" class="sr-only">Vyplatená suma (€)</label>' +
+        '<div style="display:flex;align-items:center;gap:6px">' +
+          '<input type="number" id="lumpSumInput" class="form-input" step="0.01" min="0.01" max="10000" placeholder="0,00" inputmode="decimal" autocomplete="off" style="flex:1;font-size:22px;font-weight:700;text-align:right;font-family:var(--font-display)">' +
+          '<span style="font-family:var(--font-display);font-weight:700;font-size:22px;color:var(--color-text-sec)">€</span>' +
+        '</div>' +
+        '<label style="display:block;margin-top:10px">' +
+          '<span style="font-size:11px;color:var(--color-text-sec);font-family:var(--font-mono);letter-spacing:.04em;text-transform:uppercase">Poznámka (voliteľné)</span>' +
+          '<input type="text" id="lumpSumNote" class="form-input" maxlength="200" placeholder="napr. záloha za máj, bonus...">' +
+        '</label>' +
+        '<div id="lumpSumErr" style="color:var(--color-danger);font-size:12px;margin-top:6px;min-height:14px"></div>' +
+        '<div id="lumpSumPreview" style="margin-top:8px;font-size:11.5px;color:var(--color-text-dim);min-height:16px"></div>' +
+      '</div>' +
+      '<div class="u-modal-btns">' +
+        '<button type="button" class="u-btn u-btn-ghost" id="lumpCancel">Zrušiť</button>' +
+        '<button type="button" class="u-btn u-btn-mint" id="lumpConfirm">Vyplatiť</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(ov);
+  requestAnimationFrame(function () { ov.classList.add('show'); });
+
+  const input = ov.querySelector('#lumpSumInput');
+  const noteInput = ov.querySelector('#lumpSumNote');
+  const err = ov.querySelector('#lumpSumErr');
+  const preview = ov.querySelector('#lumpSumPreview');
+  const confirmBtn = ov.querySelector('#lumpConfirm');
+  const cancelBtn = ov.querySelector('#lumpCancel');
+  const chips = ov.querySelectorAll('.lump-chip');
+
+  function close() {
+    document.removeEventListener('keydown', onKey);
+    ov.classList.remove('show');
+    setTimeout(function () { ov.remove(); }, 200);
+  }
+  function updatePreview() {
+    const v = Number(input.value);
+    if (!Number.isFinite(v) || v <= 0 || hourlyRate <= 0) {
+      preview.textContent = '';
+      return;
+    }
+    // Hrubý odhad — koľko hodín to predstavuje pri tejto sadzbe
+    const hours = v / hourlyRate;
+    preview.textContent = '≈ ' + hours.toFixed(1) + ' hod práce pri sadzbe ' + fmtEur(hourlyRate) + '/h';
+  }
+  async function tryConfirm() {
+    const v = Number(input.value);
+    if (!Number.isFinite(v) || v <= 0) {
+      err.textContent = 'Suma musí byť kladná';
+      input.focus();
+      return;
+    }
+    if (v > 10000) {
+      err.textContent = 'Suma > 10 000 €, over zadanie';
+      return;
+    }
+    err.textContent = '';
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Spracovávam…';
+    try {
+      const res = await api.post('/attendance/payouts/lump-sum', {
+        staffId,
+        amount: Math.round(v * 100) / 100,
+        note: noteInput.value || '',
+      });
+      close();
+      const partsMsg = res.partialShifts > 0
+        ? ' (' + res.partialShifts + ' čiastočne)'
+        : '';
+      const remMsg = res.remainder > 0
+        ? ' Zostáva ' + fmtEur(res.remainder) + ' (nepoužité — žiadne ďalšie nezaplatené smeny)'
+        : '';
+      showToast(
+        'Vyplatené ' + fmtEur(res.totalPaid) + ' — pokrytých ' + res.shiftsCovered + ' smien' + partsMsg + '.' + remMsg,
+        true,
+      );
+      await loadSummary();
+      // Ak je nejaký staff expanded, refresh detail aby ukázalo nové platby
+      if (_expanded === staffId) {
+        _expanded = null;
+        await toggleDetail(staffId);
+      }
+    } catch (e) {
+      err.textContent = e.message || 'Výplata zlyhala';
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = 'Vyplatiť';
+    }
+  }
+  function onKey(e) {
+    if (e.key === 'Escape') { e.preventDefault(); close(); }
+    if (e.key === 'Enter' && (document.activeElement === input || document.activeElement === noteInput)) {
+      e.preventDefault();
+      tryConfirm();
+    }
+  }
+
+  chips.forEach(function (c) {
+    c.addEventListener('click', function () {
+      input.value = c.getAttribute('data-amt');
+      input.focus();
+      input.select();
+      updatePreview();
+    });
+  });
+  input.addEventListener('input', updatePreview);
+  cancelBtn.addEventListener('click', close);
+  confirmBtn.addEventListener('click', tryConfirm);
+  ov.addEventListener('click', function (e) { if (e.target === ov) close(); });
+  document.addEventListener('keydown', onKey);
+  setTimeout(function () { input.focus(); }, 50);
+}
+
 async function loadSummary() {
   try {
     const res = await api.get(`/attendance/summary?from=${_from}&to=${_to}`);
@@ -425,7 +566,13 @@ function renderBody() {
       '<td class="data-td num text-right"><strong>' + escapeHtml(fmtMinutes(r.minutes)) + '</strong></td>' +
       '<td class="data-td text-right">' + openCell + '</td>' +
       '<td class="data-td num text-right">' + wageCell + '</td>' +
-      '<td class="data-td">' +
+      '<td class="data-td" style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">' +
+        // "Vyplatiť" — lump-sum payout dialog (manager zadá sumu, backend FIFO
+        // pokryje najstarsie nezaplatene smeny).
+        '<button class="btn-edit doch-payout-btn" data-payout-staff="' + r.staffId + '"' +
+          ' data-staff-name="' + escapeHtml(r.name) + '"' +
+          ' data-staff-rate="' + (r.hourlyRate || 0) + '"' +
+          ' style="background:rgba(76,175,80,.08);border-color:rgba(76,175,80,.3);color:#2e7d32" title="Vyplatiť hotovostne — backend rozloží sumu cez staré smeny">Vyplatiť</button>' +
         '<button class="btn-edit doch-detail-btn" data-toggle="' + r.staffId + '">' +
           (isOpen ? 'Skryť' : 'Detail') +
         '</button>' +
@@ -435,6 +582,16 @@ function renderBody() {
 
   body.querySelectorAll('button[data-toggle]').forEach((b) => {
     b.addEventListener('click', () => toggleDetail(parseInt(b.getAttribute('data-toggle'), 10)));
+  });
+
+  // Lump-sum payout button — modal s amount inputom, POST /payouts/lump-sum
+  body.querySelectorAll('button[data-payout-staff]').forEach((b) => {
+    b.addEventListener('click', () => {
+      const staffId = parseInt(b.getAttribute('data-payout-staff'), 10);
+      const staffName = b.getAttribute('data-staff-name') || '';
+      const hourlyRate = Number(b.getAttribute('data-staff-rate')) || 0;
+      openLumpSumPayoutModal({ staffId, staffName, hourlyRate });
+    });
   });
 }
 

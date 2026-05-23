@@ -434,6 +434,149 @@ adminRouter.post('/payouts', mgr, asyncRoute(async (req, res) => {
   });
 }));
 
+/**
+ * POST /attendance/payouts/lump-sum
+ * Body: { staffId, amount, note? }
+ *
+ * Manager vyplatil sumu (napr. 200 €) hotovostne, nechce ratat smeny ručne.
+ * Backend FIFO rozloží sumu cez najstarsie NEzaplatene closed shifts:
+ *   - každý shift má wage = minutes/60 * hourly_rate
+ *   - allocate = min(remainingBudget, wage)
+ *   - ak 0 → stop
+ *   - posledný shift môže byť čiastočne pokrytý (allocate < wage)
+ *
+ * Vystupy:
+ *   - 1 cashflow_entries row pre TOTAL allocated sum (jedna výplata = jeden
+ *     bank/cash pohyb pre manazera, jednoduchsie reportovanie)
+ *   - N attendance_payouts rows (každy linkutý na ten istý cashflow_entry_id)
+ *
+ * Vracia summary: { totalPaid, shiftsPaid, partialShiftId?, remainder }
+ */
+adminRouter.post('/payouts/lump-sum', mgr, asyncRoute(async (req, res) => {
+  const staffId = Number.parseInt(req.body && req.body.staffId, 10);
+  const amount = Number(req.body && req.body.amount);
+  const note = String((req.body && req.body.note) || '').slice(0, 200);
+
+  if (!Number.isFinite(staffId) || staffId <= 0) {
+    return res.status(400).json({ error: 'Neplatne staffId' });
+  }
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return res.status(400).json({ error: 'Suma musí byť kladná' });
+  }
+  if (amount > 10000) {
+    return res.status(400).json({ error: 'Suma > 10000 € — over zadanie' });
+  }
+
+  const [staffRow] = await db.select().from(staff).where(eq(staff.id, staffId));
+  if (!staffRow) return res.status(404).json({ error: 'Zamestnanec nenajdeny' });
+  const hourlyRate = Number(staffRow.hourlyRate) || 0;
+  if (hourlyRate <= 0) {
+    return res.status(400).json({ error: 'Zamestnanec nema nastavenu hodinovu sadzbu' });
+  }
+
+  // Vsetky events zamestnanca aby sme spravne spárovali shifts (asc by time)
+  const events = await db.select().from(attendanceEvents)
+    .where(eq(attendanceEvents.staffId, staffId))
+    .orderBy(attendanceEvents.at);
+  const shifts = pairEventsToShifts(events);
+  // Closed shifts (oba clock_in + clock_out) FIFO podla clock_out time
+  const closed = shifts
+    .filter((sh) => sh.inEvent && sh.outEvent)
+    .sort((a, b) => new Date(a.outEvent.at) - new Date(b.outEvent.at));
+
+  // Existujuce payouts → vylúč shifty kde už existuje payout
+  const clockOutIds = closed.map((sh) => sh.outEvent.id);
+  const existing = clockOutIds.length
+    ? await db.select().from(attendancePayouts).where(
+        sql`${attendancePayouts.clockOutEventId} IN (${sql.join(clockOutIds.map((id) => sql`${id}`), sql`, `)})`
+      )
+    : [];
+  const paidSet = new Set(existing.map((p) => p.clockOutEventId));
+  const unpaid = closed.filter((sh) => !paidSet.has(sh.outEvent.id));
+
+  if (!unpaid.length) {
+    return res.status(409).json({ error: 'Žiadne nezaplatené smeny pre tohto zamestnanca' });
+  }
+
+  // Allocate FIFO
+  let remaining = Math.round(amount * 100) / 100;
+  const allocations = []; // [{ clockOutEventId, shiftWage, allocated, partial }]
+  for (const sh of unpaid) {
+    const minutes = sh.outEvent && sh.inEvent
+      ? Math.max(0, Math.round((new Date(sh.outEvent.at) - new Date(sh.inEvent.at)) / 60000))
+      : 0;
+    const wage = Math.round((minutes / 60) * hourlyRate * 100) / 100;
+    if (wage <= 0) continue; // skip 0-minute shifts
+    if (remaining <= 0) break;
+    const alloc = Math.min(remaining, wage);
+    allocations.push({
+      clockOutEventId: sh.outEvent.id,
+      shiftDate: new Date(sh.outEvent.at).toISOString().slice(0, 10),
+      shiftWage: wage,
+      allocated: Math.round(alloc * 100) / 100,
+      partial: alloc < wage,
+    });
+    remaining = Math.round((remaining - alloc) * 100) / 100;
+  }
+
+  if (!allocations.length) {
+    return res.status(409).json({ error: 'Ziadne shifty s kladnou mzdou' });
+  }
+
+  const totalPaid = allocations.reduce((s, a) => s + a.allocated, 0);
+  const totalPaidRounded = Math.round(totalPaid * 100) / 100;
+
+  // Single transaction — cashflow + N payouts pohromade.
+  const result = await db.transaction(async (tx) => {
+    const shiftDates = allocations.map((a) => a.shiftDate);
+    const dateRange = shiftDates.length > 1
+      ? shiftDates[0] + ' – ' + shiftDates[shiftDates.length - 1]
+      : shiftDates[0];
+    const cashflowNote = note
+      || `Výplata ${staffRow.name} — ${allocations.length}× smena (${dateRange})`;
+
+    const [cashflowRow] = await tx.insert(cashflowEntries).values({
+      type: 'expense',
+      category: 'salary',
+      amount: String(totalPaidRounded),
+      occurredAt: new Date(),
+      method: 'cash',
+      note: cashflowNote,
+      staffId: req.user.id,
+    }).returning();
+
+    const payoutRows = [];
+    for (const a of allocations) {
+      const [p] = await tx.insert(attendancePayouts).values({
+        staffId,
+        clockOutEventId: a.clockOutEventId,
+        amount: String(a.allocated),
+        paidAt: new Date(),
+        paidByStaffId: req.user.id,
+        cashflowEntryId: cashflowRow.id,
+        note: a.partial ? `Čiastočné krytie (${a.allocated}/${a.shiftWage} €)` : '',
+      }).returning();
+      payoutRows.push(p);
+    }
+    return { cashflowRow, payoutRows };
+  });
+
+  res.status(201).json({
+    totalPaid: totalPaidRounded,
+    shiftsCovered: allocations.length,
+    partialShifts: allocations.filter((a) => a.partial).length,
+    remainder: remaining,
+    cashflowEntryId: result.cashflowRow.id,
+    allocations: allocations.map((a) => ({
+      clockOutEventId: a.clockOutEventId,
+      shiftDate: a.shiftDate,
+      wage: a.shiftWage,
+      allocated: a.allocated,
+      partial: a.partial,
+    })),
+  });
+}));
+
 adminRouter.delete('/payouts/:id', mgr, asyncRoute(async (req, res) => {
   const id = Number.parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'Neplatné id' });
