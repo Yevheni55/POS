@@ -16,6 +16,7 @@ const routes = {
   tables: function () { return import('./pages/tables.js'); },
   recipes: function () { return import('./pages/recipes.js'); },
   cashflow: function () { return import('./pages/cashflow.js'); },
+  'zam-spotreba': function () { return import('./pages/zam-spotreba.js'); },
   settings: function () { return import('./pages/settings.js'); },
 
   // Wrapper pages (tab-shell)
@@ -58,6 +59,7 @@ const pageTitles = {
   historia: 'História',
   ludia: 'Ľudia',
   cashflow: 'Cashflow',
+  'zam-spotreba': 'Zamestnanecká spotreba',
   'inventory-dashboard': 'Prehľad skladu',
   'sklad-materialy': 'Materiály',
   'sklad-pohyby': 'Pohyby skladu',
