@@ -373,6 +373,43 @@ export function buildZReportTicket(data) {
     t += padLine(s(cat.category), right) + '\n';
   });
 
+  // ZAMESTNANECKA SPOTREBA section — per-person split na food/drink. Hidden
+  // ak v ten den nikto nemal staff meal (cista uzavierka, no waste).
+  if (data.staffMealByPerson && data.staffMealByPerson.length > 0) {
+    t += '\n';
+    t += CMD.BOLD_ON;
+    t += 'ZAM. SPOTREBA\n';
+    t += CMD.BOLD_OFF;
+    t += CMD.LINE;
+    let totalFood = 0, totalDrink = 0, totalCost = 0, totalMeals = 0;
+    (data.staffMealByPerson || []).forEach((p) => {
+      totalFood  += Number(p.foodCost)  || 0;
+      totalDrink += Number(p.drinkCost) || 0;
+      totalCost  += Number(p.cost)      || 0;
+      totalMeals += Number(p.meals)     || 0;
+      // Riadok 1: meno + suma spolu (highlight pre čašníčku)
+      t += padLine(s(p.name) + ' (' + p.meals + 'x)',
+                   formatEur(p.cost) + ' EUR') + '\n';
+      // Riadok 2: split bar / kuchyna pod menom — vsunutý 2 medzery
+      const food = Number(p.foodCost) || 0;
+      const drink = Number(p.drinkCost) || 0;
+      const splitParts = [];
+      if (food > 0)  splitParts.push('kuch ' + formatEur(food));
+      if (drink > 0) splitParts.push('bar ' + formatEur(drink));
+      if (splitParts.length) {
+        t += padLine('  ' + splitParts.join(' + '), '') + '\n';
+      }
+    });
+    // Spolu — bold čiara
+    t += CMD.LINE;
+    t += CMD.BOLD_ON;
+    t += padLine('SPOLU (' + totalMeals + ' jedal):',
+                 formatEur(totalCost) + ' EUR') + '\n';
+    t += CMD.BOLD_OFF;
+    t += padLine('  z toho kuchyna:', formatEur(totalFood) + ' EUR') + '\n';
+    t += padLine('  z toho bar:',     formatEur(totalDrink) + ' EUR') + '\n';
+  }
+
   // TOP POLOZKY section
   t += '\n';
   t += CMD.BOLD_ON;
