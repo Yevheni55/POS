@@ -483,6 +483,8 @@ function render() {
             '<th class="data-th text-right">Hodín</th>' +
             '<th class="data-th text-right">Otv. smeny</th>' +
             '<th class="data-th text-right">Mzda</th>' +
+            '<th class="data-th text-right" title="Suma vyplatená v zvolenom období">Vyplatené</th>' +
+            '<th class="data-th text-right" title="Mzda − Vyplatené. Záporné = preplatil si (bonus/zaloha)">Zostáva</th>' +
             '<th class="data-th"></th>' +
           '</tr></thead>' +
           '<tbody id="dBody"></tbody>' +
@@ -541,7 +543,7 @@ function renderBody() {
     const msg = _staffFilter === 'all'
       ? 'Žiadne dáta za toto obdobie. Zamestnanci s nastaveným dochádzka PIN-om sa objavia po prvom Príchode.'
       : 'Vybraný zamestnanec nemá v tomto období žiadne záznamy.';
-    body.innerHTML = '<tr><td class="data-td" colspan="7">' +
+    body.innerHTML = '<tr><td class="data-td" colspan="9">' +
       '<div class="empty-hint">' + escapeHtml(msg) + '</div>' +
       '</td></tr>';
     return;
@@ -557,6 +559,26 @@ function renderBody() {
     const openCell = r.openShifts > 0
       ? '<span class="badge badge-warning">' + r.openShifts + '</span>'
       : '<span class="text-muted">0</span>';
+    // Vyplatene v období (z payouts.paidAt) — manager vidi ze kolko jedinec
+    // realne dostal. Outstanding = wage − paid. Color-coded: zeleno ked
+    // 0/blizko, oranzovo ked dlhujem, modry ked preplaceny (bonus/predplate).
+    const paidTotal = Number(r.paidTotal) || 0;
+    const outstanding = Number(r.outstanding) || 0;
+    const paidCell = paidTotal > 0
+      ? '<strong style="color:var(--color-success)">' + fmtEur(paidTotal) + '</strong>'
+        + (r.paidCount ? '<div style="font-size:10px;color:var(--color-text-dim);font-family:var(--font-mono)">' + r.paidCount + 'x</div>' : '')
+      : '<span class="text-muted">—</span>';
+    let outstandingCell;
+    if (Math.abs(outstanding) < 0.01) {
+      outstandingCell = '<span style="color:var(--color-text-dim)">0,00 €</span>';
+    } else if (outstanding > 0) {
+      outstandingCell = '<strong style="color:var(--color-warning, #d97706)">' + fmtEur(outstanding) + '</strong>'
+        + '<div style="font-size:10px;color:var(--color-text-dim)">dlhujem</div>';
+    } else {
+      outstandingCell = '<strong style="color:var(--color-accent-secondary, #1f3a5c)">' + fmtEur(Math.abs(outstanding)) + '</strong>'
+        + '<div style="font-size:10px;color:var(--color-text-dim)">prep.</div>';
+    }
+
     return '<tr class="data-row" data-staff="' + r.staffId + '">' +
       '<td class="data-td"><strong>' + escapeHtml(r.name) + '</strong></td>' +
       '<td class="data-td">' + (r.position
@@ -566,6 +588,8 @@ function renderBody() {
       '<td class="data-td num text-right"><strong>' + escapeHtml(fmtMinutes(r.minutes)) + '</strong></td>' +
       '<td class="data-td text-right">' + openCell + '</td>' +
       '<td class="data-td num text-right">' + wageCell + '</td>' +
+      '<td class="data-td num text-right">' + paidCell + '</td>' +
+      '<td class="data-td num text-right">' + outstandingCell + '</td>' +
       '<td class="data-td" style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">' +
         // "Vyplatiť" — lump-sum payout dialog (manager zadá sumu, backend FIFO
         // pokryje najstarsie nezaplatene smeny).

@@ -611,10 +611,33 @@ adminRouter.get('/summary', mgr, asyncRoute(async (req, res) => {
     byStaff.get(e.staffId).push(e);
   }
 
+  // Payouts za rovnaké obdobie — bucket per staff. Datum referuje paidAt
+  // (kedy bola výplata zaevidovaná), nie čas smeny — manager filter "Tento
+  // mesiac" tak ukáže "koľko som vyplatil tento mesiac" bez ohľadu na to
+  // ktorú smenu pokryl payout.
+  const payoutAgg = await db.execute(sql`
+    SELECT staff_id, COUNT(*)::int AS cnt,
+      COALESCE(SUM(amount::numeric), 0)::float AS total,
+      MAX(paid_at) AS last_paid_at
+    FROM attendance_payouts
+    WHERE paid_at >= ${fromDate} AND paid_at <= ${toDate}
+    GROUP BY staff_id
+  `);
+  const paidByStaff = new Map();
+  for (const r of (payoutAgg.rows || payoutAgg)) {
+    paidByStaff.set(Number(r.staff_id), {
+      total: Number(r.total) || 0,
+      count: Number(r.cnt) || 0,
+      lastPaidAt: r.last_paid_at,
+    });
+  }
+
   const rows = allStaff.map((s) => {
     const events = byStaff.get(s.id) || [];
     const shifts = pairEventsToShifts(events);
     const summary = summarizeHours(shifts);
+    const wage = computeWage(summary.minutes, s.hourlyRate);
+    const paid = paidByStaff.get(s.id) || { total: 0, count: 0, lastPaidAt: null };
     return {
       staffId: s.id,
       name: s.name,
@@ -622,7 +645,15 @@ adminRouter.get('/summary', mgr, asyncRoute(async (req, res) => {
       hourlyRate: s.hourlyRate,
       minutes: summary.minutes,
       openShifts: summary.openShifts,
-      wage: computeWage(summary.minutes, s.hourlyRate),
+      wage,
+      // Paid totals — koľko reálne dostal zamestnanec za obdobie
+      paidTotal: Math.round(paid.total * 100) / 100,
+      paidCount: paid.count,
+      lastPaidAt: paid.lastPaidAt,
+      // Outstanding = mzda za obdobie − vyplatené v období. Môže byť záporné
+      // ak manager vyplatil viac (predošlé dlhy + bonusy). UI to potom vie
+      // farebne podľa znamienka.
+      outstanding: Math.round((wage - paid.total) * 100) / 100,
     };
   });
 
