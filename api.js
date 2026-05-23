@@ -458,9 +458,15 @@ const posFullscreen = {
     localStorage.removeItem('pos_fs_restore');
     if ((!this.shouldRestore() && !navRestore) || this.isActive()) return;
 
+    // Browser API obmedzuje že requestFullscreen() vyžaduje user gesture —
+    // po location.href navigácii nemáme aktuálne gesture, takže nemôžeme
+    // automaticky vstúpiť. Riešenie: zaregistrujeme handler na PRVÝ klick
+    // a zobrazíme viditeľný hint aby user vedel ze treba klepnut.
     const self = this;
+    self._showFsHint();
     const handler = () => {
       self.enter();
+      self._hideFsHint();
       document.removeEventListener('click', handler, true);
       document.removeEventListener('touchstart', handler, true);
       document.removeEventListener('keydown', handler, true);
@@ -468,6 +474,64 @@ const posFullscreen = {
     document.addEventListener('click', handler, { capture: true, once: false });
     document.addEventListener('touchstart', handler, { capture: true, once: false });
     document.addEventListener('keydown', handler, { capture: true, once: false });
+  },
+
+  _showFsHint() {
+    if (document.getElementById('fsRestoreHint')) return;
+    // Lazy-inject keyframes once (idempotent — guarded by id check above for hint)
+    if (!document.getElementById('fsHintStyle')) {
+      const s = document.createElement('style');
+      s.id = 'fsHintStyle';
+      s.textContent = '@keyframes fsHintPulse{0%,100%{opacity:.88;transform:translateX(-50%) translateY(0)}50%{opacity:1;transform:translateX(-50%) translateY(-3px)}}';
+      document.head.appendChild(s);
+    }
+    const wrap = document.createElement('div');
+    wrap.id = 'fsRestoreHint';
+    wrap.setAttribute('role', 'status');
+    wrap.setAttribute('aria-live', 'polite');
+    // Inline styles — no dependency on Daylight tokens (api.js loads before
+    // pos.css na niektorých stránkach a hint má byť visible aj na login).
+    wrap.style.cssText = [
+      'position:fixed',
+      'bottom:80px',
+      'left:50%',
+      'transform:translateX(-50%)',
+      'z-index:9999',
+      'padding:11px 20px',
+      'background:rgba(30,24,18,.92)',
+      'color:#fff',
+      'border-radius:9999px',
+      'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
+      'font-size:13px',
+      'font-weight:600',
+      'letter-spacing:.01em',
+      'box-shadow:0 8px 24px rgba(0,0,0,.32)',
+      'pointer-events:none',
+      'animation:fsHintPulse 1.6s ease-in-out infinite',
+      'display:flex',
+      'align-items:center',
+      'gap:8px',
+    ].join(';');
+    wrap.innerHTML = ''
+      + '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>'
+      + '</svg>'
+      + '<span>Klepni kdekoľvek pre celú obrazovku</span>';
+    document.body.appendChild(wrap);
+    // Auto-hide after 8s in case user is doing something else and doesn't
+    // want to enter fullscreen — handler is still armed; first click in
+    // next 24h restores. Hint isn't required to function.
+    setTimeout(() => {
+      // Only hide if still present (user hasn't clicked yet)
+      const h = document.getElementById('fsRestoreHint');
+      if (h) h.style.opacity = '0';
+      setTimeout(() => this._hideFsHint(), 400);
+    }, 8000);
+  },
+
+  _hideFsHint() {
+    const h = document.getElementById('fsRestoreHint');
+    if (h) h.remove();
   },
 };
 

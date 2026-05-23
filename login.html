@@ -582,7 +582,13 @@
     setNumpadDisabled(true);
 
     setTimeout(function() {
-      if (posFullscreen.isActive()) {
+      // Mark fullscreen restore for the next page (POS or admin) — broader
+      // condition than just "login is fullscreen now". User môže byť na
+      // login mimo fullscreen (otvoril v 2. taby alebo zatvoril omylom),
+      // ale ak POS bol predtým v fullscreen mode (FS_KEY='1' v localStorage),
+      // chceme tam obnovit fullscreen aj po login redirect.
+      if (posFullscreen.isActive()
+          || localStorage.getItem(posFullscreen.FS_KEY) === '1') {
         localStorage.setItem('pos_fs_restore', '1');
       }
       // Honour ?redirect=<path> so deep links work (e.g. mobile admin
