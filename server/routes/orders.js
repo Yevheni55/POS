@@ -331,6 +331,103 @@ router.post('/:id/close', asyncRoute(async (req, res) => {
 const STAFF_MEAL_DRINK_LIMIT_EUR = 5.00;
 const STAFF_MEAL_MEAL_LIMIT = 1;
 
+/**
+ * Skontroluj denný limit zamestnaneckej spotreby pre order. Volane pri:
+ *   1. /send-and-print — pred poslanim do kuchyne/baru (aby sa nepripravilo
+ *      čo by tak či tak nesmelo byť konzumované)
+ *   2. /close-as-staff-meal — pred zavretím objednávky (last-chance check)
+ *
+ * Algoritmus:
+ *   - Ak table.zone != 'zamestanci' → preskočí (limit len pre staff stoly)
+ *   - Sčíta dnešné staff_meal write_offs pre osobu (=table.name)
+ *   - Sčíta items v aktuálnej objednávke
+ *   - Porovná s limitom
+ *
+ * @param {object} tx — drizzle transaction handle
+ * @param {number} orderId
+ * @returns {Promise<null | { error, statusCode, detail }>}
+ *          null = OK, object = limit prekročený
+ */
+async function checkStaffMealLimit(tx, orderId) {
+  const [orderRow] = await tx
+    .select({ id: orders.id, tableId: orders.tableId, zone: tables.zone, tableName: tables.name })
+    .from(orders)
+    .innerJoin(tables, eq(tables.id, orders.tableId))
+    .where(eq(orders.id, orderId));
+  if (!orderRow) return null; // order missing — caller handles
+  if (orderRow.zone !== 'zamestanci') return null; // limit len pre staff zónu
+
+  // Predošlé staff meals pre túto osobu DNES
+  const priorRow = await tx.execute(sql`
+    SELECT
+      COALESCE(SUM(CASE WHEN mc.dest = 'bar' THEN oi.qty * mi.price::numeric ELSE 0 END), 0)::float AS bar_value,
+      COUNT(DISTINCT CASE WHEN mc.dest = 'kuchyna' THEN o.id END)::int AS meal_orders_count
+    FROM write_offs wo
+    INNER JOIN orders o ON o.id = wo.order_id
+    INNER JOIN tables t ON t.id = o.table_id
+    INNER JOIN order_items oi ON oi.order_id = o.id
+    INNER JOIN menu_items mi ON mi.id = oi.menu_item_id
+    LEFT JOIN menu_categories mc ON mc.id = mi.category_id
+    WHERE wo.reason = 'staff_meal'
+      AND t.name = ${orderRow.tableName}
+      AND (o.closed_at AT TIME ZONE 'Europe/Bratislava')::date
+          = (NOW() AT TIME ZONE 'Europe/Bratislava')::date
+  `);
+  const prior = (priorRow.rows || priorRow)[0] || {};
+  const priorBarValue = Number(prior.bar_value) || 0;
+  const priorMealCount = Number(prior.meal_orders_count) || 0;
+
+  // Aktuálna objednávka — VSETKY items (sent + unsent), lebo všetky pôjdu
+  // nakoniec ako staff meal. Pri /send to zachytí aj future-send items.
+  const currRow = await tx.execute(sql`
+    SELECT
+      COALESCE(SUM(CASE WHEN mc.dest = 'bar' THEN oi.qty * mi.price::numeric ELSE 0 END), 0)::float AS bar_value,
+      COUNT(CASE WHEN mc.dest = 'kuchyna' THEN 1 END)::int AS food_items_count
+    FROM order_items oi
+    INNER JOIN menu_items mi ON mi.id = oi.menu_item_id
+    LEFT JOIN menu_categories mc ON mc.id = mi.category_id
+    WHERE oi.order_id = ${orderId}
+  `);
+  const curr = (currRow.rows || currRow)[0] || {};
+  const currBarValue = Number(curr.bar_value) || 0;
+  const currIsMeal = Number(curr.food_items_count) > 0 ? 1 : 0;
+
+  const totalBar = priorBarValue + currBarValue;
+  const totalMeals = priorMealCount + currIsMeal;
+
+  if (totalBar > STAFF_MEAL_DRINK_LIMIT_EUR + 0.005) {
+    return {
+      statusCode: 422,
+      error: `Limit nápojov ${STAFF_MEAL_DRINK_LIMIT_EUR.toFixed(2)} €/deň prekročený pre ${orderRow.tableName}: `
+        + `dnes už ${priorBarValue.toFixed(2)} €, táto objednávka ${currBarValue.toFixed(2)} € `
+        + `(spolu ${totalBar.toFixed(2)} €). Manazer to môže obísť.`,
+      detail: {
+        limitType: 'drink',
+        limitValue: STAFF_MEAL_DRINK_LIMIT_EUR,
+        priorUsage: Math.round(priorBarValue * 100) / 100,
+        attempted: Math.round(currBarValue * 100) / 100,
+        wouldBeTotal: Math.round(totalBar * 100) / 100,
+        personName: orderRow.tableName,
+      },
+    };
+  }
+  if (totalMeals > STAFF_MEAL_MEAL_LIMIT) {
+    return {
+      statusCode: 422,
+      error: `Limit ${STAFF_MEAL_MEAL_LIMIT} jedlo/deň prekročený pre ${orderRow.tableName}: `
+        + `dnes už ${priorMealCount} jedál. Manazer to môže obísť.`,
+      detail: {
+        limitType: 'meal',
+        limitValue: STAFF_MEAL_MEAL_LIMIT,
+        priorUsage: priorMealCount,
+        attempted: currIsMeal,
+        personName: orderRow.tableName,
+      },
+    };
+  }
+  return null;
+}
+
 router.post('/:id/close-as-staff-meal', asyncRoute(async (req, res) => {
   const orderId = +req.params.id;
   const { version, overrideLimit } = req.body || {};
@@ -371,76 +468,14 @@ router.post('/:id/close-as-staff-meal', asyncRoute(async (req, res) => {
         throw err;
       }
 
-      // Denný limit check — drink 5 €/deň + 1 jedlo/deň per osoba.
+      // Denný limit check (5 € nápoje + 1 jedlo per deň per osoba).
       // Preskočíme ak má manager override flag a má rolu manazer/admin.
       if (!canOverride) {
-        // Predošlé staff meals pre túto osobu DNES (Bratislava day)
-        const priorRow = await tx.execute(sql`
-          SELECT
-            COALESCE(SUM(CASE WHEN mc.dest = 'bar' THEN oi.qty * mi.price::numeric ELSE 0 END), 0)::float AS bar_value,
-            COUNT(DISTINCT CASE WHEN mc.dest = 'kuchyna' THEN o.id END)::int AS meal_orders_count
-          FROM write_offs wo
-          INNER JOIN orders o ON o.id = wo.order_id
-          INNER JOIN tables t ON t.id = o.table_id
-          INNER JOIN order_items oi ON oi.order_id = o.id
-          INNER JOIN menu_items mi ON mi.id = oi.menu_item_id
-          LEFT JOIN menu_categories mc ON mc.id = mi.category_id
-          WHERE wo.reason = 'staff_meal'
-            AND t.name = ${orderRow.tableName}
-            AND (o.closed_at AT TIME ZONE 'Europe/Bratislava')::date
-                = (NOW() AT TIME ZONE 'Europe/Bratislava')::date
-        `);
-        const prior = (priorRow.rows || priorRow)[0] || {};
-        const priorBarValue = Number(prior.bar_value) || 0;
-        const priorMealCount = Number(prior.meal_orders_count) || 0;
-
-        // Aktuálna objednávka — bar value + má jedlo?
-        const currRow = await tx.execute(sql`
-          SELECT
-            COALESCE(SUM(CASE WHEN mc.dest = 'bar' THEN oi.qty * mi.price::numeric ELSE 0 END), 0)::float AS bar_value,
-            COUNT(CASE WHEN mc.dest = 'kuchyna' THEN 1 END)::int AS food_items_count
-          FROM order_items oi
-          INNER JOIN menu_items mi ON mi.id = oi.menu_item_id
-          LEFT JOIN menu_categories mc ON mc.id = mi.category_id
-          WHERE oi.order_id = ${orderId}
-        `);
-        const curr = (currRow.rows || currRow)[0] || {};
-        const currBarValue = Number(curr.bar_value) || 0;
-        const currIsMeal = Number(curr.food_items_count) > 0 ? 1 : 0;
-
-        const totalBar = priorBarValue + currBarValue;
-        const totalMeals = priorMealCount + currIsMeal;
-
-        if (totalBar > STAFF_MEAL_DRINK_LIMIT_EUR + 0.005) {
-          const err = new Error(
-            `Limit nápojov ${STAFF_MEAL_DRINK_LIMIT_EUR.toFixed(2)} €/deň prekročený pre ${orderRow.tableName}: `
-            + `dnes už ${priorBarValue.toFixed(2)} €, táto objednávka ${currBarValue.toFixed(2)} € `
-            + `(spolu ${totalBar.toFixed(2)} €). Manazer to môže obísť.`
-          );
-          err.statusCode = 422;
-          err.detail = {
-            limitType: 'drink',
-            limitValue: STAFF_MEAL_DRINK_LIMIT_EUR,
-            priorUsage: Math.round(priorBarValue * 100) / 100,
-            attempted: Math.round(currBarValue * 100) / 100,
-            wouldBeTotal: Math.round(totalBar * 100) / 100,
-            personName: orderRow.tableName,
-          };
-          throw err;
-        }
-        if (totalMeals > STAFF_MEAL_MEAL_LIMIT) {
-          const err = new Error(
-            `Limit ${STAFF_MEAL_MEAL_LIMIT} jedlo/deň prekročený pre ${orderRow.tableName}: `
-            + `dnes už ${priorMealCount} jedál. Manazer to môže obísť.`
-          );
-          err.statusCode = 422;
-          err.detail = {
-            limitType: 'meal',
-            limitValue: STAFF_MEAL_MEAL_LIMIT,
-            priorUsage: priorMealCount,
-            attempted: currIsMeal,
-            personName: orderRow.tableName,
-          };
+        const limit = await checkStaffMealLimit(tx, orderId);
+        if (limit) {
+          const err = new Error(limit.error);
+          err.statusCode = limit.statusCode;
+          err.detail = limit.detail;
           throw err;
         }
       }
@@ -560,27 +595,53 @@ router.post('/:id/send', asyncRoute(async (req, res) => {
 // POST /api/orders/:id/send-and-print — mark unsent as sent, deduct stock, return items for printing
 router.post('/:id/send-and-print', asyncRoute(async (req, res) => {
   const orderId = +req.params.id;
+  const userRole = req.user && req.user.role;
+  const canOverride = (req.body && req.body.overrideLimit === true)
+    && (userRole === 'admin' || userRole === 'manazer');
 
-  const { unsentItems, stockResult } = await db.transaction(async (tx) => {
-    const unsentItems = await tx.select({
-      id: orderItems.id, name: menuItems.name, emoji: menuItems.emoji,
-      qty: orderItems.qty, note: orderItems.note, menuItemId: orderItems.menuItemId,
-      sent: orderItems.sent,
-    })
-    .from(orderItems)
-    .innerJoin(menuItems, eq(orderItems.menuItemId, menuItems.id))
-    .where(and(eq(orderItems.orderId, orderId), eq(orderItems.sent, false)))
-    .orderBy(orderItems.id);
+  try {
+    var { unsentItems, stockResult } = await db.transaction(async (tx) => {
+      // Limit check PRED send-om — pre staff zónu. Cieľ: kuchyna/bar nedostane
+      // bon na items čo by tak či tak prekročili denný limit. Predtým sa
+      // limit kontroloval až pri close-as-staff-meal — vtedy už bolo jedlo
+      // pripravené, plytvanie ingrediencií.
+      if (!canOverride) {
+        const limit = await checkStaffMealLimit(tx, orderId);
+        if (limit) {
+          const err = new Error(limit.error);
+          err.statusCode = limit.statusCode;
+          err.detail = limit.detail;
+          throw err;
+        }
+      }
 
-    if (!unsentItems.length) return { unsentItems: [], stockResult: { movements: [], alerts: [] } };
+      const unsentItems = await tx.select({
+        id: orderItems.id, name: menuItems.name, emoji: menuItems.emoji,
+        qty: orderItems.qty, note: orderItems.note, menuItemId: orderItems.menuItemId,
+        sent: orderItems.sent,
+      })
+      .from(orderItems)
+      .innerJoin(menuItems, eq(orderItems.menuItemId, menuItems.id))
+      .where(and(eq(orderItems.orderId, orderId), eq(orderItems.sent, false)))
+      .orderBy(orderItems.id);
 
-    await tx.update(orderItems).set({ sent: true })
-      .where(and(eq(orderItems.orderId, orderId), eq(orderItems.sent, false)));
+      if (!unsentItems.length) return { unsentItems: [], stockResult: { movements: [], alerts: [] } };
 
-    const stockResult = await deductStockForSentItems(tx, unsentItems, req.user.id, orderId);
-    await consolidateSentOrderItems(tx, orderId);
-    return { unsentItems, stockResult };
-  });
+      await tx.update(orderItems).set({ sent: true })
+        .where(and(eq(orderItems.orderId, orderId), eq(orderItems.sent, false)));
+
+      const stockResult = await deductStockForSentItems(tx, unsentItems, req.user.id, orderId);
+      await consolidateSentOrderItems(tx, orderId);
+      return { unsentItems, stockResult };
+    });
+  } catch (e) {
+    if (e.statusCode) {
+      const body = { error: e.message };
+      if (e.detail) body.detail = e.detail;
+      return res.status(e.statusCode).json(body);
+    }
+    throw e;
+  }
 
   if (!unsentItems.length) return res.json({ printed: 0, items: [] });
 

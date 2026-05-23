@@ -301,11 +301,70 @@ async function flushPendingStornoTickets() {
   return { printed: result.items.length };
 }
 
+// Send helper — pouzivame fetch (nie api.post) aby sme mali statusCode +
+// JSON detail pre 422 limit-prekroceny error. Pri 422 vyvolame manager PIN
+// gate a retry s overrideLimit=true.
+async function _doSendAndPrintPost(overrideLimit) {
+  var token = (typeof api !== 'undefined' && api.getToken) ? api.getToken() : '';
+  var resp = await fetch('/api/orders/' + currentOrderId + '/send-and-print', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + token,
+    },
+    body: JSON.stringify({ overrideLimit: !!overrideLimit }),
+  });
+  var body = null;
+  try { body = await resp.json(); } catch (_) {}
+  if (!resp.ok) {
+    var err = new Error((body && body.error) || ('HTTP ' + resp.status));
+    err.statusCode = resp.status;
+    err.detail = body && body.detail;
+    throw err;
+  }
+  return body;
+}
+
+async function _sendWithLimitOverride() {
+  try {
+    return await _doSendAndPrintPost(false);
+  } catch (limitErr) {
+    if (limitErr && limitErr.statusCode === 422 && limitErr.detail) {
+      var d = limitErr.detail;
+      var ctxLine;
+      if (d.limitType === 'drink') {
+        ctxLine = 'Limit nápojov 5 €/deň prekročený pre ' + d.personName + ': '
+          + 'dnes už ' + (d.priorUsage || 0).toFixed(2) + ' €, táto objednávka '
+          + (d.attempted || 0).toFixed(2) + ' € (spolu ' + (d.wouldBeTotal || 0).toFixed(2) + ' €).';
+      } else {
+        ctxLine = 'Limit 1 jedlo/deň prekročený pre ' + d.personName + ': '
+          + 'dnes už ' + (d.priorUsage || 0) + ' jedál.';
+      }
+      if (typeof showManagerPin !== 'function') {
+        showToast(ctxLine, 'error');
+        return null;
+      }
+      return await new Promise(function (resolve) {
+        showManagerPin(ctxLine + ' Pokračovať s odoslaním?', async function () {
+          try {
+            var r = await _doSendAndPrintPost(true);
+            resolve(r);
+          } catch (e2) {
+            showToast(e2.message || 'Aj override zlyhal', 'error');
+            resolve(null);
+          }
+        });
+      });
+    }
+    throw limitErr;
+  }
+}
+
 async function autoSendPendingItemsBeforePayment() {
   var pendingItems = getPendingSendItems(getOrder());
   if (!pendingItems.length) return { printed: 0, skipped: true };
 
-  var result = await api.post('/orders/' + currentOrderId + '/send-and-print', {});
+  var result = await _sendWithLimitOverride();
   if (!result || !result.items || !result.items.length) return { printed: 0, skipped: true };
 
   await printKitchenAndBarTickets(result.items, currentOrderId);
@@ -955,7 +1014,8 @@ async function sendToKitchen() {
       mobBtn.innerHTML = '<span class="btn-spinner"></span>Posielam…';
     }
 
-    var result = await api.post('/orders/' + currentOrderId + '/send-and-print', {});
+    var result = await _sendWithLimitOverride();
+    if (!result) return; // limit prekrocene + user zrusil PIN prompt
 
     if (!result.printed) {
       // No-op — pouzivatel nechcel "Nie je co odoslat" notifikaciu.
