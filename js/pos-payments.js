@@ -575,6 +575,30 @@ function updateStaffMealButtonVisibility() {
 // Uzavrie objednavku ako zamestnanecku spotrebu — ziadna platba, ziadny
 // fiskal, write-off so sumou COGS sa zapise pre P&L. Pred tym auto-send
 // vsetkych nepostatych poloziek aby kuchyna dostala bon a sklad sa odpisal.
+// Helper — POST close-as-staff-meal + extract HTTP status + JSON detail
+// pre limit error (422). api.post zvyčajne hádže Error s len .message,
+// preto manuálne čítame response cez fetch keď chceme statusCode + detail.
+async function _doCloseStaffMealPost(overrideLimit) {
+  var token = (typeof api !== 'undefined' && api.getToken) ? api.getToken() : '';
+  var resp = await fetch('/api/orders/' + currentOrderId + '/close-as-staff-meal', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + token,
+    },
+    body: JSON.stringify({ version: currentOrderVersion, overrideLimit: !!overrideLimit }),
+  });
+  var body = null;
+  try { body = await resp.json(); } catch (_) {}
+  if (!resp.ok) {
+    var err = new Error((body && body.error) || ('HTTP ' + resp.status));
+    err.statusCode = resp.status;
+    err.detail = body && body.detail;
+    throw err;
+  }
+  return body;
+}
+
 async function closeAsStaffMeal() {
   var order = getOrder();
   if (!order.length) { showToast('Nie je co uzatvorit', 'warning'); return; }
@@ -617,11 +641,46 @@ async function closeAsStaffMeal() {
       showToast('Polozky boli odoslane na kuchynu/bar', 'success');
     }
 
-    // Backend: uzavri ako staff_meal
-    var result = await api.post(
-      '/orders/' + currentOrderId + '/close-as-staff-meal',
-      { version: currentOrderVersion }
-    );
+    // Backend: uzavri ako staff_meal (s optional overrideLimit ak manazer
+    // potvrdí prekročenie denného limitu cez PIN)
+    var result;
+    try {
+      result = await _doCloseStaffMealPost(false);
+    } catch (limitErr) {
+      // Backend vrátil 422 s detail (drink/meal limit prekročený). Spýtaj
+      // manager PIN, ak schváli → retry s overrideLimit=true.
+      if (limitErr && limitErr.statusCode === 422 && limitErr.detail) {
+        var d = limitErr.detail;
+        var ctxLine;
+        if (d.limitType === 'drink') {
+          ctxLine = 'Limit nápojov 5 €/deň prekročený pre ' + d.personName + ': '
+            + 'dnes už ' + (d.priorUsage || 0).toFixed(2) + ' €, táto objednávka '
+            + (d.attempted || 0).toFixed(2) + ' € (spolu ' + (d.wouldBeTotal || 0).toFixed(2) + ' €).';
+        } else {
+          ctxLine = 'Limit 1 jedlo/deň prekročený pre ' + d.personName + ': '
+            + 'dnes už ' + (d.priorUsage || 0) + ' jedál.';
+        }
+        if (typeof showManagerPin === 'function') {
+          await new Promise(function (resolve) {
+            showManagerPin(ctxLine + ' Pokračovať?', async function () {
+              try {
+                result = await _doCloseStaffMealPost(true);
+                resolve();
+              } catch (e2) {
+                showToast(e2.message || 'Aj override zlyhal', 'error');
+                resolve();
+              }
+            });
+          });
+          if (!result) return; // user cancelled or override failed
+        } else {
+          showToast(ctxLine, 'error');
+          return;
+        }
+      } else {
+        throw limitErr;
+      }
+    }
 
     if (!result || !result.order) {
       showToast('Uzavretie zlyhalo', 'error');
