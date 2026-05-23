@@ -101,6 +101,110 @@ function nowForDateTimeLocal() {
   return local.toISOString().slice(0, 16);
 }
 
+/**
+ * Modal pre výber sumy pri označení smeny ako vyplatenej. Predtým bol
+ * len showConfirm s fixnou full-wage sumou — manager nemohol zaznamenať
+ * že vyplatil len časť (napr. 30 € z 65 € teraz cash, zvyšok neskôr).
+ *
+ * UX:
+ *  - Default = full wage (najčastejší prípad)
+ *  - 3 quick-amount chipy (Celé / 50% / Iné)
+ *  - Editovateľný input s validáciou (must be > 0, max = full wage * 1.5
+ *    pre prípady kde manazer pridá bonus)
+ *  - Enter potvrdí, Esc zruší
+ *
+ * @param {object} opts
+ * @param {number} opts.fullAmount — pôvodná wage suma (default v inpute)
+ * @param {function(number):void} opts.onConfirm — callback s vybraným amount
+ */
+function openPayoutAmountModal({ fullAmount, onConfirm }) {
+  const existing = document.getElementById('payoutAmountModal');
+  if (existing) existing.remove();
+  const fullStr = Number(fullAmount).toFixed(2);
+  const halfStr = (Number(fullAmount) / 2).toFixed(2);
+  const ov = document.createElement('div');
+  ov.id = 'payoutAmountModal';
+  ov.className = 'u-overlay';
+  ov.setAttribute('role', 'dialog');
+  ov.setAttribute('aria-modal', 'true');
+  ov.setAttribute('aria-labelledby', 'payoutAmountTitle');
+  ov.innerHTML =
+    '<div class="u-modal" style="max-width:380px">' +
+      '<span class="u-modal-icon" aria-hidden="true">💶</span>' +
+      '<div class="u-modal-title" id="payoutAmountTitle">Vyplatená suma</div>' +
+      '<div class="u-modal-text">Plná mzda smeny je <strong>' + fmtEur(Number(fullAmount)) + '</strong>. Zadaj koľko si reálne vyplatil — môže byť aj časť (zvyšok zaznačíš neskôr cez ďalší cashflow zápis).</div>' +
+      '<div class="u-modal-body" style="margin-top:8px">' +
+        '<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">' +
+          '<button type="button" class="u-btn u-btn-ghost payout-chip" data-amt="' + fullStr + '" style="flex:1;min-width:80px;padding:6px 10px;font-size:12px">Celé</button>' +
+          '<button type="button" class="u-btn u-btn-ghost payout-chip" data-amt="' + halfStr + '" style="flex:1;min-width:80px;padding:6px 10px;font-size:12px">Polovica</button>' +
+          '<button type="button" class="u-btn u-btn-ghost payout-chip" data-amt="" style="flex:1;min-width:80px;padding:6px 10px;font-size:12px" title="Editovateľne v poli nižšie">Iné</button>' +
+        '</div>' +
+        '<label for="payoutAmountInput" class="sr-only">Suma vyplatená (€)</label>' +
+        '<div style="display:flex;align-items:center;gap:6px">' +
+          '<input type="number" id="payoutAmountInput" class="form-input" step="0.01" min="0.01" max="' + (Number(fullAmount) * 1.5).toFixed(2) + '" value="' + fullStr + '" inputmode="decimal" autocomplete="off" style="flex:1;font-size:18px;font-weight:600;text-align:right;font-family:var(--font-display)">' +
+          '<span style="font-family:var(--font-display);font-weight:600;font-size:18px;color:var(--color-text-sec)">€</span>' +
+        '</div>' +
+        '<div id="payoutAmountErr" style="color:var(--color-danger);font-size:12px;margin-top:6px;min-height:14px"></div>' +
+      '</div>' +
+      '<div class="u-modal-btns">' +
+        '<button type="button" class="u-btn u-btn-ghost" id="payoutCancel">Zrušiť</button>' +
+        '<button type="button" class="u-btn u-btn-mint" id="payoutConfirm">Označiť ako vyplatené</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(ov);
+  requestAnimationFrame(function () { ov.classList.add('show'); });
+
+  const input = ov.querySelector('#payoutAmountInput');
+  const err = ov.querySelector('#payoutAmountErr');
+  const confirmBtn = ov.querySelector('#payoutConfirm');
+  const cancelBtn = ov.querySelector('#payoutCancel');
+  const chips = ov.querySelectorAll('.payout-chip');
+
+  function close() {
+    document.removeEventListener('keydown', onKey);
+    ov.classList.remove('show');
+    setTimeout(function () { ov.remove(); }, 200);
+  }
+  function tryConfirm() {
+    const v = Number(input.value);
+    if (!Number.isFinite(v) || v <= 0) {
+      err.textContent = 'Suma musí byť kladná';
+      input.focus();
+      return;
+    }
+    err.textContent = '';
+    close();
+    onConfirm(Math.round(v * 100) / 100);
+  }
+  function onKey(e) {
+    if (e.key === 'Escape') { e.preventDefault(); close(); }
+    if (e.key === 'Enter' && document.activeElement === input) {
+      e.preventDefault();
+      tryConfirm();
+    }
+  }
+
+  chips.forEach(function (c) {
+    c.addEventListener('click', function () {
+      const a = c.getAttribute('data-amt');
+      if (a) {
+        input.value = a;
+        input.focus();
+        input.select();
+      } else {
+        // "Iné" — vyčisti a daj focus pre custom amount
+        input.value = '';
+        input.focus();
+      }
+    });
+  });
+  cancelBtn.addEventListener('click', close);
+  confirmBtn.addEventListener('click', tryConfirm);
+  ov.addEventListener('click', function (e) { if (e.target === ov) close(); });
+  document.addEventListener('keydown', onKey);
+  setTimeout(function () { input.focus(); input.select(); }, 50);
+}
+
 async function loadSummary() {
   try {
     const res = await api.get(`/attendance/summary?from=${_from}&to=${_to}`);
@@ -592,19 +696,22 @@ async function toggleDetail(staffId) {
     });
   });
 
-  // Mark a shift as paid: confirm dialog shows the amount about to be
-  // moved into cashflow as a salary expense, then POSTs.
+  // Mark a shift as paid — modal s editovateľnou sumou. Default = full
+  // wage z data-pay-amount, ale manazer môže upraviť ak vyplatil partial
+  // (napr. časť kešou teraz + zvyšok neskôr). Pri zápise jedna cashflow
+  // salary expense + jeden attendance_payout row pre clockOutEvent
+  // (schéma má unique index na clockOutEventId, takže iba 1 výplata
+  // per smenu).
   detail.querySelectorAll('button[data-pay-out]').forEach((b) => {
     b.addEventListener('click', () => {
       const clockOutEventId = parseInt(b.getAttribute('data-pay-out'), 10);
-      const amount = Number(b.getAttribute('data-pay-amount'));
-      showConfirm(
-        'Označiť ako vyplatené?',
-        'Vyplata ' + fmtEur(amount) + ' sa zapíše ako výdavok do Cashflow (kategória "Mzdy / odmeny"). Túto akciu vieš vrátiť.',
-        async () => {
+      const fullAmount = Number(b.getAttribute('data-pay-amount'));
+      openPayoutAmountModal({
+        fullAmount,
+        onConfirm: async (amount) => {
           try {
             await api.post('/attendance/payouts', { clockOutEventId, amount });
-            showToast('Smena označená ako vyplatená', true);
+            showToast('Smena označená ako vyplatená (' + fmtEur(amount) + ')', true);
             await loadSummary();
             _expanded = null;
             await toggleDetail(staffId);
@@ -612,8 +719,7 @@ async function toggleDetail(staffId) {
             showToast(err.message || 'Označenie zlyhalo', 'error');
           }
         },
-        { confirmText: 'Označiť' },
-      );
+      });
     });
   });
   // Unpay (click on the green pill) — also removes the linked cashflow row.
