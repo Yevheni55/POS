@@ -593,55 +593,33 @@ router.post('/:id/send', asyncRoute(async (req, res) => {
 }));
 
 // POST /api/orders/:id/send-and-print — mark unsent as sent, deduct stock, return items for printing
+// Reverted (commit pred týmto): limit check pri /send vyhadzoval manager PIN
+// aj pri legitímnom prídavaní jedla (ak dnes už 1 staff meal existoval).
+// Cashier flow → kuchyna dostane bon hneď, limit sa overí pri uzavretí
+// účtu (close-as-staff-meal). Manager rozhodne pri zatváraní účtu.
 router.post('/:id/send-and-print', asyncRoute(async (req, res) => {
   const orderId = +req.params.id;
-  const userRole = req.user && req.user.role;
-  const canOverride = (req.body && req.body.overrideLimit === true)
-    && (userRole === 'admin' || userRole === 'manazer');
 
-  try {
-    var { unsentItems, stockResult } = await db.transaction(async (tx) => {
-      // Limit check PRED send-om — pre staff zónu. Cieľ: kuchyna/bar nedostane
-      // bon na items čo by tak či tak prekročili denný limit. Predtým sa
-      // limit kontroloval až pri close-as-staff-meal — vtedy už bolo jedlo
-      // pripravené, plytvanie ingrediencií.
-      if (!canOverride) {
-        const limit = await checkStaffMealLimit(tx, orderId);
-        if (limit) {
-          const err = new Error(limit.error);
-          err.statusCode = limit.statusCode;
-          err.detail = limit.detail;
-          throw err;
-        }
-      }
+  const { unsentItems, stockResult } = await db.transaction(async (tx) => {
+    const unsentItems = await tx.select({
+      id: orderItems.id, name: menuItems.name, emoji: menuItems.emoji,
+      qty: orderItems.qty, note: orderItems.note, menuItemId: orderItems.menuItemId,
+      sent: orderItems.sent,
+    })
+    .from(orderItems)
+    .innerJoin(menuItems, eq(orderItems.menuItemId, menuItems.id))
+    .where(and(eq(orderItems.orderId, orderId), eq(orderItems.sent, false)))
+    .orderBy(orderItems.id);
 
-      const unsentItems = await tx.select({
-        id: orderItems.id, name: menuItems.name, emoji: menuItems.emoji,
-        qty: orderItems.qty, note: orderItems.note, menuItemId: orderItems.menuItemId,
-        sent: orderItems.sent,
-      })
-      .from(orderItems)
-      .innerJoin(menuItems, eq(orderItems.menuItemId, menuItems.id))
-      .where(and(eq(orderItems.orderId, orderId), eq(orderItems.sent, false)))
-      .orderBy(orderItems.id);
+    if (!unsentItems.length) return { unsentItems: [], stockResult: { movements: [], alerts: [] } };
 
-      if (!unsentItems.length) return { unsentItems: [], stockResult: { movements: [], alerts: [] } };
+    await tx.update(orderItems).set({ sent: true })
+      .where(and(eq(orderItems.orderId, orderId), eq(orderItems.sent, false)));
 
-      await tx.update(orderItems).set({ sent: true })
-        .where(and(eq(orderItems.orderId, orderId), eq(orderItems.sent, false)));
-
-      const stockResult = await deductStockForSentItems(tx, unsentItems, req.user.id, orderId);
-      await consolidateSentOrderItems(tx, orderId);
-      return { unsentItems, stockResult };
-    });
-  } catch (e) {
-    if (e.statusCode) {
-      const body = { error: e.message };
-      if (e.detail) body.detail = e.detail;
-      return res.status(e.statusCode).json(body);
-    }
-    throw e;
-  }
+    const stockResult = await deductStockForSentItems(tx, unsentItems, req.user.id, orderId);
+    await consolidateSentOrderItems(tx, orderId);
+    return { unsentItems, stockResult };
+  });
 
   if (!unsentItems.length) return res.json({ printed: 0, items: [] });
 
