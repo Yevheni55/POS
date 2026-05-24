@@ -46,14 +46,45 @@ async function getAccessToken() {
 }
 
 /**
+ * Mapuje TTLock errcode na user-friendly Slovak správu. Bez tohto cashier
+ * vidí "TTLock error: -3003" čo mu nič nehovorí.
+ *
+ * NineDigit TTLock errcodes (z verejnej API doc — incomplete, dopĺňame
+ * podľa praxe):
+ *   -3003 — slabá batéria zámku
+ *   -3004 — gateway / zámok offline (nedosažiteľný)
+ *   -3007 — duplicitný PIN (rare — generujeme random 4-digit)
+ *   -3009 — gateway nereaguje
+ *   -1005 — too many failed auth attempts
+ *   -2012 — account nemá oprávnenie na tento lockId
+ */
+function explainTTLockError(errcode, errmsg) {
+  const code = Number(errcode);
+  const map = {
+    [-3003]: 'Zámok má slabú batériu — vymeňte ju.',
+    [-3004]: 'Zámok nie je dosažiteľný (offline alebo mimo WiFi gateway).',
+    [-3007]: 'Tento PIN sa už používa — skús znova (vygeneruje sa nový).',
+    [-3009]: 'Gateway zámku nereaguje. Reštartuj WiFi gateway.',
+    [-1005]: 'Príliš veľa neúspešných pokusov. Skús o pár minút.',
+    [-2012]: 'TTLock účet nemá oprávnenie na tento zámok.',
+  };
+  if (map[code]) return map[code] + ' (TTLock ' + code + ')';
+  return 'TTLock chyba ' + (errcode || '?') + ': ' + (errmsg || 'neznáma');
+}
+
+/**
  * Generate a temporary passcode for the lock
  * POST /api/ttlock/passcode
  * Body: { lockId?, name?, startDate?, endDate? }
  */
 router.post('/passcode', async (req, res) => {
+  const startTs = Date.now();
   try {
     const lockId = req.body.lockId || LOCK_ID;
-    if (!lockId) return res.status(400).json({ error: 'Lock ID not configured. Set TTLOCK_LOCK_ID in .env' });
+    if (!lockId) {
+      console.warn('[TTLock] passcode FAIL: LOCK_ID not configured');
+      return res.status(400).json({ error: 'Lock ID nie je nastavené (TTLOCK_LOCK_ID v .env)' });
+    }
 
     const token = await getAccessToken();
     const now = Date.now();
@@ -82,8 +113,19 @@ router.post('/passcode', async (req, res) => {
     });
 
     const data = await apiRes.json();
-    if (data.errcode) throw new Error('TTLock error: ' + (data.errmsg || data.errcode));
+    if (data.errcode) {
+      const friendly = explainTTLockError(data.errcode, data.errmsg);
+      console.warn('[TTLock] passcode FAIL — errcode=%s errmsg="%s" lockId=%s elapsed=%dms',
+        data.errcode, data.errmsg || '', lockId, Date.now() - startTs);
+      return res.status(502).json({
+        error: friendly,
+        ttlockCode: data.errcode,
+        ttlockMsg: data.errmsg || '',
+      });
+    }
 
+    console.log('[TTLock] passcode OK — code=%s pwdId=%s lockId=%s elapsed=%dms',
+      code, data.keyboardPwdId, lockId, Date.now() - startTs);
     res.json({
       passcode: code,
       keyboardPwdId: data.keyboardPwdId,
@@ -91,6 +133,7 @@ router.post('/passcode', async (req, res) => {
       endDate: endDate,
     });
   } catch (err) {
+    console.error('[TTLock] passcode EXCEPTION — %s elapsed=%dms', err.message, Date.now() - startTs);
     res.status(500).json({ error: err.message || 'TTLock passcode generation failed' });
   }
 });
