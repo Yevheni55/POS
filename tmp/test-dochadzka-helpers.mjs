@@ -48,4 +48,56 @@ for (const c of cases) {
   if (ok) { console.log('PASS', c.name); pass++; } else fail++;
 }
 console.log(pass + ' passed, ' + fail + ' failed');
-process.exit(fail > 0 ? 1 : 0);
+let totalFails = fail;
+
+// === Date range helpers (LOCAL TIME — toISOString() vrati UTC co drifta)
+function ymdLocal(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + day;
+}
+function firstOfMonth(d) {
+  const x = d ? new Date(d) : new Date();
+  return ymdLocal(new Date(x.getFullYear(), x.getMonth(), 1));
+}
+function lastDayOfPrevMonth(d) {
+  const x = d ? new Date(d) : new Date();
+  return ymdLocal(new Date(x.getFullYear(), x.getMonth(), 0));
+}
+function firstOfPrevMonth(d) {
+  const x = d ? new Date(d) : new Date();
+  return ymdLocal(new Date(x.getFullYear(), x.getMonth() - 1, 1));
+}
+function mondayOfWeek(d) {
+  const x = d ? new Date(d) : new Date();
+  const day = x.getDay() || 7; // Sun=0 → 7
+  x.setDate(x.getDate() - (day - 1));
+  return ymdLocal(x);
+}
+function sundayOfWeek(d) {
+  const x = d ? new Date(d) : new Date();
+  const day = x.getDay() || 7;
+  x.setDate(x.getDate() + (7 - day));
+  return ymdLocal(x);
+}
+
+// Tests
+const refDate = new Date('2026-05-26T12:00:00'); // utorok
+const dateCases = [
+  ['firstOfMonth', firstOfMonth(refDate), '2026-05-01'],
+  ['lastDayOfPrevMonth', lastDayOfPrevMonth(refDate), '2026-04-30'],
+  ['firstOfPrevMonth', firstOfPrevMonth(refDate), '2026-04-01'],
+  ['mondayOfWeek (utorok)', mondayOfWeek(refDate), '2026-05-25'],
+  ['sundayOfWeek (utorok)', sundayOfWeek(refDate), '2026-05-31'],
+];
+let datePass = 0, dateFail = 0;
+for (const [name, actual, expected] of dateCases) {
+  const ok = actual === expected;
+  console.log((ok ? 'PASS' : 'FAIL'), name, '→', actual, ok ? '' : '(expected ' + expected + ')');
+  if (ok) datePass++; else dateFail++;
+}
+console.log('Date helpers:', datePass + '/' + (datePass + dateFail));
+totalFails += dateFail;
+
+process.exit(totalFails > 0 ? 1 : 0);

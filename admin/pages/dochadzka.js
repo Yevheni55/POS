@@ -29,6 +29,53 @@ function todayMinusDays(n) {
   return d.toISOString().slice(0, 10);
 }
 
+// LOCAL-TIME date helpers — toISOString() na local-time Date by drifta o
+// timezone offset (na UTC+2 by '2026-05-01 00:00 local' vratilo '2026-04-30').
+// Pre payroll obdobie chceme datumy v lokalnej TZ user-a, takze formatujeme
+// manualne.
+function ymdLocal(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + day;
+}
+function firstOfMonth(d) {
+  const x = d ? new Date(d) : new Date();
+  return ymdLocal(new Date(x.getFullYear(), x.getMonth(), 1));
+}
+function lastDayOfPrevMonth(d) {
+  const x = d ? new Date(d) : new Date();
+  return ymdLocal(new Date(x.getFullYear(), x.getMonth(), 0));
+}
+function firstOfPrevMonth(d) {
+  const x = d ? new Date(d) : new Date();
+  return ymdLocal(new Date(x.getFullYear(), x.getMonth() - 1, 1));
+}
+function mondayOfWeek(d) {
+  const x = d ? new Date(d) : new Date();
+  const day = x.getDay() || 7; // Sun=0 → 7
+  x.setDate(x.getDate() - (day - 1));
+  return ymdLocal(x);
+}
+function sundayOfWeek(d) {
+  const x = d ? new Date(d) : new Date();
+  const day = x.getDay() || 7;
+  x.setDate(x.getDate() + (7 - day));
+  return ymdLocal(x);
+}
+function lastMondayMinus7() {
+  const today = new Date();
+  const day = today.getDay() || 7;
+  today.setDate(today.getDate() - (day - 1) - 7);
+  return ymdLocal(today);
+}
+function lastSundayMinus1() {
+  const today = new Date();
+  const day = today.getDay() || 7;
+  today.setDate(today.getDate() - day);
+  return ymdLocal(today);
+}
+
 function fmtMinutes(m) {
   if (!Number.isFinite(m) || m <= 0) return '0h 0m';
   const h = Math.floor(m / 60);
@@ -400,9 +447,12 @@ function render() {
           '<select id="dStaff" class="doch-input">' + staffOptionsHtml + '</select>' +
         '</label>' +
         '<div class="doch-toolbar-presets">' +
+          '<button type="button" class="btn-secondary doch-preset" data-preset="week">Tento týždeň</button>' +
+          '<button type="button" class="btn-secondary doch-preset" data-preset="last-week">Minulý týždeň</button>' +
+          '<button type="button" class="btn-secondary doch-preset" data-preset="month">Tento mesiac</button>' +
+          '<button type="button" class="btn-secondary doch-preset" data-preset="last-month">Minulý mesiac</button>' +
           '<button type="button" class="btn-secondary doch-preset" data-preset="7">7 dní</button>' +
           '<button type="button" class="btn-secondary doch-preset" data-preset="30">30 dní</button>' +
-          '<button type="button" class="btn-secondary doch-preset" data-preset="month">Tento mesiac</button>' +
         '</div>' +
       '</div>' +
       '<button class="btn-add" id="dRefresh">' +
@@ -528,10 +578,17 @@ function render() {
     btn.addEventListener('click', () => {
       const preset = btn.getAttribute('data-preset');
       if (preset === 'month') {
-        const d = new Date();
-        const first = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
-        _from = first.toISOString().slice(0, 10);
+        _from = firstOfMonth();
         _to = todayIso();
+      } else if (preset === 'last-month') {
+        _from = firstOfPrevMonth();
+        _to = lastDayOfPrevMonth();
+      } else if (preset === 'week') {
+        _from = mondayOfWeek();
+        _to = sundayOfWeek();
+      } else if (preset === 'last-week') {
+        _from = lastMondayMinus7();
+        _to = lastSundayMinus1();
       } else {
         _from = todayMinusDays(parseInt(preset, 10));
         _to = todayIso();
