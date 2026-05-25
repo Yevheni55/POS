@@ -21,6 +21,10 @@ let _expanded = null; // staffId currently expanded
 // filtering is purely client-side and a change re-renders without a
 // network round-trip.
 let _staffFilter = 'all';
+// "Otv. smeny" KPI je clickable — toggle medzi 'all' a 'only-open' filtrom.
+// Pomahá manazerovi pri closeout flow (ked treba dohonit otvorene smeny
+// pred koncom dna). Stav sa resetuje pri zmene date range / staff filtra.
+let _openOnly = false;
 
 function todayIso() { return new Date().toISOString().slice(0, 10); }
 function todayMinusDays(n) {
@@ -422,9 +426,15 @@ function render() {
   // detail all see the same view. _summary still holds every staff (the
   // server returns the full list), so toggling the dropdown is free.
   const allRows = _summary.rows || [];
-  const visibleRows = _staffFilter === 'all'
+  let visibleRows = _staffFilter === 'all'
     ? allRows
     : allRows.filter((r) => String(r.staffId) === String(_staffFilter));
+  // Additional filter: ak je _openOnly aktivny (manager klikol na 'Otv. smeny'
+  // KPI), zobraz len ludi co maju > 0 otvorenych smien. KPI totals sa pocitaju
+  // na ZÚŽENOM zozname aby čísla davali zmysel pre aktualny filter.
+  if (_openOnly) {
+    visibleRows = visibleRows.filter((r) => Number(r.openShifts) > 0);
+  }
 
   const t = totalsFor(visibleRows);
 
@@ -504,15 +514,22 @@ function render() {
           '<div class="stat-change neutral">' + (_from === _to ? 'dnes' : (_from + ' → ' + _to)) + '</div>' +
         '</div>' +
       '</div>' +
-      '<div class="stat-card">' +
+      // Clickable card: toggle _openOnly filter. Hover/cursor menia signal ze
+      // sa s tym da niečo robiť. Border-color zvyrazni keď je filter aktivny.
+      '<div class="stat-card doch-kpi-open" id="kpiOpenShifts" ' +
+        'style="cursor:' + (t.openShifts > 0 || _openOnly ? 'pointer' : 'default') + ';' +
+        (_openOnly ? 'border-color:var(--color-warning, #d97706);box-shadow:0 0 0 2px rgba(217,119,6,.15)' : '') +
+        '" title="' + (_openOnly ? 'Klik = vypnúť filter' : (t.openShifts > 0 ? 'Klik = zobraziť len ľudí s otvorenými smenami' : 'Žiadne otvorené smeny')) + '">' +
         '<div class="stat-icon ' + (t.openShifts > 0 ? 'amber' : 'mint') + '">' +
           '<svg viewBox="0 0 24 24"><path d="M12 8v5l3 2"/><circle cx="12" cy="12" r="9"/></svg>' +
         '</div>' +
         '<div class="stat-info">' +
-          '<div class="stat-label">Otvorené smeny</div>' +
+          '<div class="stat-label">Otvorené smeny' + (_openOnly ? ' <span style="color:var(--color-warning,#d97706);font-weight:700">(filter ON)</span>' : '') + '</div>' +
           '<div class="stat-value">' + t.openShifts + '</div>' +
           '<div class="stat-change ' + (t.openShifts > 0 ? 'neutral' : 'up') + '">' +
-            (t.openShifts > 0 ? 'Treba zatvoriť ručne' : 'Všetko v poriadku') +
+            (_openOnly
+              ? 'Klik = vypnúť filter'
+              : (t.openShifts > 0 ? 'Klik = ukáž len týchto' : 'Všetko v poriadku')) +
           '</div>' +
         '</div>' +
       '</div>' +
@@ -578,12 +595,32 @@ function render() {
     _from = _container.querySelector('#dFrom').value || _from;
     _to = _container.querySelector('#dTo').value || _to;
     _expanded = null;
+    _openOnly = false; // novy rozsah → vypneme filter aby manager nestral data
     loadSummary();
   });
 
   const exportBtn = _container.querySelector('#dExportCsv');
   if (exportBtn) {
     exportBtn.addEventListener('click', downloadCsv);
+  }
+
+  // KPI "Otv. smeny" clickable toggle. Click disabled keď je 0 otv. smien
+  // AND filter nie je aktivny (nemalo by zmysel).
+  const kpiOpenCard = _container.querySelector('#kpiOpenShifts');
+  if (kpiOpenCard) {
+    kpiOpenCard.addEventListener('click', () => {
+      // Compute totals on the unfiltered (by _openOnly) set — ak su 0
+      // otv. smien a filter nie je aktivny, nerob nic.
+      const allRows = _summary.rows || [];
+      const rowsForCheck = _staffFilter === 'all'
+        ? allRows
+        : allRows.filter((r) => String(r.staffId) === String(_staffFilter));
+      const hasOpen = rowsForCheck.some((r) => Number(r.openShifts) > 0);
+      if (!_openOnly && !hasOpen) return; // click bez akcie
+      _openOnly = !_openOnly;
+      _expanded = null;
+      render();
+    });
   }
 
   // Staff filter change: re-render only (no network) and clear any open
@@ -596,6 +633,7 @@ function render() {
 
   _container.querySelectorAll('.doch-preset').forEach((btn) => {
     btn.addEventListener('click', () => {
+      _openOnly = false; // nove obdobie → vypneme filter
       const preset = btn.getAttribute('data-preset');
       if (preset === 'month') {
         _from = firstOfMonth();
@@ -626,13 +664,19 @@ function renderBody() {
   const allRows = _summary.rows || [];
   // Mirror the filter applied in render() so the body table, KPI cards and
   // dropdown all stay consistent.
-  const rows = _staffFilter === 'all'
+  let rows = _staffFilter === 'all'
     ? allRows
     : allRows.filter((r) => String(r.staffId) === String(_staffFilter));
+  // Apply _openOnly filter ak je aktivny (toggle z KPI 'Otv. smeny' karty).
+  if (_openOnly) {
+    rows = rows.filter((r) => Number(r.openShifts) > 0);
+  }
   if (!rows.length) {
-    const msg = _staffFilter === 'all'
-      ? 'Žiadne dáta za toto obdobie. Zamestnanci s nastaveným dochádzka PIN-om sa objavia po prvom Príchode.'
-      : 'Vybraný zamestnanec nemá v tomto období žiadne záznamy.';
+    const msg = _openOnly
+      ? 'Žiadni ľudia s otvorenými smenami v tomto výbere. Klik na "Otv. smeny" KPI vypneš filter.'
+      : (_staffFilter === 'all'
+          ? 'Žiadne dáta za toto obdobie. Zamestnanci s nastaveným dochádzka PIN-om sa objavia po prvom Príchode.'
+          : 'Vybraný zamestnanec nemá v tomto období žiadne záznamy.');
     body.innerHTML = '<tr><td class="data-td" colspan="9">' +
       '<div class="empty-hint">' + escapeHtml(msg) + '</div>' +
       '</td></tr>';
@@ -1103,4 +1147,5 @@ export function destroy() {
   _expanded = null;
   _summary = { rows: [] };
   _staffFilter = 'all';
+  _openOnly = false;
 }
