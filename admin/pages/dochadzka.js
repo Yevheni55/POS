@@ -372,13 +372,21 @@ async function loadHistory(staffId) {
 
 function totalsFor(rows) {
   let totalMinutes = 0, totalWage = 0, openShifts = 0, withRate = 0;
+  let totalPaid = 0, totalOutstanding = 0;
+  let outstandingPositive = 0;
   for (const r of rows) {
     totalMinutes += Number(r.minutes) || 0;
     totalWage += Number(r.wage) || 0;
     openShifts += Number(r.openShifts) || 0;
+    totalPaid += Number(r.paidTotal) || 0;
+    totalOutstanding += Number(r.outstanding) || 0;
     if (r.hourlyRate != null) withRate += 1;
+    if (Number(r.outstanding) > 0.01) outstandingPositive += 1;
   }
-  return { totalMinutes, totalWage, openShifts, totalStaff: rows.length, withRate };
+  return {
+    totalMinutes, totalWage, openShifts, totalStaff: rows.length, withRate,
+    totalPaid, totalOutstanding, outstandingPositive,
+  };
 }
 
 function render() {
@@ -464,6 +472,32 @@ function render() {
           '<div class="stat-value">' + t.openShifts + '</div>' +
           '<div class="stat-change ' + (t.openShifts > 0 ? 'neutral' : 'up') + '">' +
             (t.openShifts > 0 ? 'Treba zatvoriť ručne' : 'Všetko v poriadku') +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="stat-card">' +
+        '<div class="stat-icon ' + (t.totalPaid > 0 ? 'mint' : 'lavender') + '">' +
+          '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>' +
+        '</div>' +
+        '<div class="stat-info">' +
+          '<div class="stat-label">Vyplatené</div>' +
+          '<div class="stat-value">' + escapeHtml(fmtEur(t.totalPaid)) + '</div>' +
+          '<div class="stat-change ' + (t.totalPaid > 0 ? 'up' : 'neutral') + '">' +
+            (t.totalPaid > 0 ? 'V tomto období' : 'Nič nevyplatené') +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="stat-card">' +
+        '<div class="stat-icon ' + (t.totalOutstanding > 0.01 ? 'amber' : 'mint') + '">' +
+          '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><circle cx="12" cy="16" r="0.6" fill="currentColor"/></svg>' +
+        '</div>' +
+        '<div class="stat-info">' +
+          '<div class="stat-label">Zostáva vyplatiť</div>' +
+          '<div class="stat-value">' + escapeHtml(fmtEur(Math.max(0, t.totalOutstanding))) + '</div>' +
+          '<div class="stat-change ' + (t.totalOutstanding > 0.01 ? 'neutral' : 'up') + '">' +
+            (t.totalOutstanding > 0.01
+              ? t.outstandingPositive + ' ' + (t.outstandingPositive === 1 ? 'osoba' : 'osôb')
+              : 'Všetko vyplatené ✓') +
           '</div>' +
         '</div>' +
       '</div>' +
