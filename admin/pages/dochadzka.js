@@ -583,13 +583,18 @@ function renderBody() {
       : '<span class="text-muted">—</span>';
     let outstandingCell;
     if (Math.abs(outstanding) < 0.01) {
-      outstandingCell = '<span style="color:var(--color-text-dim)">0,00 €</span>';
+      // 0 € = vsetko vyplatene = success state
+      outstandingCell = '<span style="display:inline-flex;align-items:center;gap:4px;color:var(--color-success);font-weight:var(--weight-semibold);font-size:12px">'
+        + '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 4 6 11 3 8"/></svg>'
+        + 'Vyplatené</span>';
     } else if (outstanding > 0) {
+      // Manager dlzuje — warning oranzova
       outstandingCell = '<strong style="color:var(--color-warning, #d97706)">' + fmtEur(outstanding) + '</strong>'
-        + '<div style="font-size:10px;color:var(--color-text-dim)">dlhujem</div>';
+        + '<div style="font-size:10px;color:var(--color-text-dim);margin-top:2px">⚠ treba vyplatiť</div>';
     } else {
+      // Manager preplatil — info modra
       outstandingCell = '<strong style="color:var(--color-accent-secondary, #1f3a5c)">' + fmtEur(Math.abs(outstanding)) + '</strong>'
-        + '<div style="font-size:10px;color:var(--color-text-dim)">prep.</div>';
+        + '<div style="font-size:10px;color:var(--color-text-dim);margin-top:2px">ℹ️ záloha navyše</div>';
     }
 
     return '<tr class="data-row" data-staff="' + r.staffId + '">' +
