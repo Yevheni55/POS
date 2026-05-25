@@ -435,6 +435,10 @@ function render() {
     }).join('');
 
   const html =
+    // Inline style: sticky header pre dochadzka tabulku (scroll dlhych zoznamov
+    // ludi by inak skryl Meno/Pozicia hlavicku). z-index>2 aby bol nad badges.
+    // Pridana sub-shadow pre vizualnu separaciu od scrollovaneho obsahu.
+    '<style>.doch-table thead th{position:sticky;top:0;background:var(--color-bg-elevated);z-index:3;box-shadow:0 1px 0 var(--color-border)}</style>' +
     '<div class="doch-toolbar">' +
       '<div class="doch-toolbar-dates">' +
         '<label class="doch-toolbar-label">Od' +
@@ -467,7 +471,9 @@ function render() {
       '</div>' +
     '</div>' +
 
-    '<div class="stat-grid doch-stats">' +
+    // KPI grid: override default 4-col na 3-col pre 6 kariet (3+3 vyzera
+    // krajsie ako 4+2). Media query v admin.css zachova 2-col na <=1200px.
+    '<div class="stat-grid doch-stats" style="grid-template-columns:repeat(3,minmax(0,1fr))">' +
       '<div class="stat-card">' +
         '<div class="stat-icon ice">' +
           '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>' +
@@ -552,8 +558,11 @@ function render() {
             '<th class="data-th text-right">Hodín</th>' +
             '<th class="data-th text-right">Otv. smeny</th>' +
             '<th class="data-th text-right">Mzda</th>' +
-            '<th class="data-th text-right" title="Suma vyplatená v zvolenom období">Vyplatené</th>' +
-            '<th class="data-th text-right" title="Mzda − Vyplatené. Záporné = preplatil si (bonus/zaloha)">Zostáva</th>' +
+            '<th class="data-th text-right" title="Suma vyplatená v zvolenom období (sum payouts.paidAt)">Vyplatené</th>' +
+            '<th class="data-th text-right" title="✓ Vyplatené = mzda = vyplatené  ·  ⚠ treba vyplatiť = dlhuješ tomuto človeku  ·  ℹ️ záloha navyše = preplatil si (bonus/predplate)">' +
+              'Zostáva' +
+              '<span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:rgba(0,0,0,.06);color:var(--color-text-sec);font-size:9px;text-align:center;line-height:14px;margin-left:4px;font-family:var(--font-mono);cursor:help">?</span>' +
+            '</th>' +
             '<th class="data-th"></th>' +
           '</tr></thead>' +
           '<tbody id="dBody"></tbody>' +
@@ -884,32 +893,38 @@ async function toggleDetail(staffId) {
         '</table>' +
       '</div>' +
 
-      '<div class="doch-subhead">Manuálna úprava</div>' +
-      '<form class="doch-manual-form" id="dManualForm">' +
-        '<label class="doch-toolbar-label">Typ' +
-          '<select id="mType" class="doch-input">' +
-            '<option value="clock_in">Príchod</option>' +
-            '<option value="clock_out">Odchod</option>' +
-          '</select>' +
-        '</label>' +
-        '<label class="doch-toolbar-label">Dôvod' +
-          '<select id="mReason" class="doch-input" required>' +
-            '<option value="">— vyber —</option>' +
-            '<option value="forgot">Zabudol kliknúť</option>' +
-            '<option value="wrong_time">Nesprávny čas</option>' +
-            '<option value="shift_change">Zmena zmeny</option>' +
-            '<option value="pin_failed">PIN zlyhal</option>' +
-            '<option value="other">Iné</option>' +
-          '</select>' +
-        '</label>' +
-        '<label class="doch-toolbar-label">Čas' +
-          '<input type="datetime-local" id="mAt" class="doch-input" value="' + nowForDateTimeLocal() + '" required>' +
-        '</label>' +
-        '<label class="doch-toolbar-label" style="flex:1;min-width:200px">Poznámka' +
-          '<input type="text" id="mNote" class="doch-input" maxlength="200" placeholder="napr. zabudol kliknúť">' +
-        '</label>' +
-        '<button class="btn-save doch-manual-submit" type="submit">Pridať záznam</button>' +
-      '</form>' +
+      // Manual uprava — collapsed by default (zriedka pouzivane, sporsi miesto
+      // pre dolezitejsie veci). <details> je native HTML, accessible.
+      '<details class="doch-manual-details" style="margin:14px 0">' +
+        '<summary style="cursor:pointer;font-size:13px;font-weight:var(--weight-semibold);color:var(--color-text-sec);padding:6px 0;user-select:none">' +
+          '+ Manuálna úprava záznamu' +
+        '</summary>' +
+        '<form class="doch-manual-form" id="dManualForm" style="margin-top:10px">' +
+          '<label class="doch-toolbar-label">Typ' +
+            '<select id="mType" class="doch-input">' +
+              '<option value="clock_in">Príchod</option>' +
+              '<option value="clock_out">Odchod</option>' +
+            '</select>' +
+          '</label>' +
+          '<label class="doch-toolbar-label">Dôvod' +
+            '<select id="mReason" class="doch-input" required>' +
+              '<option value="">— vyber —</option>' +
+              '<option value="forgot">Zabudol kliknúť</option>' +
+              '<option value="wrong_time">Nesprávny čas</option>' +
+              '<option value="shift_change">Zmena zmeny</option>' +
+              '<option value="pin_failed">PIN zlyhal</option>' +
+              '<option value="other">Iné</option>' +
+            '</select>' +
+          '</label>' +
+          '<label class="doch-toolbar-label">Čas' +
+            '<input type="datetime-local" id="mAt" class="doch-input" value="' + nowForDateTimeLocal() + '" required>' +
+          '</label>' +
+          '<label class="doch-toolbar-label" style="flex:1;min-width:200px">Poznámka' +
+            '<input type="text" id="mNote" class="doch-input" maxlength="200" placeholder="napr. zabudol kliknúť">' +
+          '</label>' +
+          '<button class="btn-save doch-manual-submit" type="submit">Pridať záznam</button>' +
+        '</form>' +
+      '</details>' +
 
       '<div class="doch-subhead">Záznamy (audit)</div>' +
       '<div class="table-scroll-wrap">' +
