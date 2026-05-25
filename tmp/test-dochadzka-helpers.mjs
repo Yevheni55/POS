@@ -100,4 +100,52 @@ for (const [name, actual, expected] of dateCases) {
 console.log('Date helpers:', datePass + '/' + (datePass + dateFail));
 totalFails += dateFail;
 
+// === CSV builder ===
+function buildAttendanceCsv(rows, fromDate, toDate) {
+  const header = ['Meno', 'Pozicia', 'Sadzba/h', 'Hodin', 'Mzda', 'Vyplatene', 'Zostava'];
+  const lines = [header.join(';')];
+  for (const r of rows) {
+    const hours = Math.floor((Number(r.minutes) || 0) / 60);
+    const mins = (Number(r.minutes) || 0) % 60;
+    const hrsStr = hours + 'h ' + String(mins).padStart(2, '0') + 'm';
+    const cells = [
+      String(r.name || ''),
+      String(r.position || ''),
+      r.hourlyRate != null ? Number(r.hourlyRate).toFixed(2).replace('.', ',') : '',
+      hrsStr,
+      Number(r.wage || 0).toFixed(2).replace('.', ','),
+      Number(r.paidTotal || 0).toFixed(2).replace('.', ','),
+      Number(r.outstanding || 0).toFixed(2).replace('.', ','),
+    ].map(function (c) {
+      // CSV escape: ak obsahuje ; alebo " alebo newline → wrap in quotes
+      const s = String(c == null ? '' : c);
+      if (/[;"\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+      return s;
+    });
+    lines.push(cells.join(';'));
+  }
+  lines.push(''); // trailing newline
+  lines.unshift('# Dochadzka export ' + fromDate + ' .. ' + toDate);
+  return lines.join('\n');
+}
+
+// Tests
+const csvRow = { name: 'Yev"hen', position: 'kuchar', hourlyRate: 9, minutes: 485, wage: 72.75, paidTotal: 50, outstanding: 22.75 };
+const csv = buildAttendanceCsv([csvRow], '2026-05-01', '2026-05-31');
+console.log('--- CSV sample ---');
+console.log(csv);
+const csvLines = csv.split('\n');
+let csvPass = 0, csvFail = 0;
+function csvAssert(cond, name) {
+  console.log((cond ? 'PASS' : 'FAIL'), 'csv ' + name);
+  if (cond) csvPass++; else csvFail++;
+}
+csvAssert(csvLines[0].startsWith('# Dochadzka export'), 'header comment');
+csvAssert(csvLines[1].startsWith('Meno;Pozicia;'), 'header row');
+csvAssert(csvLines[2].includes('"Yev""hen"'), 'quote escape');
+csvAssert(csvLines[2].includes('8h 05m'), 'hours format');
+csvAssert(csvLines[2].includes('72,75'), 'Slovak decimal comma');
+console.log('CSV tests:', csvPass + '/' + (csvPass + csvFail));
+totalFails += csvFail;
+
 process.exit(totalFails > 0 ? 1 : 0);

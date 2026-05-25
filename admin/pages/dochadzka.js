@@ -455,10 +455,16 @@ function render() {
           '<button type="button" class="btn-secondary doch-preset" data-preset="30">30 dní</button>' +
         '</div>' +
       '</div>' +
-      '<button class="btn-add" id="dRefresh">' +
-        '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3a5 5 0 015 5 5 5 0 01-5 5 5 5 0 01-3.5-1.4L3 13l-1-3 3 1-1.1 1.1A4 4 0 008 12a4 4 0 100-8 4 4 0 00-3.5 2H6V5H2v4h1V7.5A5 5 0 018 3z"/></svg>' +
-        'Obnoviť' +
-      '</button>' +
+      '<div style="display:flex;gap:8px;align-items:center">' +
+        '<button class="btn-secondary" id="dExportCsv" title="Stiahnuť CSV pre účtovníka">' +
+          '<svg viewBox="0 0 16 16" aria-hidden="true" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1v10"/><polyline points="4 7 8 11 12 7"/><path d="M2 14h12"/></svg>' +
+          'Export CSV' +
+        '</button>' +
+        '<button class="btn-add" id="dRefresh">' +
+          '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3a5 5 0 015 5 5 5 0 01-5 5 5 5 0 01-3.5-1.4L3 13l-1-3 3 1-1.1 1.1A4 4 0 008 12a4 4 0 100-8 4 4 0 00-3.5 2H6V5H2v4h1V7.5A5 5 0 018 3z"/></svg>' +
+          'Obnoviť' +
+        '</button>' +
+      '</div>' +
     '</div>' +
 
     '<div class="stat-grid doch-stats">' +
@@ -565,6 +571,11 @@ function render() {
     _expanded = null;
     loadSummary();
   });
+
+  const exportBtn = _container.querySelector('#dExportCsv');
+  if (exportBtn) {
+    exportBtn.addEventListener('click', downloadCsv);
+  }
 
   // Staff filter change: re-render only (no network) and clear any open
   // detail because the previously expanded staff may now be hidden.
@@ -1017,6 +1028,54 @@ async function toggleDetail(staffId) {
       );
     });
   });
+}
+
+function buildAttendanceCsv(rows, fromDate, toDate) {
+  const header = ['Meno', 'Pozicia', 'Sadzba/h', 'Hodin', 'Mzda', 'Vyplatene', 'Zostava'];
+  const lines = [header.join(';')];
+  for (const r of rows) {
+    const hours = Math.floor((Number(r.minutes) || 0) / 60);
+    const mins = (Number(r.minutes) || 0) % 60;
+    const hrsStr = hours + 'h ' + String(mins).padStart(2, '0') + 'm';
+    const cells = [
+      String(r.name || ''),
+      String(r.position || ''),
+      r.hourlyRate != null ? Number(r.hourlyRate).toFixed(2).replace('.', ',') : '',
+      hrsStr,
+      Number(r.wage || 0).toFixed(2).replace('.', ','),
+      Number(r.paidTotal || 0).toFixed(2).replace('.', ','),
+      Number(r.outstanding || 0).toFixed(2).replace('.', ','),
+    ].map(function (c) {
+      const s = String(c == null ? '' : c);
+      if (/[;"\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+      return s;
+    });
+    lines.push(cells.join(';'));
+  }
+  lines.push('');
+  lines.unshift('# Dochadzka export ' + fromDate + ' .. ' + toDate);
+  return lines.join('\n');
+}
+
+function downloadCsv() {
+  const rows = (_summary.rows || []).filter((r) => _staffFilter === 'all' || String(r.staffId) === String(_staffFilter));
+  if (!rows.length) {
+    if (typeof showToast === 'function') showToast('Žiadne dáta na export', 'warning');
+    return;
+  }
+  const csv = buildAttendanceCsv(rows, _from, _to);
+  // UTF-8 BOM aby Excel správne otvoril Slovak diacritics
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'dochadzka_' + _from + '_' + _to + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(function () {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 100);
 }
 
 export function init(container) {
