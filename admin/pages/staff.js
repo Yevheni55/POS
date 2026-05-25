@@ -308,10 +308,10 @@ export function init(container) {
         <input class="search-input" id="staffSearch" type="text" placeholder="Hladat podla mena...">
       </div>
       <select class="filter-select" id="roleFilter">
-        <option value="">Vsetky role</option>
-        <option value="Admin">Admin</option>
-        <option value="Manazer">Manazer</option>
-        <option value="Cisnik">Cisnik</option>
+        <option value="">Všetky role</option>
+        <option value="admin">Admin</option>
+        <option value="manazer">Manažér</option>
+        <option value="cisnik">Čašník</option>
       </select>
     </div>
     <div class="staff-grid" id="staffGrid">
