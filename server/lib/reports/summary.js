@@ -60,6 +60,10 @@ export async function summaryHandler(req, res) {
     name: menuItems.name,
     emoji: menuItems.emoji,
     category: menuCategories.label,
+    // dest = 'bar' | 'kuchyna' — pre triedenie produktov vo frontend reporte
+    // na kuchyňu vs. bar. Bez tohto by frontend musel parsovať category label,
+    // čo je krehké pri presunutí produktu medzi kategóriami.
+    dest: menuCategories.dest,
     qty: sql`SUM(${orderItems.qty})`,
     revenue: sql`SUM(${orderItems.qty} * ${menuItems.price}::numeric)`,
   })
@@ -68,8 +72,29 @@ export async function summaryHandler(req, res) {
   .innerJoin(menuCategories, eq(menuItems.categoryId, menuCategories.id))
   .innerJoin(orders, eq(orderItems.orderId, orders.id))
   .where(sql`${orders.createdAt} >= ${fromBoundary} AND ${orders.createdAt} <= ${toBoundary} AND ${orders.status} != 'cancelled' AND COALESCE(${orders.closureType}, 'paid') != 'staff_meal'`)
-  .groupBy(menuItems.name, menuItems.emoji, menuCategories.label)
+  .groupBy(menuItems.name, menuItems.emoji, menuCategories.label, menuCategories.dest)
   .orderBy(desc(sql`SUM(${orderItems.qty})`));
+
+  // Per-day per-product breakdown — pre pivot tabulku "kolko burgerov sa
+  // predalo 25.5 vs 26.5". Bucketuje po order.created_at LOCAL Bratislava
+  // (rovnako ako cogsRows / dailyRows). Vylucuje staff_meal aj cancelled.
+  // Vracia (date, name, dest, qty) — frontend skladá do pivot matice.
+  const productsByDayRows = await db.execute(sql`
+    SELECT
+      to_char((o.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ})::date, 'YYYY-MM-DD') AS date,
+      mi.name AS name,
+      COALESCE(mc.dest, 'bar') AS dest,
+      SUM(oi.qty)::int AS qty
+    FROM order_items oi
+    INNER JOIN orders o ON o.id = oi.order_id
+    INNER JOIN menu_items mi ON mi.id = oi.menu_item_id
+    INNER JOIN menu_categories mc ON mc.id = mi.category_id
+    WHERE o.created_at >= ${fromBoundary} AND o.created_at <= ${toBoundary}
+      AND o.status != 'cancelled'
+      AND COALESCE(o.closure_type, 'paid') != 'staff_meal'
+    GROUP BY 1, mi.name, mc.dest
+    ORDER BY 1, mi.name
+  `);
 
   // Shisha — internal off-fiscal counter; rolled into the total so the dashboard
   // and weekly chart show real-world business revenue including shisha.
@@ -518,11 +543,20 @@ export async function summaryHandler(req, res) {
         name: it.name,
         emoji: it.emoji || '',
         category: it.category || '',
+        dest: it.dest || 'bar', // 'bar' | 'kuchyna'
         qty: it.qty,
         revenue: it.revenue,
         cogs,
         profit: roundMoney(it.revenue - cogs),
       };
     }),
+    // Per-day per-product matrix — frontend pivotuje na rendering.
+    // Structure: [{ date, name, dest, qty }, ...] sorted by (date, name).
+    productsByDay: productsByDayRows.rows.map(r => ({
+      date: r.date,
+      name: r.name,
+      dest: r.dest || 'bar',
+      qty: Number(r.qty) || 0,
+    })),
   });
 }

@@ -8,6 +8,12 @@ let _lastZData = null;
 // new request. Default mirrors the natural rank: qty descending.
 let _productSort = { col: 'qty', dir: 'desc' };
 let _lastProductsData = null;
+// Filter Produkty tabu na dest = 'all' | 'kuchyna' | 'bar'. Aplikovany pred
+// sortovanim, takze reset zachova zvolene poradie. _productByDayLimit
+// controluje kolko top-N items zobrazi v pivot tabulke (vacsie N = vacsia
+// tabulka, viac scroll, ale viac videnia).
+let _productDestFilter = 'all';
+let _productByDayLimit = 20;
 
 function $(sel) {
   return _container.querySelector(sel);
@@ -312,12 +318,25 @@ function renderProdukty(data) {
   // Cache the dataset so a header-click can re-render without a new request.
   _lastProductsData = data;
   updateProductHeaderArrows();
+  updateProductFilterStats();
   if (!data.products || !data.products.length) {
     tbody.innerHTML = '<tr><td colspan="8" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
+    renderProductsByDay(data);
     return;
   }
-  // Take a copy so we don't mutate the cached data on each click.
-  const sorted = (data.products || []).slice().sort(productComparator(_productSort));
+  // Apply dest filter BEFORE sorting — operator filtruje pred sort-om
+  // (logická poradie: výber zóny → poradie v rámci zóny).
+  const filtered = (data.products || []).filter(p => {
+    if (_productDestFilter === 'all') return true;
+    return (p.dest || 'bar') === _productDestFilter;
+  });
+  if (!filtered.length) {
+    const filterLabel = _productDestFilter === 'kuchyna' ? 'kuchyňa' : 'bar';
+    tbody.innerHTML = '<tr><td colspan="8" class="td-empty">Žiadne predaje v zóne ' + filterLabel + ' za toto obdobie</td></tr>';
+    renderProductsByDay(data);
+    return;
+  }
+  const sorted = filtered.slice().sort(productComparator(_productSort));
   // The progress bar always uses the period's max revenue as the 100% mark
   // so two products are visually comparable regardless of current sort.
   const maxRev = Math.max(...sorted.map(p => p.revenue));
@@ -329,6 +348,12 @@ function renderProdukty(data) {
     else if (i === 1) rankStyle = 'color:var(--color-text-sec);font-weight:700';
     else if (i === 2) rankStyle = 'color:rgba(205,127,50,.7);font-weight:700';
     const display = (p.emoji ? p.emoji + ' ' : '') + (p.name || '');
+    // Dest pill — visual ukazovatel zony (kuchyna vs bar) pri kazdom riadku
+    const dest = p.dest || 'bar';
+    const destPill = dest === 'kuchyna'
+      ? '<span style="display:inline-block;font-size:10px;font-weight:600;padding:2px 6px;border-radius:6px;background:rgba(217,119,6,.12);color:#92400e;margin-left:6px;letter-spacing:.02em">🍳 KUCH</span>'
+      : '<span style="display:inline-block;font-size:10px;font-weight:600;padding:2px 6px;border-radius:6px;background:rgba(99,102,241,.12);color:#4338ca;margin-left:6px;letter-spacing:.02em">🍹 BAR</span>';
+    const categoryCell = (p.category || '') + (_productDestFilter === 'all' ? destPill : '');
     // Per-product Výroba & Výsledok — položky bez receptu majú cogs=0,
     // takže ich Výsledok = Tržba (čisté marže). Farba Výsledku zvýrazní
     // straty (záporná marža = chybný recept alebo nákupná cena).
@@ -340,7 +365,7 @@ function renderProdukty(data) {
     return `<tr>
       <td class="num" style="${rankStyle}">${i + 1}</td>
       <td class="td-name">${display}</td>
-      <td>${p.category || ''}</td>
+      <td>${categoryCell}</td>
       <td class="num">${p.qty}</td>
       <td class="num highlight-cell">${fmtEur(p.revenue)}</td>
       <td class="num">${fmtEur(cogs)}</td>
@@ -348,6 +373,151 @@ function renderProdukty(data) {
       <td><div class="progress-wrap"><div class="progress-fill" style="width:${barW}%"></div></div>${pct}%</td>
     </tr>`;
   }).join('');
+
+  renderProductsByDay(data);
+}
+
+// Update filter chip stats — kazdy chip ma "(N)" suffix s poctom produktov
+// v tej zone. Pomaha rychlo vidiet kolko polozk je v kuchyni vs bare.
+function updateProductFilterStats() {
+  if (!_container || !_lastProductsData) return;
+  const all = (_lastProductsData.products || []).length;
+  const kuch = (_lastProductsData.products || []).filter(p => (p.dest || 'bar') === 'kuchyna').length;
+  const bar = (_lastProductsData.products || []).filter(p => (p.dest || 'bar') === 'bar').length;
+  // Sum qty + revenue per filter for the badge under chips
+  function sumFor(dest) {
+    const items = (_lastProductsData.products || []).filter(p => dest === 'all' || (p.dest || 'bar') === dest);
+    const q = items.reduce((s, p) => s + (Number(p.qty) || 0), 0);
+    const r = items.reduce((s, p) => s + (Number(p.revenue) || 0), 0);
+    return { q, r };
+  }
+  const stat = sumFor(_productDestFilter);
+  const chipAll = _container.querySelector('#chipDestAll .chip-count');
+  const chipKuch = _container.querySelector('#chipDestKuch .chip-count');
+  const chipBar = _container.querySelector('#chipDestBar .chip-count');
+  if (chipAll) chipAll.textContent = '(' + all + ')';
+  if (chipKuch) chipKuch.textContent = '(' + kuch + ')';
+  if (chipBar) chipBar.textContent = '(' + bar + ')';
+  const filterStats = _container.querySelector('#productFilterStats');
+  if (filterStats) {
+    const filterLabel = _productDestFilter === 'all' ? 'Všetko'
+                      : _productDestFilter === 'kuchyna' ? '🍳 Kuchyňa'
+                      : '🍹 Bar';
+    filterStats.innerHTML = '<strong>' + filterLabel + ':</strong> '
+      + stat.q + ' ks · <strong>' + fmtEur(stat.r) + '</strong>';
+  }
+  // Toggle active state on chips
+  ['chipDestAll', 'chipDestKuch', 'chipDestBar'].forEach(id => {
+    const el = _container.querySelector('#' + id);
+    if (!el) return;
+    const matches = (id === 'chipDestAll' && _productDestFilter === 'all')
+                 || (id === 'chipDestKuch' && _productDestFilter === 'kuchyna')
+                 || (id === 'chipDestBar' && _productDestFilter === 'bar');
+    el.classList.toggle('chip-active', matches);
+  });
+}
+
+// Per-day pivot — items v riadkoch, dni v stlpcoch. Cellka = qty pre (item,
+// day). Pomaha managerovi vidiet "ako sa burgery hybali za tyzden". Top-N
+// items podla total qty (po filtri kuchyna/bar/vsetko). Prazdne dni stale
+// zobrazujeme aby trend bol vizualne kontinuálny.
+function renderProductsByDay(data) {
+  const host = $('#productsByDayHost');
+  if (!host) return;
+  const rows = (data && Array.isArray(data.productsByDay)) ? data.productsByDay : [];
+  if (!rows.length) {
+    host.innerHTML = '<div class="empty-hint" style="padding:14px">Žiadne predaje za toto obdobie.</div>';
+    return;
+  }
+  // Filter pred pivotom (same filter ako tabulka vyssie)
+  const filtered = rows.filter(r => {
+    if (_productDestFilter === 'all') return true;
+    return (r.dest || 'bar') === _productDestFilter;
+  });
+  if (!filtered.length) {
+    host.innerHTML = '<div class="empty-hint" style="padding:14px">Žiadne predaje pre tento filter.</div>';
+    return;
+  }
+  // Build pivot: pivotMap[name] = { dest, total, days: {date: qty} }
+  const pivotMap = {};
+  const dateSet = new Set();
+  for (const r of filtered) {
+    if (!pivotMap[r.name]) pivotMap[r.name] = { name: r.name, dest: r.dest || 'bar', total: 0, days: {} };
+    pivotMap[r.name].days[r.date] = (pivotMap[r.name].days[r.date] || 0) + (Number(r.qty) || 0);
+    pivotMap[r.name].total += Number(r.qty) || 0;
+    dateSet.add(r.date);
+  }
+  const dates = Array.from(dateSet).sort();
+  const items = Object.values(pivotMap).sort((a, b) => b.total - a.total).slice(0, _productByDayLimit);
+
+  // Format date header: '26.5' (SK short) — kratke aby sa zmestilo viac stlpcov
+  function shortDate(iso) {
+    const parts = iso.split('-'); // [yyyy, mm, dd]
+    return parseInt(parts[2], 10) + '.' + parseInt(parts[1], 10) + '.';
+  }
+
+  let html = '<div class="table-scroll-wrap"><table class="data-table" style="font-size:13px">';
+  html += '<thead><tr>';
+  html += '<th>Položka</th>';
+  for (const d of dates) {
+    html += '<th class="text-right" title="' + d + '">' + shortDate(d) + '</th>';
+  }
+  html += '<th class="text-right" style="background:rgba(184,84,42,.05)">Σ</th>';
+  html += '</tr></thead>';
+
+  // Find max qty across all cells for color intensity
+  let maxCell = 0;
+  for (const it of items) {
+    for (const d of dates) {
+      const v = it.days[d] || 0;
+      if (v > maxCell) maxCell = v;
+    }
+  }
+
+  html += '<tbody>';
+  for (const it of items) {
+    const destPill = it.dest === 'kuchyna'
+      ? '<span style="display:inline-block;font-size:9px;font-weight:600;padding:1px 5px;border-radius:5px;background:rgba(217,119,6,.12);color:#92400e;margin-right:5px;vertical-align:middle">🍳</span>'
+      : '<span style="display:inline-block;font-size:9px;font-weight:600;padding:1px 5px;border-radius:5px;background:rgba(99,102,241,.12);color:#4338ca;margin-right:5px;vertical-align:middle">🍹</span>';
+    html += '<tr>';
+    html += '<td class="td-name">' + destPill + escapeHtml(it.name) + '</td>';
+    for (const d of dates) {
+      const q = it.days[d] || 0;
+      if (q === 0) {
+        html += '<td class="num text-right" style="color:var(--color-text-dim)">·</td>';
+      } else {
+        // Heat color: viac qty = intenzivnejsie pozadie
+        const intensity = maxCell > 0 ? (q / maxCell) : 0;
+        const bg = 'rgba(184,84,42,' + (0.06 + intensity * 0.22).toFixed(3) + ')';
+        const fw = intensity > 0.7 ? '700' : intensity > 0.4 ? '600' : '500';
+        html += '<td class="num text-right" style="background:' + bg + ';font-weight:' + fw + '">' + q + '</td>';
+      }
+    }
+    html += '<td class="num text-right" style="background:rgba(184,84,42,.05);font-weight:700">' + it.total + '</td>';
+    html += '</tr>';
+  }
+  // Sum row na konci — vertikalny total per den
+  html += '</tbody><tfoot><tr>';
+  html += '<td><strong>Spolu</strong></td>';
+  let grandTotal = 0;
+  for (const d of dates) {
+    let colSum = 0;
+    for (const it of items) colSum += (it.days[d] || 0);
+    grandTotal += colSum;
+    html += '<td class="num text-right"><strong>' + colSum + '</strong></td>';
+  }
+  html += '<td class="num text-right" style="background:rgba(184,84,42,.08)"><strong>' + grandTotal + '</strong></td>';
+  html += '</tr></tfoot></table></div>';
+
+  // Hint pod tabulkou
+  const totalItems = Object.keys(pivotMap).length;
+  if (totalItems > _productByDayLimit) {
+    html += '<div style="margin-top:8px;font-size:12px;color:var(--color-text-sec);text-align:right">'
+      + 'Zobrazený top ' + _productByDayLimit + ' z ' + totalItems + ' položiek. '
+      + 'Klik "Všetko" zobrazí kompletný zoznam.</div>';
+  }
+
+  host.innerHTML = html;
 }
 
 // Build a stable comparator from the current sort state. Numeric columns
@@ -810,6 +980,22 @@ function bindEvents() {
   // survives if we ever re-render the thead.
   const produktyTable = $('#table-produkty');
   if (produktyTable) produktyTable.addEventListener('click', onProductHeaderClick);
+
+  // Dest filter chips — toggle medzi all/kuchyna/bar. Re-render produkty
+  // tabuľky + per-day pivotu. Bez API requestu, pracujeme s cache-om.
+  const chipMap = {
+    'chipDestAll': 'all',
+    'chipDestKuch': 'kuchyna',
+    'chipDestBar': 'bar',
+  };
+  Object.keys(chipMap).forEach(id => {
+    const el = $('#' + id);
+    if (!el) return;
+    el.addEventListener('click', () => {
+      _productDestFilter = chipMap[id];
+      if (_lastProductsData) renderProdukty(_lastProductsData);
+    });
+  });
 }
 
 // ===== TEMPLATE =====
@@ -1021,6 +1207,29 @@ const TEMPLATE = `
 
   <!-- TAB: PRODUKTY -->
   <div class="tab-content" id="tab-produkty">
+    <!-- Dest filter chips — triedi tabulku produktov na vsetko/kuchyna/bar.
+         Pomaha managerovi rychlo videt "len kuchyna" alebo "len bar" bez
+         scrollovania zmiesanym zoznamom. Style: vlozenne inline aby sa zladil
+         s ostatnymi pages bez extra CSS edit-u. -->
+    <div class="panel" style="margin-bottom:14px">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <div style="font-size:12px;color:var(--color-text-sec);font-weight:600;text-transform:uppercase;letter-spacing:.04em">Filter zóny:</div>
+        <button type="button" id="chipDestAll" class="filter-chip chip-active"
+          style="cursor:pointer;padding:7px 14px;border-radius:999px;border:1px solid var(--color-border);background:transparent;font-size:13px;font-weight:600;transition:all .15s">
+          Všetko <span class="chip-count" style="opacity:.6;font-weight:500">(0)</span>
+        </button>
+        <button type="button" id="chipDestKuch" class="filter-chip"
+          style="cursor:pointer;padding:7px 14px;border-radius:999px;border:1px solid var(--color-border);background:transparent;font-size:13px;font-weight:600;transition:all .15s">
+          🍳 Kuchyňa <span class="chip-count" style="opacity:.6;font-weight:500">(0)</span>
+        </button>
+        <button type="button" id="chipDestBar" class="filter-chip"
+          style="cursor:pointer;padding:7px 14px;border-radius:999px;border:1px solid var(--color-border);background:transparent;font-size:13px;font-weight:600;transition:all .15s">
+          🍹 Bar <span class="chip-count" style="opacity:.6;font-weight:500">(0)</span>
+        </button>
+        <div id="productFilterStats" style="margin-left:auto;font-size:13px;color:var(--color-text-sec)"></div>
+      </div>
+    </div>
+
     <div class="panel">
       <div class="table-scroll-wrap">
       <table class="data-table sortable-table" id="table-produkty">
@@ -1041,6 +1250,18 @@ const TEMPLATE = `
         </tbody>
       </table>
       </div>
+    </div>
+
+    <!-- Per-day pivot — burgers per day per day matrix. Filter (kuchyna/bar)
+         zdielany s tabulkou nad. Top-N items, heat-map farby pre rychlu
+         identifikaciu peak dni. -->
+    <div class="panel" style="margin-top:18px">
+      <div class="panel-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <svg viewBox="0 0 24 24" aria-hidden="true" style="width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 3v18"/></svg>
+        <span>Predaj za deň</span>
+        <span style="font-size:12px;font-weight:400;color:var(--color-text-sec);margin-left:6px">koľko kusov sa predalo každý deň · top ${_productByDayLimit}</span>
+      </div>
+      <div id="productsByDayHost"></div>
     </div>
   </div>
 
@@ -1222,6 +1443,19 @@ export function init(container) {
   _container = container;
   container.innerHTML = TEMPLATE;
 
+  // Active-state styling pre filter chips. Inline aby sme nemuseli upravovat
+  // admin.css — page-scoped <style> bude existovat len pocas zivota tejto
+  // stranky a destroy() innerHTML reset ho vycisti.
+  if (!document.getElementById('reports-chip-style')) {
+    const st = document.createElement('style');
+    st.id = 'reports-chip-style';
+    st.textContent =
+      '.filter-chip:hover{background:var(--color-bg-hover) !important;border-color:var(--color-text-sec) !important}'
+      + '.filter-chip.chip-active{background:var(--color-accent, #B85C2A) !important;color:#fff !important;border-color:transparent !important}'
+      + '.filter-chip.chip-active .chip-count{color:rgba(255,255,255,.75) !important;opacity:1 !important}';
+    document.head.appendChild(st);
+  }
+
   // Set default dates
   $('#dateFrom').value = weekAgoStr();
   $('#dateTo').value = todayStr();
@@ -1236,4 +1470,5 @@ export function destroy() {
   _lastZData = null;
   _lastProductsData = null;
   _productSort = { col: 'qty', dir: 'desc' };
+  _productDestFilter = 'all';
 }
