@@ -93,6 +93,17 @@ export function buildKitchenTicket({ dest, tableName, staffName, items, orderNum
   ticket += CMD.NORMAL_SIZE;
   ticket += 'NOVE POLOZKY\n';
   ticket += CMD.FEED;
+
+  // Audio signal pre kuchyňu — beep tesne pred CUT aby zaznel keď fyzicky
+  // vychádza papier. Bar zostáva ticho (čašníčka je hneď pri tlačiarni).
+  // STORNO má urgent staccato pattern aby kuchár vedel že je to zrušenie.
+  // dest values: 'KUCHYNA', 'BAR', 'STORNO KUCHYNA', 'STORNO BAR'
+  if (dest === 'KUCHYNA') {
+    ticket += CMD.BEEP_KITCHEN;
+  } else if (dest === 'STORNO KUCHYNA') {
+    ticket += CMD.BEEP_STORNO;
+  }
+
   ticket += CMD.CUT;
 
   return ticket;

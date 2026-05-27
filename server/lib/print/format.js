@@ -50,6 +50,13 @@ export function s(text) {
 // ESC/POS commands
 const ESC = '\x1B';
 const GS = '\x1D';
+// Beep cez ESC B n1 n2 (Epson + clones). n1 = pocet beep-ov (1-9),
+// n2 = trvanie kazdeho × 50ms (1-9). Aby kuchyna pocula ze prisiel novy bon
+// aj v ruchu prevadzky. Send pred CUT — beep fyzicky zaznie kym pricitava
+// papierove kolieso, takze coincidena s vyjdenim papiera.
+// BEL (\x07) je starsi univerzalny single-beep ako fallback pre printery
+// ktore ESC B nepodporuju (vzacny pripad, ale skor included).
+const ESC_B = (n1, n2) => ESC + 'B' + String.fromCharCode(n1) + String.fromCharCode(n2);
 export const CMD = {
   INIT: ESC + '@',
   BOLD_ON: ESC + 'E\x01',
@@ -63,6 +70,10 @@ export const CMD = {
   FEED: ESC + 'd\x03',
   LINE: '--------------------------------\n',
   DASHED: '- - - - - - - - - - - - - - - -\n',
+  // 3 beepy × 250ms = 750ms celkom — jasne pocuteľné v ruchu kuchyne
+  BEEP_KITCHEN: '\x07' + ESC_B(3, 5),
+  // 5 kratkych beep-ov × 150ms = 750ms staccato — urgent pattern pre storno
+  BEEP_STORNO: '\x07\x07' + ESC_B(5, 3),
 };
 
 export function formatEur(num) {
