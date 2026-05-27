@@ -11,10 +11,18 @@ const MAX_RETRY_ATTEMPTS = 50;      // give up after 50 tries (~12 min)
 // ===== Print Queue: queue on failure, auto-retry when printer is back =====
 
 export async function sendOrQueue(endpoint, ticketData, printerIp, printerPort) {
+  const t0 = Date.now();
   try {
     await sendToPrinter(ticketData, printerIp, printerPort);
-    return { ok: true };
+    const elapsed = Date.now() - t0;
+    // Log slow inline prints (> 800ms) — odhalia power-save wake-up vs.
+    // network issues. Rychle (<300ms) nas nezaujimaju, len signal pre debug.
+    if (elapsed > 800) {
+      console.log(`[Print] SLOW inline send ${endpoint} ${printerIp}:${printerPort} elapsed=${elapsed}ms`);
+    }
+    return { ok: true, elapsed };
   } catch (e) {
+    const elapsed = Date.now() - t0;
     // Printer offline — save to queue (base64 because ESC/POS has null bytes)
     await db.insert(printQueue).values({
       endpoint,
@@ -25,8 +33,8 @@ export async function sendOrQueue(endpoint, ticketData, printerIp, printerPort) 
       lastError: e.message.slice(0, 300),
       status: 'pending',
     });
-    console.log(`[PrintQueue] Queued ${endpoint} job for ${printerIp}:${printerPort} — ${e.message}`);
-    return { ok: false, queued: true, error: e.message };
+    console.log(`[PrintQueue] Queued ${endpoint} job for ${printerIp}:${printerPort} elapsed=${elapsed}ms — ${e.message}`);
+    return { ok: false, queued: true, error: e.message, elapsed };
   }
 }
 
