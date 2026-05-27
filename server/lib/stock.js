@@ -22,74 +22,121 @@ export async function deductStockForSentItems(tx, sentItems, staffId, orderId) {
   const movements = [];
   const alerts = [];
 
+  // ====== PERF OPTIMIZATION (batch queries) ======
+  // Predtym sme robili sequentially per-item:
+  //   1) SELECT recipes WHERE menu_item_id = X
+  //   2) SELECT ingredients WHERE id IN ...
+  //   3) UPDATE ingredient + INSERT stock_movement
+  // Pre order s 5 jedlami × 3 ingredienciami = ~40 sequential queries.
+  // Teraz aggregujeme:
+  //   1) 1× SELECT vsetkych recipes pre vsetky recipe items
+  //   2) 1× SELECT vsetkych ingredients
+  //   3) Per unique ingredient: 1 UPDATE (atomic, agregovany deduct)
+  //   4) 1× batch INSERT vsetkych stock_movements
+  // Pre 5×3 = max ~10 queries.
+
+  // Spracuj 'simple' trackMode items
+  // Aggregate qty per menu_item (multiple sent items of same product)
+  const simpleAgg = new Map(); // menuItemId -> { mi, totalQty }
+  // Aggregate ingredient deductions for recipe items
+  const recipeMenuItemIds = [];
   for (const item of sentItems) {
     const mi = menuMap[item.menuItemId];
     if (!mi || mi.trackMode === 'none') continue;
-
     if (mi.trackMode === 'simple') {
-      const prev = parseFloat(mi.stockQty);
-
-      // Atomic decrement — prevents concurrent sends from reading stale prev
-      const [updated] = await tx.update(menuItems)
-        .set({ stockQty: sql`${menuItems.stockQty} - ${String(item.qty)}` })
-        .where(eq(menuItems.id, mi.id))
-        .returning({ stockQty: menuItems.stockQty });
-      const next = Math.round(parseFloat(updated.stockQty) * 1000) / 1000;
-
-      const [mv] = await tx.insert(stockMovements).values({
-        type: 'sale', menuItemId: mi.id,
-        quantity: String(-item.qty), previousQty: String(prev), newQty: String(next),
-        referenceType: 'order', referenceId: orderId, staffId,
-      }).returning();
-      movements.push(mv);
-
-      if (next <= parseFloat(mi.minStockQty)) {
-        alerts.push({ type: 'menuItem', id: mi.id, name: mi.name, currentQty: next, minQty: parseFloat(mi.minStockQty) });
-      }
-      if (next <= 0) {
-        // We used to flip menu_items.active = false here, which silently hid
-        // the row from the POS the moment the counter hit zero. In a bar/
-        // restaurant context the simple-track stock_qty is rarely kept up to
-        // date, so this caused "items randomly disappear" bug — Cola, Fanta,
-        // Voda and others vanished from the Nealko tab on the kasa. Now we
-        // only emit a depleted alert; the manager hides the item explicitly
-        // from /admin/#menu if needed.
-        alerts.push({ type: 'menuItem-depleted', id: mi.id, name: mi.name });
-      }
+      const cur = simpleAgg.get(mi.id);
+      if (cur) cur.totalQty += item.qty;
+      else simpleAgg.set(mi.id, { mi, totalQty: item.qty });
+    } else if (mi.trackMode === 'recipe') {
+      recipeMenuItemIds.push(item);
     }
+  }
 
-    if (mi.trackMode === 'recipe') {
-      const recipeLines = await tx.select().from(recipes).where(eq(recipes.menuItemId, mi.id));
-      if (!recipeLines.length) continue;
+  // ====== SIMPLE TRACK ======
+  for (const { mi, totalQty } of simpleAgg.values()) {
+    const prev = parseFloat(mi.stockQty);
+    // Atomic decrement (must be sequential per menu_item kvoli RETURNING per row)
+    const [updated] = await tx.update(menuItems)
+      .set({ stockQty: sql`${menuItems.stockQty} - ${String(totalQty)}` })
+      .where(eq(menuItems.id, mi.id))
+      .returning({ stockQty: menuItems.stockQty });
+    const next = Math.round(parseFloat(updated.stockQty) * 1000) / 1000;
 
-      const ingredientIds = recipeLines.map(r => r.ingredientId);
-      const ingredientRows = await tx.select().from(ingredients).where(inArray(ingredients.id, ingredientIds));
+    const [mv] = await tx.insert(stockMovements).values({
+      type: 'sale', menuItemId: mi.id,
+      quantity: String(-totalQty), previousQty: String(prev), newQty: String(next),
+      referenceType: 'order', referenceId: orderId, staffId,
+    }).returning();
+    movements.push(mv);
+
+    if (next <= parseFloat(mi.minStockQty)) {
+      alerts.push({ type: 'menuItem', id: mi.id, name: mi.name, currentQty: next, minQty: parseFloat(mi.minStockQty) });
+    }
+    if (next <= 0) {
+      alerts.push({ type: 'menuItem-depleted', id: mi.id, name: mi.name });
+    }
+  }
+
+  // ====== RECIPE TRACK (batched) ======
+  if (recipeMenuItemIds.length) {
+    // 1× SELECT všetkých recipes pre všetky recipe-tracked menu items
+    const uniqueRecipeMenuIds = [...new Set(recipeMenuItemIds.map(i => menuMap[i.menuItemId].id))];
+    const allRecipeLines = await tx.select().from(recipes).where(inArray(recipes.menuItemId, uniqueRecipeMenuIds));
+
+    if (allRecipeLines.length) {
+      // 1× SELECT všetkých ingredients
+      const allIngredientIds = [...new Set(allRecipeLines.map(r => r.ingredientId))];
+      const ingredientRows = await tx.select().from(ingredients).where(inArray(ingredients.id, allIngredientIds));
       const ingMap = Object.fromEntries(ingredientRows.map(i => [i.id, i]));
 
-      for (const line of recipeLines) {
-        const ing = ingMap[line.ingredientId];
-        if (!ing) continue;
+      // Aggregate total deduct per ingredient across vsetkych sent items + recipe lines
+      const recipesByMenuItem = new Map();
+      for (const line of allRecipeLines) {
+        const arr = recipesByMenuItem.get(line.menuItemId) || [];
+        arr.push(line);
+        recipesByMenuItem.set(line.menuItemId, arr);
+      }
+      const deductByIngredient = new Map(); // ingredientId -> total deduct amount
+      for (const item of recipeMenuItemIds) {
+        const lines = recipesByMenuItem.get(item.menuItemId);
+        if (!lines) continue;
+        for (const line of lines) {
+          if (!ingMap[line.ingredientId]) continue;
+          const amt = parseFloat(line.qtyPerUnit) * item.qty;
+          deductByIngredient.set(
+            line.ingredientId,
+            (deductByIngredient.get(line.ingredientId) || 0) + amt,
+          );
+        }
+      }
 
-        const deductAmount = parseFloat(line.qtyPerUnit) * item.qty;
+      // Per-ingredient atomic UPDATE (sequential, ale len 1 per unique ingredient)
+      // Plus pripravujeme batch INSERT movements.
+      const movementRows = [];
+      for (const [ingId, totalDeduct] of deductByIngredient.entries()) {
+        const ing = ingMap[ingId];
         const prev = parseFloat(ing.currentQty);
-
-        // Atomic decrement — prevents concurrent sends from reading stale prev
         const [updatedIng] = await tx.update(ingredients)
-          .set({ currentQty: sql`${ingredients.currentQty} - ${String(deductAmount)}` })
+          .set({ currentQty: sql`${ingredients.currentQty} - ${String(totalDeduct)}` })
           .where(eq(ingredients.id, ing.id))
           .returning({ currentQty: ingredients.currentQty });
         const next = Math.round(parseFloat(updatedIng.currentQty) * 1000) / 1000;
 
-        const [mv] = await tx.insert(stockMovements).values({
+        movementRows.push({
           type: 'sale', ingredientId: ing.id,
-          quantity: String(-deductAmount), previousQty: String(prev), newQty: String(next),
+          quantity: String(-totalDeduct), previousQty: String(prev), newQty: String(next),
           referenceType: 'order', referenceId: orderId, staffId,
-        }).returning();
-        movements.push(mv);
+        });
 
         if (next <= parseFloat(ing.minQty)) {
           alerts.push({ type: 'ingredient', id: ing.id, name: ing.name, unit: ing.unit, currentQty: next, minQty: parseFloat(ing.minQty) });
         }
+      }
+
+      // 1× batch INSERT vsetkych stock_movements (1 round trip namiesto N)
+      if (movementRows.length) {
+        const inserted = await tx.insert(stockMovements).values(movementRows).returning();
+        movements.push(...inserted);
       }
     }
   }

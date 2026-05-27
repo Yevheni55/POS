@@ -156,8 +156,27 @@ app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads'), {
   fallthrough: true,
 }));
 
-// Serve frontend files from parent directory
-app.use(express.static(path.join(__dirname, '..'), { maxAge: 0 }));
+// Serve frontend files from parent directory.
+// Predtym: maxAge:0 = no browser cache → kazdy reload kasy stahuje ~30 JS/CSS
+// suborov znova (~2-4s na pomalej WiFi). Teraz: ETag + Cache-Control max-age=300
+// (5 min). Browser pri reload pošle If-None-Match → server vráti 304 ak sa nič
+// nezmenilo (1-3ms namiesto 30-100ms re-download). Po deploye sa SW vďaka
+// SW_VERSION rebuild-uje a pruge cache, takže fresh assets sa stiahnu ako
+// predtým.
+app.use(express.static(path.join(__dirname, '..'), {
+  maxAge: '5m',
+  etag: true,
+  lastModified: true,
+  setHeaders: (res, filePath) => {
+    // HTML files — kratky cache aby user vedel ked je nova verzia (5m je OK)
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'public, max-age=300, must-revalidate');
+    } else {
+      // JS/CSS/images — must-revalidate sa pyta na ETag pri F5
+      res.setHeader('Cache-Control', 'public, max-age=300, must-revalidate');
+    }
+  },
+}));
 
 // Public routes (no auth needed)
 app.use('/api/auth', authRoutes);

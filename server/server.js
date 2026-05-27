@@ -21,6 +21,7 @@ import { isVatRegisteredBusiness } from './lib/vat-registration.js';
 import { startIdempotencyCleanup } from './middleware/idempotency.js';
 import { startPrintQueue } from './routes/print.js';
 import { startParagonSync } from './jobs/paragon-sync.js';
+import { prewarmTtlock } from './routes/ttlock.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3080;
@@ -100,6 +101,9 @@ httpServer.listen(PORT, () => {
   startIdempotencyCleanup();
   startPrintQueue();
   startParagonSync();
+  // Pre-fetch TTLock OAuth token v pozadi aby prvy passcode request po
+  // reštarte nemusel cakat na auth handshake (1-2s šetri).
+  prewarmTtlock();
   // Hourly weather fetch from Open-Meteo (Drazdiak coordinates).
   // Boot fetch + each 60 min. Errors are logged but don't crash boot.
   startWeatherHourlyCron();

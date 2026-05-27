@@ -77,14 +77,23 @@ async function getMenuCategoryById(id) {
 
 // GET /api/menu - full menu with categories and items
 router.get('/', async (req, res) => {
-  const cats = await db.select().from(menuCategories).orderBy(asc(menuCategories.sortKey));
-  const items = await db.select(menuItemSelect).from(menuItems).where(eq(menuItems.active, true));
+  // Parallel SELECT (predtym sekvencne 2 round-trips)
+  const [cats, items] = await Promise.all([
+    db.select().from(menuCategories).orderBy(asc(menuCategories.sortKey)),
+    db.select(menuItemSelect).from(menuItems).where(eq(menuItems.active, true)),
+  ]);
 
   const menu = cats.map(cat => ({
     ...cat,
     items: items.filter(i => i.categoryId === cat.id).map(normalizeMenuItem),
   }));
 
+  // ETag + revalidate. Express auto-genuje ETag pre res.json() (weak hash z body).
+  // Cache-Control: 'private, max-age=0, must-revalidate' = browser smie cache-ovať
+  // ale MUSÍ revalidovať pred použitím (If-None-Match → server 304 ak rovnaké).
+  // Tým ušetríme JSON serialize + sieťový download pri F5 (typicky 5-15ms).
+  // Sklad/admin menu edit invaliduje cache automaticky (iný body → iný ETag).
+  res.set('Cache-Control', 'private, max-age=0, must-revalidate');
   res.json(menu);
 });
 

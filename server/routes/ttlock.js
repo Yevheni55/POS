@@ -163,4 +163,18 @@ router.get('/locks', async (req, res) => {
   }
 });
 
+// Pre-warm — zavolat pri server starte aby prvy passcode request po reštarte
+// nemusel cakat 1-2s na OAuth token. Token sa cache-uje v module scope
+// (tokenExpiry default 2h), takže prvi cashier ráno už dostane PIN okamžite.
+// Volat fire-and-forget cez setImmediate aby sa nestopujem boot pri network err.
+export function prewarmTtlock() {
+  if (!CLIENT_ID || !CLIENT_SECRET) return; // ttlock vypnutý — skip
+  setImmediate(() => {
+    const t0 = Date.now();
+    getAccessToken()
+      .then(() => console.log('[TTLock] token pre-warmed (' + (Date.now() - t0) + 'ms)'))
+      .catch((err) => console.warn('[TTLock] pre-warm zlyhal: ' + err.message));
+  });
+}
+
 export default router;
