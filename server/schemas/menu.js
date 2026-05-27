@@ -27,6 +27,14 @@ const companionSchema = z.union([
   z.coerce.number().int().positive(),
 ]).optional();
 
+// Per-item dest override: null (alebo prazdny string) = use category default,
+// 'bar' / 'kuchyna' = override. Empty string sa normalizuje na null.
+const destOverrideSchema = z.union([
+  z.null(),
+  z.literal(''),
+  z.enum(['bar', 'kuchyna']),
+]).optional().transform(v => (v === '' || v === undefined ? null : v));
+
 export const createMenuItemSchema = z.object({
   categoryId: z.coerce.number().int().positive(),
   name: z.string().min(1).max(100),
@@ -40,6 +48,7 @@ export const createMenuItemSchema = z.object({
   minStockQty: z.coerce.number().min(0).default(0),
   vatRate: supportedVatRateSchema.optional(),
   companionMenuItemId: companionSchema,
+  destOverride: destOverrideSchema,
 });
 
 export const updateMenuItemSchema = z.object({
@@ -55,4 +64,5 @@ export const updateMenuItemSchema = z.object({
   minStockQty: z.coerce.number().min(0).optional(),
   vatRate: supportedVatRateSchema.optional(),
   companionMenuItemId: companionSchema,
+  destOverride: destOverrideSchema,
 });

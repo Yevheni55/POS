@@ -426,8 +426,17 @@ function getItemCat(itemName) {
 }
 
 function getItemDest(itemName) {
+  // Per-item destOverride ma prednost pred category default. Admin moze
+  // v Menu page pretociť konkrétnu položku (napr. shisha tobak v bar
+  // kategórii ale tlač má ísť do kuchyne / inde).
   for (const [cat, data] of Object.entries(MENU)) {
-    if (data.items.some(i => i.name === itemName)) return DEST_MAP[cat] || 'bar';
+    const item = data.items.find(i => i.name === itemName);
+    if (item) {
+      if (item.destOverride === 'bar' || item.destOverride === 'kuchyna') {
+        return item.destOverride;
+      }
+      return DEST_MAP[cat] || 'bar';
+    }
   }
   return 'bar';
 }

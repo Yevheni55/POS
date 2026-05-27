@@ -726,6 +726,7 @@ function openAddProduct() {
   populateCategorySelect();
   populateCompanionSelect(null, null);
   syncVatRateSuggestion(true);
+  if (byId('fDestOverride')) byId('fDestOverride').value = ''; // default (inherit kategória)
   const wrap = byId('fEmojiGridWrap');
   if (wrap) wrap.style.display = 'none';
   byId('productModal').classList.add('show');
@@ -753,6 +754,10 @@ function openEditProduct(id) {
   populateCompanionSelect(item.id, item.companionMenuItemId);
   byId('fCategory').value = catId;
   byId('fVatRate').value = String(formVatRate);
+  // Pre-fill dest override selector. Empty string = inherit category default.
+  if (byId('fDestOverride')) {
+    byId('fDestOverride').value = item.destOverride || '';
+  }
   byId('productModal').classList.add('show');
   setTimeout(() => byId('fName').focus(), 100);
 }
@@ -787,6 +792,9 @@ async function saveProduct() {
   const catId = byId('fCategory').value;
   const companionRaw = byId('fCompanion') ? byId('fCompanion').value : '';
   const companionMenuItemId = companionRaw ? Number(companionRaw) : null;
+  // dest override \u2014 empty string = inherit kateg\u00F3ria (NULL v DB)
+  const destOverrideRaw = byId('fDestOverride') ? byId('fDestOverride').value : '';
+  const destOverride = (destOverrideRaw === 'bar' || destOverrideRaw === 'kuchyna') ? destOverrideRaw : null;
   if (!name) { showToast('Zadajte nazov produktu'); return; }
   if (price <= 0) { showToast('Zadajte platnu cenu'); return; }
   if (!isSupportedVatRate(vatRate)) {
@@ -799,9 +807,9 @@ async function saveProduct() {
   try {
     var savedId = editingProductId;
     if (editingProductId !== null) {
-      await api.put('/menu/items/' + editingProductId, { name, emoji, price, desc, available: formAvailable, categoryId: catId, vatRate, companionMenuItemId });
+      await api.put('/menu/items/' + editingProductId, { name, emoji, price, desc, available: formAvailable, categoryId: catId, vatRate, companionMenuItemId, destOverride });
     } else {
-      const created = await api.post('/menu/items', { categoryId: catId, name, emoji, price, desc, available: formAvailable, vatRate, companionMenuItemId });
+      const created = await api.post('/menu/items', { categoryId: catId, name, emoji, price, desc, available: formAvailable, vatRate, companionMenuItemId, destOverride });
       savedId = created && created.id;
     }
 
@@ -958,13 +966,24 @@ export function init(container) {
               <select id="fCategory"></select>
             </div>
           </div>
-          <div class="u-modal-field">
-            <label for="fVatRate">DPH sadzba (%)</label>
-            <select id="fVatRate">
-              <option value="5">5 % - jedlo</option>
-              <option value="19">19 % - nealko napoje</option>
-              <option value="23">23 % - alkohol</option>
-            </select>
+          <div class="u-modal-row">
+            <div class="u-modal-field">
+              <label for="fVatRate">DPH sadzba (%)</label>
+              <select id="fVatRate">
+                <option value="5">5 % - jedlo</option>
+                <option value="19">19 % - nealko napoje</option>
+                <option value="23">23 % - alkohol</option>
+              </select>
+            </div>
+            <div class="u-modal-field">
+              <label for="fDestOverride">Tlač do <span style="color:var(--color-text-muted);font-weight:400">(stanica)</span></label>
+              <select id="fDestOverride">
+                <option value="">Default (podľa kategórie)</option>
+                <option value="kuchyna">🍳 Kuchyňa</option>
+                <option value="bar">🍹 Bar</option>
+              </select>
+              <small style="color:var(--color-text-muted);font-size:11px;margin-top:3px;display:block">Default = kuchyna pre jedlo kategórie, bar pre nápoje. Override použi keď chceš tlačiť inde (napr. shisha tabak v bar kategórii, ale tlač na kuchynskú stanicu).</small>
+            </div>
           </div>
           <div class="u-modal-field">
             <label for="fCompanion">Automaticka priložená položka</label>

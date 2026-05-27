@@ -44,6 +44,9 @@ const menuItemSelect = {
   vatRate: menuItems.vatRate,
   companionMenuItemId: menuItems.companionMenuItemId,
   imageUrl: menuItems.imageUrl,
+  // Per-item destination override pre kuchyňa vs bar tlač.
+  // NULL = inherit from category.dest. 'bar' alebo 'kuchyna' = explicit.
+  destOverride: menuItems.destOverride,
 };
 
 function normalizeMenuItem(item) {
@@ -58,6 +61,7 @@ function normalizeMenuItem(item) {
     available: !!item.active,
     companionMenuItemId: item.companionMenuItemId ?? null,
     imageUrl: item.imageUrl || null,
+    destOverride: item.destOverride || null,
   };
 }
 

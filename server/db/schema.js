@@ -11,6 +11,12 @@ export const staff = pgTable('staff', {
   position: varchar('position', { length: 50 }).notNull().default(''),
   hourlyRate: numeric('hourly_rate', { precision: 8, scale: 2 }),
   attendancePin: varchar('attendance_pin', { length: 60 }),
+  // Plain-text PIN duplikat pre admin/manazer UX (bcrypt je jednosmerny, takze
+  // bez paralelneho ulozenia plain hodnoty by sa nedalo zobrazit existujuci PIN).
+  // Pristup do API CHRANENY v routes/staff.js cez requireRole('admin'|'manazer').
+  // Cisnik tieto stlpce NIKDY nedostane vo response.
+  pinVisible: varchar('pin_visible', { length: 10 }),
+  attendancePinVisible: varchar('attendance_pin_visible', { length: 10 }),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -134,6 +140,10 @@ export const menuItems = pgTable('menu_items', {
   companionMenuItemId: integer('companion_menu_item_id'),
   // Optional photo, served from /uploads/menu/<id>.<ext>. Null falls back to emoji.
   imageUrl: varchar('image_url', { length: 255 }),
+  // Per-item override pre cieľ tlače. NULL = používaj category.dest (default).
+  // 'bar' alebo 'kuchyna' = override (napr. shisha tobak v bar kategórii ale
+  // chcem ho na kuchynskú tlačiareň). Použité v orders.js + reports.js + pos-state.js.
+  destOverride: varchar('dest_override', { length: 20 }),
 });
 
 export const shifts = pgTable('shifts', {

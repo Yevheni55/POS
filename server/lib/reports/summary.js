@@ -60,10 +60,10 @@ export async function summaryHandler(req, res) {
     name: menuItems.name,
     emoji: menuItems.emoji,
     category: menuCategories.label,
-    // dest = 'bar' | 'kuchyna' — pre triedenie produktov vo frontend reporte
-    // na kuchyňu vs. bar. Bez tohto by frontend musel parsovať category label,
-    // čo je krehké pri presunutí produktu medzi kategóriami.
-    dest: menuCategories.dest,
+    // Effective dest = item.destOverride (ak je) inak category.dest. COALESCE
+    // ošetruje NULL override. Vďaka tomu admin môže pretočiť individuálnu
+    // položku bez zmeny kategórie.
+    dest: sql`COALESCE(${menuItems.destOverride}, ${menuCategories.dest})`,
     qty: sql`SUM(${orderItems.qty})`,
     revenue: sql`SUM(${orderItems.qty} * ${menuItems.price}::numeric)`,
   })
@@ -72,18 +72,19 @@ export async function summaryHandler(req, res) {
   .innerJoin(menuCategories, eq(menuItems.categoryId, menuCategories.id))
   .innerJoin(orders, eq(orderItems.orderId, orders.id))
   .where(sql`${orders.createdAt} >= ${fromBoundary} AND ${orders.createdAt} <= ${toBoundary} AND ${orders.status} != 'cancelled' AND COALESCE(${orders.closureType}, 'paid') != 'staff_meal'`)
-  .groupBy(menuItems.name, menuItems.emoji, menuCategories.label, menuCategories.dest)
+  .groupBy(menuItems.name, menuItems.emoji, menuCategories.label, menuItems.destOverride, menuCategories.dest)
   .orderBy(desc(sql`SUM(${orderItems.qty})`));
 
   // Per-day per-product breakdown — pre pivot tabulku "kolko burgerov sa
   // predalo 25.5 vs 26.5". Bucketuje po order.created_at LOCAL Bratislava
   // (rovnako ako cogsRows / dailyRows). Vylucuje staff_meal aj cancelled.
   // Vracia (date, name, dest, qty) — frontend skladá do pivot matice.
+  // Dest = override polozky ALEBO category default (COALESCE).
   const productsByDayRows = await db.execute(sql`
     SELECT
       to_char((o.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ})::date, 'YYYY-MM-DD') AS date,
       mi.name AS name,
-      COALESCE(mc.dest, 'bar') AS dest,
+      COALESCE(mi.dest_override, mc.dest, 'bar') AS dest,
       SUM(oi.qty)::int AS qty
     FROM order_items oi
     INNER JOIN orders o ON o.id = oi.order_id
@@ -92,7 +93,7 @@ export async function summaryHandler(req, res) {
     WHERE o.created_at >= ${fromBoundary} AND o.created_at <= ${toBoundary}
       AND o.status != 'cancelled'
       AND COALESCE(o.closure_type, 'paid') != 'staff_meal'
-    GROUP BY 1, mi.name, mc.dest
+    GROUP BY 1, mi.name, mi.dest_override, mc.dest
     ORDER BY 1, mi.name
   `);
 
@@ -329,7 +330,7 @@ export async function summaryHandler(req, res) {
   const hourlyDestRows = await db.execute(sql`
     SELECT
       EXTRACT(HOUR FROM (o.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ}))::int AS hour,
-      c.dest AS dest,
+      COALESCE(mi.dest_override, c.dest) AS dest,
       COALESCE(SUM(oi.qty * mi.price::numeric), 0)::float AS revenue
     FROM order_items oi
     INNER JOIN orders o ON o.id = oi.order_id
@@ -337,7 +338,7 @@ export async function summaryHandler(req, res) {
     INNER JOIN menu_categories c ON c.id = mi.category_id
     WHERE o.created_at >= ${fromBoundary} AND o.created_at <= ${toBoundary}
       AND o.status != 'cancelled'
-    GROUP BY 1, 2
+    GROUP BY 1, COALESCE(mi.dest_override, c.dest)
   `);
   const hourlyDestMap = {};
   for (const r of hourlyDestRows.rows) {
@@ -371,7 +372,7 @@ export async function summaryHandler(req, res) {
   // matches how "Spolu" is computed in the Tržby table).
   const destRows = await db.execute(sql`
     SELECT
-      c.dest AS dest,
+      COALESCE(mi.dest_override, c.dest) AS dest,
       COALESCE(SUM(oi.qty * mi.price::numeric), 0)::float AS revenue,
       COALESCE(SUM(oi.qty), 0)::int AS items
     FROM order_items oi
@@ -380,7 +381,7 @@ export async function summaryHandler(req, res) {
     INNER JOIN menu_categories c ON c.id = mi.category_id
     WHERE o.created_at >= ${fromBoundary} AND o.created_at <= ${toBoundary}
       AND o.status != 'cancelled'
-    GROUP BY c.dest
+    GROUP BY COALESCE(mi.dest_override, c.dest)
   `);
   const destAcc = { bar: { revenue: 0, items: 0 }, kuchyna: { revenue: 0, items: 0 } };
   for (const r of destRows.rows) {
