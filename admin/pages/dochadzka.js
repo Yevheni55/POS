@@ -684,8 +684,17 @@ function renderBody() {
   }
   body.innerHTML = rows.map((r) => {
     const isOpen = _expanded === r.staffId;
+    // Overlap poznámka — keď má zamestnanec special sadzbu na hodiny spolu
+    // s iným (napr. Oleg @ 5€ s Jarikom), ukáž pod mzdou prečo je iná.
+    let overlapNote = '';
+    if (r.overlapInfo && r.overlapInfo.minutes > 0) {
+      const partner = (allRows.find((x) => String(x.staffId) === String(r.overlapInfo.withStaffId)) || {}).name || 'partner';
+      overlapNote = '<div style="font-size:10px;color:var(--color-text-dim);margin-top:2px">'
+        + 'z toho ' + escapeHtml(fmtMinutes(r.overlapInfo.minutes)) + ' @ ' + fmtEur(r.overlapInfo.rate)
+        + ' s ' + escapeHtml(partner) + '</div>';
+    }
     const wageCell = r.hourlyRate != null
-      ? fmtEur(r.wage)
+      ? fmtEur(r.wage) + overlapNote
       : '<span class="text-muted">—</span>';
     const rateCell = r.hourlyRate != null
       ? fmtEur(r.hourlyRate) + '/h'

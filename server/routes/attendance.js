@@ -16,6 +16,9 @@ import {
   pairEventsToShifts,
   summarizeHours,
   computeWage,
+  OVERLAP_RULES,
+  overlapMinutes,
+  computeWageWithOverlap,
 } from '../lib/attendance.js';
 
 export const publicRouter = Router();
@@ -636,7 +639,28 @@ adminRouter.get('/summary', mgr, asyncRoute(async (req, res) => {
     const events = byStaff.get(s.id) || [];
     const shifts = pairEventsToShifts(events);
     const summary = summarizeHours(shifts);
-    const wage = computeWage(summary.minutes, s.hourlyRate);
+    let wage = computeWage(summary.minutes, s.hourlyRate);
+
+    // Overlap pravidlo — ak tento zamestnanec ma special sadzbu na hodiny
+    // odpracovane SPOLU s inym (napr. Oleg @ 5€ ked robi s Jarikom).
+    // Spocitame prekryv jeho smien so smenami partnera a prepocitame mzdu:
+    // solo hodiny @ normalna sadzba + prekryv @ overlap sadzba.
+    let overlapInfo = null;
+    const rule = OVERLAP_RULES.find((r) => r.staffId === s.id);
+    if (rule && summary.minutes > 0) {
+      const partnerEvents = byStaff.get(rule.withStaffId) || [];
+      const partnerShifts = pairEventsToShifts(partnerEvents);
+      const ovMin = overlapMinutes(shifts, partnerShifts);
+      if (ovMin > 0) {
+        wage = computeWageWithOverlap(summary.minutes, s.hourlyRate, ovMin, rule.overlapRate);
+        overlapInfo = {
+          withStaffId: rule.withStaffId,
+          minutes: ovMin,
+          rate: rule.overlapRate,
+        };
+      }
+    }
+
     const paid = paidByStaff.get(s.id) || { total: 0, count: 0, lastPaidAt: null };
     return {
       staffId: s.id,
@@ -646,6 +670,9 @@ adminRouter.get('/summary', mgr, asyncRoute(async (req, res) => {
       minutes: summary.minutes,
       openShifts: summary.openShifts,
       wage,
+      // overlapInfo: keď je nenull, frontend ukáže poznámku "z toho Xh
+      // spolu s <partner> @ Y€". Inak null = bežný výpočet.
+      overlapInfo,
       // Paid totals — koľko reálne dostal zamestnanec za obdobie
       paidTotal: Math.round(paid.total * 100) / 100,
       paidCount: paid.count,
