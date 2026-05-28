@@ -7,20 +7,22 @@ import { printers } from '../../db/schema.js';
 import { PRINTER_IP, PRINTER_PORT } from './format.js';
 
 // LAN printer odpoveda obvykle <100ms. Po idle (power-save) prvy SYN
-// trva ~1-2s kym sa printer "zobudi". Predtym sme tu mali 5000ms — to
-// znamenalo ze pri kazdom prvom Send po prestavke cashier cakal ~5s
-// (Promise.all caka na pomalsi z 2 printerov). 1700ms je dostatocne
-// na wake-up bez ze by sa cashier dostal do "frozen" stavu pri dead
-// printeri. Queue worker prevezme ostatne pokusy v pozadi.
-const PRINTER_CONNECT_TIMEOUT_MS = 1700;
-// Hard timer ako poistka — socket.setTimeout je idle timeout, ale na
-// niektorych OS / sietach connect phase moze visiet dlhsie (kernel SYN
-// retries). Hard setTimeout garantuje return do tohto casu.
-const PRINTER_HARD_TIMEOUT_MS = 2000;
+// "zobudi" tlaciaren ktora ale na ten prvy pokus casto neodpovie vcas
+// (~2-3s wake-up). Riesenie: 2 pokusy v jednom sendToPrinter:
+//   - 1. pokus (ATTEMPT1_MS): pri prebudenej tlaciarni vytlaci hned (<200ms).
+//     Pri spiacej casto timeout — ALE jeho SYN tlaciaren prebudi.
+//   - kratka pauza (WAKE_PAUSE_MS) nech sa stihne prebudit
+//   - 2. pokus (ATTEMPT2_MS): tlaciaren uz hore → pripoji sa a vytlaci INLINE
+// Tym sa vyhneme falosnemu "tlaciaren offline" toastu + queue fallbacku
+// ktory matil cashiera (predtym 1700ms timeout vzdy zlyhal na spiacej
+// tlaciarni, bon sa vytlacil az z queue o par sekund neskor).
+const ATTEMPT1_MS = 1800;   // warm print OR wake-up poke
+const WAKE_PAUSE_MS = 250;  // nech sa tlaciaren stihne prebudit medzi pokusmi
+const ATTEMPT2_MS = 3500;   // tlaciaren uz hore — velkorysy strop
 
-export function sendToPrinter(data, ip, port) {
-  const targetIp = ip || PRINTER_IP;
-  const targetPort = port || PRINTER_PORT;
+// Jeden TCP send pokus. Timeout je parametrizovany (kratky pre wake-up poke,
+// dlhsi pre druhy pokus na prebudenu tlaciaren).
+function attemptSend(data, targetIp, targetPort, timeoutMs) {
   return new Promise((resolve, reject) => {
     let settled = false;
     const client = new net.Socket();
@@ -33,11 +35,13 @@ export function sendToPrinter(data, ip, port) {
       if (err) reject(err); else resolve(true);
     }
 
+    // Hard timer ako poistka — socket.setTimeout je idle timeout, ale connect
+    // phase moze na niektorych OS visiet dlhsie (kernel SYN retries).
     const hardTimer = setTimeout(() => {
-      settle(new Error('Tlaciaren neodpoveda (hard timeout ' + PRINTER_HARD_TIMEOUT_MS + 'ms)'));
-    }, PRINTER_HARD_TIMEOUT_MS);
+      settle(new Error('Tlaciaren neodpoveda (timeout ' + timeoutMs + 'ms)'));
+    }, timeoutMs + 300);
 
-    client.setTimeout(PRINTER_CONNECT_TIMEOUT_MS);
+    client.setTimeout(timeoutMs);
     client.setNoDelay(true);
 
     client.connect(targetPort, targetIp, () => {
@@ -51,6 +55,29 @@ export function sendToPrinter(data, ip, port) {
     client.on('error', (err) => settle(new Error('Chyba tlaciarni: ' + err.message)));
     client.on('close', () => settle(null));
   });
+}
+
+export async function sendToPrinter(data, ip, port) {
+  const targetIp = ip || PRINTER_IP;
+  const targetPort = port || PRINTER_PORT;
+  try {
+    // 1. pokus — rychly. Pri prebudenej tlaciarni vytlaci hned.
+    return await attemptSend(data, targetIp, targetPort, ATTEMPT1_MS);
+  } catch (firstErr) {
+    // 1. pokus zlyhal → pravdepodobne power-save, jeho SYN tlaciaren prebudil.
+    // Kratka pauza a 2. pokus na uz prebudenu tlaciaren.
+    await new Promise((r) => setTimeout(r, WAKE_PAUSE_MS));
+    try {
+      const t0 = Date.now();
+      const res = await attemptSend(data, targetIp, targetPort, ATTEMPT2_MS);
+      console.log('[Print] wake-up retry success ' + targetIp + ':' + targetPort + ' (' + (Date.now() - t0) + 'ms na 2. pokus)');
+      return res;
+    } catch (secondErr) {
+      // Oba pokusy zlyhali → tlaciaren je naozaj offline. Hodime error,
+      // sendOrQueue ho zachyti a zaradi do queue (genuine offline case).
+      throw secondErr;
+    }
+  }
 }
 
 export function checkPrinterOnline(ip, port) {

@@ -1060,8 +1060,10 @@ async function sendToKitchen() {
         var errMsg = (failed[0].error && failed[0].error.message) || 'tlač zlyhala';
         showToast('Chyba tlače: ' + perDest.map(fmt).join(' + ') + ' — ' + errMsg, 'error');
       } else if (queued.length === perDest.length) {
-        // All went to offline queue
-        showToast('⏳ Bon do queue: ' + perDest.map(fmt).join(' + ') + ' — tlačiareň offline', 'warning');
+        // All went to offline queue. Queue worker retry-uje automaticky kazdych
+        // 15s, takze bon sa dotlaci hned ako tlaciaren odpovie — preto
+        // upokojujuca formulacia (nie "offline" co znie ako zlyhanie).
+        showToast('⏳ Bon vo fronte: ' + perDest.map(fmt).join(' + ') + ' — vytlačí sa hneď ako tlačiareň odpovie', 'warning');
       } else if (printed.length === perDest.length) {
         // Everything actually printed
         showToast('✔ Bon vytlačený: ' + perDest.map(fmt).join(' + '), 'success');
