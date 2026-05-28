@@ -524,11 +524,10 @@ function _increaseSentItemAsUnsentDelta(order, item, delta) {
   if (unsentTwin) {
     unsentTwin.qty += delta;
     unsentTwin._localQtyChanged = true;
-    // Casnik klikol + na sent polozke a uz existuje unsent twin →
-    // skrolneme order panel hore aby twin (s novym qty) bol viditelny.
-    // Bez toho twin zostane mimo viewportu na tablete a casnik si mysli
-    // ze ho stratil.
-    if (typeof scrollOrderToTop === 'function') scrollOrderToTop();
+    // BEZ scrollOrderToTop — s display-merge funkciou sa twin zlúči do
+    // existujúcej (sent) rady na jej mieste, NEskáče hore. Scroll by len
+    // odskočil preč od položky na ktorú casnik práve klikol. Nechávame
+    // viewport tam kde je (casnik vidí qty inkrement priamo pri prste).
     return unsentTwin;
   }
 
@@ -543,9 +542,8 @@ function _increaseSentItemAsUnsentDelta(order, item, delta) {
     sent: false,
   };
   order.push(newItem);
-  // Novy unsent delta riadok ide hore (sort by id desc) — skrolneme,
-  // aby ho casnik hned videl.
-  if (typeof scrollOrderToTop === 'function') scrollOrderToTop();
+  // BEZ scrollOrderToTop — display-merge drží delta na mieste sent rady,
+  // takže netreba scrollovať (a netreba casniera "vyhadzovať" hore).
   return newItem;
 }
 
