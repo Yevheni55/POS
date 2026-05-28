@@ -1,12 +1,17 @@
 import { and, eq, lte } from 'drizzle-orm';
 
 import { db } from '../../db/index.js';
-import { printQueue } from '../../db/schema.js';
+import { printQueue, printers } from '../../db/schema.js';
 import { PRINTER_IP, PRINTER_PORT } from './format.js';
-import { checkPrinterOnline, sendToPrinter } from './network.js';
+import { checkPrinterOnline, sendToPrinter, pokePrinter } from './network.js';
 
 const RETRY_INTERVAL_MS = 15_000;   // check queue every 15s
 const MAX_RETRY_ATTEMPTS = 50;      // give up after 50 tries (~12 min)
+
+// Keep-alive — interval kratsi nez power-save timeout tlaciarne (typicky
+// 1-5 min). 25s drzi NIC prebudenu s rezervou aj pre agresivnejsie modely.
+// Konfigurovatelne cez env ak by konkretna tlaciaren potrebovala iny interval.
+const KEEPALIVE_SEC = parseInt(process.env.PRINTER_KEEPALIVE_SEC || '25', 10);
 
 // ===== Print Queue: queue on failure, auto-retry when printer is back =====
 
@@ -108,4 +113,42 @@ export function startPrintQueue() {
   if (_queueInterval) return;
   _queueInterval = setInterval(processQueue, RETRY_INTERVAL_MS);
   console.log(`[PrintQueue] Worker started (every ${RETRY_INTERVAL_MS / 1000}s)`);
+}
+
+// ===== Printer keep-alive — drzi tlaciarne prebudene =====
+// Periodicky TCP poke na kazdu aktivnu tlaciaren, aby jej sietovy modul
+// nezaspal do power-save (co sposobovalo 2-3s wake-up delay pri Send).
+// Loguje len ZMENY stavu (online↔offline), nie kazdy tick — inak by cez
+// noc ked je bar zavrety spamoval log "neodpoveda" kazdych 25s.
+let _keepAliveInterval = null;
+let _kaRunning = false;
+const _lastOnline = new Map(); // 'ip:port' -> bool
+
+async function pokeAllPrinters() {
+  if (_kaRunning) return;
+  _kaRunning = true;
+  try {
+    const active = await db.select().from(printers).where(eq(printers.active, true));
+    for (const p of active) {
+      const key = p.ip + ':' + p.port;
+      const ok = await pokePrinter(p.ip, p.port);
+      const prev = _lastOnline.get(key);
+      if (prev !== ok) {
+        console.log(`[PrinterKeepAlive] ${p.name} (${key}) → ${ok ? 'ONLINE' : 'OFFLINE'}`);
+        _lastOnline.set(key, ok);
+      }
+    }
+  } catch (e) {
+    console.error('[PrinterKeepAlive] error:', e.message);
+  } finally {
+    _kaRunning = false;
+  }
+}
+
+export function startPrinterKeepAlive() {
+  if (_keepAliveInterval) return;
+  const ms = Math.max(5, KEEPALIVE_SEC) * 1000;
+  _keepAliveInterval = setInterval(pokeAllPrinters, ms);
+  console.log(`[PrinterKeepAlive] Worker started (every ${KEEPALIVE_SEC}s)`);
+  pokeAllPrinters(); // initial poke pri starte
 }

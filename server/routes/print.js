@@ -20,7 +20,7 @@ import { receiptHandler } from '../lib/print/receipt.js';
 import { testHandler } from '../lib/print/test.js';
 import { zReportHandler } from '../lib/print/z-report.js';
 
-export { startPrintQueue } from '../lib/print/queue.js';
+export { startPrintQueue, startPrinterKeepAlive } from '../lib/print/queue.js';
 
 const router = Router();
 const mgr = requireRole('manazer', 'admin');

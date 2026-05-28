@@ -92,6 +92,28 @@ export function checkPrinterOnline(ip, port) {
   });
 }
 
+// Keep-alive poke — connect + okamzite zatvor. Generozny timeout (4s) aby
+// connect dokoncil aj na spiacej NIC a tym resetol jej idle/power-save timer.
+// Pouziva keep-alive worker aby tlaciaren nikdy nezaspala (žiadny 2-3s
+// wake-up delay pri realnom Send). Vracia true ak sa pripojil.
+export function pokePrinter(ip, port) {
+  return new Promise((resolve) => {
+    let done = false;
+    const client = new net.Socket();
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      clearTimeout(t);
+      try { client.destroy(); } catch (_) {}
+      resolve(ok);
+    };
+    const t = setTimeout(() => finish(false), 4000);
+    client.setNoDelay(true);
+    client.connect(port, ip, () => finish(true));
+    client.on('error', () => finish(false));
+  });
+}
+
 export async function getPrinterForDest(dest) {
   try {
     // Try exact match first

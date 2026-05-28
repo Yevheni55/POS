@@ -19,7 +19,7 @@ import { runPortosProfileSync, startPortosProfileSync } from './lib/portos-sync-
 import { startWeatherHourlyCron } from './lib/weather.js';
 import { isVatRegisteredBusiness } from './lib/vat-registration.js';
 import { startIdempotencyCleanup } from './middleware/idempotency.js';
-import { startPrintQueue } from './routes/print.js';
+import { startPrintQueue, startPrinterKeepAlive } from './routes/print.js';
 import { startParagonSync } from './jobs/paragon-sync.js';
 import { prewarmTtlock } from './routes/ttlock.js';
 
@@ -100,6 +100,8 @@ httpServer.listen(PORT, () => {
   );
   startIdempotencyCleanup();
   startPrintQueue();
+  // Keep-alive — drzi tlaciarne prebudene (žiadny 2-3s wake-up delay pri Send)
+  startPrinterKeepAlive();
   startParagonSync();
   // Pre-fetch TTLock OAuth token v pozadi aby prvy passcode request po
   // reštarte nemusel cakat na auth handshake (1-2s šetri).
