@@ -435,34 +435,15 @@ function renderFloorSummary(filteredTables){
   canvas.appendChild(el);
 }
 
-// Storno koš pill — fixed bottom-right of viewport. Floats over POS UI
-// without ever overlapping floor canvas. Click → opens storno basket modal.
-// Hidden when count = 0 (nothing to show).
+// Storno koš pill — PRESUNUTÉ do admin panelu (#storno). Cashier v POS už
+// storná NErieši (vrátiť/odpísať je manažérske rozhodnutie). Pill teda
+// nezobrazujeme — funkcia ostáva ako no-op (a odstráni starý pill ak by
+// nejaký zostal z predošlej session) aby sme nemuseli hľadať všetky
+// call-sites. Storná sa stále VYTVÁRAJÚ z POS (POST /storno-basket),
+// len resolve UI sa presunulo do adminu.
 function renderStornoChip() {
-  var c = (typeof _stornoBasketCache !== 'undefined') ? _stornoBasketCache : { count: 0, value: 0 };
   var existing = document.getElementById('stornoPill');
-  if (!c.count || c.count <= 0) {
-    if (existing) existing.remove();
-    return;
-  }
-  if (!existing) {
-    existing = document.createElement('button');
-    existing.id = 'stornoPill';
-    existing.type = 'button';
-    existing.className = 'storno-pill';
-    existing.setAttribute('aria-label', 'Otvoriť storno koš');
-    existing.addEventListener('click', function () {
-      if (typeof openStornoBasket === 'function') openStornoBasket();
-    });
-    document.body.appendChild(existing);
-  }
-  existing.innerHTML = ''
-    + '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
-    + '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>'
-    + '</svg>'
-    + '<span class="storno-pill-label">Storno koš</span>'
-    + '<span class="storno-pill-count">' + c.count + '</span>'
-    + '<span class="storno-pill-value">' + fmt(c.value || 0) + '</span>';
+  if (existing) existing.remove();
 }
 
 function openStornoBasket() {
