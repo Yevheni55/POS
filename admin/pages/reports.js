@@ -54,6 +54,7 @@ async function loadReports() {
     if (data) {
       renderStats(data);
       renderDestSplit(data);
+      renderPaymentMethods(data);
       renderTrzby(data);
       renderLaborByStaff(data);
       renderStaffMealByPerson(data);
@@ -73,6 +74,8 @@ function showEmptyReports() {
   const emptyHtml = '<tr><td colspan="7" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
   const trzbyBody = $('#table-trzby tbody');
   if (trzbyBody) trzbyBody.innerHTML = emptyHtml;
+  const payBody = $('#table-payments tbody');
+  if (payBody) payBody.innerHTML = '<tr><td colspan="4" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
   const produktyBody = $('#table-produkty tbody');
   if (produktyBody) produktyBody.innerHTML = '<tr><td colspan="8" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
   const zamBody = $('#table-zamestnanci tbody');
@@ -158,6 +161,64 @@ function renderDestSplit(data) {
         '<div class="stat-change neutral">' + (r.itemsKuchyna || 0) + ' ks · ' + pct(r.kuchyna || 0) + '%</div>' +
       '</div>' +
     '</div>';
+}
+
+// Tržby podľa spôsobu platby za zvolené obdobie. Predtým bolo vidno len na
+// dashboarde (dnešný deň). Tu rešpektuje from/to filter. Hotovosť zo shishy
+// je mimo fiškál (samostatný counter) — zobrazíme ju ako extra riadok aby
+// owner videl kompletný cash obraz pri zúčtovaní zásuvky.
+function renderPaymentMethods(data) {
+  const tbody = $('#table-payments tbody');
+  const tfoot = $('#table-payments tfoot');
+  if (!tbody) return;
+  const methodLabels = { hotovost: 'Hotovosť', karta: 'Karta', cash: 'Hotovosť', card: 'Karta' };
+  const methods = (data.methods || []).slice();
+  // Shisha = off-fiscal cash. Pridáme samostatný riadok ak má hodnotu.
+  const shishaRev = data.shisha ? Number(data.shisha.revenue) || 0 : 0;
+  const shishaCnt = data.shisha ? Number(data.shisha.count) || 0 : 0;
+
+  const fiscalTotal = methods.reduce((s, m) => s + (Number(m.total) || 0), 0);
+  const grandTotal = fiscalTotal + shishaRev;
+
+  if (!methods.length && shishaRev <= 0) {
+    tbody.innerHTML = '<tr><td colspan="4" class="td-empty">Žiadne platby za toto obdobie</td></tr>';
+    if (tfoot) tfoot.innerHTML = '';
+    return;
+  }
+
+  const rows = methods.map((m) => {
+    const label = methodLabels[m.method] || (m.method.charAt(0).toUpperCase() + m.method.slice(1));
+    const total = Number(m.total) || 0;
+    const share = grandTotal > 0 ? Math.round((total / grandTotal) * 1000) / 10 : 0;
+    const barW = grandTotal > 0 ? Math.round((total / grandTotal) * 100) : 0;
+    return '<tr>' +
+      '<td class="td-name">' + label + '</td>' +
+      '<td class="num text-right">' + (m.count || 0) + '×</td>' +
+      '<td class="num highlight-cell text-right">' + fmtEur(total) + '</td>' +
+      '<td><div class="progress-wrap"><div class="progress-fill" style="width:' + barW + '%"></div></div>' + share + '%</td>' +
+    '</tr>';
+  });
+
+  if (shishaRev > 0) {
+    const share = grandTotal > 0 ? Math.round((shishaRev / grandTotal) * 1000) / 10 : 0;
+    const barW = grandTotal > 0 ? Math.round((shishaRev / grandTotal) * 100) : 0;
+    rows.push('<tr>' +
+      '<td class="td-name">Hotovosť <span style="color:var(--color-text-dim);font-size:11px">(shisha, mimo fiškál)</span></td>' +
+      '<td class="num text-right">' + shishaCnt + '×</td>' +
+      '<td class="num highlight-cell text-right">' + fmtEur(shishaRev) + '</td>' +
+      '<td><div class="progress-wrap"><div class="progress-fill" style="width:' + barW + '%"></div></div>' + share + '%</td>' +
+    '</tr>');
+  }
+
+  tbody.innerHTML = rows.join('');
+  if (tfoot) {
+    tfoot.innerHTML = '<tr>' +
+      '<td>Spolu</td>' +
+      '<td class="num text-right"></td>' +
+      '<td class="num text-right color-accent">' + fmtEur(grandTotal) + '</td>' +
+      '<td></td>' +
+    '</tr>';
+  }
 }
 
 function renderTrzby(data) {
@@ -1131,6 +1192,26 @@ const TEMPLATE = `
   <!-- TAB: TRZBY -->
   <div class="tab-content active" id="tab-trzby">
     <div class="stat-grid" id="destSplit" style="margin-bottom:18px"></div>
+
+    <!-- Tržby podľa spôsobu platby — rešpektuje from/to filter (predtým len dashboard/dnes) -->
+    <div class="panel" style="margin-bottom:18px">
+      <div class="panel-title">Tržby podľa spôsobu platby</div>
+      <div class="table-scroll-wrap">
+        <table class="data-table" id="table-payments">
+          <thead>
+            <tr>
+              <th>Spôsob platby</th>
+              <th class="text-right">Počet</th>
+              <th class="text-right">Tržby</th>
+              <th>Podiel</th>
+            </tr>
+          </thead>
+          <tbody><tr><td colspan="4" class="td-empty">Načítavam…</td></tr></tbody>
+          <tfoot></tfoot>
+        </table>
+      </div>
+    </div>
+
     <div class="panel">
       <div class="table-scroll-wrap">
       <table class="data-table" id="table-trzby">
