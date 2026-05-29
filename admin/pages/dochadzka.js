@@ -25,6 +25,10 @@ let _staffFilter = 'all';
 // Pomahá manazerovi pri closeout flow (ked treba dohonit otvorene smeny
 // pred koncom dna). Stav sa resetuje pri zmene date range / staff filtra.
 let _openOnly = false;
+// All-time dlžoba na výplatách (nezávislá od dátumového filtra). Cache-uje
+// sa tu, render() ju repaint-uje do #dBalancePanel. Refresh cez loadBalance()
+// pri init + po každej mutácii (payout / pridanie eventu / zmazanie).
+let _balance = null;
 
 function todayIso() { return new Date().toISOString().slice(0, 10); }
 function todayMinusDays(n) {
@@ -394,6 +398,67 @@ async function loadSummary() {
     if (!stillThere) _staffFilter = 'all';
   }
   render();
+  // All-time dlžoba sa refreshne po každom loadSummary (init + mutácie ako
+  // payout/manual event/delete všetky idú cez loadSummary). Fire-and-forget,
+  // nezdržuje render. Dáta sú malé (single-tenant kasa), takže extra all-time
+  // query pri filter-change je akceptovateľná cena za garantovanú čerstvosť.
+  loadBalance();
+}
+
+// All-time dlžoba na výplatách — /api/attendance/balance ignoruje from/to.
+async function loadBalance() {
+  try {
+    _balance = await api.get('/attendance/balance');
+  } catch (err) {
+    _balance = null; // ticho — panel sa proste nezobrazí, neblokujeme dochádzku
+  }
+  renderBalancePanel();
+}
+
+// Vyrenderuje all-time dlžobu panel do #dBalancePanel. Volané z render()
+// (s cache) aj z loadBalance() (po fetchi).
+function renderBalancePanel() {
+  if (!_container) return;
+  const host = _container.querySelector('#dBalancePanel');
+  if (!host) return;
+  const b = _balance;
+  if (!b) { host.innerHTML = ''; return; }
+
+  const owed = Number(b.totalOwed) || 0;
+  const prepaid = Number(b.totalPrepaid) || 0;
+  // Len ľudia ktorým reálne dlžíš (balance > 0), zoradení podľa dlžoby.
+  const debtors = (b.rows || []).filter((r) => Number(r.balance) > 0.01);
+
+  // Per-osoba chipy — meno + suma, max čitateľné. Neaktívni dostanú jemný tag.
+  const chips = debtors.map((r) => {
+    const inactiveTag = r.active ? '' : ' <span style="font-size:10px;color:var(--color-text-dim)">(neaktívny)</span>';
+    return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 12px;background:var(--color-bg-surface);border:1px solid var(--color-border);border-radius:var(--radius-sm)">' +
+      '<span style="font-weight:var(--weight-semibold)">' + escapeHtml(r.name || '?') + inactiveTag + '</span>' +
+      '<strong style="color:var(--color-warning, #d97706);white-space:nowrap">' + fmtEur(r.balance) + '</strong>' +
+    '</div>';
+  }).join('');
+
+  const prepaidNote = prepaid > 0.01
+    ? '<div style="font-size:12px;color:var(--color-text-sec);margin-top:8px">ℹ️ Navyše máš predplatené (zálohy) ' + escapeHtml(fmtEur(prepaid)) + ' — tie sa odrátajú z budúcich miezd.</div>'
+    : '';
+
+  // Hlavný panel: veľká suma dlhu + breakdown po osobách.
+  host.innerHTML =
+    '<div class="panel" style="margin-bottom:18px;border-left:3px solid ' + (owed > 0.01 ? 'var(--color-warning, #d97706)' : 'var(--color-success, #22c55e)') + '">' +
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">' +
+        '<div>' +
+          '<div class="panel-title" style="margin:0">💰 Celkovo dlhujem na výplatách</div>' +
+          '<div style="font-size:12px;color:var(--color-text-sec);margin-top:2px">za celé obdobie fungovania — všetky odpracované hodiny mínus všetko vyplatené</div>' +
+        '</div>' +
+        '<div style="font-family:var(--font-display);font-weight:800;font-size:32px;line-height:1;color:' + (owed > 0.01 ? 'var(--color-warning, #d97706)' : 'var(--color-success, #22c55e)') + '">' +
+          escapeHtml(fmtEur(owed)) +
+        '</div>' +
+      '</div>' +
+      (debtors.length
+        ? '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;margin-top:14px">' + chips + '</div>'
+        : '<div style="margin-top:10px;color:var(--color-success, #22c55e);font-weight:var(--weight-semibold)">✓ Všetko vyplatené — nikomu nedlhuješ</div>') +
+      prepaidNote +
+    '</div>';
 }
 
 async function loadHistory(staffId) {
@@ -480,6 +545,11 @@ function render() {
         '</button>' +
       '</div>' +
     '</div>' +
+
+    // Celkový dlh na výplatách (ALL-TIME, nezávislý od dátumového filtra).
+    // Naplnené cez loadBalance() → /api/attendance/balance. Prázdny kým
+    // sa nenačíta.
+    '<div id="dBalancePanel"></div>' +
 
     // KPI grid: override default 4-col na 3-col pre 6 kariet (3+3 vyzera
     // krajsie ako 4+2). Media query v admin.css zachova 2-col na <=1200px.
@@ -657,6 +727,10 @@ function render() {
   });
 
   renderBody();
+  // Repaint all-time dlžoba z cache (render() prebuild-uje #dBalancePanel
+  // ako prázdny div, takže ho treba znova naplniť). loadBalance() ho potom
+  // refreshne ak prišli nové dáta.
+  renderBalancePanel();
 }
 
 function renderBody() {
@@ -1157,4 +1231,5 @@ export function destroy() {
   _summary = { rows: [] };
   _staffFilter = 'all';
   _openOnly = false;
+  _balance = null;
 }

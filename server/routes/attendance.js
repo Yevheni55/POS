@@ -687,6 +687,86 @@ adminRouter.get('/summary', mgr, asyncRoute(async (req, res) => {
   res.json({ from: parsed.data.from, to: parsed.data.to, rows });
 }));
 
+// GET /api/attendance/balance — CELKOVÝ dlh na výplatách za CELÉ obdobie
+// fungovania (NIE period-scoped ako /summary). Toto je skutočná dlžoba:
+//   Σ(všetky odpracované hodiny × sadzba) − Σ(všetko vyplatené)
+//
+// Rozdiel oproti /summary.outstanding: ten ráta mzdu za zvolený filter
+// mínus výplaty v tom filtri — môže klamať (mzda tento týždeň − výplata
+// tento týždeň). Balance ignoruje dátumy: berie VŠETKY eventy + VŠETKY
+// payouts, takže manager vidí reálnu dlžobu naprieč celou históriou.
+//
+// Zahŕňa aj NEAKTÍVNych zamestnancov — ak niekto skončil ale ešte mu
+// dlžíš, stále to je záväzok.
+adminRouter.get('/balance', mgr, asyncRoute(async (req, res) => {
+  const allStaff = await db.select().from(staff); // vrátane neaktívnych
+  const allEvents = await db.select().from(attendanceEvents).orderBy(attendanceEvents.at);
+
+  const byStaff = new Map();
+  for (const e of allEvents) {
+    if (!byStaff.has(e.staffId)) byStaff.set(e.staffId, []);
+    byStaff.get(e.staffId).push(e);
+  }
+
+  // All-time payouts per staff (žiadny dátumový filter)
+  const payoutAgg = await db.execute(sql`
+    SELECT staff_id, COALESCE(SUM(amount::numeric), 0)::float AS total, MAX(paid_at) AS last_paid_at
+    FROM attendance_payouts GROUP BY staff_id
+  `);
+  const paidByStaff = new Map();
+  for (const r of (payoutAgg.rows || payoutAgg)) {
+    paidByStaff.set(Number(r.staff_id), { total: Number(r.total) || 0, lastPaidAt: r.last_paid_at });
+  }
+
+  const rows = [];
+  let totalOwed = 0;     // suma kladných zostatkov = koľko reálne dlžím
+  let totalPrepaid = 0;  // suma záporných = koľko som preplatil (zálohy navyše)
+
+  for (const s of allStaff) {
+    const events = byStaff.get(s.id) || [];
+    const shifts = pairEventsToShifts(events);
+    const summary = summarizeHours(shifts);
+    let wage = computeWage(summary.minutes, s.hourlyRate);
+
+    // Overlap pravidlo aj tu (Oleg @ 5€ s Jarikom) — nad celou históriou.
+    const rule = OVERLAP_RULES.find((r) => r.staffId === s.id);
+    if (rule && summary.minutes > 0) {
+      const partnerShifts = pairEventsToShifts(byStaff.get(rule.withStaffId) || []);
+      const ovMin = overlapMinutes(shifts, partnerShifts);
+      if (ovMin > 0) wage = computeWageWithOverlap(summary.minutes, s.hourlyRate, ovMin, rule.overlapRate);
+    }
+
+    const paid = paidByStaff.get(s.id) || { total: 0, lastPaidAt: null };
+    const balance = Math.round((wage - paid.total) * 100) / 100;
+
+    // Skip ľudí bez histórie (0 mzda + 0 výplat) — nezahlcujeme zoznam
+    if (Math.abs(wage) < 0.01 && Math.abs(paid.total) < 0.01) continue;
+
+    if (balance > 0) totalOwed += balance;
+    else if (balance < 0) totalPrepaid += -balance;
+
+    rows.push({
+      staffId: s.id,
+      name: s.name,
+      position: s.position || '',
+      active: !!s.active,
+      totalWage: Math.round(wage * 100) / 100,
+      totalPaid: Math.round(paid.total * 100) / 100,
+      balance,
+      lastPaidAt: paid.lastPaidAt,
+    });
+  }
+
+  // Najväčší dlh hore
+  rows.sort((a, b) => b.balance - a.balance);
+
+  res.json({
+    totalOwed: Math.round(totalOwed * 100) / 100,
+    totalPrepaid: Math.round(totalPrepaid * 100) / 100,
+    rows,
+  });
+}));
+
 adminRouter.get('/active', mgr, asyncRoute(async (req, res) => {
   // Find each active staff's most-recent attendance event in one query.
   // Then keep only the ones whose latest event is clock_in.
