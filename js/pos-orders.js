@@ -1502,6 +1502,41 @@ function enterMoveMode(preselectedItemId) {
   renderOrder(); if(isMobile()) renderMobOrder();
 }
 
+// Presun CELÉHO účtu na iný stôl — bez klikania jednotlivých položiek.
+// Zosynchronizuje lokálne neodoslané položky (aby mali server id), označí
+// VŠETKY položky aktuálneho účtu (qty:null = celý riadok) a rovno otvorí
+// table picker. Zvyšok (POST /move-items + refresh) rieši handleMoveToTable.
+async function moveWholeAccount() {
+  if (!selectedTableId) return;
+  // Sync first — neodoslané lokálne položky majú dočasné id (Date.now), ktoré
+  // server nepozná. Bez syncu by ich move-items ticho preskočil. Po sync-u
+  // má getOrder() reálne server id (loadTableOrder reload vnútri syncu).
+  try {
+    await syncOrderToServer();
+  } catch (e) {
+    showToast('Nepodarilo sa pripraviť účet na presun: ' + e.message);
+    return;
+  }
+  var order = getOrder();
+  if (!order || !order.length) { showToast('Prázdny účet — nie je čo presunúť'); return; }
+
+  moveMode = true;
+  // Všetky riadky účtu, qty:null = presunúť celý riadok (server len zmení
+  // orderId). Companion položky (záloha fľaša atď.) idú tiež — sú to reálne
+  // server riadky po sync-u.
+  moveSelectedItems = order
+    .filter(function (it) { return it && it.id != null; })
+    .map(function (it) { return { id: it.id, qty: null }; });
+  if (!moveSelectedItems.length) { moveMode = false; showToast('Prázdny účet'); return; }
+
+  moveSourceOrderId = currentOrderId;
+  moveSourceTableId = selectedTableId;
+  var panel = document.querySelector('.order-panel');
+  if (panel) panel.classList.add('move-mode');
+  // Rovno table picker — žiadne klikanie položiek
+  showTablePicker();
+}
+
 function exitMoveMode() {
   moveMode = false;
   moveSelectedItems = [];
