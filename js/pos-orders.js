@@ -1756,15 +1756,24 @@ async function moveToNewAccountInline() {
 // Table picker for cross-table moves. Empty selection = silent exit.
 function showTablePicker() {
   if (!moveSelectedItems.length) { exitMoveMode(); return; }
-  var sl = { free: 'Volny', occupied: 'Obsad.', reserved: 'Rez.', dirty: 'Spinavy' };
-  var grid = TABLES.filter(function(t) { return t.id !== selectedTableId; }).map(function(t) {
+  var sl = { free: 'voľný', occupied: 'obsadený', reserved: 'rezerv.', dirty: 'špinavý' };
+  var grid = TABLES.filter(function(t) { return t.id !== selectedTableId; }).map(function(t, idx) {
     var st = t.status || 'free';
-    return '<button class="tp-chip s-' + st + '" onclick="handleMoveToTable(' + t.id + ')">' +
+    // --i = stagger index pre entrance animáciu; .tp-dot = farebný status bod
+    return '<button class="tp-chip s-' + st + '" style="--i:' + idx + '" onclick="handleMoveToTable(' + t.id + ')">' +
+      '<span class="tp-dot" aria-hidden="true"></span>' +
       '<span class="tp-name">' + escHtml(t.name) + '</span>' +
       '<span class="tp-status">' + (sl[st] || st) + '</span>' +
     '</button>';
   }).join('');
   document.getElementById('tablePickerGrid').innerHTML = grid;
+  // Podtitul: počet presúvaných položiek (SK skloňovanie)
+  var sub = document.getElementById('tpHeadSub');
+  if (sub) {
+    var n = moveSelectedItems.length;
+    var word = n === 1 ? 'položka' : (n >= 2 && n <= 4 ? 'položky' : 'položiek');
+    sub.textContent = 'Presúvaš ' + n + ' ' + word + ' — kam to ide?';
+  }
   document.getElementById('tablePicker').classList.add('show');
 }
 

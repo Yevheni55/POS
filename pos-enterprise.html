@@ -379,8 +379,11 @@
 <div class="table-picker-overlay" id="tablePicker" onclick="if(event.target===this)closeTablePicker()">
   <div class="table-picker">
     <div class="table-picker-header">
-      <span>Vyberte cielovy stol</span>
-      <button onclick="closeTablePicker()" aria-label="Zavriet"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="svg-icon"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      <div class="tp-head-text">
+        <span class="tp-head-title">Vyberte cieľový stôl</span>
+        <span class="tp-head-sub" id="tpHeadSub"></span>
+      </div>
+      <button class="tp-close" onclick="closeTablePicker()" aria-label="Zavrieť"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="svg-icon"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <div class="table-picker-grid" id="tablePickerGrid"></div>
   </div>
