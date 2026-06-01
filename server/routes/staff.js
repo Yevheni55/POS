@@ -62,6 +62,9 @@ router.post('/', requireRole('admin'), validate(createStaffSchema), async (req, 
   const insertValues = {
     name,
     pin: await bcrypt.hash(pin, 10),
+    // Plain duplikat pre "Zobrazit PIN-y" v admin UI. Bcrypt hash je
+    // jednosmerny, takze bez tohto by sa nedalo zobrazit existujuci PIN.
+    pinVisible: String(pin),
     role: role || 'cisnik',
   };
   if (position !== undefined) insertValues.position = position;
@@ -70,6 +73,7 @@ router.post('/', requireRole('admin'), validate(createStaffSchema), async (req, 
   }
   if (attendancePin) {
     insertValues.attendancePin = await bcrypt.hash(attendancePin, 10);
+    insertValues.attendancePinVisible = String(attendancePin);
   }
   const [created] = await db.insert(staff).values(insertValues).returning();
   res.status(201).json(safeStaff(created));
@@ -82,13 +86,17 @@ router.put('/:id', requireRole('admin'), validate(updateStaffSchema), async (req
   if (name !== undefined) updates.name = name;
   if (role !== undefined) updates.role = role;
   if (active !== undefined) updates.active = active;
-  if (pin) updates.pin = await bcrypt.hash(pin, 10);
+  if (pin) {
+    updates.pin = await bcrypt.hash(pin, 10);
+    updates.pinVisible = String(pin); // sync plain duplicate
+  }
   if (position !== undefined) updates.position = position;
   if (hourlyRate !== undefined && hourlyRate !== null) {
     updates.hourlyRate = String(hourlyRate);
   }
   if (attendancePin) {
     updates.attendancePin = await bcrypt.hash(attendancePin, 10);
+    updates.attendancePinVisible = String(attendancePin);
   }
   const [updated] = await db.update(staff).set(updates).where(eq(staff.id, +req.params.id)).returning();
   res.json(safeStaff(updated));
@@ -98,6 +106,28 @@ router.put('/:id', requireRole('admin'), validate(updateStaffSchema), async (req
 router.delete('/:id', requireRole('admin'), async (req, res) => {
   await db.update(staff).set({ active: false }).where(eq(staff.id, +req.params.id));
   res.json({ ok: true });
+});
+
+// GET /api/staff/pins-visible — vrati plain-text PIN-y pre admin/manazer
+// (cisnik nikdy nedostane). Pouzite v UI "Zobrazit PIN-y" toggle. Pre staffov
+// vytvorenych pred zavedením stĺpcov vráti pin = null — frontend zobrazí
+// "Resetuj PIN" tlačidlo.
+//
+// SEC: requireRole gate je jediná obrana — koniec endpointa MUSI selectnut
+// pin_visible / attendance_pin_visible namiesto hash-ov.
+router.get('/pins-visible', requireRole('admin', 'manazer'), async (req, res) => {
+  const rows = await db.select({
+    id: staff.id,
+    name: staff.name,
+    pinVisible: staff.pinVisible,
+    attendancePinVisible: staff.attendancePinVisible,
+  }).from(staff).orderBy(asc(staff.id));
+  res.json(rows.map(r => ({
+    id: r.id,
+    name: r.name,
+    pin: r.pinVisible || null,
+    attendancePin: r.attendancePinVisible || null,
+  })));
 });
 
 export default router;

@@ -5,6 +5,13 @@ import { fmtCost } from '../../components/fmt.js';
 let staff = [];
 let editingId = null;
 let revealedPins = new Set();
+// Master toggle "Zobrazit PIN-y" — ked je true, vsetky PIN-y su odhalene
+// vsetky naraz. Pre per-card eye icon stale funguje revealedPins set.
+let _showAllPins = false;
+// Cache plain-text PIN-ov ulozenych v _pinMap[staffId] = pin (string) | null.
+// null = staff nema vyplneny pin_visible v DB (pred migraciou alebo PIN reset
+// chyba). Plnime cez api.get('/staff/pins-visible') — len pre admin/manazer.
+let _pinMap = null;
 
 let _container = null;
 let _escHandler = null;
@@ -84,8 +91,26 @@ function renderStaff() {
   }
 
   grid.innerHTML = filtered.map((e, i) => {
-    const pinDisplay = revealedPins.has(e.id) ? e.pin : '\u25CF\u25CF\u25CF\u25CF';
-    const eyeIcon = revealedPins.has(e.id)
+    // Pin display: master toggle (_showAllPins) ALEBO per-card eye reveal.
+    // Plain PIN sa cita z _pinMap (vyplneny len po stlaceni "Zobrazit PIN-y").
+    // Pre staffov pred migraciou (bez pin_visible) zobrazi 'reset' hint.
+    const isRevealed = _showAllPins || revealedPins.has(e.id);
+    const plainPin = _pinMap && _pinMap[e.id] !== undefined ? _pinMap[e.id] : null;
+    let pinDisplay;
+    if (isRevealed) {
+      if (plainPin) {
+        pinDisplay = '<span style="font-family:var(--font-mono,monospace);font-size:15px;letter-spacing:.12em;font-weight:600;color:var(--color-accent,#B85C2A)">' + escapeHtml(plainPin) + '</span>';
+      } else if (_pinMap) {
+        // pinMap loaded ale pre tento staff je null \u2192 zaznam pred migraciou
+        pinDisplay = '<span style="font-size:11px;color:var(--color-warning,#d97706);font-style:italic">PIN treba resetova\u0165 (klik Upravi\u0165)</span>';
+      } else {
+        // pinMap nie je nacitany \u2014 show placeholder, master toggle to nacita
+        pinDisplay = '<span style="font-size:11px;color:var(--color-text-dim);font-style:italic">\u2026</span>';
+      }
+    } else {
+      pinDisplay = '\u25CF\u25CF\u25CF\u25CF';
+    }
+    const eyeIcon = isRevealed
       ? '<svg viewBox="0 0 20 20"><path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="10" r="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="3" y1="17" x2="17" y2="3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>'
       : '<svg viewBox="0 0 20 20"><path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="10" r="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>';
 
@@ -126,13 +151,74 @@ function renderStaff() {
   // Bind card action listeners via delegation is handled in init
 }
 
-function togglePin(id) {
+async function togglePin(id) {
   if (revealedPins.has(id)) {
     revealedPins.delete(id);
-  } else {
-    revealedPins.add(id);
+    renderStaff();
+    return;
+  }
+  revealedPins.add(id);
+  // Ak este nemame _pinMap, nacitaj pri prvom kliknuti — admin/manazer endpoint.
+  if (!_pinMap) {
+    try {
+      const rows = await api.get('/staff/pins-visible');
+      _pinMap = {};
+      for (const r of rows) _pinMap[r.id] = r.pin;
+    } catch (err) {
+      showToast(err.message || 'Chyba načítania PIN-ov', 'error');
+      revealedPins.delete(id);
+    }
   }
   renderStaff();
+}
+
+// Master toggle "Zobrazit PIN-y" — odkryje vsetky PIN-y naraz. Pri prvom
+// kliknuti nacita _pinMap z API. Druhy klik = skry.
+async function toggleAllPins() {
+  if (_showAllPins) {
+    _showAllPins = false;
+    renderStaff();
+    updateMasterToggleBtn();
+    return;
+  }
+  // Show — nacitaj PIN-y ak este nie su
+  const btn = $('#btnTogglePins');
+  if (btn) btnLoading(btn);
+  try {
+    if (!_pinMap) {
+      const rows = await api.get('/staff/pins-visible');
+      _pinMap = {};
+      for (const r of rows) _pinMap[r.id] = r.pin;
+    }
+    _showAllPins = true;
+    renderStaff();
+    updateMasterToggleBtn();
+  } catch (err) {
+    showToast(err.message || 'Chyba načítania PIN-ov', 'error');
+  } finally {
+    if (btn) btnReset(btn);
+  }
+}
+
+// Update label + ikonku master toggle tlačidla.
+function updateMasterToggleBtn() {
+  const btn = $('#btnTogglePins');
+  if (!btn) return;
+  if (_showAllPins) {
+    btn.innerHTML =
+      '<svg viewBox="0 0 20 20" aria-hidden="true" style="width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.5"><path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z"/><circle cx="10" cy="10" r="2.5"/><line x1="3" y1="17" x2="17" y2="3" stroke-linecap="round"/></svg>'
+      + 'Skryť PIN-y';
+    btn.style.background = 'rgba(184,84,42,.08)';
+    btn.style.borderColor = 'var(--color-accent, #B85C2A)';
+    btn.style.color = 'var(--color-accent, #B85C2A)';
+  } else {
+    btn.innerHTML =
+      '<svg viewBox="0 0 20 20" aria-hidden="true" style="width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.5"><path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z"/><circle cx="10" cy="10" r="2.5"/></svg>'
+      + 'Zobraziť PIN-y';
+    btn.style.background = '';
+    btn.style.borderColor = '';
+    btn.style.color = '';
+  }
 }
 
 async function toggleStatus(id) {
@@ -313,6 +399,10 @@ export function init(container) {
         <option value="manazer">Manažér</option>
         <option value="cisnik">Čašník</option>
       </select>
+      <button class="btn-secondary" id="btnTogglePins" style="display:inline-flex;align-items:center;gap:6px;font-weight:600">
+        <svg viewBox="0 0 20 20" aria-hidden="true" style="width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.5"><path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z"/><circle cx="10" cy="10" r="2.5"/></svg>
+        Zobraziť PIN-y
+      </button>
     </div>
     <div class="staff-grid" id="staffGrid">
       <div class="skeleton-card"></div>
@@ -326,6 +416,8 @@ export function init(container) {
   $('#addStaffBtn').addEventListener('click', () => openStaffModal());
   $('#staffSearch').addEventListener('input', () => renderStaff());
   $('#roleFilter').addEventListener('change', () => renderStaff());
+  const togglePinsBtn = $('#btnTogglePins');
+  if (togglePinsBtn) togglePinsBtn.addEventListener('click', toggleAllPins);
 
   // Delegate click events on the staff grid
   $('#staffGrid').addEventListener('click', e => {
@@ -388,5 +480,7 @@ export function destroy() {
   staff = [];
   editingId = null;
   revealedPins = new Set();
+  _showAllPins = false;
+  _pinMap = null;
   _container = null;
 }
