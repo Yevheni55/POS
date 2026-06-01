@@ -6,8 +6,11 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import sk.surfspirit.pos.R
 
 /* ===== Daylight paleta (cream + terra) — zhoduje sa s web POS ===== */
 val Cream        = Color(0xFFF5EFE3)
@@ -40,15 +43,31 @@ private val DaylightColors = lightColorScheme(
     onError = Cream,
 )
 
-// Sora/Manrope sa dajú pridať ako res/font + FontFamily; pre slice 1 ostávame
-// na systémovom sans-serif (čistý, čitateľný na tablete). Veľkosti ladené pre 10.1".
+// Brand fonty — zhoda s web POS (Sora = display, Manrope = body).
+val Sora = FontFamily(
+    Font(R.font.sora_regular, FontWeight.Normal),
+    Font(R.font.sora_semibold, FontWeight.SemiBold),
+    Font(R.font.sora_bold, FontWeight.Bold),
+    Font(R.font.sora_extrabold, FontWeight.ExtraBold),
+)
+val Manrope = FontFamily(
+    Font(R.font.manrope_regular, FontWeight.Normal),
+    Font(R.font.manrope_medium, FontWeight.Medium),
+    Font(R.font.manrope_semibold, FontWeight.SemiBold),
+    Font(R.font.manrope_bold, FontWeight.Bold),
+)
+
+// Display štýly → Sora; textové → Manrope. Veľkosti ladené pre 10.1".
 private val PosTypography = Typography(
-    titleLarge = TextStyle(fontWeight = FontWeight.ExtraBold, fontSize = 24.sp, letterSpacing = (-0.3).sp),
-    titleMedium = TextStyle(fontWeight = FontWeight.Bold, fontSize = 18.sp),
-    bodyLarge = TextStyle(fontWeight = FontWeight.Normal, fontSize = 16.sp),
-    bodyMedium = TextStyle(fontWeight = FontWeight.Medium, fontSize = 14.sp),
-    labelLarge = TextStyle(fontWeight = FontWeight.Bold, fontSize = 15.sp),
-    labelSmall = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 11.sp, letterSpacing = 0.6.sp),
+    titleLarge = TextStyle(fontFamily = Sora, fontWeight = FontWeight.ExtraBold, fontSize = 24.sp, letterSpacing = (-0.3).sp),
+    titleMedium = TextStyle(fontFamily = Sora, fontWeight = FontWeight.Bold, fontSize = 18.sp),
+    titleSmall = TextStyle(fontFamily = Sora, fontWeight = FontWeight.SemiBold, fontSize = 14.sp),
+    bodyLarge = TextStyle(fontFamily = Manrope, fontWeight = FontWeight.Normal, fontSize = 16.sp),
+    bodyMedium = TextStyle(fontFamily = Manrope, fontWeight = FontWeight.Medium, fontSize = 14.sp),
+    bodySmall = TextStyle(fontFamily = Manrope, fontWeight = FontWeight.Normal, fontSize = 12.sp),
+    labelLarge = TextStyle(fontFamily = Sora, fontWeight = FontWeight.Bold, fontSize = 15.sp),
+    labelMedium = TextStyle(fontFamily = Manrope, fontWeight = FontWeight.SemiBold, fontSize = 12.sp),
+    labelSmall = TextStyle(fontFamily = Manrope, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, letterSpacing = 0.6.sp),
 )
 
 @Composable
