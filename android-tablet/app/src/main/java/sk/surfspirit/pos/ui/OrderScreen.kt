@@ -10,8 +10,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,7 +24,9 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import sk.surfspirit.pos.core.AppPrefs
 import sk.surfspirit.pos.net.*
+import sk.surfspirit.pos.ui.components.PosHeader
 import sk.surfspirit.pos.ui.theme.*
 
 private fun money(v: Double): String = String.format("%.2f €", v).replace('.', ',')
@@ -41,6 +43,7 @@ fun OrderScreen(tableId: Int, onBack: () -> Unit) {
     var showPayDialog by remember { mutableStateOf(false) }
     var paying by remember { mutableStateOf(false) }
     var payError by remember { mutableStateOf<String?>(null) }
+    var search by remember { mutableStateOf("") }
     val newItems = remember { mutableStateMapOf<Int, Int>() }
 
     val itemById = remember(categories) { categories.flatMap { it.items }.associateBy { it.id } }
@@ -104,18 +107,8 @@ fun OrderScreen(tableId: Int, onBack: () -> Unit) {
 
     Scaffold(
         topBar = {
-            Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Späť") }
-                    Text("Stôl #$tableId", style = MaterialTheme.typography.titleLarge)
-                    current?.let {
-                        Spacer(Modifier.width(10.dp))
-                        Text(it.label, style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            }
+            PosHeader(activeTab = "objednavka", userName = AppPrefs.userName,
+                onStoly = onBack, onLogout = onBack, onRefresh = { reload() })
         }
     ) { pad ->
         if (loading) {
@@ -124,14 +117,26 @@ fun OrderScreen(tableId: Int, onBack: () -> Unit) {
         }
         Row(Modifier.fillMaxSize().padding(pad)) {
 
-            // ── Ľavá: kategórie + menu ──
+            // ── Ľavá: hľadanie + kategórie + menu ──
             Column(Modifier.weight(1.7f).padding(12.dp)) {
+                OutlinedTextField(
+                    value = search,
+                    onValueChange = { search = it },
+                    placeholder = { Text("Hľadať produkt alebo kategóriu…") },
+                    leadingIcon = { Icon(Icons.Filled.Search, null) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
                 Row(Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     categories.forEachIndexed { i, c -> CatChip(c, i == selectedCat) { selectedCat = i } }
                 }
                 Spacer(Modifier.height(10.dp))
-                val items = categories.getOrNull(selectedCat)?.items.orEmpty()
+                val items = if (search.isBlank())
+                    categories.getOrNull(selectedCat)?.items.orEmpty()
+                else
+                    categories.flatMap { it.items }.filter { it.name.contains(search, ignoreCase = true) }
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 132.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -147,7 +152,11 @@ fun OrderScreen(tableId: Int, onBack: () -> Unit) {
             Surface(Modifier.weight(1f).fillMaxHeight(), color = MaterialTheme.colorScheme.surfaceVariant,
                 tonalElevation = 1.dp) {
                 Column(Modifier.fillMaxSize().padding(14.dp)) {
-                    Text("Objednávka", style = MaterialTheme.typography.titleMedium)
+                    Text("Stôl #$tableId", style = MaterialTheme.typography.titleMedium)
+                    current?.let {
+                        Text(it.label, style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     if (sentQty > 0) {
                         Text("$sentQty ks v kuchyni", style = MaterialTheme.typography.labelMedium,
                             color = Sage)

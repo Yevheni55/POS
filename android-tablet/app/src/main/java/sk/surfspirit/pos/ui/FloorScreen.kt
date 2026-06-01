@@ -53,7 +53,8 @@ fun FloorScreen(onOpenTable: (Int) -> Unit, onLogout: () -> Unit) {
     Scaffold(
         topBar = {
             Column {
-                PosHeader(title = "Stoly", userName = AppPrefs.userName, onLogout = onLogout, onRefresh = { load() })
+                PosHeader(activeTab = "stoly", userName = AppPrefs.userName,
+                    onStoly = { load() }, onLogout = onLogout, onRefresh = { load() })
                 ShiftStrip(openTables = openCount, totalTables = tables.size, revenueToday = null)
             }
         }
