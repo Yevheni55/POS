@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  POS beží na LAN cez HTTP (port 3080) alebo self-signed HTTPS (3443).
+  Povolíme cleartext (HTTP) pre lokálne siete. Adresa servera je
+  konfigurovateľná v appke, takže nemôžeme zafixovať jeden host —
+  povoľujeme cleartext globálne (appka je interná, LAN-only kiosk).
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
