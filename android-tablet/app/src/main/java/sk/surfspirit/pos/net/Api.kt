@@ -72,6 +72,7 @@ import java.util.concurrent.TimeUnit
 @Serializable data class CreateOrderReq(val tableId: Int, val items: List<NewItem>)
 @Serializable data class AddItemsReq(val items: List<NewItem>)
 @Serializable data class SendReq(val overrideLimit: Boolean = false)
+@Serializable data class PayReq(val orderId: Int, val method: String, val amount: Double)
 @Serializable class Empty   // ignoreUnknownKeys → pohltí ľubovoľnú odpoveď
 
 /* ===================== API service ===================== */
@@ -97,6 +98,9 @@ interface ApiService {
 
     @POST("api/orders/{id}/send-and-print")
     suspend fun sendAndPrint(@Path("id") orderId: Int, @Body body: SendReq): Empty
+
+    @POST("api/payments")
+    suspend fun pay(@Body body: PayReq): Empty
 }
 
 /* ===================== Retrofit factory ===================== */

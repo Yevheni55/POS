@@ -32,6 +32,9 @@ fun OrderScreen(tableId: Int, onBack: () -> Unit) {
     var loading by remember { mutableStateOf(true) }
     var sending by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var showPayDialog by remember { mutableStateOf(false) }
+    var paying by remember { mutableStateOf(false) }
+    var payError by remember { mutableStateOf<String?>(null) }
     // Lokálne nové (neodoslané) položky: menuItemId -> qty
     val newItems = remember { mutableStateMapOf<Int, Int>() }
 
@@ -80,8 +83,26 @@ fun OrderScreen(tableId: Int, onBack: () -> Unit) {
         }
     }
 
+    fun pay(method: String) {
+        val ord = current ?: return
+        val amt = if (ord.totalAfterDiscount > 0.0) ord.totalAfterDiscount else ord.total
+        if (amt <= 0.0 || paying) return
+        paying = true; payError = null
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) { Api.service.pay(PayReq(ord.id, method, amt)) }
+                showPayDialog = false
+                onBack()   // späť na floor — ten sa reloadne (LifecycleResumeEffect), stôl je voľný
+            } catch (e: Exception) {
+                payError = "Platba zlyhala: ${e.message}"
+            } finally { paying = false }
+        }
+    }
+
     val newTotal = newItems.entries.sumOf { (id, q) -> (itemById[id]?.price ?: 0.0) * q }
     val existingTotal = current?.total ?: 0.0
+    val payAmount = current?.let { if (it.totalAfterDiscount > 0.0) it.totalAfterDiscount else it.total } ?: 0.0
+    val canPay = current != null && newItems.isEmpty() && payAmount > 0.0 && !sending && !paying
 
     Scaffold(
         topBar = {
@@ -178,10 +199,50 @@ fun OrderScreen(tableId: Int, onBack: () -> Unit) {
                         if (sending) CircularProgressIndicator(Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary)
                         else Text("Poslať objednávku")
                     }
-                    // Platba — ďalšia vrstva (fiškál cez server). Zatiaľ placeholder.
-                    OutlinedButton(onClick = { }, enabled = false,
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                        Text("Platba (čoskoro)")
+                    // Platba — POST /api/payments (fiškál rieši server cez Portos).
+                    OutlinedButton(
+                        onClick = { payError = null; showPayDialog = true },
+                        enabled = canPay,
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(48.dp),
+                    ) {
+                        Text(if (payAmount > 0.0) "Zaplatiť ${money(payAmount)}" else "Zaplatiť")
+                    }
+                    if (current != null && newItems.isNotEmpty()) {
+                        Text(
+                            "Najprv pošli nové položky, potom zaplať.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+
+                    if (showPayDialog) {
+                        AlertDialog(
+                            onDismissRequest = { if (!paying) showPayDialog = false },
+                            title = { Text("Platba ${money(payAmount)}") },
+                            text = {
+                                Column {
+                                    Text("Vyber spôsob platby:")
+                                    payError?.let {
+                                        Spacer(Modifier.height(8.dp))
+                                        Text(it, color = MaterialTheme.colorScheme.error,
+                                            style = MaterialTheme.typography.bodyMedium)
+                                    }
+                                    if (paying) {
+                                        Spacer(Modifier.height(12.dp))
+                                        CircularProgressIndicator(Modifier.size(22.dp))
+                                    }
+                                }
+                            },
+                            confirmButton = {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Button(onClick = { pay("hotovost") }, enabled = !paying) { Text("Hotovosť") }
+                                    Button(onClick = { pay("karta") }, enabled = !paying) { Text("Karta") }
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showPayDialog = false }, enabled = !paying) { Text("Zrušiť") }
+                            },
+                        )
                     }
                 }
             }

@@ -13,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -50,7 +51,12 @@ fun FloorScreen(onOpenTable: (Int) -> Unit, onLogout: () -> Unit) {
             } finally { loading = false }
         }
     }
-    LaunchedEffect(Unit) { load() }
+    // Reload pri každom návrate na floor (napr. po zaplatení účtu sa stôl
+    // uvoľní — chceme čerstvý stav bez ručného Obnoviť).
+    LifecycleResumeEffect(Unit) {
+        load()
+        onPauseOrDispose { }
+    }
 
     Scaffold(
         topBar = {

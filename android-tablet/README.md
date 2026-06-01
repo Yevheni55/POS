@@ -16,14 +16,17 @@ tablet UX (žiadny prehliadač, kiosk režim, rýchlejšie), ale znamená prepí
   (zelená = voľný, terra = obsadený, …)
 - ✅ **Jadro objednávky** — menu (`GET /api/menu`), pridávanie položiek,
   **Poslať objednávku** (`POST /api/orders` / `/items` + `/send-and-print`)
+- ✅ **Platba** — Hotovosť / Karta (`POST /api/payments`); fiškál (Portos)
+  rieši server, tlač bloku tiež. Po zaplatení sa stôl uvoľní a appka sa
+  vráti na plán stolov (auto-refresh).
 - ✅ Kiosk: fullscreen immersive, landscape lock, obrazovka stále zapnutá
 - ✅ Daylight dizajn (cream + terra), zhoda s web POS
 
 ### Ešte nie je (ďalšie slice)
-Platby + Portos fiškál, tlač (rieši server), účty/split/presun, zľavy,
-dochádzka, admin (menu, recepty, reporty, cashflow, sklad), staff meal,
-shisha, TTLock. Tieto pribudnú postupne — každá ako samostatná vrstva proti
-už existujúcim API endpointom.
+Účty/split/presun, zľavy, predúčet, paragón offline fallback, dochádzka,
+admin (menu, recepty, reporty, cashflow, sklad), staff meal, shisha, TTLock.
+Tieto pribudnú postupne — každá ako samostatná vrstva proti už existujúcim
+API endpointom.
 
 ## Build (Android Studio — najjednoduchšie)
 
