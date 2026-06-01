@@ -75,6 +75,14 @@ import java.util.concurrent.TimeUnit
 @Serializable data class PayReq(val orderId: Int, val method: String, val amount: Double)
 @Serializable class Empty   // ignoreUnknownKeys → pohltí ľubovoľnú odpoveď
 
+// Auto-update manifest (hostovaný na kase: /uploads/app/latest.json)
+@Serializable data class UpdateInfo(
+    val versionCode: Int = 0,
+    val versionName: String = "",
+    val url: String = "",        // relatívna cesta k APK, napr. "uploads/app/SurfSpiritPOS.apk"
+    val notes: String = "",
+)
+
 /* ===================== API service ===================== */
 
 interface ApiService {
@@ -101,6 +109,14 @@ interface ApiService {
 
     @POST("api/payments")
     suspend fun pay(@Body body: PayReq): Empty
+
+    // Auto-update (public route, číta z durable /backups/app na kase)
+    @GET("api/app/latest")
+    suspend fun latestVersion(): UpdateInfo
+
+    @retrofit2.http.Streaming
+    @GET
+    suspend fun downloadFile(@retrofit2.http.Url url: String): okhttp3.ResponseBody
 }
 
 /* ===================== Retrofit factory ===================== */

@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 
 import authRoutes from './routes/auth.js';
 import healthRoutes from './routes/health.js';
+import appUpdateRoutes from './routes/app-update.js';
 import menuRoutes from './routes/menu.js';
 import tablesRoutes from './routes/tables.js';
 import zonesRoutes from './routes/zones.js';
@@ -181,6 +182,8 @@ app.use(express.static(path.join(__dirname, '..'), {
 // Public routes (no auth needed)
 app.use('/api/auth', authRoutes);
 app.use('/api/health', healthRoutes);
+// Android tablet auto-update — PUBLIC (UpdateGate beží aj pred prihlásením)
+app.use('/api/app', appUpdateRoutes);
 // Public attendance terminal — PIN-only (attendancePin), no JWT. Must be
 // mounted BEFORE the admin router below so /identify and /clock match
 // without going through auth.

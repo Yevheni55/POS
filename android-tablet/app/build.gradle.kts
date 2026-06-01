@@ -12,8 +12,8 @@ android {
         applicationId = "sk.surfspirit.pos"
         minSdk = 26          // Android 8.0 — adaptívna ikona bez PNG; pokryje bežné 10.1" tablety
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
         // Default adresa POS servera (LAN). Mení sa v appke → uloží do prefs.
         resValue("string", "default_server_url", "http://192.168.1.235:3080")
     }
@@ -31,7 +31,7 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
 
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }   // buildConfig pre VERSION_CODE (auto-update)
     composeOptions { kotlinCompilerExtensionVersion = "1.5.14" }   // pre Kotlin 1.9.24
 
     packaging {

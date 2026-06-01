@@ -11,6 +11,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import sk.surfspirit.pos.core.AppPrefs
 import sk.surfspirit.pos.ui.AppNav
 import sk.surfspirit.pos.ui.theme.SurfSpiritTheme
+import sk.surfspirit.pos.ui.update.UpdateGate
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -21,7 +22,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         applyImmersive()
         setContent {
-            SurfSpiritTheme { AppNav() }
+            SurfSpiritTheme {
+                AppNav()
+                UpdateGate()   // skontroluje /uploads/app/latest.json a ponúkne update
+            }
         }
     }
 

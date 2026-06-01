@@ -22,6 +22,20 @@ tablet UX (žiadny prehliadač, kiosk režim, rýchlejšie), ale znamená prepí
 - ✅ Kiosk: fullscreen immersive, landscape lock, obrazovka stále zapnutá
 - ✅ Daylight dizajn (cream + terra), zhoda s web POS
 
+- ✅ **Auto-update** — appka pri štarte skontroluje `/api/app/latest` na kase;
+  ak je vyššia verzia, ponúkne *„Aktualizovať"* → stiahne APK z kasy
+  (`/api/app/download`) → spustí inštalátor (1 tap kvôli sideload bezpečnosti).
+
+#### Publikovanie novej verzie (auto-update)
+1. Zdvihni `versionCode` (+`versionName`) v `app/build.gradle.kts`.
+2. Zbuilduj APK (Android Studio / `gradle assembleDebug` v `C:\at`).
+3. `./publish-update.sh <APK> <versionCode> <versionName> "<poznámky>"`
+   — nahrá APK + manifest na kasu do durable `/backups/app` (prežije redeploy).
+4. Tablety pri ďalšom štarte ponúknu aktualizáciu na jeden klik.
+
+Server: `GET /api/app/latest` (manifest) + `/api/app/download` (APK), public,
+číta z `/backups/app` (volume `pos_backups`).
+
 ### Ešte nie je (ďalšie slice)
 Účty/split/presun, zľavy, predúčet, paragón offline fallback, dochádzka,
 admin (menu, recepty, reporty, cashflow, sklad), staff meal, shisha, TTLock.
