@@ -171,7 +171,7 @@ function renderMobMenu() {
     const inOrder = order.find(o => o.name === item.name);
     const badge = inOrder ? `<span class="mob-product-badge">${inOrder.qty}</span>` : '';
     var prodLabel = escHtml(item.name) + ', ' + escHtml(fmt(item.price));
-    return `<button type="button" class="mob-product" onclick="mobAddItem('${item.name.replace(/'/g, "\\'")}','${item.emoji}',${item.price})" aria-label="${prodLabel}">
+    return `<button type="button" class="mob-product" onclick="mobAddItem('${item.name.replace(/'/g, "\\'")}','${item.emoji}',${item.price})" onpointerdown="_lpStart(event,'${item.name.replace(/'/g, "\\'")}','${item.emoji}',${item.price})" onpointerup="_lpCancel()" onpointerleave="_lpCancel()" onpointercancel="_lpCancel()" oncontextmenu="event.preventDefault()" aria-label="${prodLabel}">
       ${badge}<span class="mob-product-emoji" aria-hidden="true">${(typeof productIconSVG==='function'?productIconSVG(item.name,item.categorySlug):escHtml(item.emoji||''))}</span>
       <div class="mob-product-name">${escHtml(item.name)}</div>
       <div class="mob-product-price">${fmt(item.price)}</div>
@@ -188,6 +188,10 @@ function setMobCat(key) {
 }
 
 function mobAddItem(name, emoji, price) {
+  // Long-press already opened the +N qty popup and added items — swallow the
+  // trailing click so a held press doesn't also add +1 (mirrors desktop's
+  // addToOrderClick guard in pos-render.js).
+  if (typeof _lpFired !== 'undefined' && _lpFired) { _lpFired = false; return; }
   addToOrder(name, emoji, price);
   if (navigator.vibrate) navigator.vibrate(15);
   updateMobBadge();

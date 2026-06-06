@@ -19,7 +19,7 @@
 <link rel="stylesheet" href="/tokens.css">
 <link rel="stylesheet" href="/a11y.css">
 <link rel="stylesheet" href="/fonts/fonts.css">
-<link rel="stylesheet" href="/css/pos.css?v=39">
+<link rel="stylesheet" href="/css/pos.css?v=40">
 <!-- POZN: defer NEPOUZIVAT na tieto subory. Body scripts (pos-state.js,
      pos-init.js, atd.) bezia hned ako sa parser k nim dostane a OCEKAVAJU
      ze showToast / escHtml / posIcons su uz k dispozicii. defer by ich
@@ -290,9 +290,9 @@
       <!-- Numpad 3×4: digits 1-9, decimal, 0, backspace. Grid sa škáluje
            na šírku modalu, na desktope aj na touchpad funkcuje rovnako. -->
       <div id="cashNumpad" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px"></div>
-      <div id="cashChangeBox" style="margin-top:10px;padding:10px;text-align:center;font-size:16px;border-radius:6px;background:rgba(255,255,255,.03)">
-        <span style="color:var(--color-text-sec)">Vydať:</span>
-        <span id="cashChangeAmount" style="font-weight:700;font-size:22px;margin-left:8px">—</span>
+      <div id="cashChangeBox" class="cash-change-box">
+        <span id="cashChangeLabel" class="cash-change-label">Vydať:</span>
+        <span id="cashChangeAmount" class="cash-change-amount">—</span>
       </div>
     </div>
     <div class="u-modal-btns">

@@ -28,15 +28,32 @@ const api = {
 
   // Clears OFFLINE state + banner once a fetch succeeds. Stale banner stays
   // until next request otherwise — see fix in claude/amazing-mccarthy-f841b1.
+  // Only toggles the .show class (does NOT remove the element) so the same
+  // banner can be re-shown on a later outage — otherwise the first recovery
+  // deletes #offlineBanner from the DOM and _setOffline() can never find it.
   _setOnline() {
     if (this._offline) {
       this._offline = false;
       var b = document.querySelector('#offlineBanner, .offline-banner');
-      if (b) {
-        if (b.classList) b.classList.remove('show');
-        b.remove();
-      }
+      if (b && b.classList) b.classList.remove('show');
       if (document.body) document.body.classList.remove('is-offline');
+    }
+  },
+
+  // Mirror of _setOnline: surface the OFFLINE banner + a one-shot warning
+  // toast on the false→true transition. Driven by api._offline (the
+  // server-down / wifi-up path in request()), NOT only the window 'offline'
+  // event — that event tracks the OS network interface, so a crashed server
+  // or downed proxy with wifi still up never fires it and the cashier would
+  // otherwise build a whole order whose kitchen tickets silently queue.
+  _setOffline(msg) {
+    var wasOffline = this._offline;
+    this._offline = true;
+    var b = document.getElementById('offlineBanner') || document.querySelector('.offline-banner');
+    if (b && b.classList) b.classList.add('show');
+    if (document.body) document.body.classList.add('is-offline');
+    if (!wasOffline && typeof showToast === 'function') {
+      showToast(msg || 'Server nedostupný — objednávky sa ukladajú lokálne', 'warning');
     }
   },
 
@@ -129,7 +146,11 @@ const api = {
       }
 
       if (res.status === 401) {
-        this.logout();
+        // _noAuthRedirect: callers like manager-PIN verify pass this so a
+        // wrong MANAGER pin (401 from /auth/verify-manager) doesn't log out
+        // and bounce the whole terminal to /login — that 401 means "wrong
+        // pin", not "cashier session expired".
+        if (!options._noAuthRedirect) this.logout();
         const err = new Error((data && data.error) || 'Neplatny token');
         err.status = res.status;
         err.data = data;
@@ -160,7 +181,7 @@ const api = {
       return data;
     } catch (err) {
       if (err.name === 'TypeError' && err.message.includes('fetch')) {
-        this._offline = true;
+        this._setOffline();
         if (options.method && options.method !== 'GET') {
           // PR-C: fiscal/payment paths must not be auto-replayed. Refuse at
           // queue time and surface a distinct error so the caller can show
@@ -417,10 +438,9 @@ window.addEventListener('online', async () => {
 });
 
 window.addEventListener('offline', () => {
-  api._offline = true;
-  document.getElementById('offlineBanner')?.classList.add('show');
-  document.body.classList.add('is-offline');
-  if (typeof showToast === 'function') showToast('Ste offline - zmeny budu ulozene lokalne', 'warning');
+  // NIC-level offline (OS reports the network interface down) — distinct copy
+  // from the server-down default in _setOffline().
+  api._setOffline('Ste offline — zmeny budú uložené lokálne');
 });
 
 api._loadQueue();

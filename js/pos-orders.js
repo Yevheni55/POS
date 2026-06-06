@@ -370,7 +370,7 @@ function _addToOrderCore(name, emoji, price, forceNewRow) {
       '<div class="order-item-info"><div class="order-item-name">' + escHtml(name) + '</div></div>' +
       '<div class="order-item-qty"><button class="qty-btn" onclick="changeQty(\'' + esc + '\', -1, ' + changedItem.id + ')" onpointerdown="startQtyHold(\'' + esc + '\', -1, ' + changedItem.id + ')">&minus;</button><span class="qty-val">1</span><button class="qty-btn" onclick="changeQty(\'' + esc + '\', 1, ' + changedItem.id + ')" onpointerdown="startQtyHold(\'' + esc + '\', 1, ' + changedItem.id + ')">&plus;</button></div>' +
       '<div class="order-item-total">' + fmt(price) + '</div></div>' +
-      '<div class="order-item-swipe-left"><button class="swipe-btn swipe-btn-move" onclick="enterMoveMode(' + changedItem.id + ')" aria-label="Presunut polozku">&#8599;</button><button class="swipe-btn swipe-btn-note" onclick="openNoteModal(\'' + esc + '\',' + changedItem.id + ')" aria-label="Poznamka">&#9998;</button><button class="swipe-btn swipe-btn-del" onclick="removeItem(\'' + esc + '\')" aria-label="Odstranit polozku">&#10005;</button></div></div>';
+      '<div class="order-item-swipe-left"><button class="swipe-btn swipe-btn-move" onclick="enterMoveMode(' + changedItem.id + ')" aria-label="Presunut polozku">&#8599;</button><button class="swipe-btn swipe-btn-note" onclick="openNoteModal(\'' + esc + '\',' + changedItem.id + ')" aria-label="Poznamka">&#9998;</button><button class="swipe-btn swipe-btn-del" onclick="confirmRemoveItem(\'' + esc + '\', ' + changedItem.id + ')" aria-label="Odstranit polozku">&#10005;</button></div></div>';
     c.insertAdjacentHTML('afterbegin', html);
   }
 
@@ -599,7 +599,39 @@ function _promptStornoReasonAndWriteOff(s) {
       showToast('✔ Storno zapísané', true);
     }).catch(function (e) {
       console.error('storno-basket POST error:', e);
-      showToast('Storno zapis zlyhal: ' + (e && e.message), 'error');
+      // Offline (fetch TypeError) is already auto-queued by api.request and
+      // never reaches here. This catch = a thrown HTTP error. On a server/
+      // transport error re-queue the write-off so it isn't silently lost
+      // (replays on reconnect; idempotency key guards against a double row).
+      // A 4xx client/validation error won't fix itself on replay → don't loop.
+      var _st = e && e.status;
+      if (!_st || _st >= 500) {
+        try {
+          api._queue.push({
+            path: '/storno-basket',
+            method: 'POST',
+            body: {
+              menuItemId: s.miId,
+              qty: s.sQty,
+              name: s.sName,
+              unitPrice: typeof s.unitPrice === 'number' ? s.unitPrice : 0,
+              reason: result.reason,
+              note: result.note || '',
+              wasPrepared: !result.returnToStock,
+              orderId: s.oid || null,
+            },
+            idempotencyKey: (typeof api._genIdempotencyKey === 'function' ? api._genIdempotencyKey() : null),
+            timestamp: Date.now(),
+          });
+          api._saveQueue();
+          showToast('Storno zápis zlyhal — uložené, skúsim znova po obnove spojenia', 'warning');
+        } catch (qe) {
+          console.error('storno-basket requeue failed:', qe);
+          showToast('Storno zápis zlyhal — zavolaj manažéra', 'error');
+        }
+      } else {
+        showToast('Storno zápis zlyhal (' + _st + ') — zavolaj manažéra', 'error');
+      }
     });
   });
 }

@@ -1306,9 +1306,40 @@ body::after{
 .sum-total-val{
   font-family:var(--font-mono),'JetBrains Mono Variable',ui-monospace,monospace;
   font-feature-settings:'tnum' 1;
-  font-size:22px;font-weight:800;color:var(--color-accent);
+  font-size:var(--text-6xl);font-weight:800;color:var(--color-accent);
   letter-spacing:-.01em;
 }
+
+/* Cash payment — "Vydať" change figure must be the number the eye lands on
+   (the cashier acts on it while handing change), so it dominates the total.
+   Underpayment flips #cashChangeBox to a solid CHÝBA danger state instead of
+   a quiet 3%-alpha color tint. Markup: #cashChangeBox in pos-enterprise.html,
+   state classes toggled in _updateCashChange (pos-payments.js). */
+.cash-change-box{
+  margin-top:10px;padding:10px 12px;border-radius:var(--radius-sm);
+  display:flex;align-items:baseline;justify-content:center;gap:10px;
+  background:rgba(255,255,255,.03);border:1px solid transparent;
+  transition:background var(--transition-fast),border-color var(--transition-fast);
+}
+.cash-change-label{
+  font-family:var(--font-body);font-size:13px;font-weight:600;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--color-text-sec);
+}
+.cash-change-amount{
+  font-family:var(--font-mono),ui-monospace,monospace;font-feature-settings:'tnum' 1;
+  font-size:var(--text-6xl);font-weight:800;line-height:1;color:var(--color-text-sec);
+}
+.cash-change-box.is-change{
+  background:color-mix(in srgb,var(--color-success) 18%,transparent);
+  border-color:color-mix(in srgb,var(--color-success) 40%,transparent);
+}
+.cash-change-box.is-change .cash-change-amount{color:var(--color-success)}
+.cash-change-box.is-short{
+  background:color-mix(in srgb,var(--color-danger) 20%,transparent);
+  border-color:color-mix(in srgb,var(--color-danger) 45%,transparent);
+}
+.cash-change-box.is-short .cash-change-label,
+.cash-change-box.is-short .cash-change-amount{color:var(--color-danger)}
 
 /* Spec 1.4 — Hotovost + Karta rovnaké, rozdiel iba ikona/text. */
 .actions{display:flex;flex-direction:column;gap:6px}
@@ -2302,12 +2333,15 @@ body::after{
   .search-input{font-size:21px;min-height:58px;padding:14px 14px 14px 51px}
   .search-icon{font-size:25px}
   .search-icon .svg-icon{width:24px;height:24px}
-  /* Menu products — bumpnute aby sef videl ceny z laku ruky */
-  .product-card{min-height:106px;padding:10px}
+  /* Menu products — bumpnute aby sef videl ceny z laku ruky. Nizsia karta
+     + uzsi grid (118px nizsie) = viac poloziek naraz, menej scroll-lovenia
+     v dlhych kategoriach. Operator priorita: "vidno vsetko bez scroll". */
+  .product-card{min-height:88px;padding:10px}
   .product-emoji{font-size:25px;margin-bottom:2px}
   .product-name{font-size:17px;line-height:var(--leading-snug)}
   .product-desc{font-size:13px}
   .product-price{font-size:21px}
+  .product-photo{max-height:90px}
   /* Order list — canonical compact 56px row (see ORDER ROW block ~line 2625)
      is shared across breakpoints. Tablet keeps qty-popup oversized for
      arm's-length use; row metrics inherited from the base rule. */
@@ -2318,7 +2352,11 @@ body::after{
      a touch for arm's-length readability but keep the single-row box
      identity from canonical .sum-total-wrap rule. */
   .sum-total-label{font-size:12px;letter-spacing:.18em}
-  #total,.sum-total-val{font-size:26px}
+  /* Spec follow-up — grand total is the single most important number; make it
+     dominate the footer for arm's-length glanceability (was 26px). */
+  #total,.sum-total-val{font-size:var(--text-7xl)}
+  /* Cash "Vydať" change figure dominates the modal total (--text-5xl) here. */
+  .cash-change-amount{font-size:var(--text-7xl)}
   .form-input,.form-select,.u-modal-field input,.u-modal-field textarea,.u-modal-field select{height:60px;font-size:20px}
   .u-btn{font-size:20px;min-height:60px;padding:14px 23px}
   .u-modal{padding:41px;min-width:437px;max-width:598px}
@@ -2378,17 +2416,20 @@ body::after{
   }
   .categories::-webkit-scrollbar{display:block;width:4px}
   .categories::-webkit-scrollbar-thumb{background:rgba(122,100,80,.18);border-radius:6px}
+  /* Lower row height so all ~15 categories (14 + 🔥 Najcastejsie) fit the
+     sidebar with far less scroll — 50px stays above the 44px tap floor.
+     overflow-y:auto kept as a graceful fallback if the menu grows further. */
   .cat-btn{
     display:flex;
     width:100%;
-    min-height:64px;
-    padding:10px 14px;
+    min-height:50px;
+    padding:8px 12px;
     font-size:16px;
   }
   .cat-btn .cat-icon{font-size:22px;width:26px}
   .cat-btn .cat-key{display:none}
-  /* Narrower cards so 4–5 columns fit in the reduced-width grid area */
-  .products-grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
+  /* Narrower cards so 5+ columns fit in the reduced-width grid area */
+  .products-grid{grid-template-columns:repeat(auto-fill,minmax(118px,1fr))}
 }
 .admin-btn{
   padding:var(--space-2) var(--space-4);border-radius:var(--radius-sm);border:1px solid var(--color-accent-border);

@@ -510,7 +510,10 @@ function _setupCashHelper(method, total) {
   // Reset stav (modal sa m\u00F4\u017Ee otv\u00E1ra\u0165 opakovane na rovnakej obrazovke).
   input.value = '';
   changeAmt.textContent = '\u2014';
-  changeAmt.style.color = 'var(--color-text-sec)';
+  var changeBox = document.getElementById('cashChangeBox');
+  var changeLabel = document.getElementById('cashChangeLabel');
+  if (changeBox) changeBox.classList.remove('is-change', 'is-short');
+  if (changeLabel) changeLabel.textContent = 'Vyda\u0165:';
 
   // Quick-pick presety: presn\u00E1 suma + najbli\u017E\u0161ie 5/10/20/50/100 \u20AC. Pokr\u00FDva
   // 95 % platieb \u2014 oper\u00E1tor nemus\u00ED klika\u0165 na numpade.
@@ -589,26 +592,32 @@ function _onNumpadKey(key, special, total) {
 function _updateCashChange(total) {
   var input = document.getElementById('cashGivenInput');
   var changeAmt = document.getElementById('cashChangeAmount');
+  var changeBox = document.getElementById('cashChangeBox');
+  var changeLabel = document.getElementById('cashChangeLabel');
   if (!input || !changeAmt) return;
+  // State carried by .is-change / .is-short classes on #cashChangeBox (CSS).
+  if (changeBox) changeBox.classList.remove('is-change', 'is-short');
   var raw = String(input.value || '').replace(',', '.');
   var given = parseFloat(raw);
   if (!Number.isFinite(given) || given <= 0) {
+    if (changeLabel) changeLabel.textContent = 'Vyda\u0165:';
     changeAmt.textContent = '\u2014';
-    changeAmt.style.color = 'var(--color-text-sec)';
     return;
   }
   var change = Math.round((given - total) * 100) / 100;
   if (change < 0) {
-    // Z\u00E1kazn\u00EDk dal menej ako je celkov\u00E1 suma \u2014 varovanie, oper\u00E1tor p\u00FDta
-    // dorovnanie alebo doklepe \u010Fal\u0161ie bankovky.
-    changeAmt.textContent = 'Ch\u00FDba ' + fmt(-change);
-    changeAmt.style.color = 'var(--color-danger, #ef4444)';
+    // Z\u00E1kazn\u00EDk dal menej ako je celkov\u00E1 suma \u2014 \u010Derven\u00FD CH\u00DDBA stav, nech to
+    // \u010D\u00EDta ako chyba, nie ako drobn\u00E1 zmena farby. Oper\u00E1tor p\u00FDta dorovnanie.
+    if (changeLabel) changeLabel.textContent = 'CH\u00DDBA';
+    changeAmt.textContent = fmt(-change);
+    if (changeBox) changeBox.classList.add('is-short');
   } else if (change === 0) {
+    if (changeLabel) changeLabel.textContent = 'Vyda\u0165:';
     changeAmt.textContent = '0,00 \u20AC';
-    changeAmt.style.color = 'var(--color-text-sec)';
   } else {
+    if (changeLabel) changeLabel.textContent = 'Vyda\u0165:';
     changeAmt.textContent = fmt(change);
-    changeAmt.style.color = 'var(--color-success, #22c55e)';
+    if (changeBox) changeBox.classList.add('is-change');
   }
 }
 
@@ -841,7 +850,30 @@ async function offerParagonFallback(reason) {
   });
 }
 
-async function confirmPayment() {
+async function confirmPayment(opts) {
+  opts = opts || {};
+  // Underpayment guard (cash only): the typed cash is a change-calculator that
+  // is never validated at confirm — amount:total is posted regardless. So a
+  // cashier can see a small red "Chýba 3,00", press Potvrdiť, and the bill
+  // closes as fully paid. If an explicit amount was typed and it's below the
+  // total, ask once. Empty input (no amount typed) pays normally as before.
+  if (!opts._underpaymentConfirmed && pendingPaymentMethod === 'hotovost') {
+    var _cashEl = document.getElementById('cashGivenInput');
+    if (_cashEl) {
+      var _given = parseFloat(String(_cashEl.value || '').replace(',', '.'));
+      var _due = getOrderTotal();
+      if (Number.isFinite(_given) && _given > 0 && _given < _due - 0.005) {
+        showConfirm(
+          'Zákazník dal menej',
+          'Zadaná hotovosť ' + fmt(_given) + ' je menšia ako suma účtu ' + fmt(_due) + '. Naozaj uzavrieť účet?',
+          function () { confirmPayment({ _underpaymentConfirmed: true }); },
+          { type: 'danger', confirmText: 'Uzavrieť účet', cancelText: 'Späť' }
+        );
+        return;
+      }
+    }
+  }
+
   var btn = document.querySelector('#paymentModal .u-btn-mint');
   if (btn) btnLoading(btn);
   try {
@@ -959,15 +991,40 @@ function requireManagerPin(action) {
 async function verifyManagerPin() {
   var pin = document.getElementById('managerPinInput').value;
   var btn = document.querySelector('#managerPinModal .u-btn-ice');
+  var errEl = document.getElementById('managerPinError');
+  var inputEl = document.getElementById('managerPinInput');
   if (btn) btnLoading(btn);
   try {
-    await api.post('/auth/verify-manager', { pin: pin });
+    // _noAuthRedirect: a wrong PIN returns 401 — without this api.request would
+    // log the cashier out and redirect the terminal to /login.
+    var vr = await api.request('/auth/verify-manager', {
+      method: 'POST',
+      body: JSON.stringify({ pin: pin }),
+      _noAuthRedirect: true,
+    });
+    // Offline → api.request queues the POST and returns null. We must NOT treat
+    // that as a pass (would run the gated storno without ever checking the PIN).
+    if (vr === null) {
+      errEl.textContent = 'Bez pripojenia sa PIN nedá overiť';
+      errEl.classList.remove('pos-hidden');
+      return;
+    }
     document.getElementById('managerPinModal').classList.remove('show');
     if (pendingStornoAction) { pendingStornoAction(); pendingStornoAction = null; }
   } catch(e) {
-    document.getElementById('managerPinError').textContent = 'Nespravny PIN';
-    document.getElementById('managerPinError').classList.remove('pos-hidden');
-    document.getElementById('managerPinInput').value = '';
+    var msg;
+    if (e && e.status === 429) {
+      msg = (e.data && e.data.error) || 'Zablokované — priveľa pokusov, skús o chvíľu';
+    } else if (e && (e.status >= 500 || (e.name === 'TypeError' && /fetch/i.test(e.message || '')))) {
+      // Server/transport error — keep the typed PIN so the manager needn't retype.
+      msg = 'Server nedostupný — skús znova';
+    } else {
+      // 401/403/etc. → genuinely the wrong PIN.
+      msg = 'Nesprávny PIN';
+      inputEl.value = '';
+    }
+    errEl.textContent = msg;
+    errEl.classList.remove('pos-hidden');
   } finally {
     if (btn) btnReset(btn);
   }

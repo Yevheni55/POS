@@ -164,6 +164,10 @@ async function switchView(v){
   document.getElementById('tableView').classList.toggle('active',v==='tables');
   document.getElementById('productsPanel').classList.toggle('active',v==='products');
   document.querySelector('.order-panel').classList.toggle('pos-hidden', v==='tables');
+  // Reclaim the shift-strip band (~30px) on the products view where row count
+  // matters; keep the owner-glance metrics on the floor (tables) view.
+  var _ss=document.getElementById('shiftStrip');
+  if(_ss)_ss.classList.toggle('pos-hidden', v==='products');
   if(v==='tables')renderFloor();if(v==='products')renderProducts();
   if (typeof persistUIState === 'function') persistUIState();
 }
@@ -794,7 +798,7 @@ function renderProducts(){
     var _esc = escAttr(item.name.replace(/'/g, "\\'"));
     var _emoji = escAttr(item.emoji);
     return `<div class="product-card${item.imageUrl?' has-photo':''}${q>0?' in-cart':''}" data-name="${escAttr(item.name)}" tabindex="0" role="button" style="--cat-color:${cc}" onclick="addToOrderClick('${_esc}','${_emoji}',${item.price})" onpointerdown="ripple(event);_lpStart(event,'${_esc}','${_emoji}',${item.price})" onpointerup="_lpCancel()" onpointerleave="_lpCancel()" onpointercancel="_lpCancel()" oncontextmenu="event.preventDefault()">
-      ${qtyBadge}${visualHtml}<div class="product-name">${escHtml(item.name)}</div><div class="product-desc">${escHtml(item.desc)}</div><div class="product-price">${fmt(item.price)}</div></div>`;
+      ${qtyBadge}${visualHtml}<div class="product-name">${escHtml(item.name)}</div>${item.desc?`<div class="product-desc">${escHtml(item.desc)}</div>`:''}<div class="product-price">${fmt(item.price)}</div></div>`;
   }).join('');
 }
 
@@ -900,6 +904,13 @@ function _showQtyPopup(ev, name, emoji, price) {
       e.stopPropagation();
       if (typeof addToOrderN === 'function') addToOrderN(name, emoji, price, q);
       else { for (var i = 0; i < q; i++) addToOrder(name, emoji, price); }
+      // Mobile parity: addToOrder's fast-path only refreshes the desktop
+      // panel, so on a phone refresh the mobile menu badges + tab badge.
+      if (typeof isMobile === 'function' && isMobile()) {
+        if (typeof renderMobMenu === 'function') renderMobMenu();
+        if (typeof renderMobOrder === 'function') renderMobOrder();
+        if (typeof updateMobBadge === 'function') updateMobBadge();
+      }
       if (p.parentNode) p.remove();
     });
     p.appendChild(b);
@@ -1179,7 +1190,7 @@ function renderOrder(){
       </div>
     </div>
   </div>
-  <div class="order-item-swipe-left"><button class="swipe-btn swipe-btn-move" onclick="enterMoveMode(${o.id})" aria-label="Presunut polozku">&#8599;</button><button class="swipe-btn swipe-btn-note" onclick="openNoteModal('${esc}', ${o.id})" aria-label="Poznamka">&#9998;</button><button class="swipe-btn swipe-btn-del" onclick="removeItem('${esc}')" aria-label="Odstranit polozku">&#10005;</button></div>
+  <div class="order-item-swipe-left"><button class="swipe-btn swipe-btn-move" onclick="enterMoveMode(${o.id})" aria-label="Presunut polozku">&#8599;</button><button class="swipe-btn swipe-btn-note" onclick="openNoteModal('${esc}', ${o.id})" aria-label="Poznamka">&#9998;</button><button class="swipe-btn swipe-btn-del" onclick="confirmRemoveItem('${esc}', ${o.id})" aria-label="Odstranit polozku">&#10005;</button></div>
 </div>`}).join('')}
   // has-pending toggles a subtle CSS animation on btnSend (line 2832).
   // Disabled/primary-emphasis is now governed centrally by _applyActionButtonState below.
