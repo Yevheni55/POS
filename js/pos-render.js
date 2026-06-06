@@ -788,7 +788,7 @@ function renderProducts(){
   }
   grid.innerHTML=items.map((item)=>{
     const cat=itemCats[item.name]||activeCategory;
-    const cc=CAT_COLORS[cat]||'125,211,252';
+    const cc=CAT_COLORS[cat]||'150,120,90';
     const q=_qtyByName[item.name]||0;
     const qtyBadge=q>0?`<span class="product-qty-badge">${q}</span>`:'';
     // Photo above name when set; emoji is the fallback when there's no photo.

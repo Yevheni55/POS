@@ -782,10 +782,12 @@ body::after{
   box-shadow:var(--shadow-sm);
   display:flex;flex-direction:column;
 }
-/* Top accent line — subtle */
+/* Top accent line — per-category color cue, visible AT REST so the cashier
+   can jump to beer/coffee/food zones by colour while scanning (was hover-only,
+   useless on a touch tablet). 2px tinted edge reads on cream yet stays calm. */
 .product-card::before{
-  content:'';position:absolute;top:0;left:0;right:0;height:1px;
-  background:transparent;
+  content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:rgba(var(--cat-color),.55);
   transition:background .25s;
 }
 /* Ripple on tap */
@@ -802,18 +804,21 @@ body::after{
   transform:translateY(-2px);
   box-shadow:var(--shadow-md);
 }
-.product-card:hover::before{background:rgba(var(--cat-color),.15)}
+.product-card:hover::before{background:rgba(var(--cat-color),.85)}
 .product-card:active{transform:scale(.97);background:linear-gradient(180deg, var(--color-bg-elevated), var(--color-bg-sunken));box-shadow:var(--shadow-sm)}
 
-/* Emoji — smaller, inline icon */
+/* Emoji / line-icon — tinted with the category hue (productIconSVG strokes
+   inherit currentColor) so the menu reads lively + category-recognisable
+   instead of washed-out monochrome. grayscale filter dropped: it only lifted
+   on :hover, which never fires on a touch tablet. */
 .product-emoji{
   font-size:22px;margin-bottom:4px;position:relative;z-index:1;
   width:34px;height:34px;display:flex;align-items:center;justify-content:center;
-  border-radius:var(--radius-xs);background:rgba(var(--cat-color),.06);
-  filter:grayscale(.2) brightness(.95);
-  transition:filter .2s;
+  border-radius:var(--radius-xs);background:rgba(var(--cat-color),.10);
+  color:rgba(var(--cat-color),.85);
+  transition:color .2s;
 }
-.product-card:hover .product-emoji{filter:grayscale(0) brightness(1)}
+.product-card:hover .product-emoji{color:rgba(var(--cat-color),1)}
 
 /* Photo — larger square thumb above name; replaces emoji when image_url is set */
 .product-photo{
@@ -1432,9 +1437,9 @@ body::after{
 
 /* Zlava (discount) — amber/sun identity, signaluje "promócia / akcia" */
 .btn-discount{
-  background:rgba(255,184,0,.12);
-  color:#ffb800;
-  border:1px solid rgba(255,184,0,.4);
+  background:rgba(184,124,26,.12);
+  color:var(--accent-amber);
+  border:1px solid rgba(184,124,26,.4);
   font-size:var(--text-xs);
   font-weight:var(--weight-semibold);
   padding:var(--space-2) var(--space-3);
@@ -1442,8 +1447,8 @@ body::after{
   transition:background var(--transition-fast),border-color var(--transition-fast),transform var(--transition-fast);
 }
 .btn-discount:hover{
-  background:rgba(255,184,0,.22);
-  border-color:#ffb800;
+  background:rgba(184,124,26,.22);
+  border-color:var(--accent-amber);
   transform:translateY(-1px);
 }
 .btn-discount:active{transform:translateY(1px)}

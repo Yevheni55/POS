@@ -61,9 +61,29 @@ async function loadStornoBasket() {
   }
 }
 
+// Per-category hue (RGB triple) feeding --cat-color on product cards: the
+// at-rest top edge + tinted icon that let the cashier zone-scan by colour.
+// Keyed by the REAL menu slugs (surfspirit-menu.json) — the old keys
+// (kava/pivo/vino…) matched NOTHING so every card fell to the cold default.
+// Daylight-harmonised: warm earthy food tones, cooler jewel drink tones, all
+// muted to sit on the cream canvas. Drinks vs food read as colour zones.
 const CAT_COLORS = {
-  kava:'108,92,231', caj:'92,196,158', koktaily:'212,107,107',
-  pivo:'108,92,231', vino:'106,142,196', jedlo:'72,180,190'
+  // drinks
+  capovane:'198,134,38',   // beer — amber gold
+  cisla:'146,108,180',     // numbered drinks — muted violet
+  nealko:'64,150,150',     // soft drinks — teal
+  limonady:'170,168,58',   // lemonades — citrus olive
+  smoothies:'198,96,150',  // smoothies — berry pink
+  alko:'150,96,52',        // spirits — cognac
+  drinky:'208,104,96',     // cocktails — coral
+  'kava-caj':'122,86,58',  // coffee & tea — espresso
+  // food
+  pochutiny:'184,142,54',  // snacks — mustard
+  croissanty:'198,154,96', // croissants — wheat
+  burgre:'186,72,48',      // burgers — brick
+  prilohy:'208,128,44',    // sides — orange
+  salaty:'96,152,72',      // salads — leaf green
+  'extra-prilohy':'160,92,84' // extra sides — dusty rose-brown
 };
 
 async function loadMenu(data) {
