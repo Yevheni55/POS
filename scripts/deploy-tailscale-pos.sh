@@ -22,6 +22,7 @@ echo "=== Creating tarball (no .git, no node_modules, keep remote server/.env) =
 rm -f "$TGZ"
 tar -czf "$TGZ" \
   --exclude=.git \
+  --exclude=.claude \
   --exclude=node_modules \
   --exclude=server/node_modules \
   --exclude=server/.env \
