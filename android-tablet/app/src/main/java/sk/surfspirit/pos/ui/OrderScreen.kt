@@ -1085,7 +1085,7 @@ fun OrderScreen(
             return@Scaffold
         }
         Row(Modifier.fillMaxSize().padding(pad)) {
-            // ── Ľavá: hľadanie + kategórie + menu ──
+            // ── Ľavá: hľadanie hore + kategórie VĽAVO (web tablet view) + menu ──
             Column(Modifier.weight(1.7f).padding(12.dp)) {
                 OutlinedTextField(
                     value = search, onValueChange = { search = it },
@@ -1094,41 +1094,55 @@ fun OrderScreen(
                     singleLine = true, modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(8.dp))
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    categories.forEachIndexed { i, c -> CatChip(c, i == selectedCat) { selectedCat = i; search = "" } }
-                }
-                Spacer(Modifier.height(10.dp))
-                // Hľadanie zahŕňa aj desc (web parita) + logické triedenie
-                val items = if (search.isBlank()) categories.getOrNull(selectedCat)?.items.orEmpty()
-                            else categories.flatMap { it.items }.distinctBy { it.id }
-                                .filter { it.name.contains(search, ignoreCase = true)
-                                       || it.desc.contains(search, ignoreCase = true) }
-                                .sortedWith(menuLogicComparator)
-                val catColorById = remember(categories) {
-                    buildMap {
-                        categories.forEach { c ->
-                            val col = CAT_COLORS[c.slug]
-                            if (col != null) c.items.forEach { put(it.id, col) }
+                Row(Modifier.weight(1f)) {
+                    // Vertikálny category rail — všetky kategórie vidno naraz
+                    // (web .categories tablet override: 156 px, 50 px riadky)
+                    Column(
+                        Modifier.width(150.dp).fillMaxHeight()
+                            .verticalScroll(rememberScrollState())
+                            .padding(end = 6.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        categories.forEachIndexed { i, c ->
+                            CatRailBtn(c, i == selectedCat && search.isBlank()) {
+                                selectedCat = i; search = ""
+                            }
                         }
                     }
-                }
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 132.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(items, key = { it.id }) { mi ->
-                        ProductCard(mi, inOrderQty[mi.id] ?: 0, catColorById[mi.id],
-                            onClick = {
-                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                productTap(mi)
-                            },
-                            onLongClick = {
-                                if (!needsSaucePicker(mi.name)) {
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    qtyPopupFor = mi
-                                }
-                            })
+                    Spacer(Modifier.width(8.dp))
+                    // Hľadanie zahŕňa aj desc (web parita) + logické triedenie
+                    val items = if (search.isBlank()) categories.getOrNull(selectedCat)?.items.orEmpty()
+                                else categories.flatMap { it.items }.distinctBy { it.id }
+                                    .filter { it.name.contains(search, ignoreCase = true)
+                                           || it.desc.contains(search, ignoreCase = true) }
+                                    .sortedWith(menuLogicComparator)
+                    val catColorById = remember(categories) {
+                        buildMap {
+                            categories.forEach { c ->
+                                val col = CAT_COLORS[c.slug]
+                                if (col != null) c.items.forEach { put(it.id, col) }
+                            }
+                        }
+                    }
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(minSize = 118.dp),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                        verticalArrangement = Arrangement.spacedBy(7.dp),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        items(items, key = { it.id }) { mi ->
+                            ProductCard(mi, inOrderQty[mi.id] ?: 0, catColorById[mi.id],
+                                onClick = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    productTap(mi)
+                                },
+                                onLongClick = {
+                                    if (!needsSaucePicker(mi.name)) {
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        qtyPopupFor = mi
+                                    }
+                                })
+                        }
                     }
                 }
             }
@@ -1565,20 +1579,34 @@ private fun ExtraBtn(label: String, color: Color, modifier: Modifier, enabled: B
     }
 }
 
+/**
+ * Kategória vo vertikálnom raile — web .cat-btn tablet parita: 50 dp riadok,
+ * transparent pokoj / aktívna = terra tint + ľavý 3 dp inset bar + extrabold.
+ */
 @Composable
-private fun CatChip(c: CategoryDto, active: Boolean, onClick: () -> Unit) {
+private fun CatRailBtn(c: CategoryDto, active: Boolean, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
-    val fill by animateColorAsState(if (active) Terra.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface,
+    val fill by animateColorAsState(if (active) Terra.copy(alpha = 0.10f) else Color.Transparent,
         Motion.colorSpec, label = "catFill")
-    val edge by animateColorAsState(if (active) Terra.copy(alpha = 0.40f) else BorderSoft,
-        Motion.colorSpec, label = "catEdge")
+    val ink by animateColorAsState(if (active) Terra else MaterialTheme.colorScheme.onSurface,
+        Motion.colorSpec, label = "catInk")
     Surface(onClick = onClick, interactionSource = interaction, shape = RoundedCornerShape(10.dp),
-        color = fill, border = BorderStroke(1.dp, edge),
-        modifier = Modifier.pressScale(interaction)) {
-        Text("${c.icon} ${c.label}", Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-            color = if (active) Terra else MaterialTheme.colorScheme.onSurface,
-            fontWeight = if (active) FontWeight.ExtraBold else FontWeight.SemiBold,
-            style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+        color = fill,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp).pressScale(interaction)) {
+        Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
+            // Ľavý inset bar — rovnaký „ink-margin" jazyk ako riadky účtu
+            Box(Modifier.width(3.dp).fillMaxHeight()
+                .background(if (active) Terra else Color.Transparent))
+            Spacer(Modifier.width(9.dp))
+            Text(c.icon, fontSize = 20.sp, modifier = Modifier.width(26.dp))
+            Spacer(Modifier.width(4.dp))
+            Text(c.label,
+                color = ink,
+                fontWeight = if (active) FontWeight.ExtraBold else FontWeight.SemiBold,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(vertical = 13.dp, horizontal = 0.dp).weight(1f))
+        }
     }
 }
 
@@ -1592,30 +1620,43 @@ private fun ProductCard(
     onLongClick: () -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
+    val inCart = inOrderQty > 0
+    // Karta rastie s obsahom (web parita) — meno aj cena sa VŽDY zmestia;
+    // in-cart stav = terra border + tint (web .product-card.in-cart).
     Surface(shape = RoundedCornerShape(10.dp),
-        border = BorderStroke(1.dp, BorderSoft),
-        modifier = Modifier.height(96.dp)
+        border = BorderStroke(1.dp, if (inCart) Terra else BorderSoft),
+        modifier = Modifier.heightIn(min = 96.dp)
             .paperShadow(2.dp, RoundedCornerShape(10.dp))
             .pressScale(interaction)) {
         Box(Modifier.fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Cream, CreamElev)))
+            .background(
+                if (inCart) Brush.verticalGradient(listOf(Terra.copy(alpha = 0.06f), Terra.copy(alpha = 0.10f)))
+                else Brush.verticalGradient(listOf(Cream, CreamElev)))
             .combinedClickable(interactionSource = interaction, indication = LocalIndication.current,
                 onClick = onClick, onLongClick = onLongClick)) {
             // Per-kategória akcent — farebná horná hrana (web --cat-color)
             catColor?.let {
                 Box(Modifier.fillMaxWidth().height(3.dp).background(it.copy(alpha = 0.65f)).align(Alignment.TopCenter))
             }
-            Column(Modifier.fillMaxSize().padding(10.dp)) {
-                Surface(shape = RoundedCornerShape(8.dp),
-                    color = (catColor ?: Terra).copy(alpha = 0.10f), modifier = Modifier.size(34.dp)) {
-                    Box(contentAlignment = Alignment.Center) { Text(mi.emoji, fontSize = 18.sp) }
+            Column(Modifier.fillMaxWidth().padding(start = 9.dp, end = 9.dp, top = 9.dp, bottom = 8.dp)) {
+                Surface(shape = RoundedCornerShape(7.dp),
+                    color = (catColor ?: Terra).copy(alpha = 0.10f), modifier = Modifier.size(28.dp)) {
+                    Box(contentAlignment = Alignment.Center) { Text(mi.emoji, fontSize = 15.sp) }
                 }
-                Spacer(Modifier.weight(1f))
-                Text(mi.name, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(money(mi.price), style = MaterialTheme.typography.labelLarge, color = Terra)
+                Spacer(Modifier.height(5.dp))
+                Text(mi.name,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontWeight = FontWeight.SemiBold, lineHeight = 17.sp),
+                    maxLines = 3, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(4.dp))
+                // Cena — Sora extrabold, espresso (web .product-price), pinnutá dole
+                Text(money(mi.price),
+                    style = MaterialTheme.typography.titleSmall.copy(
+                        fontWeight = FontWeight.ExtraBold, fontSize = 18.sp),
+                    color = Espresso, maxLines = 1)
             }
             // Qty badge — bežiaci súčet v účte; pop pri zmene = „tap dosadol"
-            if (inOrderQty > 0) {
+            if (inCart) {
                 val pop = rememberPop(inOrderQty)
                 Surface(shape = RoundedCornerShape(999.dp), color = Terra,
                     modifier = Modifier.align(Alignment.TopEnd).padding(6.dp)
