@@ -6,6 +6,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -14,6 +15,7 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -111,6 +113,7 @@ fun PosHeader(
     onStoly: () -> Unit,
     onLogout: () -> Unit,
     onRefresh: (() -> Unit)? = null,
+    onLockCode: (() -> Unit)? = null,
 ) {
     val now by rememberNow()
     Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
@@ -151,15 +154,29 @@ fun PosHeader(
                 }
                 Spacer(Modifier.width(8.dp))
             }
+            onLockCode?.let { IconButton(onClick = it) { Icon(Icons.Filled.Lock, "Vygenerovať kód zámku") } }
             onRefresh?.let { IconButton(onClick = it) { Icon(Icons.Filled.Refresh, "Obnoviť") } }
             IconButton(onClick = onLogout) { Icon(Icons.AutoMirrored.Filled.Logout, "Odhlásiť") }
         }
     }
 }
 
-/** Tenký shift status strip — otvorené stoly + (best-effort) tržby dnes. */
+/** Tenký shift status strip — trvanie zmeny + otvorené stoly + tržby dnes. */
 @Composable
 fun ShiftStrip(openTables: Int, totalTables: Int, revenueToday: String?) {
+    // Trvanie zmeny — od štartu session (web parita: pos_shift_started_at).
+    val sessionStart = remember {
+        sk.surfspirit.pos.core.AppPrefs.getRaw("session_start")?.toLongOrNull()
+            ?: System.currentTimeMillis().also {
+                sk.surfspirit.pos.core.AppPrefs.putRaw("session_start", it.toString())
+            }
+    }
+    var tick by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) { while (true) { delay(30_000); tick++ } }
+    val elapsedMs = remember(tick) { System.currentTimeMillis() - sessionStart }
+    val hrs = elapsedMs / 3_600_000
+    val mins = (elapsedMs % 3_600_000) / 60_000
+
     Surface(color = MaterialTheme.colorScheme.surfaceVariant) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 6.dp),
@@ -168,6 +185,11 @@ fun ShiftStrip(openTables: Int, totalTables: Int, revenueToday: String?) {
             Surface(shape = CircleShape, color = if (openTables > 0) Terra else Sage,
                 modifier = Modifier.size(8.dp)) {}
             Spacer(Modifier.width(8.dp))
+            Text("Zmena: ${hrs}h ${mins.toString().padStart(2, '0')}m",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("  ·  ", style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("Otvorené stoly: $openTables / $totalTables",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -178,5 +200,29 @@ fun ShiftStrip(openTables: Int, totalTables: Int, revenueToday: String?) {
                     color = Terra, fontWeight = FontWeight.Bold)
             }
         }
+    }
+}
+
+/**
+ * OFFLINE banner — červený pás keď posledný fetch zlyhal (web parita).
+ * Zobrazuje aj počet čakajúcich operácií vo fronte.
+ */
+@Composable
+fun OfflineBanner() {
+    val offline by sk.surfspirit.pos.core.Net.offline
+    val queued by sk.surfspirit.pos.core.Net.queueCount
+    if (!offline && queued == 0) return
+    Surface(color = if (offline) Danger else Amber) {
+        Text(
+            if (offline)
+                "OFFLINE — dáta sa synchronizujú po obnovení pripojenia" +
+                    (if (queued > 0) "  ·  $queued vo fronte" else "")
+            else
+                "$queued operácií vo fronte — synchronizujem…",
+            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 5.dp),
+            color = Cream,
+            style = MaterialTheme.typography.labelMedium,
+            textAlign = TextAlign.Center,
+        )
     }
 }

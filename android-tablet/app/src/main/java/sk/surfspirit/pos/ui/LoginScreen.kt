@@ -38,6 +38,8 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
                 AppPrefs.token = resp.token
                 AppPrefs.userName = resp.user.name
                 AppPrefs.role = resp.user.role
+                // Štart session — pre „Zmena: Xh YYm" v shift strip-e.
+                AppPrefs.putRaw("session_start", System.currentTimeMillis().toString())
                 onLoggedIn()
             } catch (e: Exception) {
                 error = "Prihlásenie zlyhalo — skontroluj PIN a adresu servera."

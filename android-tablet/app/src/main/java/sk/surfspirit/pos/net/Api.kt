@@ -2,6 +2,7 @@ package sk.surfspirit.pos.net
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -9,9 +10,13 @@ import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.Header
 import retrofit2.http.POST
+import retrofit2.http.PUT
 import retrofit2.http.Path
+import retrofit2.http.Query
 import sk.surfspirit.pos.core.AppPrefs
 import java.util.concurrent.TimeUnit
 
@@ -21,6 +26,9 @@ import java.util.concurrent.TimeUnit
 @Serializable data class UserDto(val id: Int, val name: String, val role: String)
 @Serializable data class LoginResp(val token: String, val user: UserDto)
 
+@Serializable data class ManagerVerifyReq(val pin: String)
+@Serializable data class ManagerVerifyResp(val ok: Boolean = false, val name: String = "")
+
 @Serializable data class TableDto(
     val id: Int,
     val name: String = "",
@@ -28,7 +36,22 @@ import java.util.concurrent.TimeUnit
     val zone: String = "interior",
     val shape: String = "rect",
     val status: String = "free",          // free | occupied | reserved | dirty
+    val time: String? = null,
+    // Spatial floor plan — rovnaké súradnice ako admin/web (px na canvase).
+    val x: Int = 0,
+    val y: Int = 0,
+    val width: Int? = null,               // null = default zo shape
+    val height: Int? = null,
 )
+
+@Serializable data class TableUpdateReq(
+    val x: Int,
+    val y: Int,
+    val width: Int? = null,
+    val height: Int? = null,
+)
+
+@Serializable data class ZoneDto(val slug: String = "", val label: String = "")
 
 @Serializable data class MenuItemDto(
     val id: Int,
@@ -36,7 +59,14 @@ import java.util.concurrent.TimeUnit
     val emoji: String = "",
     val price: Double = 0.0,
     val categoryId: Int = 0,
+    val categorySlug: String = "",
+    val desc: String = "",
     val active: Boolean = true,
+    val available: Boolean = true,
+    val destOverride: String? = null,             // "bar" | "kuchyna" | null
+    val companionMenuItemId: Int? = null,
+    val vatRate: Double? = null,
+    val totalQty: Int = 0,                         // pre /menu/top ranking
 )
 
 @Serializable data class CategoryDto(
@@ -57,29 +87,200 @@ import java.util.concurrent.TimeUnit
     val price: Double = 0.0,
     val note: String = "",
     val sent: Boolean = false,
+    val desc: String = "",
 )
 
 @Serializable data class OrderDto(
     val id: Int,
     val tableId: Int = 0,
     val label: String = "",
+    val version: Int = 0,
+    val status: String = "open",
     val total: Double = 0.0,
     val totalAfterDiscount: Double = 0.0,
+    val discountId: Int? = null,
+    val discountAmount: Double? = null,
+    val createdAt: String? = null,        // ISO — pre „zabudnutý stôl" indikátor
     val items: List<OrderItemDto> = emptyList(),
+) {
+    /** Subtotal počítaný z položiek (nezávislý od server total poľa). */
+    val subtotal: Double get() = items.sumOf { it.price * it.qty }
+    val discount: Double get() = discountAmount ?: 0.0
+    /** Celková suma po zľave. */
+    val grandTotal: Double get() = (subtotal - discount).coerceAtLeast(0.0)
+}
+
+@Serializable data class DiscountDto(
+    val id: Int,
+    val name: String = "",
+    val type: String = "percent",   // percent | fixed
+    val value: Double = 0.0,
 )
 
 @Serializable data class NewItem(val menuItemId: Int, val qty: Int, val note: String = "")
-@Serializable data class CreateOrderReq(val tableId: Int, val items: List<NewItem>)
-@Serializable data class AddItemsReq(val items: List<NewItem>)
+@Serializable data class CreateOrderReq(val tableId: Int, val items: List<NewItem>, val label: String? = null)
+@Serializable data class AddItemsReq(val items: List<NewItem>, val version: Int? = null)
+@Serializable data class UpdateItemReq(val qty: Int? = null, val note: String? = null, val version: Int? = null)
+
 @Serializable data class SendReq(val overrideLimit: Boolean = false)
+@Serializable data class MarkedItemDto(
+    val id: Long = 0,
+    val menuItemId: Int = 0,
+    val name: String = "",
+    val emoji: String = "",
+    val qty: Int = 0,
+    val note: String = "",
+)
+@Serializable data class SendResp(val printed: Int = 0, val items: List<MarkedItemDto> = emptyList(), val markedItems: List<MarkedItemDto> = emptyList())
+@Serializable data class StornoSendReq(val items: List<NewItem>)
+
+@Serializable data class SplitPartsReq(val parts: Int)
+@Serializable data class SplitGroupsReq(val itemGroups: List<List<Long>>)
+@Serializable data class SplitResp(val newOrderIds: List<Int> = emptyList())
+
+@Serializable data class MoveQty(val itemId: Long, val qty: Int? = null)
+@Serializable data class MoveReq(
+    val itemQtys: List<MoveQty>? = null,
+    val itemIds: List<Long>? = null,
+    val targetTableId: Int? = null,
+    val targetOrderId: Int? = null,
+)
+@Serializable data class MoveResp(val movedItems: List<Long> = emptyList(), val targetOrderId: Int = 0)
+
+@Serializable data class DiscountReq(val discountId: Int? = null, val customPercent: Double? = null, val version: Int? = null)
+@Serializable data class CloseReq(val version: Int? = null)
+@Serializable data class StaffMealReq(val version: Int? = null, val overrideLimit: Boolean = false)
+@Serializable data class StaffMealResp(val totalCogs: String? = null)
+
 @Serializable data class PayReq(val orderId: Int, val method: String, val amount: Double)
+@Serializable data class PaymentDto(val id: Int = 0, val orderId: Int = 0, val method: String = "", val amount: String = "0", val createdAt: String = "")
+@Serializable data class FiscalDto(
+    val status: String = "",
+    val isSuccessful: Boolean? = null,
+    val externalId: String? = null,
+    val errorDetail: String? = null,
+    val errorCode: String? = null,
+    val copyAvailable: Boolean? = null,
+)
+@Serializable data class PayResp(
+    val payment: PaymentDto? = null,
+    val order: OrderDto? = null,
+    val fiscal: FiscalDto? = null,
+    val alreadyProcessed: Boolean = false,
+)
+
+@Serializable data class ShiftDto(
+    val id: Int = 0,
+    val staffId: Int = 0,
+    val status: String = "open",
+    val openingCash: String? = null,
+    val closingCash: String? = null,
+    val openedAt: String? = null,
+    val closedAt: String? = null,
+)
+@Serializable data class ShiftSummaryDto(
+    val shift: ShiftDto? = null,
+    val openingCash: Double = 0.0,
+    val cashPayments: Double = 0.0,
+    val expectedCash: Double = 0.0,
+)
+@Serializable data class OpenShiftReq(val openingCash: Double = 0.0)
+@Serializable data class CloseShiftReq(val closingCash: Double = 0.0)
+@Serializable data class CloseShiftResp(
+    val shift: ShiftDto? = null,
+    val openingCash: Double = 0.0,
+    val cashPayments: Double = 0.0,
+    val expectedCash: Double = 0.0,
+    val actualCash: Double = 0.0,
+    val difference: Double = 0.0,
+)
+@Serializable data class ZReportDto(val totalRevenue: Double = 0.0)
+
+@Serializable data class PrintItem(
+    val qty: Int = 0,
+    val name: String = "",
+    val note: String = "",
+    val price: Double = 0.0,
+    val emoji: String = "",
+)
+@Serializable data class PrintKitchenReq(
+    val dest: String,
+    val tableName: String,
+    val staffName: String,
+    val items: List<PrintItem>,
+    val orderNum: Int? = null,
+)
+@Serializable data class PreBillReq(
+    val tableName: String,
+    val staffName: String,
+    val items: List<PrintItem>,
+    val total: Double,
+    val subtotal: Double = 0.0,
+    val discount: Double = 0.0,
+    val orderNum: Int? = null,
+)
+@Serializable data class PrintOk(val ok: Boolean = false, val queued: Boolean = false)
+
+/* ---- Paragón (offline fallback, § 10 z. 289/2008) ---- */
+@Serializable data class ParagonItem(
+    val id: Long? = null,
+    val name: String,
+    val qty: Int,
+    val price: Double,
+    val vatRate: Double = 0.0,
+    val note: String = "",
+)
+@Serializable data class ParagonIssueReq(
+    val orderId: Int? = null,
+    val items: List<ParagonItem>,
+    val paymentMethod: String,
+    val totalAmount: Double,
+    val discountAmount: Double = 0.0,
+    val reason: String = "portos_unavailable",
+)
+@Serializable data class ParagonIssueResp(
+    val ok: Boolean = false,
+    val paragonId: Int = 0,
+    val paragonNumber: String = "",
+)
+@Serializable data class ParagonPrintReq(
+    val paragonNumber: String,
+    val tableName: String? = null,
+    val staffName: String = "",
+    val items: List<ParagonItem>,
+    val total: Double,
+    val method: String,
+    val vatRate: Double? = null,     // non-payer DPH → null (žiadny VAT riadok)
+    val companyName: String? = null,
+)
+
+/* ---- Storno kôš (dôvod storna pre admin) ---- */
+@Serializable data class StornoBasketReq(
+    val menuItemId: Int,
+    val qty: Int,
+    val name: String,
+    val unitPrice: Double = 0.0,
+    val reason: String,              // order_error | complaint | breakage | staff_meal | other
+    val note: String = "",
+    val wasPrepared: Boolean = true,
+    val orderId: Int? = null,
+)
+
+/* ---- TTLock kód zámku ---- */
+@Serializable data class TtlockResp(val passcode: String = "", val endDate: String = "")
+@Serializable data class LockCodePrintReq(
+    val code: String,
+    val validUntil: String,
+    val staffName: String = "",
+)
+
 @Serializable class Empty   // ignoreUnknownKeys → pohltí ľubovoľnú odpoveď
 
-// Auto-update manifest (hostovaný na kase: /uploads/app/latest.json)
+// Auto-update manifest (hostovaný na kase: /api/app/latest)
 @Serializable data class UpdateInfo(
     val versionCode: Int = 0,
     val versionName: String = "",
-    val url: String = "",        // relatívna cesta k APK, napr. "uploads/app/SurfSpiritPOS.apk"
+    val url: String = "",
     val notes: String = "",
 )
 
@@ -89,26 +290,131 @@ interface ApiService {
     @POST("api/auth/login")
     suspend fun login(@Body body: LoginReq): LoginResp
 
+    @POST("api/auth/verify-manager")
+    suspend fun verifyManager(@Body body: ManagerVerifyReq): ManagerVerifyResp
+
     @GET("api/tables")
     suspend fun tables(): List<TableDto>
+
+    @GET("api/zones")
+    suspend fun zones(): List<ZoneDto>
 
     @GET("api/menu")
     suspend fun menu(): List<CategoryDto>
 
+    @GET("api/menu/top")
+    suspend fun menuTop(): List<MenuItemDto>
+
+    @GET("api/discounts")
+    suspend fun discounts(): List<DiscountDto>
+
+    // Objednávky
+    @GET("api/orders")
+    suspend fun allOrders(): List<OrderDto>
+
     @GET("api/orders/table/{id}")
     suspend fun tableOrders(@Path("id") tableId: Int): List<OrderDto>
 
+    // X-Idempotency-Key: retry rovnakého syncu po výpadku NEduplikuje položky —
+    // server (middleware/idempotency.js) vráti cached odpoveď namiesto re-insertu.
     @POST("api/orders")
-    suspend fun createOrder(@Body body: CreateOrderReq): OrderDto
+    suspend fun createOrder(
+        @Header("X-Idempotency-Key") idempotencyKey: String? = null,
+        @Body body: CreateOrderReq,
+    ): OrderDto
 
+    // Pozn.: server vracia 201 + POLE vložených riadkov → JsonElement (nie Empty,
+    // ktoré dekóduje len objekt — pole by hodilo výnimku PO úspešnom inserte).
     @POST("api/orders/{id}/items")
-    suspend fun addItems(@Path("id") orderId: Int, @Body body: AddItemsReq): Empty
+    suspend fun addItems(
+        @Path("id") orderId: Int,
+        @Header("X-Idempotency-Key") idempotencyKey: String? = null,
+        @Body body: AddItemsReq,
+    ): JsonElement
+
+    @PUT("api/orders/{orderId}/items/{itemId}")
+    suspend fun updateItem(@Path("orderId") orderId: Int, @Path("itemId") itemId: Long, @Body body: UpdateItemReq): JsonElement
+
+    @DELETE("api/orders/{orderId}/items/{itemId}")
+    suspend fun deleteItem(@Path("orderId") orderId: Int, @Path("itemId") itemId: Long): JsonElement
 
     @POST("api/orders/{id}/send-and-print")
-    suspend fun sendAndPrint(@Path("id") orderId: Int, @Body body: SendReq): Empty
+    suspend fun sendAndPrint(@Path("id") orderId: Int, @Body body: SendReq): SendResp
 
+    @POST("api/orders/{id}/send-storno-and-print")
+    suspend fun sendStornoAndPrint(@Path("id") orderId: Int, @Body body: StornoSendReq): SendResp
+
+    @POST("api/orders/{id}/split")
+    suspend fun splitParts(@Path("id") orderId: Int, @Body body: SplitPartsReq): SplitResp
+
+    @POST("api/orders/{id}/split")
+    suspend fun splitGroups(@Path("id") orderId: Int, @Body body: SplitGroupsReq): SplitResp
+
+    @POST("api/orders/{id}/move-items")
+    suspend fun moveItems(@Path("id") orderId: Int, @Body body: MoveReq): MoveResp
+
+    @POST("api/orders/{id}/discount")
+    suspend fun applyDiscount(@Path("id") orderId: Int, @Body body: DiscountReq): JsonElement
+
+    @DELETE("api/orders/{id}/discount")
+    suspend fun removeDiscount(@Path("id") orderId: Int): JsonElement
+
+    @POST("api/orders/{id}/close-as-staff-meal")
+    suspend fun closeStaffMeal(@Path("id") orderId: Int, @Body body: StaffMealReq): StaffMealResp
+
+    @DELETE("api/orders/{id}")
+    suspend fun deleteOrder(@Path("id") orderId: Int): JsonElement
+
+    // Platby — idempotency key chráni pred dvojitou platbou pri timeout-retry
     @POST("api/payments")
-    suspend fun pay(@Body body: PayReq): Empty
+    suspend fun pay(
+        @Header("X-Idempotency-Key") idempotencyKey: String? = null,
+        @Body body: PayReq,
+    ): PayResp
+
+    // Zmeny — pozn.: GET /shifts/current zámerne nevoláme (vracia top-level
+    // `null` čo kotlinx-serialization nezvládne); auto-open rieši POST /open.
+    @GET("api/shifts/current/summary")
+    suspend fun shiftSummary(): ShiftSummaryDto
+
+    @POST("api/shifts/open")
+    suspend fun shiftOpen(@Body body: OpenShiftReq): ShiftDto
+
+    @POST("api/shifts/close")
+    suspend fun shiftClose(@Body body: CloseShiftReq): CloseShiftResp
+
+    @GET("api/reports/z-report")
+    suspend fun zReport(@Query("date") date: String): ZReportDto
+
+    // Tlač
+    @POST("api/print/kitchen")
+    suspend fun printKitchen(@Body body: PrintKitchenReq): PrintOk
+
+    @POST("api/print/pre-bill")
+    suspend fun printPreBill(@Body body: PreBillReq): PrintOk
+
+    @POST("api/print/paragon")
+    suspend fun printParagon(@Body body: ParagonPrintReq): PrintOk
+
+    @POST("api/print/lockcode")
+    suspend fun printLockCode(@Body body: LockCodePrintReq): PrintOk
+
+    // Paragón offline fallback — vystavenie lokálneho náhradného dokladu;
+    // background worker na serveri ho po obnove Portos doregistruje.
+    @POST("api/paragons")
+    suspend fun issueParagon(@Body body: ParagonIssueReq): ParagonIssueResp
+
+    // Storno kôš — dôvod storna; sklad rieši admin zo Storno page.
+    @POST("api/storno-basket")
+    suspend fun stornoBasket(@Body body: StornoBasketReq): JsonElement
+
+    // TTLock — vygeneruj kód zámku (server rieši TTLock API)
+    @POST("api/ttlock/passcode")
+    suspend fun ttlockPasscode(@Body body: Empty): TtlockResp
+
+    // Floor edit-mode — uloženie pozície/veľkosti stola (manazer/admin)
+    @PUT("api/tables/{id}")
+    suspend fun updateTable(@Path("id") id: Int, @Body body: TableUpdateReq): JsonElement
 
     // Auto-update (public route, číta z durable /backups/app na kase)
     @GET("api/app/latest")
@@ -126,6 +432,12 @@ object Api {
         ignoreUnknownKeys = true
         coerceInputValues = true   // null → default (numbers, bools)
         isLenient = true
+        // encodeDefaults=true + explicitNulls=false: polia s default hodnotou SA
+        // serializujú (inak by server nedostal napr. wasPrepared=true v storno
+        // koši či price=0.0 pri 0 € položkách → NaN na bone), ale null-y sa
+        // vynechávajú (optional version/note/… sa neposielajú zbytočne).
+        encodeDefaults = true
+        explicitNulls = false
     }
 
     // Dynamický base URL: Retrofit má placeholder host, interceptor ho prepíše

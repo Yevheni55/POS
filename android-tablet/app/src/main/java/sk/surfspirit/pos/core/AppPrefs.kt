@@ -42,8 +42,12 @@ object AppPrefs {
     val isLoggedIn: Boolean get() = !token.isNullOrBlank()
 
     fun logout() {
-        sp.edit().remove(K_TOKEN).remove(K_USER).remove(K_ROLE).apply()
+        sp.edit().remove(K_TOKEN).remove(K_USER).remove(K_ROLE).remove("session_start").apply()
     }
+
+    /** Generické raw string accessory — používa Store (cache/drafty/queue). */
+    fun getRaw(key: String): String? = sp.getString(key, null)
+    fun putRaw(key: String, value: String) { sp.edit().putString(key, value).apply() }
 
     /** "192.168.1.235:3080" → "http://192.168.1.235:3080"; orezáva trailing "/". */
     fun normalizeUrl(raw: String): String {

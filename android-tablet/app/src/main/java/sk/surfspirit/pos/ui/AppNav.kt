@@ -18,6 +18,18 @@ fun AppNav() {
     val nav = rememberNavController()
     val start = if (AppPrefs.isLoggedIn) "floor" else "login"
 
+    // UI state restore (web pos_uiState parita) — po reštarte appky sa vráť
+    // na rozpísaný stôl, nech čašník pokračuje presne tam kde skončil.
+    // Guard: pri process-death restore Navigation obnoví back stack sám —
+    // vtedy NEnavigovať znova (duplicitný order entry na stacku).
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        if (AppPrefs.isLoggedIn && nav.currentDestination?.route?.startsWith("order/") != true) {
+            sk.surfspirit.pos.core.Store.lastTable()?.let { tid ->
+                nav.navigate("order/$tid") { launchSingleTop = true }
+            }
+        }
+    }
+
     NavHost(navController = nav, startDestination = start) {
         composable("login") {
             LoginScreen(onLoggedIn = {
@@ -33,6 +45,9 @@ fun AppNav() {
                     AppPrefs.logout()
                     nav.navigate("login") { popUpTo("floor") { inclusive = true } }
                 },
+                onSessionExpired = {
+                    nav.navigate("login") { popUpTo("floor") { inclusive = true } }
+                },
             )
         }
         composable(
@@ -40,7 +55,17 @@ fun AppNav() {
             arguments = listOf(navArgument("tableId") { type = NavType.IntType }),
         ) { backStack ->
             val tableId = backStack.arguments?.getInt("tableId") ?: return@composable
-            OrderScreen(tableId = tableId, onBack = { nav.popBackStack() })
+            OrderScreen(
+                tableId = tableId,
+                onBack = { nav.popBackStack() },
+                onLogout = {
+                    AppPrefs.logout()
+                    nav.navigate("login") { popUpTo("floor") { inclusive = true } }
+                },
+                onSessionExpired = {
+                    nav.navigate("login") { popUpTo("floor") { inclusive = true } }
+                },
+            )
         }
     }
 }
