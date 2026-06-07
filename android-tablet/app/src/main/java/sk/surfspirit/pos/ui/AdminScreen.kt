@@ -38,7 +38,7 @@ import sk.surfspirit.pos.ui.theme.Cream
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun AdminScreen(onBack: () -> Unit) {
+fun AdminScreen(onBack: () -> Unit, initialHash: String? = null) {
     val ctx = LocalContext.current
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -46,7 +46,9 @@ fun AdminScreen(onBack: () -> Unit) {
 
     val serverUrl = remember { AppPrefs.serverUrl.trimEnd('/') }
     val bootstrapUrl = remember { "$serverUrl/api/health" }
-    val adminUrl = remember { "$serverUrl/admin/" }
+    val adminUrl = remember(initialHash) {
+        "$serverUrl/admin/" + (initialHash?.let { "#$it" } ?: "")
+    }
 
     // Android back: najprv história WebView, potom späť na plán stolov
     BackHandler(enabled = true) {

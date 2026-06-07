@@ -19,6 +19,36 @@ import kotlin.math.roundToInt
 /** "12.5" → "12,50 €" (slovenský formát s čiarkou). */
 fun money(v: Double): String = String.format("%.2f €", v).replace('.', ',')
 
+/**
+ * Adaptívny formátter pre sub-cent sumy (DESIGN-CODE § 11.1) — food cost
+ * 0,00114 €/g nesmie zaokrúhliť na „0,00". Bez meny — jednotku pridáva caller
+ * („0,0052 €/g").
+ */
+fun fmtCost(v: Double): String {
+    if (!v.isFinite() || v == 0.0) return "0,00"
+    val abs = kotlin.math.abs(v)
+    val s = when {
+        abs >= 1.0 -> String.format("%.2f", v)
+        abs >= 0.01 -> String.format("%.4f", v).trimEnd('0').let { if (it.endsWith(".")) it + "00" else it }
+            .let { if (it.substringAfter('.').length < 2) String.format("%.2f", v) else it }
+        else -> String.format("%.5f", v).trimEnd('0')
+    }
+    return s.replace('.', ',')
+}
+
+/** ISO timestamp zo servera → "dd.MM. HH:mm" v Europe/Bratislava. */
+fun fmtBratislava(iso: String?, pattern: String = "dd.MM. HH:mm"): String {
+    if (iso.isNullOrBlank()) return "—"
+    return try {
+        java.time.Instant.parse(iso)
+            .atZone(java.time.ZoneId.of("Europe/Bratislava"))
+            .format(java.time.format.DateTimeFormatter.ofPattern(pattern))
+    } catch (_: Exception) {
+        // Server môže poslať aj "YYYY-MM-DD HH:mm:ss" bez zóny
+        iso.take(16).replace('T', ' ')
+    }
+}
+
 /** Dnešný dátum YYYY-MM-DD pre z-report. */
 fun todayIso(): String = LocalDate.now().toString()
 

@@ -52,7 +52,10 @@ fun AppNav() {
             )
         }
         composable("admin") {
-            AdminScreen(onBack = { nav.popBackStack() })
+            sk.surfspirit.pos.ui.admin.AdminShell(
+                onBackToPos = { nav.popBackStack() },
+                onOpenFloorEdit = { nav.popBackStack() },
+            )
         }
         composable(
             route = "order/{tableId}",

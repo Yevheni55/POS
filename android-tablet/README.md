@@ -83,16 +83,24 @@ tablet UX (žiadny prehliadač, kiosk režim, rýchlejšie), ale znamená prepí
 Server: `GET /api/app/latest` (manifest) + `/api/app/download` (APK), public,
 číta z `/backups/app` (volume `pos_backups`).
 
-### Admin na tablete (v1.6)
+### Admin na tablete — NATÍVNY (v2.0)
 
-- ✅ **Celý Admin** — tlačidlo ⚙ v headri (len manažér/admin, web goAdmin
-  parita). Natívny shell + WebView na živý `/admin/` z kasy: sklad, recepty,
-  reporty, dochádzka, objednávky, cashflow, settings — všetkých ~25 stránok.
-  Auth sa injektuje (sessionStorage pos_token/pos_user) cez bootstrap na
-  origine kasy; „← Kasa" v admine (postMessage closePosAdmin) vracia natívne
-  na plán stolov; Android back = história admin SPA.
-  Hybrid zámerne: admin (~20 000 riadkov) sa mení deployom servera — WebView
-  ho má vždy aktuálny bez nového APK (rovnaká architektúra ako web POS iframe).
+- ✅ **17 natívnych Compose obrazoviek** (ui/admin/pages/, ~13 000 riadkov,
+  Daylight dizajn) — tlačidlo ⚙ v headri (len manažér/admin):
+  Dashboard (kto je v práci, denné karty, týždenný graf, top produkty,
+  platobné metódy, uzávierka + tlač) · Reporty (Denný z-report + Trendy:
+  Týždeň/Sezóna) · História (Platby s akciami kópia/refiškalizácia/storno/
+  zmena metódy · Fiškálne doklady · Audit objednávok) · Cashflow · Menu
+  (kategórie+položky CRUD) · Receptúry (food cost, fmtCost) · Zamestnanci
+  (CRUD+PIN) · Dochádzka (záznamy, úpravy, výplaty) · Zam. spotreba ·
+  Storno kôš (vrátiť/odpísať) · Sklad: Prehľad · Materiály (Suroviny/Tovar/
+  Dodávatelia) · Pohyby (log/odpisy) · Shisha · Stoly (zóny + odkaz na
+  natívny floor editor).
+- Architektúra: každá obrazovka = samostatný súbor s vlastnými DTOs +
+  private Retrofit interface cez `Api.create()` — žiadne zdieľané kolízie.
+  Admin shell = ľavý rail so sekciami (web sidebar parita).
+- WebView fallback ostáva LEN pre Objednávky skladu, Majetok a Nastavenia
+  (zriedkavé/konfiguračné stránky) — deep-link na hash route živého adminu.
 
 ### Zámerné rozdiely oproti webu (nie sú chýbajúce features)
 - Vlastná on-screen klávesnica pre poznámku — web ňou obchádza browser IME;

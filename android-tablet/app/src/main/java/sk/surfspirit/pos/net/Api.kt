@@ -473,10 +473,18 @@ object Api {
         .readTimeout(20, TimeUnit.SECONDS)
         .build()
 
-    val service: ApiService = Retrofit.Builder()
+    private val retrofitInstance: Retrofit = Retrofit.Builder()
         .baseUrl("http://localhost/")     // placeholder — prepisuje baseSwapInterceptor
         .client(client)
         .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
         .build()
-        .create(ApiService::class.java)
+
+    val service: ApiService = retrofitInstance.create(ApiService::class.java)
+
+    /**
+     * Factory pre admin obrazovky — každá si definuje vlastný malý Retrofit
+     * interface + DTOs vo svojom súbore (žiadne kolízie pri paralelnom vývoji).
+     * Zdieľa client (auth/base-swap interceptory) aj kotlinx Json config.
+     */
+    fun <T> create(cls: Class<T>): T = retrofitInstance.create(cls)
 }
