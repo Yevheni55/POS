@@ -140,48 +140,56 @@ fun PosHeader(
     onDochadzka: (() -> Unit)? = null,
 ) {
     val now by rememberNow()
+    val compact = isPhone()
     // Paper-drop tieň namiesto tonal elevation — plán/menu „odpadne" pod header
     Surface(color = CreamElev, modifier = Modifier.paperShadow(6.dp, RectangleShape)) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            Modifier.fillMaxWidth().padding(horizontal = if (compact) 8.dp else 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            BrandLogo(38)
-            Spacer(Modifier.width(12.dp))
-            Column {
-                Text("SL Spirit s. r. o.", style = MaterialTheme.typography.titleMedium)
-                Text("Pokladničný systém", style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            BrandLogo(if (compact) 32 else 38)
+            if (!compact) {
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text("SL Spirit s. r. o.", style = MaterialTheme.typography.titleMedium)
+                    Text("Pokladničný systém", style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
-            Spacer(Modifier.width(20.dp))
+            Spacer(Modifier.width(if (compact) 8.dp else 20.dp))
             SegToggle(activeTab, onStoly)
             Spacer(Modifier.weight(1f))
-            // Čas + dátum
-            Column(horizontalAlignment = Alignment.End) {
-                Text(now.format(TIME_FMT), style = MaterialTheme.typography.titleMedium)
-                Text(now.format(DATE_FMT).replaceFirstChar { it.uppercase() },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (!compact) {
+                // Čas + dátum
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(now.format(TIME_FMT), style = MaterialTheme.typography.titleMedium)
+                    Text(now.format(DATE_FMT).replaceFirstChar { it.uppercase() },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Spacer(Modifier.width(16.dp))
             }
-            Spacer(Modifier.width(16.dp))
             userName?.let {
                 Surface(shape = RoundedCornerShape(999.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
-                    Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.padding(horizontal = if (compact) 6.dp else 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
                         Surface(shape = CircleShape, color = Terra, modifier = Modifier.size(22.dp)) {
                             Box(contentAlignment = Alignment.Center) {
                                 Text(it.take(1).uppercase(), color = Cream, fontFamily = Sora,
                                     fontWeight = FontWeight.Bold, fontSize = 12.sp)
                             }
                         }
-                        Spacer(Modifier.width(8.dp))
-                        Text(it, style = MaterialTheme.typography.bodyMedium)
+                        if (!compact) {
+                            Spacer(Modifier.width(8.dp))
+                            Text(it, style = MaterialTheme.typography.bodyMedium)
+                        }
                     }
                 }
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(4.dp))
             }
             onDochadzka?.let { IconButton(onClick = it) { Icon(Icons.Filled.Schedule, "Dochádzka") } }
             onAdmin?.let { IconButton(onClick = it) { Icon(Icons.Filled.Settings, "Admin") } }
-            onLockCode?.let { IconButton(onClick = it) { Icon(Icons.Filled.Lock, "Vygenerovať kód zámku") } }
+            if (!compact) onLockCode?.let { IconButton(onClick = it) { Icon(Icons.Filled.Lock, "Vygenerovať kód zámku") } }
             onRefresh?.let { IconButton(onClick = it) { Icon(Icons.Filled.Refresh, "Obnoviť") } }
             IconButton(onClick = onLogout) { Icon(Icons.AutoMirrored.Filled.Logout, "Odhlásiť") }
         }

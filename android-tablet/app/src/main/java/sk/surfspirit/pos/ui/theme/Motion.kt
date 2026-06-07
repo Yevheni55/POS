@@ -42,6 +42,11 @@ object Motion {
     val popSpec = spring<Float>(dampingRatio = 0.45f, stiffness = Spring.StiffnessMediumLow)
 }
 
+/** Telefónny breakpoint — šírka okna < 600 dp (web mobile breakpoint parita). */
+@Composable
+fun isPhone(): Boolean =
+    androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 600
+
 /** Android ekvivalent prefers-reduced-motion — vypnuté systémové animácie. */
 @Composable
 fun reducedMotion(): Boolean {

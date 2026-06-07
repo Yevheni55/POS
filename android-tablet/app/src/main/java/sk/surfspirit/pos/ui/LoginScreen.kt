@@ -4,6 +4,8 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -58,11 +60,11 @@ fun LoginScreen(onLoggedIn: () -> Unit, onOpenDochadzka: (() -> Unit)? = null) {
         }
     }
 
+    val phone = isPhone()
     Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxSize().padding(28.dp), verticalAlignment = Alignment.CenterVertically) {
-
-            // ── Ľavá strana: brand + server config ──
-            Column(Modifier.weight(1f).padding(end = 32.dp)) {
+        // ── Brand + server config blok (zdieľaný tablet/telefón) ──
+        val brandBlock: @Composable (Modifier) -> Unit = { mod ->
+            Column(mod) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Surface(color = MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(14.dp)) {
                         Text("SSS", Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
@@ -114,10 +116,12 @@ fun LoginScreen(onLoggedIn: () -> Unit, onOpenDochadzka: (() -> Unit)? = null) {
                         style = MaterialTheme.typography.bodyMedium)
                 }
             }
+        }
 
-            // ── Pravá strana: PIN pad — „device keypad" panel ──
+        // ── PIN pad — „device keypad" panel (zdieľaný tablet/telefón) ──
+        val pinPad: @Composable (Modifier) -> Unit = { mod ->
             Surface(
-                Modifier.weight(1f).paperShadow(6.dp, RoundedCornerShape(22.dp)),
+                mod.paperShadow(6.dp, RoundedCornerShape(22.dp)),
                 shape = RoundedCornerShape(22.dp),
                 color = CreamElev,
             ) {
@@ -163,6 +167,25 @@ fun LoginScreen(onLoggedIn: () -> Unit, onOpenDochadzka: (() -> Unit)? = null) {
                     }
                     if (busy) { Spacer(Modifier.height(16.dp)); CircularProgressIndicator() }
                 }
+            }
+        }
+
+        // ── Layout: telefón = stĺpec so scrollom; tablet = dva panely ──
+        if (phone) {
+            Column(
+                Modifier.fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                brandBlock(Modifier.fillMaxWidth())
+                Spacer(Modifier.height(20.dp))
+                pinPad(Modifier.fillMaxWidth())
+            }
+        } else {
+            Row(Modifier.fillMaxSize().padding(28.dp), verticalAlignment = Alignment.CenterVertically) {
+                brandBlock(Modifier.weight(1f).padding(end = 32.dp))
+                pinPad(Modifier.weight(1f))
             }
         }
     }

@@ -10,6 +10,8 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -179,10 +181,11 @@ fun DochadzkaTerminalScreen(onBack: () -> Unit) {
         if (myShifts != null) { myShifts = null; resetAll() } else onBack()
     }
 
+    val phone = isPhone()
     Surface(color = Cream, modifier = Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxSize().padding(28.dp), verticalAlignment = Alignment.CenterVertically) {
-            // ── Ľavá: brand + status + akcie ──
-            Column(Modifier.weight(1f).padding(end = 28.dp)) {
+        // ── Status + akcie blok (zdieľaný tablet/telefón) ──
+        val statusBlock: @Composable (Modifier) -> Unit = { blockMod ->
+            Column(blockMod) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     BrandBadge()
                     Spacer(Modifier.width(14.dp))
@@ -252,12 +255,14 @@ fun DochadzkaTerminalScreen(onBack: () -> Unit) {
                     }
                 }
 
-                Spacer(Modifier.weight(1f))
+                Spacer(Modifier.height(12.dp))
                 TextButton(onClick = onBack) { Text("← Späť na kasu", color = EspressoSoft) }
             }
+        }
 
-            // ── Pravá: PIN pad ──
-            Surface(Modifier.weight(1f).paperShadow(6.dp, RoundedCornerShape(22.dp)),
+        // ── PIN pad (zdieľaný tablet/telefón) ──
+        val pinPad: @Composable (Modifier) -> Unit = { padMod ->
+            Surface(padMod.paperShadow(6.dp, RoundedCornerShape(22.dp)),
                 shape = RoundedCornerShape(22.dp), color = CreamElev) {
                 Column(Modifier.padding(vertical = 26.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     val dotPop = rememberPop(pin.length)
@@ -300,6 +305,25 @@ fun DochadzkaTerminalScreen(onBack: () -> Unit) {
                         }
                     }
                 }
+            }
+        }
+
+        // ── Layout: telefón = stĺpec so scrollom; tablet = dva panely ──
+        if (phone) {
+            Column(
+                Modifier.fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                statusBlock(Modifier.fillMaxWidth())
+                Spacer(Modifier.height(16.dp))
+                pinPad(Modifier.fillMaxWidth())
+            }
+        } else {
+            Row(Modifier.fillMaxSize().padding(28.dp), verticalAlignment = Alignment.CenterVertically) {
+                statusBlock(Modifier.weight(1f).padding(end = 28.dp))
+                pinPad(Modifier.weight(1f))
             }
         }
     }

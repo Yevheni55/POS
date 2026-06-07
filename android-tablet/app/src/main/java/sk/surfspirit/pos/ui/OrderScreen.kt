@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -1097,9 +1098,12 @@ fun OrderScreen(
             Box(Modifier.fillMaxSize().padding(pad)) { CircularProgressIndicator(Modifier.align(Alignment.Center)) }
             return@Scaffold
         }
-        Row(Modifier.fillMaxSize().padding(pad)) {
-            // ── Ľavá: hľadanie hore + kategórie VĽAVO (web tablet view) + menu ──
-            Column(Modifier.weight(1.7f).padding(12.dp)) {
+        val phone = isPhone()
+        var phoneTab by rememberSaveable { mutableStateOf(0) }   // 0 = Menu, 1 = Účet
+
+        // ── Menu pane: hľadanie + kategórie vľavo + grid (web tablet view) ──
+        val menuPane: @Composable (Modifier) -> Unit = { paneMod ->
+            Column(paneMod.padding(if (phone) 8.dp else 12.dp)) {
                 OutlinedTextField(
                     value = search, onValueChange = { search = it },
                     placeholder = { Text("Hľadať produkt alebo kategóriu…") },
@@ -1108,16 +1112,16 @@ fun OrderScreen(
                 )
                 Spacer(Modifier.height(8.dp))
                 Row(Modifier.weight(1f)) {
-                    // Vertikálny category rail — všetky kategórie vidno naraz
-                    // (web .categories tablet override: 156 px, 50 px riadky)
+                    // Vertikálny category rail — všetky kategórie vidno naraz;
+                    // telefón = úzky iba-ikonový rail (64 dp)
                     Column(
-                        Modifier.width(150.dp).fillMaxHeight()
+                        Modifier.width(if (phone) 64.dp else 150.dp).fillMaxHeight()
                             .verticalScroll(rememberScrollState())
                             .padding(end = 6.dp),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
                         categories.forEachIndexed { i, c ->
-                            CatRailBtn(c, i == selectedCat && search.isBlank()) {
+                            CatRailBtn(c, i == selectedCat && search.isBlank(), iconOnly = phone) {
                                 selectedCat = i; search = ""
                             }
                         }
@@ -1159,10 +1163,12 @@ fun OrderScreen(
                     }
                 }
             }
+        }
 
-            // ── Pravá: objednávka — „order pad" s ľavou linkou a paper tieňom ──
+        // ── Order pane: „order pad" s ľavou linkou a paper tieňom ──
+        val orderPane: @Composable (Modifier) -> Unit = { paneMod ->
             Surface(
-                Modifier.weight(1f).fillMaxHeight()
+                paneMod
                     .paperShadow(2.dp, RectangleShape)
                     .drawBehind {
                         drawLine(BorderStrong, Offset(0f, 0f), Offset(0f, size.height), strokeWidth = 2f)
@@ -1333,6 +1339,47 @@ fun OrderScreen(
                         Spacer(Modifier.height(6.dp))
                         TextButton(onClick = { showCancel = true }, enabled = (hasItems || current != null) && !busy,
                             modifier = Modifier.fillMaxWidth()) { Text("Zrušiť objednávku", color = Danger) }
+                    }
+                }
+            }
+        }
+
+        // ── Layout: tablet = dva panely vedľa seba; telefón = taby + spodný bar ──
+        if (!phone) {
+            Row(Modifier.fillMaxSize().padding(pad)) {
+                menuPane(Modifier.weight(1.7f))
+                orderPane(Modifier.weight(1f).fillMaxHeight())
+            }
+        } else {
+            Column(Modifier.fillMaxSize().padding(pad)) {
+                // Taby Menu | Účet (s počtom kusov)
+                val cartCount = (current?.items?.sumOf { it.qty } ?: 0) + newItems.sumOf { it.qty }
+                Row(Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    PhoneTab("Menu", phoneTab == 0, Modifier.weight(1f)) { phoneTab = 0 }
+                    PhoneTab(if (cartCount > 0) "Účet ($cartCount)" else "Účet",
+                        phoneTab == 1, Modifier.weight(1f)) { phoneTab = 1 }
+                }
+                Box(Modifier.weight(1f)) {
+                    if (phoneTab == 0) menuPane(Modifier.fillMaxSize())
+                    else orderPane(Modifier.fillMaxSize())
+                }
+                // Spodný bar na Menu tabe — bežiaci CELKOM + skok na účet
+                if (phoneTab == 0 && hasItems) {
+                    Surface(color = CreamElev, modifier = Modifier.paperShadow(6.dp, RectangleShape)) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("$cartCount pol.", style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                AnimatedMoney(grandTotal, MaterialTheme.typography.titleMedium, Terra)
+                            }
+                            Button(onClick = { phoneTab = 1 },
+                                colors = ButtonDefaults.buttonColors(containerColor = Terra, contentColor = Cream),
+                                modifier = Modifier.height(46.dp).glow(true)) {
+                                Text("Účet →")
+                            }
+                        }
                     }
                 }
             }
@@ -1597,7 +1644,7 @@ private fun ExtraBtn(label: String, color: Color, modifier: Modifier, enabled: B
  * transparent pokoj / aktívna = terra tint + ľavý 3 dp inset bar + extrabold.
  */
 @Composable
-private fun CatRailBtn(c: CategoryDto, active: Boolean, onClick: () -> Unit) {
+private fun CatRailBtn(c: CategoryDto, active: Boolean, iconOnly: Boolean = false, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val fill by animateColorAsState(if (active) Terra.copy(alpha = 0.10f) else Color.Transparent,
         Motion.colorSpec, label = "catFill")
@@ -1610,15 +1657,38 @@ private fun CatRailBtn(c: CategoryDto, active: Boolean, onClick: () -> Unit) {
             // Ľavý inset bar — rovnaký „ink-margin" jazyk ako riadky účtu
             Box(Modifier.width(3.dp).fillMaxHeight()
                 .background(if (active) Terra else Color.Transparent))
-            Spacer(Modifier.width(9.dp))
-            Text(c.icon, fontSize = 20.sp, modifier = Modifier.width(26.dp))
-            Spacer(Modifier.width(4.dp))
-            Text(c.label,
-                color = ink,
-                fontWeight = if (active) FontWeight.ExtraBold else FontWeight.SemiBold,
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(vertical = 13.dp, horizontal = 0.dp).weight(1f))
+            if (iconOnly) {
+                // Telefón: úzky rail — len emoji, vycentrované
+                Box(Modifier.weight(1f).padding(vertical = 13.dp), contentAlignment = Alignment.Center) {
+                    Text(c.icon, fontSize = 22.sp)
+                }
+            } else {
+                Spacer(Modifier.width(9.dp))
+                Text(c.icon, fontSize = 20.sp, modifier = Modifier.width(26.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(c.label,
+                    color = ink,
+                    fontWeight = if (active) FontWeight.ExtraBold else FontWeight.SemiBold,
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(vertical = 13.dp, horizontal = 0.dp).weight(1f))
+            }
+        }
+    }
+}
+
+/** Telefónny tab Menu | Účet — veľký pill (44 dp+). */
+@Composable
+private fun PhoneTab(label: String, active: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val fill by animateColorAsState(if (active) Terra else MaterialTheme.colorScheme.surface,
+        Motion.colorSpec, label = "phTab")
+    Surface(onClick = onClick, interactionSource = interaction, shape = RoundedCornerShape(999.dp),
+        color = fill, border = BorderStroke(1.dp, if (active) Terra else BorderSoft),
+        modifier = modifier.height(44.dp).pressScale(interaction)) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(label, color = if (active) Cream else MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.labelLarge)
         }
     }
 }

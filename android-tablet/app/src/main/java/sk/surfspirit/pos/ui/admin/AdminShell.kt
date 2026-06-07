@@ -66,6 +66,46 @@ fun AdminShell(onBackToPos: () -> Unit, onOpenFloorEdit: () -> Unit) {
         onDispose { sk.surfspirit.pos.core.Mem.categoriesAt = 0 }
     }
 
+    // ── Telefón: horný bar s dropdown navigáciou (rail sa nezmestí) ──
+    if (isPhone()) {
+        var navOpen by remember { mutableStateOf(false) }
+        Column(Modifier.fillMaxSize().background(Cream)) {
+            Surface(color = CreamElev, modifier = Modifier.paperShadow(2.dp, RectangleShape)) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Box {
+                        TextButton(onClick = { navOpen = true }) {
+                            Text("☰  ${page.icon} ${page.title}",
+                                style = MaterialTheme.typography.titleSmall, color = Terra)
+                        }
+                        DropdownMenu(expanded = navOpen, onDismissRequest = { navOpen = false }) {
+                            var lastSection = ""
+                            AdminPage.entries.forEach { p ->
+                                if (p.section != lastSection) {
+                                    lastSection = p.section
+                                    Text(p.section, Modifier.padding(start = 14.dp, top = 8.dp, bottom = 2.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                DropdownMenuItem(
+                                    text = { Text("${p.icon} ${p.title}",
+                                        color = if (p == page) Terra else MaterialTheme.colorScheme.onSurface) },
+                                    onClick = { page = p; navOpen = false },
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = onBackToPos) { Text("← Kasa", color = Terra) }
+                }
+            }
+            Box(Modifier.weight(1f)) {
+                AdminContent(page, onOpenFloorEdit, onBackToPos)
+            }
+        }
+        return
+    }
+
     Row(Modifier.fillMaxSize().background(Cream)) {
         // ── Rail ──
         Surface(
