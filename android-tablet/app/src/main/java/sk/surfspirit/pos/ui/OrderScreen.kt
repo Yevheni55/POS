@@ -93,16 +93,18 @@ fun OrderScreen(
     val snackbar = remember { SnackbarHostState() }
     val haptics = LocalHapticFeedback.current
 
-    var categories by remember { mutableStateOf<List<CategoryDto>>(emptyList()) }
-    var discountsList by remember { mutableStateOf<List<DiscountDto>>(emptyList()) }
-    var tables by remember { mutableStateOf<List<TableDto>>(emptyList()) }
+    // Štart z in-memory cache — otvorenie stola kreslí menu OKAMŽITE;
+    // sieť dofetchne len objednávky stola (1 LAN roundtrip na pozadí).
+    var categories by remember { mutableStateOf(Mem.categories ?: emptyList()) }
+    var discountsList by remember { mutableStateOf(Mem.discounts ?: emptyList()) }
+    var tables by remember { mutableStateOf(Mem.tables ?: emptyList()) }
     var accounts by remember { mutableStateOf<List<OrderDto>>(emptyList()) }
     var current by remember { mutableStateOf<OrderDto?>(null) }
     val newItems = remember { mutableStateListOf<CartLine>() }
 
     var selectedCat by remember { mutableStateOf(Store.lastCategory()) }
     var search by remember { mutableStateOf("") }
-    var loading by remember { mutableStateOf(true) }
+    var loading by remember { mutableStateOf(Mem.categories == null) }
     var busy by remember { mutableStateOf(false) }          // globálny „prebieha akcia"
     var error by remember { mutableStateOf<String?>(null) }
     var toast by remember { mutableStateOf<String?>(null) }
@@ -172,29 +174,40 @@ fun OrderScreen(
     fun reload(keepAccountId: Int? = current?.id, quiet: Boolean = false) {
         scope.launch {
             try {
-                val (menu, top) = withContext(Dispatchers.IO) {
-                    val m = Api.service.menu()
-                    val t = try { Api.service.menuTop() } catch (_: Exception) { Store.cachedTop() ?: emptyList() }
-                    m to t
+                // 1) Menu — z Mem cache ak čerstvé (< 5 min); fetch len keď treba.
+                if (Mem.menuFresh) {
+                    categories = Mem.categories!!
+                } else {
+                    val (menu, top) = withContext(Dispatchers.IO) {
+                        val m = Api.service.menu()
+                        val t = try { Api.service.menuTop() } catch (_: Exception) { Store.cachedTop() ?: emptyList() }
+                        m to t
+                    }
+                    Store.cacheMenu(menu)
+                    if (top.isNotEmpty()) Store.cacheTop(top)
+                    // Logické triedenie v kategórii (web compareByMenuLogic);
+                    // „Najčastejšie" drží sales-rank poradie, presne 12 (web parita).
+                    val withItems = menu.filter { it.items.isNotEmpty() }
+                        .map { it.copy(items = it.items.sortedWith(menuLogicComparator)) }
+                    val built = if (top.isNotEmpty())
+                        listOf(CategoryDto(id = -1, slug = "top", label = "Najčastejšie", icon = "🔥",
+                            items = top.take(12))) + withItems
+                    else withItems
+                    categories = built
+                    Mem.categories = built
+                    Mem.categoriesAt = System.currentTimeMillis()
                 }
-                Store.cacheMenu(menu)
-                if (top.isNotEmpty()) Store.cacheTop(top)
-                // Logické triedenie v kategórii (web compareByMenuLogic);
-                // „Najčastejšie" drží sales-rank poradie, presne 12 (web parita).
-                val withItems = menu.filter { it.items.isNotEmpty() }
-                    .map { it.copy(items = it.items.sortedWith(menuLogicComparator)) }
-                categories = if (top.isNotEmpty())
-                    listOf(CategoryDto(id = -1, slug = "top", label = "Najčastejšie", icon = "🔥",
-                        items = top.take(12))) + withItems
-                else withItems
-                val (ords, tbls, disc) = withContext(Dispatchers.IO) {
-                    Triple(Api.service.tableOrders(tableId), Api.service.tables(),
-                        try { Api.service.discounts() } catch (_: Exception) { emptyList() })
-                }
+                // 2) Objednávky TOHTO stola — vždy čerstvé (1 rýchly roundtrip).
+                val ords = withContext(Dispatchers.IO) { Api.service.tableOrders(tableId) }
                 accounts = ords
-                tables = tbls
-                discountsList = disc
                 current = ords.firstOrNull { it.id == keepAccountId } ?: ords.firstOrNull()
+                // 3) Stoly + zľavy — z Mem hneď (init), refresh potichu na pozadí.
+                scope.launch {
+                    runCatching { withContext(Dispatchers.IO) { Api.service.tables() } }
+                        .onSuccess { tables = it; Mem.tables = it }
+                    runCatching { withContext(Dispatchers.IO) { Api.service.discounts() } }
+                        .onSuccess { discountsList = it; Mem.discounts = it }
+                }
                 Net.offline.value = false
                 error = null
                 withContext(Dispatchers.IO) { runCatching { Store.flushQueue() } }

@@ -57,16 +57,21 @@ fun FloorScreen(
 ) {
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
-    var tables by remember { mutableStateOf<List<TableDto>>(emptyList()) }
-    var zones by remember { mutableStateOf<List<ZoneDto>>(emptyList()) }
-    var totals by remember { mutableStateOf<Map<Int, Double>>(emptyMap()) }
-    var accountsPerTable by remember { mutableStateOf<Map<Int, Int>>(emptyMap()) }
+    // Štart z in-memory cache — návrat z objednávky kreslí plán OKAMŽITE
+    // (žiadny spinner), sieť ho len potichu obnoví.
+    var tables by remember { mutableStateOf(Mem.tables ?: emptyList()) }
+    var zones by remember { mutableStateOf(Mem.zones ?: emptyList()) }
+    var totals by remember { mutableStateOf(
+        Mem.orders?.groupBy { it.tableId }?.mapValues { (_, v) -> v.sumOf { o -> o.grandTotal } } ?: emptyMap()) }
+    var accountsPerTable by remember { mutableStateOf(
+        Mem.orders?.groupBy { it.tableId }?.mapValues { it.value.size } ?: emptyMap()) }
     var oldestOrderAt by remember { mutableStateOf<Map<Int, Long>>(emptyMap()) }
-    var revenueToday by remember { mutableStateOf<Double?>(null) }
-    var activeZone by remember { mutableStateOf<String?>(null) }
+    var revenueToday by remember { mutableStateOf(Mem.revenueToday) }
+    var activeZone by remember { mutableStateOf<String?>(
+        Mem.zones?.firstOrNull()?.slug ?: Mem.tables?.firstOrNull()?.zone) }
     // Stoly s rozpísaným (offline odparkovaným) draftom — ukáž na chipe
     var draftIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
-    var loading by remember { mutableStateOf(true) }
+    var loading by remember { mutableStateOf(Mem.tables == null) }
     var error by remember { mutableStateOf<String?>(null) }
     var toast by remember { mutableStateOf<String?>(null) }
 
@@ -85,7 +90,8 @@ fun FloorScreen(
 
     /** Načítanie — quiet=true nepreklápa `loading` spinner (background poll). */
     fun load(quiet: Boolean = false) {
-        if (!quiet) { loading = true; error = null }
+        // Spinner len pri ÚPLNE prvom otvorení bez cache — návraty sú okamžité
+        if (!quiet && tables.isEmpty()) { loading = true; error = null }
         draftIds = Store.draftTableIds()
         scope.launch {
             try {
@@ -97,11 +103,12 @@ fun FloorScreen(
                     v.mapNotNull { o -> o.createdAt?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() } }
                         .minOrNull() ?: Long.MAX_VALUE
                 }
-                zones = try { withContext(Dispatchers.IO) { Api.service.zones() } } catch (_: Exception) { emptyList() }
+                zones = try { withContext(Dispatchers.IO) { Api.service.zones() } } catch (_: Exception) { zones }
                 if (activeZone == null || tbls.none { it.zone == activeZone })
                     activeZone = zones.firstOrNull()?.slug ?: tbls.firstOrNull()?.zone
                 revenueToday = try { withContext(Dispatchers.IO) { Api.service.zReport(todayIso()).totalRevenue } } catch (_: Exception) { revenueToday }
-                // Online — cache + flush offline queue
+                // In-memory cache pre okamžité prechody + prefs cache pre offline boot
+                Mem.tables = tbls; Mem.zones = zones; Mem.orders = ords; Mem.revenueToday = revenueToday
                 Store.cacheTables(tbls)
                 if (zones.isNotEmpty()) Store.cacheZones(zones)
                 Net.offline.value = false

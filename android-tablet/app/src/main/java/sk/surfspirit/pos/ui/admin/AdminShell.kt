@@ -61,6 +61,11 @@ fun AdminShell(onBackToPos: () -> Unit, onOpenFloorEdit: () -> Unit) {
 
     BackHandler(enabled = true) { onBackToPos() }
 
+    // Po odchode z adminu invaliduj menu cache — mohlo sa editovať
+    DisposableEffect(Unit) {
+        onDispose { sk.surfspirit.pos.core.Mem.categoriesAt = 0 }
+    }
+
     Row(Modifier.fillMaxSize().background(Cream)) {
         // ── Rail ──
         Surface(

@@ -30,7 +30,16 @@ fun AppNav() {
         }
     }
 
-    NavHost(navController = nav, startDestination = start) {
+    NavHost(
+        navController = nav,
+        startDestination = start,
+        // Bleskové prechody — default navigation crossfade je 700 ms, čo na
+        // kase pôsobí ako lag. 90 ms fade = okamžitý pocit bez tvrdého strihu.
+        enterTransition = { androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(90)) },
+        exitTransition = { androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(90)) },
+        popEnterTransition = { androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(90)) },
+        popExitTransition = { androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(90)) },
+    ) {
         composable("login") {
             LoginScreen(
                 onLoggedIn = {
