@@ -1,8 +1,12 @@
 package sk.surfspirit.pos.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
@@ -25,8 +29,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
@@ -1047,8 +1055,21 @@ fun OrderScreen(
         m
     }
 
+    // is-primary fázový automat (port web _computeOrderState/_applyActionButtonState):
+    // kým kuchyni niečo dlhujeme, hrdina je Poslať; keď je všetko odoslané,
+    // hrdina je platba. Presne JEDNA skupina svieti naraz.
+    val phase = when {
+        !hasItems -> "empty"
+        newItems.isNotEmpty() && sentQty > 0 -> "partial"
+        newItems.isNotEmpty() -> "new"
+        current?.items?.any { !it.sent } == true -> "new"
+        else -> "sent"
+    }
+    val sendPrimary = phase == "new" || phase == "partial"
+    val payPrimary = phase == "sent"
+
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = { PosSnackbarHost(snackbar) },
         topBar = {
             Column {
                 PosHeader(activeTab = "objednavka", userName = AppPrefs.userName,
@@ -1098,14 +1119,29 @@ fun OrderScreen(
                 ) {
                     items(items, key = { it.id }) { mi ->
                         ProductCard(mi, inOrderQty[mi.id] ?: 0, catColorById[mi.id],
-                            onClick = { productTap(mi) },
-                            onLongClick = { if (!needsSaucePicker(mi.name)) qtyPopupFor = mi })
+                            onClick = {
+                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                productTap(mi)
+                            },
+                            onLongClick = {
+                                if (!needsSaucePicker(mi.name)) {
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    qtyPopupFor = mi
+                                }
+                            })
                     }
                 }
             }
 
-            // ── Pravá: objednávka ──
-            Surface(Modifier.weight(1f).fillMaxHeight(), color = MaterialTheme.colorScheme.surfaceVariant, tonalElevation = 1.dp) {
+            // ── Pravá: objednávka — „order pad" s ľavou linkou a paper tieňom ──
+            Surface(
+                Modifier.weight(1f).fillMaxHeight()
+                    .paperShadow(2.dp, RectangleShape)
+                    .drawBehind {
+                        drawLine(BorderStrong, Offset(0f, 0f), Offset(0f, size.height), strokeWidth = 2f)
+                    },
+                color = MaterialTheme.colorScheme.surfaceVariant,
+            ) {
                 Column(Modifier.fillMaxSize().padding(14.dp)) {
                     // hlavička + účty
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1128,9 +1164,15 @@ fun OrderScreen(
                         if (accounts.size >= 2 && !moveMode) AccountTab("⇄ spojiť", null, false) { showMerge = true }
                     }
                     if (moveMode) {
-                        Spacer(Modifier.height(4.dp))
-                        Text("Presun: vyber položky a cieľový účet / stôl",
-                            style = MaterialTheme.typography.labelSmall, color = Navy)
+                        Spacer(Modifier.height(6.dp))
+                        // Modálny režim musí byť očividný — navy strip cez celú šírku
+                        Surface(shape = RoundedCornerShape(8.dp), color = Navy.copy(alpha = 0.08f),
+                            border = BorderStroke(1.dp, Navy.copy(alpha = 0.30f)),
+                            modifier = Modifier.fillMaxWidth().paperShadow(2.dp, RoundedCornerShape(8.dp))) {
+                            Text("Presun: vyber položky a cieľový účet / stôl",
+                                Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                style = MaterialTheme.typography.labelMedium, color = Navy)
+                        }
                     }
                     Spacer(Modifier.height(8.dp))
 
@@ -1167,15 +1209,31 @@ fun OrderScreen(
                             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
 
-                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                    if (discount > 0) {
-                        Row { Text("Medzisúčet", Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(money(serverSubtotal + cartSubtotal)) }
-                        Row { Text("Zľava", Modifier.weight(1f), color = Sage); Text("- ${money(discount)}", color = Sage) }
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("CELKOM", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                        Text(money(grandTotal), style = MaterialTheme.typography.titleLarge, color = Terra)
+                    Spacer(Modifier.height(8.dp))
+                    // Hero CELKOM — kotva na peniaze: terra-tinted karta, Sora
+                    // numeráliá, 250 ms pokladničný ticker pri zmene sumy.
+                    Surface(
+                        Modifier.fillMaxWidth().paperShadow(2.dp, RoundedCornerShape(14.dp)),
+                        shape = RoundedCornerShape(14.dp),
+                        color = Terra.copy(alpha = 0.08f),
+                        border = BorderStroke(1.dp, Terra.copy(alpha = 0.26f)),
+                    ) {
+                        Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                            if (discount > 0) {
+                                Row { Text("Medzisúčet", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(money(serverSubtotal + cartSubtotal), style = MaterialTheme.typography.labelSmall) }
+                                Row { Text("Zľava", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, color = Sage)
+                                    Text("− ${money(discount)}", style = MaterialTheme.typography.labelSmall, color = Sage) }
+                                Spacer(Modifier.height(4.dp))
+                            }
+                            Row(verticalAlignment = Alignment.Bottom) {
+                                Text("CELKOM", Modifier.weight(1f).padding(bottom = 4.dp),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                AnimatedMoney(grandTotal, MaterialTheme.typography.displaySmall, Terra)
+                            }
+                        }
                     }
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
 
@@ -1194,26 +1252,42 @@ fun OrderScreen(
                             }
                         }
                     } else {
-                        // akčné tlačidlá (web parita)
+                        // ── Akčné tlačidlá — is-primary fázový automat ──
+                        // NEW/PARTIAL: Poslať svieti (glow); SENT: Poslať zhasne
+                        // a platobný rad fyzicky narastie 48→52 dp + glow.
+                        val sendFill by animateColorAsState(
+                            if (sendPrimary || phase == "empty") Amber else Amber.copy(alpha = 0.55f),
+                            Motion.colorSpec, label = "sendFill")
                         Button(onClick = { doSend() }, enabled = canSendNow && !busy,
-                            colors = ButtonDefaults.buttonColors(containerColor = Amber, contentColor = Espresso),
-                            modifier = Modifier.fillMaxWidth().height(52.dp)) {
+                            colors = ButtonDefaults.buttonColors(containerColor = sendFill, contentColor = Espresso),
+                            modifier = Modifier.fillMaxWidth().height(52.dp)
+                                .glow(sendPrimary && !busy)) {
                             if (busy) CircularProgressIndicator(Modifier.size(20.dp), color = Espresso, strokeWidth = 2.dp)
                             else Text("Poslať objednávku", style = MaterialTheme.typography.labelLarge)
                         }
                         Spacer(Modifier.height(6.dp))
                         OutlinedButton(onClick = { doPreBill() }, enabled = hasItems && !busy,
                             modifier = Modifier.fillMaxWidth().height(46.dp),
-                            border = BorderStroke(1.dp, Navy)) { Text("Predúčet", color = Navy) }
+                            border = BorderStroke(1.dp, if (hasItems) Navy else BorderSoft)) {
+                            Text("Predúčet", color = if (hasItems) Navy else EspressoDim)
+                        }
                         Spacer(Modifier.height(6.dp))
+                        val payHeight by animateDpAsState(if (payPrimary) 52.dp else 48.dp,
+                            tween(Motion.NORMAL), label = "payH")
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            val cashInt = remember { MutableInteractionSource() }
                             Button(onClick = { payInitMethod = "hotovost"; payError = null; payFiscal = null
                                 payNonce = java.util.UUID.randomUUID().toString(); showPay = true },
-                                enabled = hasItems && !busy, modifier = Modifier.weight(1f).height(48.dp),
+                                enabled = hasItems && !busy, interactionSource = cashInt,
+                                modifier = Modifier.weight(1f).height(payHeight)
+                                    .glow(payPrimary && !busy).pressScale(cashInt),
                                 colors = ButtonDefaults.buttonColors(containerColor = Terra, contentColor = Cream)) { Text("Hotovosť") }
+                            val cardInt = remember { MutableInteractionSource() }
                             Button(onClick = { payInitMethod = "karta"; payError = null; payFiscal = null
                                 payNonce = java.util.UUID.randomUUID().toString(); showPay = true },
-                                enabled = hasItems && !busy, modifier = Modifier.weight(1f).height(48.dp),
+                                enabled = hasItems && !busy, interactionSource = cardInt,
+                                modifier = Modifier.weight(1f).height(payHeight)
+                                    .glow(payPrimary && !busy).pressScale(cardInt),
                                 colors = ButtonDefaults.buttonColors(containerColor = Terra, contentColor = Cream)) { Text("Karta") }
                         }
                         if (tables.firstOrNull { it.id == tableId }?.zone == "zamestanci") {
@@ -1367,9 +1441,13 @@ fun OrderScreen(
 
 @Composable
 private fun AccountTab(label: String, meta: String?, active: Boolean, onClick: () -> Unit) {
-    Surface(onClick = onClick, shape = RoundedCornerShape(999.dp),
-        color = if (active) Terra else MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, if (active) Terra else MaterialTheme.colorScheme.outline)) {
+    val interaction = remember { MutableInteractionSource() }
+    val fill by animateColorAsState(if (active) Terra else MaterialTheme.colorScheme.surface,
+        Motion.colorSpec, label = "accFill")
+    val edge by animateColorAsState(if (active) Terra else BorderSoft, Motion.colorSpec, label = "accEdge")
+    Surface(onClick = onClick, interactionSource = interaction, shape = RoundedCornerShape(999.dp),
+        color = fill, border = BorderStroke(1.dp, edge),
+        modifier = Modifier.pressScale(interaction)) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 5.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(label, color = if (active) Cream else MaterialTheme.colorScheme.onSurface,
                 fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelMedium, maxLines = 1)
@@ -1387,36 +1465,45 @@ private fun ServerItemRow(
     onMinus: () -> Unit, onPlus: () -> Unit,
     onNote: () -> Unit, onMove: () -> Unit, onRemove: () -> Unit,
 ) {
-    Column {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (it.sent) {
-                Icon(Icons.Filled.Check, "odoslané", Modifier.size(15.dp), tint = Sage)
-                Spacer(Modifier.width(3.dp))
+    // Ľavý status prúžok — „ink-margin rule": sage = v kuchyni, taupe = neodoslané
+    Row(Modifier.height(IntrinsicSize.Min)) {
+        Box(Modifier.width(3.dp).fillMaxHeight()
+            .background(if (it.sent) Sage else BorderSoft, RoundedCornerShape(2.dp)))
+        Spacer(Modifier.width(6.dp))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (it.sent) {
+                    Icon(Icons.Filled.Check, "odoslané", Modifier.size(15.dp), tint = Sage)
+                    Spacer(Modifier.width(3.dp))
+                }
+                Text("${it.emoji} ${it.name}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, color = if (it.sent) Sage else MaterialTheme.colorScheme.onSurface)
+                StepBtn("−", onMinus)
+                Text("${it.qty}", Modifier.width(24.dp), style = MaterialTheme.typography.labelMedium,
+                    color = Terra, fontWeight = FontWeight.Bold)
+                StepBtn("+", onPlus)
+                Spacer(Modifier.width(4.dp))
+                IconMini(Icons.AutoMirrored.Filled.ArrowForward, "presunúť", onMove, tint = Sage)
+                IconMini(Icons.Filled.Edit, "poznámka", onNote)
+                IconMini(Icons.Filled.Close, "odobrať", onRemove, tint = Danger)
+                Spacer(Modifier.width(4.dp))
+                Text(money(it.price * it.qty), style = MaterialTheme.typography.bodyMedium)
             }
-            Text("${it.emoji} ${it.name}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, color = if (it.sent) Sage else MaterialTheme.colorScheme.onSurface)
-            StepBtn("−", onMinus)
-            Text("${it.qty}", Modifier.width(24.dp), style = MaterialTheme.typography.labelMedium,
-                color = Terra, fontWeight = FontWeight.Bold)
-            StepBtn("+", onPlus)
-            Spacer(Modifier.width(4.dp))
-            IconMini(Icons.AutoMirrored.Filled.ArrowForward, "presunúť", onMove, tint = Sage)
-            IconMini(Icons.Filled.Edit, "poznámka", onNote)
-            IconMini(Icons.Filled.Close, "odobrať", onRemove, tint = Danger)
-            Spacer(Modifier.width(4.dp))
-            Text(money(it.price * it.qty), style = MaterialTheme.typography.bodyMedium)
+            if (it.note.isNotBlank()) Text("• ${it.note}", style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 12.dp))
         }
-        if (it.note.isNotBlank()) Text("• ${it.note}", style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 18.dp))
     }
 }
 
 @Composable
 private fun MoveSelectRow(it: OrderItemDto, selQty: Int?, selected: Boolean, onToggle: () -> Unit) {
-    Surface(onClick = onToggle, shape = RoundedCornerShape(8.dp),
-        color = if (selected) Terra.copy(alpha = 0.10f) else MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, if (selected) Terra else MaterialTheme.colorScheme.outline),
-        modifier = Modifier.fillMaxWidth()) {
+    val interaction = remember { MutableInteractionSource() }
+    val fill by animateColorAsState(if (selected) Terra.copy(alpha = 0.10f) else MaterialTheme.colorScheme.surface,
+        Motion.colorSpec, label = "msFill")
+    val edge by animateColorAsState(if (selected) Terra else BorderSoft, Motion.colorSpec, label = "msEdge")
+    Surface(onClick = onToggle, interactionSource = interaction, shape = RoundedCornerShape(8.dp),
+        color = fill, border = BorderStroke(1.dp, edge),
+        modifier = Modifier.fillMaxWidth().pressScale(interaction)) {
         Row(verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
             Icon(if (selected) Icons.Filled.Check else Icons.Filled.Close, null, Modifier.size(16.dp),
@@ -1436,22 +1523,28 @@ private fun MoveSelectRow(it: OrderItemDto, selQty: Int?, selected: Boolean, onT
 
 @Composable
 private fun CartRow(line: CartLine, onMinus: () -> Unit, onPlus: () -> Unit, onNote: () -> Unit, onRemove: () -> Unit) {
-    Column {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("${line.emoji} ${line.name}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
-            StepBtn("−", onMinus)
-            Text("${line.qty}", Modifier.width(24.dp), style = MaterialTheme.typography.labelMedium,
-                color = Terra, fontWeight = FontWeight.Bold)
-            StepBtn("+", onPlus)
-            Spacer(Modifier.width(4.dp))
-            IconMini(Icons.Filled.Edit, "poznámka", onNote)
-            IconMini(Icons.Filled.Close, "odobrať", onRemove, tint = Danger)
-            Spacer(Modifier.width(4.dp))
-            Text(money(line.price * line.qty), style = MaterialTheme.typography.bodyMedium)
+    // Amber prúžok = čerstvý koncept (pôjde sa odoslať)
+    Row(Modifier.height(IntrinsicSize.Min)) {
+        Box(Modifier.width(3.dp).fillMaxHeight()
+            .background(Amber.copy(alpha = 0.55f), RoundedCornerShape(2.dp)))
+        Spacer(Modifier.width(6.dp))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("${line.emoji} ${line.name}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                StepBtn("−", onMinus)
+                Text("${line.qty}", Modifier.width(24.dp), style = MaterialTheme.typography.labelMedium,
+                    color = Terra, fontWeight = FontWeight.Bold)
+                StepBtn("+", onPlus)
+                Spacer(Modifier.width(4.dp))
+                IconMini(Icons.Filled.Edit, "poznámka", onNote)
+                IconMini(Icons.Filled.Close, "odobrať", onRemove, tint = Danger)
+                Spacer(Modifier.width(4.dp))
+                Text(money(line.price * line.qty), style = MaterialTheme.typography.bodyMedium)
+            }
+            if (line.note.isNotBlank()) Text("• ${line.note}", style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp))
         }
-        if (line.note.isNotBlank()) Text("• ${line.note}", style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp))
     }
 }
 
@@ -1474,9 +1567,14 @@ private fun ExtraBtn(label: String, color: Color, modifier: Modifier, enabled: B
 
 @Composable
 private fun CatChip(c: CategoryDto, active: Boolean, onClick: () -> Unit) {
-    Surface(onClick = onClick, shape = RoundedCornerShape(10.dp),
-        color = if (active) Terra.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, if (active) Terra.copy(alpha = 0.40f) else MaterialTheme.colorScheme.outline)) {
+    val interaction = remember { MutableInteractionSource() }
+    val fill by animateColorAsState(if (active) Terra.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface,
+        Motion.colorSpec, label = "catFill")
+    val edge by animateColorAsState(if (active) Terra.copy(alpha = 0.40f) else BorderSoft,
+        Motion.colorSpec, label = "catEdge")
+    Surface(onClick = onClick, interactionSource = interaction, shape = RoundedCornerShape(10.dp),
+        color = fill, border = BorderStroke(1.dp, edge),
+        modifier = Modifier.pressScale(interaction)) {
         Text("${c.icon} ${c.label}", Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
             color = if (active) Terra else MaterialTheme.colorScheme.onSurface,
             fontWeight = if (active) FontWeight.ExtraBold else FontWeight.SemiBold,
@@ -1493,12 +1591,16 @@ private fun ProductCard(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
+    val interaction = remember { MutableInteractionSource() }
     Surface(shape = RoundedCornerShape(10.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline), tonalElevation = 1.dp,
-        modifier = Modifier.height(96.dp)) {
+        border = BorderStroke(1.dp, BorderSoft),
+        modifier = Modifier.height(96.dp)
+            .paperShadow(2.dp, RoundedCornerShape(10.dp))
+            .pressScale(interaction)) {
         Box(Modifier.fillMaxSize()
             .background(Brush.verticalGradient(listOf(Cream, CreamElev)))
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)) {
+            .combinedClickable(interactionSource = interaction, indication = LocalIndication.current,
+                onClick = onClick, onLongClick = onLongClick)) {
             // Per-kategória akcent — farebná horná hrana (web --cat-color)
             catColor?.let {
                 Box(Modifier.fillMaxWidth().height(3.dp).background(it.copy(alpha = 0.65f)).align(Alignment.TopCenter))
@@ -1512,10 +1614,12 @@ private fun ProductCard(
                 Text(mi.name, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(money(mi.price), style = MaterialTheme.typography.labelLarge, color = Terra)
             }
-            // Qty badge — koľko kusov je už v účte (web parita)
+            // Qty badge — bežiaci súčet v účte; pop pri zmene = „tap dosadol"
             if (inOrderQty > 0) {
+                val pop = rememberPop(inOrderQty)
                 Surface(shape = RoundedCornerShape(999.dp), color = Terra,
-                    modifier = Modifier.align(Alignment.TopEnd).padding(6.dp)) {
+                    modifier = Modifier.align(Alignment.TopEnd).padding(6.dp)
+                        .graphicsLayer { scaleX = pop; scaleY = pop }) {
                     Text("$inOrderQty", Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
                         color = Cream, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                 }
@@ -1529,17 +1633,21 @@ private fun ProductCard(
 private fun StepBtn(label: String, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
+    val haptics = LocalHapticFeedback.current
     // rememberUpdatedState — repeat loop musí volať NAJNOVŠÍ onClick (po
     // recompozícii s čerstvým OrderItemDto), nie lambdu z času stlačenia.
     val currentOnClick by rememberUpdatedState(onClick)
     LaunchedEffect(pressed) {
         if (pressed) {
+            // Haptika len pri PRVOM stlačení — nie per repeat tick (bzučalo by)
+            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             delay(400)
             while (true) { currentOnClick(); delay(150) }
         }
     }
     Surface(onClick = onClick, interactionSource = interaction,
-        shape = RoundedCornerShape(7.dp), color = Terra.copy(alpha = 0.10f), modifier = Modifier.size(30.dp)) {
+        shape = RoundedCornerShape(7.dp), color = Terra.copy(alpha = 0.10f),
+        modifier = Modifier.size(30.dp).pressScale(interaction)) {
         Box(contentAlignment = Alignment.Center) { Text(label, color = Terra, fontWeight = FontWeight.Bold, fontSize = 17.sp) }
     }
 }

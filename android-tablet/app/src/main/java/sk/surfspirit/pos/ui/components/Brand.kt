@@ -1,6 +1,18 @@
 package sk.surfspirit.pos.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -18,13 +30,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
+import sk.surfspirit.pos.core.money
 import sk.surfspirit.pos.ui.theme.*
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -88,14 +104,18 @@ private fun SegToggle(activeTab: String, onStoly: () -> Unit) {
 
 @Composable
 private fun SegItem(label: String, active: Boolean, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val fill by animateColorAsState(if (active) Terra else Color.Transparent, Motion.colorSpec, label = "seg")
+    val ink by animateColorAsState(if (active) Cream else EspressoSoft, Motion.colorSpec, label = "segInk")
     Surface(
         onClick = onClick,
+        interactionSource = interaction,
         shape = RoundedCornerShape(999.dp),
-        color = if (active) Terra else Color.Transparent,
+        color = fill,
+        modifier = Modifier.pressScale(interaction),
     ) {
-        Text(label, Modifier.padding(horizontal = 16.dp, vertical = 7.dp),
-            color = if (active) Cream else MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.labelLarge)
+        Text(label, Modifier.padding(horizontal = 16.dp, vertical = 9.dp),
+            color = ink, style = MaterialTheme.typography.labelLarge)
     }
 }
 
@@ -116,7 +136,8 @@ fun PosHeader(
     onLockCode: (() -> Unit)? = null,
 ) {
     val now by rememberNow()
-    Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
+    // Paper-drop tieň namiesto tonal elevation — plán/menu „odpadne" pod header
+    Surface(color = CreamElev, modifier = Modifier.paperShadow(6.dp, RectangleShape)) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -163,7 +184,7 @@ fun PosHeader(
 
 /** Tenký shift status strip — trvanie zmeny + otvorené stoly + tržby dnes. */
 @Composable
-fun ShiftStrip(openTables: Int, totalTables: Int, revenueToday: String?) {
+fun ShiftStrip(openTables: Int, totalTables: Int, revenueToday: Double?) {
     // Trvanie zmeny — od štartu session (web parita: pos_shift_started_at).
     val sessionStart = remember {
         sk.surfspirit.pos.core.AppPrefs.getRaw("session_start")?.toLongOrNull()
@@ -177,13 +198,24 @@ fun ShiftStrip(openTables: Int, totalTables: Int, revenueToday: String?) {
     val hrs = elapsedMs / 3_600_000
     val mins = (elapsedMs % 3_600_000) / 60_000
 
-    Surface(color = MaterialTheme.colorScheme.surfaceVariant) {
+    // Live dot pulz — JEDINÁ slučka na floor view; len keď je niečo otvorené.
+    val dotAlpha = if (openTables > 0 && !reducedMotion()) {
+        val tr = rememberInfiniteTransition(label = "liveDot")
+        tr.animateFloat(0.45f, 1f,
+            infiniteRepeatable(tween(1100), RepeatMode.Reverse), label = "dotA").value
+    } else 1f
+
+    Surface(color = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier.drawBehind {
+            drawLine(BorderSoft, start = androidx.compose.ui.geometry.Offset(0f, size.height),
+                end = androidx.compose.ui.geometry.Offset(size.width, size.height), strokeWidth = 1f)
+        }) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Surface(shape = CircleShape, color = if (openTables > 0) Terra else Sage,
-                modifier = Modifier.size(8.dp)) {}
+                modifier = Modifier.size(8.dp).alpha(dotAlpha)) {}
             Spacer(Modifier.width(8.dp))
             Text("Zmena: ${hrs}h ${mins.toString().padStart(2, '0')}m",
                 style = MaterialTheme.typography.labelMedium,
@@ -194,10 +226,39 @@ fun ShiftStrip(openTables: Int, totalTables: Int, revenueToday: String?) {
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             revenueToday?.let {
-                Text("  ·  ", style = MaterialTheme.typography.labelMedium,
+                Text("  ·  Tržby dnes: ", style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("Tržby dnes: $it", style = MaterialTheme.typography.labelMedium,
-                    color = Terra, fontWeight = FontWeight.Bold)
+                AnimatedMoney(it, MaterialTheme.typography.labelMedium.copy(
+                    fontFamily = Sora, fontWeight = FontWeight.Bold), Terra)
+            }
+        }
+    }
+}
+
+/**
+ * Espresso snackbar — tmavý toast na cream pozadí so sémantickým ľavým
+ * prúžkom (✔ sage · ⏳ amber · chyba rust · inak terra). Nahrádza stock
+ * šedý M3 snackbar v oboch Scaffoldoch.
+ */
+@Composable
+fun PosSnackbarHost(state: SnackbarHostState) {
+    SnackbarHost(state) { data ->
+        val msg = data.visuals.message
+        val bar = when {
+            msg.startsWith("✔") -> Sage
+            msg.startsWith("⏳") || msg.contains("Offline", ignoreCase = true) -> Amber
+            msg.contains("hyba") || msg.contains("zlyhal") || msg.contains("CHÝBA")
+                || msg.contains("nepodarilo") -> Danger
+            else -> Terra
+        }
+        Surface(
+            Modifier.padding(16.dp).paperShadow(6.dp, RoundedCornerShape(12.dp)),
+            shape = RoundedCornerShape(12.dp), color = Espresso, contentColor = Cream,
+        ) {
+            Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.width(4.dp).fillMaxHeight().background(bar))
+                Text(msg, Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                    style = MaterialTheme.typography.bodyMedium)
             }
         }
     }
@@ -205,24 +266,29 @@ fun ShiftStrip(openTables: Int, totalTables: Int, revenueToday: String?) {
 
 /**
  * OFFLINE banner — červený pás keď posledný fetch zlyhal (web parita).
- * Zobrazuje aj počet čakajúcich operácií vo fronte.
+ * Zostáva zámerne hlasný (safety); vsúva sa plynulo, neskáče layoutom.
  */
 @Composable
 fun OfflineBanner() {
     val offline by sk.surfspirit.pos.core.Net.offline
     val queued by sk.surfspirit.pos.core.Net.queueCount
-    if (!offline && queued == 0) return
-    Surface(color = if (offline) Danger else Amber) {
-        Text(
-            if (offline)
-                "OFFLINE — dáta sa synchronizujú po obnovení pripojenia" +
-                    (if (queued > 0) "  ·  $queued vo fronte" else "")
-            else
-                "$queued operácií vo fronte — synchronizujem…",
-            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 5.dp),
-            color = Cream,
-            style = MaterialTheme.typography.labelMedium,
-            textAlign = TextAlign.Center,
-        )
+    AnimatedVisibility(
+        visible = offline || queued > 0,
+        enter = expandVertically(tween(Motion.NORMAL)) + fadeIn(tween(Motion.NORMAL)),
+        exit = shrinkVertically(tween(Motion.FAST)) + fadeOut(tween(Motion.FAST)),
+    ) {
+        Surface(color = if (offline) Danger else Amber) {
+            Text(
+                if (offline)
+                    "OFFLINE — dáta sa synchronizujú po obnovení pripojenia" +
+                        (if (queued > 0) "  ·  $queued vo fronte" else "")
+                else
+                    "$queued operácií vo fronte — synchronizujem…",
+                Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 5.dp),
+                color = Cream,
+                style = MaterialTheme.typography.labelMedium,
+                textAlign = TextAlign.Center,
+            )
+        }
     }
 }

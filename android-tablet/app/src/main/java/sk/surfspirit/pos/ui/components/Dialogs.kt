@@ -1,7 +1,10 @@
 package sk.surfspirit.pos.ui.components
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -16,6 +19,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -97,16 +102,30 @@ fun NumPad(onDigit: (String) -> Unit, onBackspace: () -> Unit, onOk: () -> Unit,
 
 @Composable
 private fun PadKey(label: String, size: Int, onClick: () -> Unit) {
-    Surface(onClick = onClick, shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 1.dp, modifier = Modifier.size(size.dp)) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val haptics = LocalHapticFeedback.current
+    val fill by animateColorAsState(
+        if (pressed) Terra.copy(alpha = 0.10f) else MaterialTheme.colorScheme.surface,
+        Motion.colorSpec, label = "padKey")
+    Surface(onClick = { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); onClick() },
+        interactionSource = interaction, shape = RoundedCornerShape(14.dp), color = fill,
+        border = BorderStroke(1.dp, BorderSoft),
+        modifier = Modifier.size(size.dp)
+            .paperShadow(2.dp, RoundedCornerShape(14.dp))
+            .pressScale(interaction)) {
         Box(contentAlignment = Alignment.Center) { Text(label, fontSize = (size * 0.32f).sp, style = MaterialTheme.typography.titleLarge) }
     }
 }
 
 @Composable
 private fun PadKeyIcon(size: Int, onClick: () -> Unit) {
-    Surface(onClick = onClick, shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceVariant,
-        modifier = Modifier.size(size.dp)) {
+    val interaction = remember { MutableInteractionSource() }
+    Surface(onClick = onClick, interactionSource = interaction,
+        shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier.size(size.dp)
+            .paperShadow(2.dp, RoundedCornerShape(14.dp))
+            .pressScale(interaction)) {
         Box(contentAlignment = Alignment.Center) {
             androidx.compose.material3.Icon(Icons.AutoMirrored.Filled.Backspace, "Vymazať", Modifier.size((size * 0.34f).dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -116,9 +135,15 @@ private fun PadKeyIcon(size: Int, onClick: () -> Unit) {
 
 @Composable
 private fun PadKeyOk(size: Int, enabled: Boolean, onClick: () -> Unit) {
-    Surface(onClick = { if (enabled) onClick() }, shape = RoundedCornerShape(14.dp),
-        color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-        modifier = Modifier.size(size.dp)) {
+    val interaction = remember { MutableInteractionSource() }
+    val fill by animateColorAsState(
+        if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+        Motion.colorSpec, label = "padOk")
+    Surface(onClick = { if (enabled) onClick() }, interactionSource = interaction,
+        shape = RoundedCornerShape(14.dp), color = fill,
+        modifier = Modifier.size(size.dp)
+            .glow(enabled, RoundedCornerShape(14.dp))
+            .pressScale(interaction, enabled = enabled)) {
         Box(contentAlignment = Alignment.Center) {
             Text("OK", fontSize = (size * 0.26f).sp,
                 color = if (enabled) Cream else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -281,11 +306,14 @@ fun StornoReasonDialog(
 
 @Composable
 private fun PrepBtn(label: String, hint: String, active: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val fill by animateColorAsState(if (active) Terra.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface,
+        Motion.colorSpec, label = "prep")
+    val edge by animateColorAsState(if (active) Terra else BorderSoft, Motion.colorSpec, label = "prepE")
     Surface(
-        onClick = onClick, shape = RoundedCornerShape(10.dp),
-        color = if (active) Terra.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, if (active) Terra else MaterialTheme.colorScheme.outline),
-        modifier = modifier,
+        onClick = onClick, interactionSource = interaction, shape = RoundedCornerShape(10.dp),
+        color = fill, border = BorderStroke(1.dp, edge),
+        modifier = modifier.pressScale(interaction),
     ) {
         Column(Modifier.padding(10.dp)) {
             Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
@@ -377,12 +405,16 @@ fun SauceDialog(
             Column {
                 if (previous != null) {
                     val prevLabel = if (previous.isEmpty()) "bez omáčky" else previous.joinToString(" + ")
+                    val repInt = remember { MutableInteractionSource() }
                     Surface(
                         onClick = { onConfirm(previous) },
+                        interactionSource = repInt,
                         shape = RoundedCornerShape(10.dp),
                         color = Terra.copy(alpha = 0.10f),
                         border = BorderStroke(1.dp, Terra.copy(alpha = 0.4f)),
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth()
+                            .paperShadow(2.dp, RoundedCornerShape(10.dp))
+                            .pressScale(repInt),
                     ) {
                         Column(Modifier.padding(12.dp)) {
                             Text("↻ Opakovať omáčku", style = MaterialTheme.typography.labelSmall, color = Terra)
@@ -548,7 +580,7 @@ fun DiscountDialog(
                 discounts.forEach { d ->
                     val suffix = if (d.type == "percent") "${d.value.toInt()} %" else money(d.value)
                     OutlinedButton(onClick = { onApplyPreset(d.id) }, enabled = !busy,
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+                        modifier = Modifier.fillMaxWidth().height(44.dp).padding(vertical = 1.dp)) {
                         Text(d.name, Modifier.weight(1f)); Text(suffix, fontWeight = FontWeight.Bold, color = Terra)
                     }
                 }
@@ -820,8 +852,16 @@ fun PaymentDialog(
         title = { Text("Platba") },
         text = {
             Column(Modifier.widthIn(min = 320.dp, max = 460.dp).verticalScroll(rememberScrollState())) {
-                Text(money(total), style = MaterialTheme.typography.titleLarge, color = Terra,
-                    fontWeight = FontWeight.ExtraBold)
+                // Hero „K ÚHRADE" — rovnaký money-anchor jazyk ako CELKOM karta
+                Surface(shape = RoundedCornerShape(14.dp), color = Terra.copy(alpha = 0.08f),
+                    border = BorderStroke(1.dp, Terra.copy(alpha = 0.26f)),
+                    modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                        Text("K ÚHRADE", style = MaterialTheme.typography.labelSmall,
+                            color = EspressoSoft)
+                        Text(money(total), style = MaterialTheme.typography.headlineSmall, color = Terra)
+                    }
+                }
                 // Receipt preview — čašník vidí PRESNE čo pôjde na bon, chytí
                 // chybu (zlú položku / qty) PRED Portos roundtripom (web parita).
                 if (items.isNotEmpty()) {
@@ -851,17 +891,22 @@ fun PaymentDialog(
                         presets.forEach { p ->
                             OutlinedButton(onClick = { given = String.format("%.2f", p).replace('.', ',') },
                                 contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
-                                modifier = Modifier.weight(1f)) {
+                                modifier = Modifier.weight(1f).height(44.dp)) {
                                 Text(if (p == total) "Presne" else "${p.toInt()}", maxLines = 1, fontSize = 13.sp)
                             }
                         }
                     }
                     Spacer(Modifier.height(10.dp))
                     if (givenVal > 0) {
-                        if (change >= 0)
-                            Text("Vydať: ${money(change)}", style = MaterialTheme.typography.titleMedium, color = Sage)
-                        else
-                            Text("CHÝBA: ${money(-change)}", style = MaterialTheme.typography.titleMedium, color = Danger)
+                        // Výdavok/CHÝBA — animovaná suma + crossfade sage↔rust
+                        val ok = change >= 0
+                        val ink by animateColorAsState(if (ok) Sage else Danger, Motion.colorSpec, label = "chg")
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(if (ok) "Vydať: " else "CHÝBA: ",
+                                style = MaterialTheme.typography.titleMedium, color = ink)
+                            AnimatedMoney(if (ok) change else -change,
+                                MaterialTheme.typography.titleMedium, ink)
+                        }
                     }
                 }
                 fiscalNote?.let {
@@ -880,6 +925,7 @@ fun PaymentDialog(
                 onClick = { onPay(method, if (method == "hotovost" && givenVal > 0) givenVal else null) },
                 enabled = !busy,
                 colors = ButtonDefaults.buttonColors(containerColor = Terra, contentColor = Cream),
+                modifier = Modifier.height(48.dp).glow(!busy),
             ) { Text("Zaplatiť ${money(total)}") }
         },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("Zrušiť") } },
@@ -902,7 +948,7 @@ private fun ReceiptPreview(
         now.format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy · HH:mm"))
     }
     Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)) {
+        border = BorderStroke(1.dp, BorderMid)) {
         Column(Modifier.fillMaxWidth().padding(10.dp)) {
             Row { Text(tableName, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
                 Text(timeStr, style = MaterialTheme.typography.labelSmall,
@@ -964,10 +1010,15 @@ private fun cashPresets(total: Double): List<Double> {
 
 @Composable
 private fun MethodBtn(label: String, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val fill by animateColorAsState(if (active) Terra else MaterialTheme.colorScheme.surface,
+        Motion.colorSpec, label = "method")
+    val edge by animateColorAsState(if (active) Terra else BorderSoft, Motion.colorSpec, label = "methodE")
     Surface(
-        onClick = onClick, modifier = modifier.height(52.dp), shape = RoundedCornerShape(10.dp),
-        color = if (active) Terra else MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, if (active) Terra else MaterialTheme.colorScheme.outline),
+        onClick = onClick, interactionSource = interaction,
+        modifier = modifier.height(52.dp).pressScale(interaction),
+        shape = RoundedCornerShape(10.dp),
+        color = fill, border = BorderStroke(1.dp, edge),
     ) {
         Box(contentAlignment = Alignment.Center) {
             Text(label, color = if (active) Cream else MaterialTheme.colorScheme.onSurface,
@@ -1011,12 +1062,20 @@ fun CloseShiftDialog(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), suffix = { Text("€") },
                     )
                     Spacer(Modifier.height(8.dp))
-                    val (lbl, col) = when {
-                        diff > 0.001 -> "Prebytok: ${money(diff)}" to Sage
-                        diff < -0.001 -> "Manko: ${money(-diff)}" to Danger
-                        else -> "Sedí" to Sage
+                    // Diff — crossfade sage↔rust + animovaná suma
+                    val isShort = diff < -0.001
+                    val diffInk by animateColorAsState(if (isShort) Danger else Sage,
+                        Motion.colorSpec, label = "diff")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(when {
+                            diff > 0.001 -> "Prebytok: "
+                            isShort -> "Manko: "
+                            else -> "Sedí"
+                        }, color = diffInk, fontWeight = FontWeight.Bold)
+                        if (diff > 0.001 || isShort)
+                            AnimatedMoney(kotlin.math.abs(diff),
+                                MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold), diffInk)
                     }
-                    Text(lbl, color = col, fontWeight = FontWeight.Bold)
                 }
                 error?.let {
                     Spacer(Modifier.height(8.dp))

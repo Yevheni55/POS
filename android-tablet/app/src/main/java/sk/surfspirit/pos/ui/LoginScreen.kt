@@ -1,5 +1,8 @@
 package sk.surfspirit.pos.ui
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -10,6 +13,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -19,6 +25,7 @@ import kotlinx.coroutines.withContext
 import sk.surfspirit.pos.core.AppPrefs
 import sk.surfspirit.pos.net.Api
 import sk.surfspirit.pos.net.LoginReq
+import sk.surfspirit.pos.ui.theme.*
 
 @Composable
 fun LoginScreen(onLoggedIn: () -> Unit) {
@@ -101,42 +108,54 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
                 }
             }
 
-            // ── Pravá strana: PIN pad ──
-            Column(
-                Modifier.weight(1f),
-                horizontalAlignment = Alignment.CenterHorizontally,
+            // ── Pravá strana: PIN pad — „device keypad" panel ──
+            Surface(
+                Modifier.weight(1f).paperShadow(6.dp, RoundedCornerShape(22.dp)),
+                shape = RoundedCornerShape(22.dp),
+                color = CreamElev,
             ) {
-                // Dots
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    repeat(6) { i ->
-                        Surface(
-                            shape = CircleShape,
-                            color = if (i < pin.length) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier.size(16.dp),
-                        ) {}
-                    }
-                }
-                Spacer(Modifier.height(24.dp))
-
-                val keys = listOf("1","2","3","4","5","6","7","8","9")
-                Column(horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    for (r in 0..2) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            for (c in 0..2) {
-                                val k = keys[r * 3 + c]
-                                PinKey(k) { if (pin.length < 6) pin += k }
-                            }
+                Column(
+                    Modifier.padding(vertical = 28.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    // Dots — nový bod „dosadne" (pop + farba), vidno bez pozerania na pad
+                    val dotPop = rememberPop(pin.length)
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        repeat(6) { i ->
+                            val fill by animateColorAsState(
+                                if (i < pin.length) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.surfaceVariant,
+                                Motion.colorSpec, label = "dot$i")
+                            Surface(
+                                shape = CircleShape, color = fill,
+                                modifier = Modifier.size(16.dp).graphicsLayer {
+                                    val s = if (i == pin.length - 1) dotPop else 1f
+                                    scaleX = s; scaleY = s
+                                },
+                            ) {}
                         }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        PinKeyIcon(Icons.Filled.Backspace) { if (pin.isNotEmpty()) pin = pin.dropLast(1) }
-                        PinKey("0") { if (pin.length < 6) pin += "0" }
-                        PinKeyConfirm(enabled = pin.length >= 4 && !busy) { submit() }
+                    Spacer(Modifier.height(24.dp))
+
+                    val keys = listOf("1","2","3","4","5","6","7","8","9")
+                    Column(horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        for (r in 0..2) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                for (c in 0..2) {
+                                    val k = keys[r * 3 + c]
+                                    PinKey(k) { if (pin.length < 6) pin += k }
+                                }
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            PinKeyIcon(Icons.Filled.Backspace) { if (pin.isNotEmpty()) pin = pin.dropLast(1) }
+                            PinKey("0") { if (pin.length < 6) pin += "0" }
+                            PinKeyConfirm(enabled = pin.length >= 4 && !busy) { submit() }
+                        }
                     }
+                    if (busy) { Spacer(Modifier.height(16.dp)); CircularProgressIndicator() }
                 }
-                if (busy) { Spacer(Modifier.height(16.dp)); CircularProgressIndicator() }
             }
         }
     }
@@ -144,12 +163,21 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
 
 @Composable
 private fun PinKey(label: String, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val haptics = LocalHapticFeedback.current
+    val fill by animateColorAsState(
+        if (pressed) Terra.copy(alpha = 0.10f) else Cream,
+        Motion.colorSpec, label = "pinKey")
     Surface(
-        onClick = onClick,
+        onClick = { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); onClick() },
+        interactionSource = interaction,
         shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 1.dp,
-        modifier = Modifier.size(84.dp),
+        color = fill,
+        border = androidx.compose.foundation.BorderStroke(1.dp, BorderSoft),
+        modifier = Modifier.size(84.dp)
+            .paperShadow(2.dp, RoundedCornerShape(16.dp))
+            .pressScale(interaction),
     ) {
         Box(contentAlignment = Alignment.Center) {
             Text(label, fontSize = 30.sp, style = MaterialTheme.typography.titleLarge)
@@ -159,8 +187,12 @@ private fun PinKey(label: String, onClick: () -> Unit) {
 
 @Composable
 private fun PinKeyIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
-    Surface(onClick = onClick, shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.size(84.dp)) {
+    val interaction = remember { MutableInteractionSource() }
+    Surface(onClick = onClick, interactionSource = interaction, shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier.size(84.dp)
+            .paperShadow(2.dp, RoundedCornerShape(16.dp))
+            .pressScale(interaction)) {
         Box(contentAlignment = Alignment.Center) {
             Icon(icon, "Vymazať", Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -169,11 +201,18 @@ private fun PinKeyIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, on
 
 @Composable
 private fun PinKeyConfirm(enabled: Boolean, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val fill by animateColorAsState(
+        if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+        Motion.colorSpec, label = "pinOk")
     Surface(
         onClick = { if (enabled) onClick() },
+        interactionSource = interaction,
         shape = RoundedCornerShape(16.dp),
-        color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-        modifier = Modifier.size(84.dp),
+        color = fill,
+        modifier = Modifier.size(84.dp)
+            .glow(enabled, RoundedCornerShape(16.dp))
+            .pressScale(interaction, enabled = enabled),
     ) {
         Box(contentAlignment = Alignment.Center) {
             Text("OK", fontSize = 22.sp,

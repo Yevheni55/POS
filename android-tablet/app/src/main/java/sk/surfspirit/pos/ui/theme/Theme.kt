@@ -12,20 +12,28 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import sk.surfspirit.pos.R
 
-/* ===== Daylight paleta (cream + terra) — zhoduje sa s web POS ===== */
-val Cream        = Color(0xFFF5EFE3)
-val CreamElev    = Color(0xFFECE4D2)
-val CreamSunken  = Color(0xFFE4DAC4)
-val Terra        = Color(0xFFB8542A)
-val TerraDim     = Color(0xFFA04920)
-val Sage         = Color(0xFF4A7A3A)
-val Amber        = Color(0xFFB87C1A)   // warning / Poslať / Zľava / reserved
+/* ===== Daylight paleta — PRESNÁ zhoda so živým web POS (css/pos.css :root) ===== */
+val Cream        = Color(0xFFF5EFE3)   // --color-bg
+val CreamElev    = Color(0xFFECE4D2)   // --color-bg-elevated / sunken
+val CreamSunken  = Color(0xFFE4DAC4)   // o stupeň hlbšie (panel wells)
+val Terra        = Color(0xFFB8542A)   // --color-accent (terra clay)
+val TerraDim     = Color(0xFFA04920)   // --color-accent-dim
+val Sage         = Color(0xFF4A7A3A)   // --color-success (forest/olive)
+val Amber        = Color(0xFFB87C1A)   // --accent-amber / Poslať / reserved
 val Navy         = Color(0xFF1F3A5C)   // secondary / Predúčet
-val Espresso     = Color(0xFF2A2018)
-val EspressoSoft = Color(0xCC2A2018)   // ~.80
-val EspressoDim  = Color(0x612A2018)   // ~.38
-val Danger       = Color(0xFFB5432F)
-val Hairline     = Color(0x1F1E1812)   // ~rgba(30,24,18,.12)
+val Espresso     = Color(0xFF1E1812)   // --color-text (dark espresso)
+val EspressoSoft = Color(0xFF5A4F3C)   // --color-text-sec
+val EspressoDim  = Color(0xFF8A7D65)   // --color-text-dim
+val Danger       = Color(0xFFB03830)   // --color-danger (rust)
+
+/* Warm-taupe bordery — „pencil-drawn", nie pen-stroke (web --color-border*) */
+val BorderSoft   = Color(0x337A6450)   // rgba(122,100,80,.20)
+val BorderMid    = Color(0x4D7A6450)   // rgba(122,100,80,.30)
+val BorderStrong = Color(0x6B7A6450)   // rgba(122,100,80,.42)
+val Hairline     = BorderSoft          // alias — starší kód
+
+/* Tieň — teplý espresso ambient (web 3-tier paper drop stack) */
+val ShadowTint   = Color(0xFF2A1E14)
 
 private val DaylightColors = lightColorScheme(
     primary = Terra,
@@ -40,9 +48,18 @@ private val DaylightColors = lightColorScheme(
     onSurface = Espresso,
     surfaceVariant = CreamSunken,
     onSurfaceVariant = EspressoSoft,
-    outline = Hairline,
+    outline = BorderSoft,
+    outlineVariant = BorderMid,
     error = Danger,
     onError = Cream,
+    // Dialógy/sheety (M3 surfaceContainer* rodina) — cream ladder namiesto
+    // default šedých tonal overlays, nech modaly nepôsobia "stock Material".
+    surfaceContainerLowest = Cream,
+    surfaceContainerLow = Cream,
+    surfaceContainer = Cream,
+    surfaceContainerHigh = Cream,
+    surfaceContainerHighest = CreamElev,
+    surfaceTint = Color.Transparent,
 )
 
 // Brand fonty — zhoda s web POS (Sora = display, Manrope = body).
@@ -61,6 +78,9 @@ val Manrope = FontFamily(
 
 // Display štýly → Sora; textové → Manrope. Veľkosti ladené pre 10.1".
 private val PosTypography = Typography(
+    // Money/hero tier — CELKOM hero (order panel) a K ÚHRADE (payment dialóg)
+    displaySmall = TextStyle(fontFamily = Sora, fontWeight = FontWeight.ExtraBold, fontSize = 30.sp, letterSpacing = (-0.5).sp),
+    headlineSmall = TextStyle(fontFamily = Sora, fontWeight = FontWeight.ExtraBold, fontSize = 26.sp, letterSpacing = (-0.4).sp),
     titleLarge = TextStyle(fontFamily = Sora, fontWeight = FontWeight.ExtraBold, fontSize = 24.sp, letterSpacing = (-0.3).sp),
     titleMedium = TextStyle(fontFamily = Sora, fontWeight = FontWeight.Bold, fontSize = 18.sp),
     titleSmall = TextStyle(fontFamily = Sora, fontWeight = FontWeight.SemiBold, fontSize = 14.sp),

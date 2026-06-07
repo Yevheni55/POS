@@ -1,9 +1,17 @@
 package sk.surfspirit.pos.ui
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -13,7 +21,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
@@ -215,7 +225,7 @@ fun FloorScreen(onOpenTable: (Int) -> Unit, onLogout: () -> Unit, onSessionExpir
     }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = { PosSnackbarHost(snackbar) },
         topBar = {
             Column {
                 PosHeader(activeTab = "stoly", userName = AppPrefs.userName,
@@ -223,7 +233,7 @@ fun FloorScreen(onOpenTable: (Int) -> Unit, onLogout: () -> Unit, onSessionExpir
                     onRefresh = { load() }, onLockCode = { generateLockCode() })
                 OfflineBanner()
                 ShiftStrip(openTables = openCount, totalTables = tables.size,
-                    revenueToday = revenueToday?.takeIf { it > 0 }?.let { money(it) })
+                    revenueToday = revenueToday?.takeIf { it > 0 })
             }
         }
     ) { pad ->
@@ -253,10 +263,12 @@ fun FloorScreen(onOpenTable: (Int) -> Unit, onLogout: () -> Unit, onSessionExpir
                             }
                         }
                         if (isManager) {
+                            val editInk by animateColorAsState(if (editMode) Sage else Navy,
+                                Motion.colorSpec, label = "editInk")
                             TextButton(onClick = {
                                 if (editMode) saveLayout()
                                 editMode = !editMode
-                            }) { Text(if (editMode) "Hotovo" else "Upraviť", color = if (editMode) Sage else Navy) }
+                            }) { Text(if (editMode) "Hotovo" else "Upraviť", color = editInk) }
                         }
                     }
 
@@ -265,7 +277,13 @@ fun FloorScreen(onOpenTable: (Int) -> Unit, onLogout: () -> Unit, onSessionExpir
                     if (zoneTables.isEmpty()) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant,
+                                    modifier = Modifier.size(56.dp)) {
+                                    Box(contentAlignment = Alignment.Center) { Text("🪑", fontSize = 26.sp) }
+                                }
+                                Spacer(Modifier.height(12.dp))
                                 Text("Žiadne stoly v tejto zóne", style = MaterialTheme.typography.titleMedium)
+                                Spacer(Modifier.height(4.dp))
                                 Text("Pridaj stoly cez admin → Stoly, alebo prepni zónu vyššie.",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -274,6 +292,8 @@ fun FloorScreen(onOpenTable: (Int) -> Unit, onLogout: () -> Unit, onSessionExpir
                     } else {
                         val maxX = zoneTables.maxOf { it.x + chipW(it) } + 60
                         val maxY = zoneTables.maxOf { it.y + chipH(it) } + 60
+                        // Animačný rozpočet: pulzujú max 3 zabudnuté stoly naraz
+                        val pulsingIds = zoneTables.filter { isForgotten(it) }.take(3).map { it.id }.toSet()
                         Box(Modifier.fillMaxSize()
                             .horizontalScroll(rememberScrollState())
                             .verticalScroll(rememberScrollState())) {
@@ -285,6 +305,7 @@ fun FloorScreen(onOpenTable: (Int) -> Unit, onLogout: () -> Unit, onSessionExpir
                                             total = totals[t.id] ?: 0.0,
                                             accounts = accountsPerTable[t.id] ?: 0,
                                             forgotten = isForgotten(t),
+                                            pulse = pulsingIds.contains(t.id),
                                             hasDraft = draftIds.contains(t.id),
                                             editMode = editMode,
                                             onClick = { if (!editMode) onOpenTable(t.id) },
@@ -322,10 +343,16 @@ fun FloorScreen(onOpenTable: (Int) -> Unit, onLogout: () -> Unit, onSessionExpir
 
 @Composable
 private fun ZonePill(label: String, meta: String, active: Boolean, onClick: () -> Unit) {
-    Surface(onClick = onClick, shape = RoundedCornerShape(999.dp),
-        color = if (active) Terra else MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, if (active) Terra else MaterialTheme.colorScheme.outline)) {
-        Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    val interaction = remember { MutableInteractionSource() }
+    val fill by animateColorAsState(if (active) Terra else MaterialTheme.colorScheme.surface,
+        Motion.colorSpec, label = "zoneFill")
+    val edge by animateColorAsState(if (active) Terra else BorderSoft, Motion.colorSpec, label = "zoneEdge")
+    Surface(onClick = onClick, interactionSource = interaction, shape = RoundedCornerShape(999.dp),
+        color = fill, border = BorderStroke(1.dp, edge),
+        modifier = Modifier
+            .then(if (active) Modifier.paperShadow(2.dp, RoundedCornerShape(999.dp)) else Modifier)
+            .pressScale(interaction)) {
+        Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(label, color = if (active) Cream else MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.labelLarge)
             Spacer(Modifier.width(6.dp))
@@ -346,6 +373,7 @@ private fun TableChip(
     total: Double,
     accounts: Int,
     forgotten: Boolean,
+    pulse: Boolean = true,        // pulz max 3 chipov naraz (animačný rozpočet)
     hasDraft: Boolean = false,
     editMode: Boolean,
     onClick: () -> Unit,
@@ -356,33 +384,53 @@ private fun TableChip(
     val occupied = t.status == "occupied"
     val w = chipW(t)
     val h = chipH(t)
+    val shape = if (t.shape == "round") CircleShape else RoundedCornerShape(14.dp)
+    val interaction = remember { MutableInteractionSource() }
     // Lokálny drag offset počas gesta — commit (snap 20px) až na dragEnd.
     var dragX by remember(t.x) { mutableStateOf(t.x.toFloat()) }
     var dragY by remember(t.y) { mutableStateOf(t.y.toFloat()) }
     var resW by remember(w) { mutableStateOf(w.toFloat()) }
     var resH by remember(h) { mutableStateOf(h.toFloat()) }
+    var isDragging by remember { mutableStateOf(false) }
+
+    // Status farby plynú pri poll flipe free→occupied (žiadne skoky)
+    val fillTop by animateColorAsState(if (occupied) sc.copy(alpha = 0.08f) else CreamElev, Motion.colorSpec, label = "ft")
+    val fillBot by animateColorAsState(if (occupied) sc.copy(alpha = 0.14f) else CreamSunken, Motion.colorSpec, label = "fb")
+    val edge by animateColorAsState(
+        when {
+            forgotten -> Danger
+            editMode -> Navy.copy(alpha = 0.6f)
+            occupied -> sc.copy(alpha = 0.45f)
+            else -> BorderSoft
+        }, Motion.colorSpec, label = "edge")
+    // Forgotten pulz na ľavom prúžku (reduced-motion → statický)
+    val barAlpha = if (forgotten && pulse && !reducedMotion()) {
+        val tr = rememberInfiniteTransition(label = "forgot")
+        tr.animateFloat(0.55f, 1f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "fa").value
+    } else 1f
+    val dragScale by animateFloatAsState(if (isDragging) 1.04f else 1f, Motion.pressSpec, label = "drag")
 
     Surface(
         onClick = onClick,
-        shape = if (t.shape == "round") CircleShape else RoundedCornerShape(14.dp),
+        interactionSource = interaction,
+        shape = shape,
         color = if (occupied) sc.copy(alpha = 0.10f) else MaterialTheme.colorScheme.surface,
-        border = BorderStroke(
-            if (forgotten || editMode) 2.dp else 1.dp,
-            when {
-                forgotten -> Danger
-                editMode -> Navy.copy(alpha = 0.6f)
-                occupied -> sc.copy(alpha = 0.45f)
-                else -> MaterialTheme.colorScheme.outline
-            },
-        ),
-        tonalElevation = if (occupied) 0.dp else 1.dp,
+        border = BorderStroke(if (forgotten || editMode) 2.dp else 1.dp, edge),
         modifier = Modifier
             // offset lambda pracuje v px, naše súradnice sú dp → násobíme density
             .offset { IntOffset((dragX * density).roundToInt(), (dragY * density).roundToInt()) }
             .size(resW.dp, resH.dp)
+            // Voľné stoly „plávajú" vyššie (pozývajú na tap), obsadené sedia;
+            // počas dragu sa chip zdvihne najvyššie.
+            .paperShadow(if (isDragging) 14.dp else if (occupied) 2.dp else 6.dp, shape)
+            .graphicsLayer { scaleX = dragScale; scaleY = dragScale }
+            .pressScale(interaction, enabled = !editMode)
             .then(if (editMode) Modifier.pointerInput(t.id) {
                 detectDragGestures(
+                    onDragStart = { isDragging = true },
+                    onDragCancel = { isDragging = false },
                     onDragEnd = {
+                        isDragging = false
                         val sx = ((dragX / 20).roundToInt() * 20).coerceAtLeast(0)
                         val sy = ((dragY / 20).roundToInt() * 20).coerceAtLeast(0)
                         dragX = sx.toFloat(); dragY = sy.toFloat()
@@ -395,9 +443,15 @@ private fun TableChip(
                 }
             } else Modifier),
     ) {
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
-            if (occupied) listOf(sc.copy(alpha = 0.08f), sc.copy(alpha = 0.14f)) else listOf(CreamElev, CreamSunken)))) {
-            Column(Modifier.fillMaxSize().padding(8.dp), verticalArrangement = Arrangement.Center,
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(fillTop, fillBot)))) {
+            // Ľavý 4 dp status prúžok — čitateľný cez celú miestnosť
+            if (t.status != "free") {
+                Box(Modifier.align(Alignment.CenterStart).fillMaxHeight().width(4.dp)
+                    .alpha(barAlpha)
+                    .background(if (forgotten) Danger else sc))
+            }
+            Column(Modifier.fillMaxSize().padding(start = 10.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(statusGlyph(t.status), color = sc, fontSize = 12.sp, fontWeight = FontWeight.Bold)
@@ -408,8 +462,8 @@ private fun TableChip(
                 }
                 when {
                     occupied && total > 0 -> {
-                        Text(money(total), style = MaterialTheme.typography.labelMedium,
-                            color = Terra, fontWeight = FontWeight.Bold)
+                        // Hero číslo stola — Sora bold + pokladničný ticker
+                        AnimatedMoney(total, MaterialTheme.typography.labelLarge, Terra)
                         if (accounts > 1) Text("$accounts účty", style = MaterialTheme.typography.labelSmall, color = sc)
                     }
                     t.status == "reserved" && !t.time.isNullOrBlank() ->
@@ -432,7 +486,7 @@ private fun TableChip(
             // Resize handle — pravý dolný roh, len v edit móde (snap 20 px,
             // min 80×80, max 240×200 — zhoda so server validáciou).
             if (editMode) {
-                Box(Modifier.align(Alignment.BottomEnd).size(26.dp)
+                Box(Modifier.align(Alignment.BottomEnd).size(32.dp)
                     .pointerInput(t.id) {
                         detectDragGestures(
                             onDragEnd = {
