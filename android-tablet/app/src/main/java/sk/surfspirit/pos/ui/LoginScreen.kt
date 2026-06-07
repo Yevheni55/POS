@@ -28,7 +28,7 @@ import sk.surfspirit.pos.net.LoginReq
 import sk.surfspirit.pos.ui.theme.*
 
 @Composable
-fun LoginScreen(onLoggedIn: () -> Unit) {
+fun LoginScreen(onLoggedIn: () -> Unit, onOpenDochadzka: (() -> Unit)? = null) {
     val scope = rememberCoroutineScope()
     var pin by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -80,7 +80,13 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
                 Text("Zadaj PIN pre prihlásenie", style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
 
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(16.dp))
+                onOpenDochadzka?.let {
+                    OutlinedButton(onClick = it, modifier = Modifier.height(48.dp)) {
+                        Text("🕐  Dochádzka — pichni si príchod/odchod")
+                    }
+                    Spacer(Modifier.height(4.dp))
+                }
                 TextButton(onClick = { showServer = !showServer }) {
                     Icon(Icons.Filled.Settings, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))

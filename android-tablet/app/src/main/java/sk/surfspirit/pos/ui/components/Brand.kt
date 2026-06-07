@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -136,6 +137,7 @@ fun PosHeader(
     onRefresh: (() -> Unit)? = null,
     onLockCode: (() -> Unit)? = null,
     onAdmin: (() -> Unit)? = null,
+    onDochadzka: (() -> Unit)? = null,
 ) {
     val now by rememberNow()
     // Paper-drop tieň namiesto tonal elevation — plán/menu „odpadne" pod header
@@ -177,6 +179,7 @@ fun PosHeader(
                 }
                 Spacer(Modifier.width(8.dp))
             }
+            onDochadzka?.let { IconButton(onClick = it) { Icon(Icons.Filled.Schedule, "Dochádzka") } }
             onAdmin?.let { IconButton(onClick = it) { Icon(Icons.Filled.Settings, "Admin") } }
             onLockCode?.let { IconButton(onClick = it) { Icon(Icons.Filled.Lock, "Vygenerovať kód zámku") } }
             onRefresh?.let { IconButton(onClick = it) { Icon(Icons.Filled.Refresh, "Obnoviť") } }

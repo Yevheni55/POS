@@ -32,11 +32,17 @@ fun AppNav() {
 
     NavHost(navController = nav, startDestination = start) {
         composable("login") {
-            LoginScreen(onLoggedIn = {
-                nav.navigate("floor") {
-                    popUpTo("login") { inclusive = true }
-                }
-            })
+            LoginScreen(
+                onLoggedIn = {
+                    nav.navigate("floor") {
+                        popUpTo("login") { inclusive = true }
+                    }
+                },
+                onOpenDochadzka = { nav.navigate("dochadzka") },
+            )
+        }
+        composable("dochadzka") {
+            DochadzkaTerminalScreen(onBack = { nav.popBackStack() })
         }
         composable("floor") {
             FloorScreen(
@@ -49,6 +55,7 @@ fun AppNav() {
                     nav.navigate("login") { popUpTo("floor") { inclusive = true } }
                 },
                 onAdmin = { nav.navigate("admin") },
+                onDochadzka = { nav.navigate("dochadzka") },
             )
         }
         composable("admin") {

@@ -53,6 +53,7 @@ fun FloorScreen(
     onLogout: () -> Unit,
     onSessionExpired: () -> Unit,
     onAdmin: (() -> Unit)? = null,
+    onDochadzka: (() -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
@@ -237,7 +238,8 @@ fun FloorScreen(
                     onStoly = { load() }, onLogout = { startCloseFlow() },
                     onRefresh = { load() }, onLockCode = { generateLockCode() },
                     // Admin len pre manažéra/admina (web goAdmin parita — cisnik nie)
-                    onAdmin = if (isManager) onAdmin else null)
+                    onAdmin = if (isManager) onAdmin else null,
+                    onDochadzka = onDochadzka)
                 OfflineBanner()
                 ShiftStrip(openTables = openCount, totalTables = tables.size,
                     revenueToday = revenueToday?.takeIf { it > 0 })
