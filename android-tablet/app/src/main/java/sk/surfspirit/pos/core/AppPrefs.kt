@@ -35,6 +35,11 @@ object AppPrefs {
         get() = sp.getString(K_USER, null)
         set(value) = sp.edit().putString(K_USER, value).apply()
 
+    /** Staff id — admin WebView ho potrebuje v sessionStorage pos_user. */
+    var userId: Int
+        get() = sp.getInt("user_id", 0)
+        set(value) = sp.edit().putInt("user_id", value).apply()
+
     var role: String?
         get() = sp.getString(K_ROLE, null)
         set(value) = sp.edit().putString(K_ROLE, value).apply()

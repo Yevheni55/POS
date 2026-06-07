@@ -48,7 +48,11 @@ fun AppNav() {
                 onSessionExpired = {
                     nav.navigate("login") { popUpTo("floor") { inclusive = true } }
                 },
+                onAdmin = { nav.navigate("admin") },
             )
+        }
+        composable("admin") {
+            AdminScreen(onBack = { nav.popBackStack() })
         }
         composable(
             route = "order/{tableId}",

@@ -45,6 +45,7 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
                 AppPrefs.token = resp.token
                 AppPrefs.userName = resp.user.name
                 AppPrefs.role = resp.user.role
+                AppPrefs.userId = resp.user.id
                 // Štart session — pre „Zmena: Xh YYm" v shift strip-e.
                 AppPrefs.putRaw("session_start", System.currentTimeMillis().toString())
                 onLoggedIn()

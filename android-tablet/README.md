@@ -83,9 +83,18 @@ tablet UX (žiadny prehliadač, kiosk režim, rýchlejšie), ale znamená prepí
 Server: `GET /api/app/latest` (manifest) + `/api/app/download` (APK), public,
 číta z `/backups/app` (volume `pos_backups`).
 
+### Admin na tablete (v1.6)
+
+- ✅ **Celý Admin** — tlačidlo ⚙ v headri (len manažér/admin, web goAdmin
+  parita). Natívny shell + WebView na živý `/admin/` z kasy: sklad, recepty,
+  reporty, dochádzka, objednávky, cashflow, settings — všetkých ~25 stránok.
+  Auth sa injektuje (sessionStorage pos_token/pos_user) cez bootstrap na
+  origine kasy; „← Kasa" v admine (postMessage closePosAdmin) vracia natívne
+  na plán stolov; Android back = história admin SPA.
+  Hybrid zámerne: admin (~20 000 riadkov) sa mení deployom servera — WebView
+  ho má vždy aktuálny bez nového APK (rovnaká architektúra ako web POS iframe).
+
 ### Zámerné rozdiely oproti webu (nie sú chýbajúce features)
-- **Admin** (menu, recepty, reporty, cashflow, sklad, dochádzka) — zostáva vo
-  webe, na tablet zámerne nepatrí. (Shisha počítadlo je admin-only aj vo webe.)
 - Vlastná on-screen klávesnica pre poznámku — web ňou obchádza browser IME;
   appka používa systémovú klávesnicu + toggle chipy (lepšie na Androide).
 - WebSocket — appka používa polling (10–15 s); behaviorálne ekvivalent

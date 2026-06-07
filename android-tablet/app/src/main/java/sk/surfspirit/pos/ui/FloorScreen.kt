@@ -48,7 +48,12 @@ private fun chipW(t: TableDto): Int = t.width ?: when (t.shape) { "large" -> 170
 private fun chipH(t: TableDto): Int = t.height ?: when (t.shape) { "large" -> 120; "round" -> 105; else -> 95 }
 
 @Composable
-fun FloorScreen(onOpenTable: (Int) -> Unit, onLogout: () -> Unit, onSessionExpired: () -> Unit) {
+fun FloorScreen(
+    onOpenTable: (Int) -> Unit,
+    onLogout: () -> Unit,
+    onSessionExpired: () -> Unit,
+    onAdmin: (() -> Unit)? = null,
+) {
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     var tables by remember { mutableStateOf<List<TableDto>>(emptyList()) }
@@ -230,7 +235,9 @@ fun FloorScreen(onOpenTable: (Int) -> Unit, onLogout: () -> Unit, onSessionExpir
             Column {
                 PosHeader(activeTab = "stoly", userName = AppPrefs.userName,
                     onStoly = { load() }, onLogout = { startCloseFlow() },
-                    onRefresh = { load() }, onLockCode = { generateLockCode() })
+                    onRefresh = { load() }, onLockCode = { generateLockCode() },
+                    // Admin len pre manažéra/admina (web goAdmin parita — cisnik nie)
+                    onAdmin = if (isManager) onAdmin else null)
                 OfflineBanner()
                 ShiftStrip(openTables = openCount, totalTables = tables.size,
                     revenueToday = revenueToday?.takeIf { it > 0 })
