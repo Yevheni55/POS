@@ -1,0 +1,42 @@
+#pragma code_page(65001)
+#include <windows.h>
+#include "resource.h"
+
+IDI_APP ICON "app.ico"
+
+IDD_SETTINGS DIALOGEX 0, 0, 260, 110
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Surf Spirit POS — nastavenia"
+FONT 9, "Segoe UI"
+BEGIN
+    LTEXT           "Adresa servera (IP:port):", -1, 12, 12, 200, 10
+    EDITTEXT        IDC_SERVER_URL, 12, 24, 236, 14, ES_AUTOHSCROLL
+    LTEXT           "Napr. 192.168.1.235:3080", -1, 12, 42, 200, 10
+    AUTOCHECKBOX    "Spustiť pri štarte Windows", IDC_AUTOSTART, 12, 60, 200, 12
+    DEFPUSHBUTTON   "Uložiť", IDOK, 142, 84, 50, 16
+    PUSHBUTTON      "Zrušiť", IDCANCEL, 198, 84, 50, 16
+END
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     1,0,0,0
+PRODUCTVERSION  1,0,0,0
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName",      "SL Spirit s. r. o."
+            VALUE "FileDescription",  "Surf Spirit POS"
+            VALUE "FileVersion",      "1.0.0.0"
+            VALUE "ProductName",      "Surf Spirit POS"
+            VALUE "ProductVersion",   "1.0.0.0"
+            VALUE "LegalCopyright",   "© 2026 SL Spirit s. r. o."
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
