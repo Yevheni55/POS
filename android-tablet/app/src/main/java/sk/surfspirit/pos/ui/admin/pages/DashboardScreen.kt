@@ -1,6 +1,5 @@
 package sk.surfspirit.pos.ui.admin.pages
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,6 +27,7 @@ import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.POST
 import retrofit2.http.Query
+import sk.surfspirit.pos.core.BRATISLAVA
 import sk.surfspirit.pos.core.errorMessage
 import sk.surfspirit.pos.core.fmtBratislava
 import sk.surfspirit.pos.core.httpCode
@@ -181,8 +181,8 @@ fun DashboardScreen() {
     var occupied by remember { mutableStateOf(0) }
     var totalTables by remember { mutableStateOf(0) }
 
-    // Týždenný graf
-    var weekRev by remember { mutableStateOf<List<Double>>(emptyList()) }
+    // Týždenný graf — null = deň sa nepodarilo načítať (NIE nula!).
+    var weekRev by remember { mutableStateOf<List<Double?>>(emptyList()) }
     var weekLoading by remember { mutableStateOf(true) }
 
     // Uzávierka
@@ -197,7 +197,7 @@ fun DashboardScreen() {
     var confirmPrint by remember { mutableStateOf(false) }
 
     suspend fun fetchStats() {
-        val today = ymdLocal(LocalDate.now())
+        val today = ymdLocal(LocalDate.now(BRATISLAVA))
         val s = withContext(Dispatchers.IO) { dbApi.summary(today, today) }
         summary = s
         // Obsadenosť: distinct tableId / tables.length
@@ -227,16 +227,19 @@ fun DashboardScreen() {
             weekLoading = true
             try {
                 // Monday-start ISO týždeň, 7 paralelných summary requestov.
-                val today = LocalDate.now()
+                // POZN.: ranged GET /reports/summary?from&to má daily[] pole,
+                // ale daily[].revenue je len z payments (BEZ shisha) — per-day
+                // revenue.total zahŕňa aj shisha, preto ostávajú per-day cally.
+                val today = LocalDate.now(BRATISLAVA)
                 val monday = today.with(WeekFields.ISO.dayOfWeek(), 1)
-                val revs = withContext(Dispatchers.IO) {
+                val revs: List<Double?> = withContext(Dispatchers.IO) {
                     (0..6).map { idx ->
                         async {
                             try {
                                 val d = ymdLocal(monday.plusDays(idx.toLong()))
                                 dbApi.summary(d, d).revenue.total
                             } catch (_: Exception) {
-                                0.0
+                                null   // zlyhaný deň — graf ho ukáže sivo s „?"
                             }
                         }
                     }.awaitAll()
@@ -257,7 +260,7 @@ fun DashboardScreen() {
             // Safety net 12 s — ak request visí, ukáž hint namiesto večného spinnera.
             val data = withTimeoutOrNull(12_000L) {
                 try {
-                    val today = ymdLocal(LocalDate.now())
+                    val today = ymdLocal(LocalDate.now(BRATISLAVA))
                     withContext(Dispatchers.IO) { dbApi.zReport(today) }
                 } catch (e: Exception) {
                     toast.show(errorMessage(e), error = true)
@@ -313,7 +316,7 @@ fun DashboardScreen() {
         scope.launch {
             printing = true
             try {
-                val today = ymdLocal(LocalDate.now())
+                val today = ymdLocal(LocalDate.now(BRATISLAVA))
                 withContext(Dispatchers.IO) { dbApi.printZReport(DbPrintZReq(today)) }
                 toast.show("Z-report odoslaný na tlačiareň")
                 refreshAll(initial = false)
@@ -371,7 +374,7 @@ fun DashboardScreen() {
 
                 // (D) Týždenný graf + Top produkty
                 Spacer(Modifier.height(16.dp))
-                DbWeeklyChartCard(weekRev, weekLoading)
+                DbWeeklyChartCard(weekRev, weekLoading, onRetry = { loadBarChart() })
 
                 Spacer(Modifier.height(16.dp))
                 DbTopProductsCard(s.topItems.take(10))
@@ -472,16 +475,18 @@ private fun DbActiveStaffPanel(staff: List<DbActiveStaff>?) {
 /* ---------- (D) Tržby za týždeň ---------- */
 
 @Composable
-private fun DbWeeklyChartCard(values: List<Double>, loading: Boolean) {
+private fun DbWeeklyChartCard(values: List<Double?>, loading: Boolean, onRetry: () -> Unit) {
     val labels = listOf("Po", "Ut", "St", "Št", "Pi", "So", "Ne")
     AdminCard {
         Text("Tržby za týždeň", style = MaterialTheme.typography.titleSmall)
         Spacer(Modifier.height(10.dp))
+        val failed = values.count { it == null }
+        val known = values.filterNotNull()
         when {
             loading -> LoadingBox()
             values.isEmpty() -> EmptyHint("Chyba pri načítaní")
-            values.sum() <= 0.0 -> {
-                BarChart(values = values, labels = labels, barColor = Color(0xFF8B7CF6), height = 120)
+            failed == 0 && known.sum() <= 0.0 -> {
+                BarChart(values = known, labels = labels, barColor = Sage, height = 120)
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "Za tento týždeň zatiaľ žiadne tržby.",
@@ -490,22 +495,38 @@ private fun DbWeeklyChartCard(values: List<Double>, loading: Boolean) {
                 )
             }
             else -> {
-                // Sumy nad stĺpcami (max highlight)
-                val max = values.maxOrNull() ?: 0.0
+                // Sumy nad stĺpcami (max highlight; „?" = deň sa nepodarilo načítať)
+                val max = known.maxOrNull() ?: 0.0
                 Row(Modifier.fillMaxWidth()) {
                     values.forEach { v ->
                         Text(
-                            if (v > 0) fmtEur(v) else "—",
+                            when { v == null -> "?"; v > 0 -> fmtEur(v); else -> "—" },
                             Modifier.weight(1f),
                             style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-                            color = if (v == max && v > 0) Terra else MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = if (v == max && v > 0) FontWeight.Bold else FontWeight.Normal,
+                            color = when {
+                                v == null -> EspressoDim
+                                v == max && v > 0 -> Terra
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            fontWeight = if (v != null && v == max && v > 0) FontWeight.Bold else FontWeight.Normal,
                             maxLines = 1, overflow = TextOverflow.Clip,
                         )
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-                BarChart(values = values, labels = labels, barColor = Color(0xFF8B7CF6), height = 120)
+                BarChart(values = values, labels = labels, barColor = Sage, height = 120)
+                if (failed > 0) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Niektoré dni sa nepodarilo načítať.",
+                            Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Danger,
+                        )
+                        TextButton(onClick = onRetry) { Text("Skúsiť znova") }
+                    }
+                }
             }
         }
     }
@@ -595,7 +616,7 @@ private fun DbPaymentMethodsCard(methods: List<DbMethod>) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
-                    Modifier.size(12.dp).clip(RoundedCornerShape(3.dp)).background(color),
+                    Modifier.size(12.dp).clip(RoundedCornerShape(6.dp)).background(color),
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
@@ -676,7 +697,6 @@ private fun DbUzavierkaCard(
             onClick = onPrint,
             enabled = !printing,
             colors = ButtonDefaults.buttonColors(containerColor = Terra, contentColor = Cream),
-            border = BorderStroke(1.dp, Terra),
         ) {
             if (printing) {
                 CircularProgressIndicator(Modifier.size(16.dp), color = Cream, strokeWidth = 2.dp)

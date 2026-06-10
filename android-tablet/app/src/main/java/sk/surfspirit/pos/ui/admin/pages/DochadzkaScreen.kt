@@ -34,15 +34,14 @@ import retrofit2.http.GET
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
+import sk.surfspirit.pos.core.BRATISLAVA
 import sk.surfspirit.pos.core.errorMessage
 import sk.surfspirit.pos.core.fmtCost
-import sk.surfspirit.pos.core.httpCode
 import sk.surfspirit.pos.net.Api
 import sk.surfspirit.pos.ui.admin.*
 import sk.surfspirit.pos.ui.theme.*
 import java.time.DayOfWeek
 import java.time.LocalDate
-import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
 
@@ -52,8 +51,6 @@ import java.time.temporal.TemporalAdjusters
    6 KPI kariet (Otv. smeny clickable filter), tabuľka per zamestnanec,
    expand detail (smeny + audit + manuálna úprava), unified payout modal.
    ===================================================================== */
-
-private val DOCH_TZ: ZoneId = ZoneId.of("Europe/Bratislava")
 
 /* ---------------- DTOs (Doch prefix) ---------------- */
 
@@ -182,8 +179,8 @@ private val dochApi: DochApi by lazy { Api.create(DochApi::class.java) }
 
 /* ---------------- Formátovanie + helpers (web parita) ---------------- */
 
-private fun dochTodayIso(): String = LocalDate.now(DOCH_TZ).toString()
-private fun dochTodayMinus(n: Long): String = LocalDate.now(DOCH_TZ).minusDays(n).toString()
+private fun dochTodayIso(): String = LocalDate.now(BRATISLAVA).toString()
+private fun dochTodayMinus(n: Long): String = LocalDate.now(BRATISLAVA).minusDays(n).toString()
 
 private fun dochFmtMinutes(m: Int): String {
     if (m <= 0) return "0h 0m"
@@ -199,9 +196,9 @@ private val DOCH_TIME = DateTimeFormatter.ofPattern("HH:mm")
 private fun dochZoned(iso: String?): java.time.ZonedDateTime? {
     if (iso.isNullOrBlank()) return null
     return try {
-        java.time.Instant.parse(iso).atZone(DOCH_TZ)
+        java.time.Instant.parse(iso).atZone(BRATISLAVA)
     } catch (_: Exception) {
-        try { java.time.LocalDateTime.parse(iso.take(19).replace(' ', 'T')).atZone(DOCH_TZ) }
+        try { java.time.LocalDateTime.parse(iso.take(19).replace(' ', 'T')).atZone(BRATISLAVA) }
         catch (_: Exception) { null }
     }
 }
@@ -253,7 +250,7 @@ private fun dochBuildShifts(eventsAsc: List<DochEvent>): List<DochShift> {
 
 /* Klient-side preset rozsahy (LOCAL-time, Europe/Bratislava). */
 private fun dochPresetRange(preset: String): Pair<String, String> {
-    val today = LocalDate.now(DOCH_TZ)
+    val today = LocalDate.now(BRATISLAVA)
     return when (preset) {
         "week" -> {
             val mon = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
@@ -396,8 +393,11 @@ fun DochadzkaScreen() {
                 }
                 error = null
             } catch (e: Exception) {
-                summary = DochSummaryResp()
-                if (e.httpCode() == 401) error = errorMessage(e) else error = errorMessage(e)
+                // Nezmaž zobrazenú tabuľku pri zlyhanom refreshi — nechaj
+                // stale riadky a chybu ukáž toastom (Dashboard pattern);
+                // ErrorBox len keď nie je čo ukázať.
+                if (summary.rows.isEmpty()) error = errorMessage(e)
+                else toast.show(errorMessage(e), error = true)
             } finally {
                 loading = false
                 loadBalance()
@@ -1129,8 +1129,8 @@ private fun DochManualForm(onAddEvent: (type: String, reason: String, atIso: Str
     var show by remember { mutableStateOf(false) }
     var type by remember { mutableStateOf("clock_in") }
     var reason by remember { mutableStateOf("") }
-    var dateStr by remember { mutableStateOf(LocalDate.now(DOCH_TZ).toString()) }
-    var timeStr by remember { mutableStateOf(java.time.LocalTime.now(DOCH_TZ).format(DOCH_TIME)) }
+    var dateStr by remember { mutableStateOf(LocalDate.now(BRATISLAVA).toString()) }
+    var timeStr by remember { mutableStateOf(java.time.LocalTime.now(BRATISLAVA).format(DOCH_TIME)) }
     var note by remember { mutableStateOf("") }
     var localError by remember { mutableStateOf<String?>(null) }
 
@@ -1160,7 +1160,9 @@ private fun DochManualForm(onAddEvent: (type: String, reason: String, atIso: Str
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         FormField("Dátum", dateStr, { dateStr = it }, Modifier.weight(1.4f), placeholder = "RRRR-MM-DD")
         FormField("Čas", timeStr, { timeStr = it }, Modifier.weight(1f), placeholder = "HH:MM",
-            keyboard = KeyboardOptions(keyboardType = KeyboardType.Number))
+            // Text klávesnica — numerická nemá dvojbodku, „HH:MM" by sa nedalo
+            // dopísať po vymazaní poľa.
+            keyboard = KeyboardOptions(keyboardType = KeyboardType.Text))
     }
     Spacer(Modifier.height(10.dp))
     FormField("Poznámka", note, { if (it.length <= 200) note = it }, placeholder = "napr. zabudol kliknúť")
@@ -1355,7 +1357,7 @@ private fun dochToIso(dateStr: String, timeStr: String): String? {
         if (tParts.size < 2) return null
         val h = tParts[0].toInt(); val m = tParts[1].toInt()
         if (h !in 0..23 || m !in 0..59) return null
-        d.atTime(h, m).atZone(DOCH_TZ).toInstant().toString()
+        d.atTime(h, m).atZone(BRATISLAVA).toInstant().toString()
     } catch (_: Exception) { null }
 }
 

@@ -51,7 +51,7 @@ import java.util.Locale
 /* ===== Status farby/glyfy — zhoda s web POS (T2 accessibility glyfy) ===== */
 fun statusColor(s: String): Color = when (s) {
     "occupied" -> Terra
-    "reserved" -> Color(0xFFC98A2B)
+    "reserved" -> Amber
     "dirty" -> Danger
     else -> Sage
 }
@@ -151,7 +151,8 @@ fun PosHeader(
             if (!compact) {
                 Spacer(Modifier.width(12.dp))
                 Column {
-                    Text("SL Spirit s. r. o.", style = MaterialTheme.typography.titleMedium)
+                    Text("SL Spirit s. r. o.",
+                        style = MaterialTheme.typography.titleMedium.copy(fontFamily = Serif))
                     Text("Pokladničný systém", style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }

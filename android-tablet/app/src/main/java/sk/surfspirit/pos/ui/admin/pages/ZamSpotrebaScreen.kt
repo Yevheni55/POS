@@ -23,6 +23,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import retrofit2.http.GET
 import retrofit2.http.Query
+import sk.surfspirit.pos.core.BRATISLAVA
 import sk.surfspirit.pos.core.errorMessage
 import sk.surfspirit.pos.core.fmtCost
 import sk.surfspirit.pos.core.httpCode
@@ -86,9 +87,9 @@ fun ZamSpotrebaScreen() {
     var error by remember { mutableStateOf<String?>(null) }
     var data by remember { mutableStateOf<ZsSummaryDto?>(null) }
 
-    // Default rozsah = tento mesiac (prvý deň .. dnes).
-    var from by remember { mutableStateOf(LocalDate.now().withDayOfMonth(1).toString()) }
-    var to by remember { mutableStateOf(LocalDate.now().toString()) }
+    // Default rozsah = tento mesiac (prvý deň .. dnes); „dnes" v Europe/Bratislava.
+    var from by remember { mutableStateOf(LocalDate.now(BRATISLAVA).withDayOfMonth(1).toString()) }
+    var to by remember { mutableStateOf(LocalDate.now(BRATISLAVA).toString()) }
     // 0 = Tento mesiac, 1 = 7 dní, 2 = 30 dní, 3 = 60 dní
     var preset by remember { mutableStateOf(0) }
 
@@ -110,7 +111,7 @@ fun ZamSpotrebaScreen() {
 
     fun applyPreset(idx: Int) {
         preset = idx
-        val today = LocalDate.now()
+        val today = LocalDate.now(BRATISLAVA)
         when (idx) {
             0 -> { from = today.withDayOfMonth(1).toString(); to = today.toString() }
             1 -> { from = today.minusDays(7).toString(); to = today.toString() }
@@ -124,7 +125,7 @@ fun ZamSpotrebaScreen() {
     fun shiftMonth(delta: Long) {
         val anchor = (LocalDate.parse(from)).plusMonths(delta).withDayOfMonth(1)
         from = anchor.toString()
-        val today = LocalDate.now()
+        val today = LocalDate.now(BRATISLAVA)
         val monthEnd = anchor.plusMonths(1).minusDays(1)
         // Aktuálny mesiac končí dnes; minulé mesiace celé.
         to = if (monthEnd.isAfter(today)) today.toString() else monthEnd.toString()
@@ -151,7 +152,7 @@ fun ZamSpotrebaScreen() {
                     modifier = Modifier.weight(1f))
                 if (preset == 0) {
                     val nextMonthStart = LocalDate.parse(from).plusMonths(1)
-                    val canForward = !nextMonthStart.isAfter(LocalDate.now())
+                    val canForward = !nextMonthStart.isAfter(LocalDate.now(BRATISLAVA))
                     if (canForward) {
                         OutlinedButton(onClick = { shiftMonth(1) },
                             contentPadding = PaddingValues(horizontal = 12.dp)) { Text("›") }
@@ -195,23 +196,21 @@ private fun ZsContent(data: ZsSummaryDto?) {
     }
     val lostMargin = totalMenuValue - totalCost
 
-    // --- 1) Stat cards (3-col) ---
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        StatCard(
-            "Počet jedál", totalMeals.toString(),
-            modifier = Modifier.weight(1f), accent = Sage,
-            sub = if (totalMeals == 1) "meal" else "meals",
-        )
-        StatCard(
-            "Náklad firmy", zsFmtEur(totalCost),
-            modifier = Modifier.weight(1f), accent = Navy,
-            sub = "reálne suroviny + bar",
-        )
-        StatCard(
-            "Hodnota benefitu", zsFmtEur(totalMenuValue),
-            modifier = Modifier.weight(1f), accent = Terra,
-            sub = "koľko by zaplatil zákazník",
-        )
+    // --- 1) Stat cards (3-col; na telefóne 2 v riadku) ---
+    // Slovenské plurály: 1 jedlo · 2-4 jedlá · 0/5+ jedál.
+    val mealsWord = when (totalMeals) {
+        1 -> "jedlo"
+        2, 3, 4 -> "jedlá"
+        else -> "jedál"
+    }
+    data class ZsStat(val label: String, val value: String, val accent: Color, val sub: String)
+    val statCards = listOf(
+        ZsStat("Počet jedál", totalMeals.toString(), Sage, mealsWord),
+        ZsStat("Náklad firmy", zsFmtEur(totalCost), Navy, "reálne suroviny + bar"),
+        ZsStat("Hodnota benefitu", zsFmtEur(totalMenuValue), Terra, "koľko by zaplatil zákazník"),
+    )
+    StatGrid(statCards) { s ->
+        StatCard(s.label, s.value, Modifier.weight(1f), accent = s.accent, sub = s.sub)
     }
 
     // --- 2) Split bar kuchyňa vs bar (len keď je náklad) ---

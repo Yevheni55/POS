@@ -25,8 +25,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import sk.surfspirit.pos.core.AppPrefs
+import sk.surfspirit.pos.core.Store
 import sk.surfspirit.pos.net.Api
 import sk.surfspirit.pos.net.LoginReq
+import sk.surfspirit.pos.ui.components.ConfirmDialog
 import sk.surfspirit.pos.ui.theme.*
 
 @Composable
@@ -37,6 +39,14 @@ fun LoginScreen(onLoggedIn: () -> Unit, onOpenDochadzka: (() -> Unit)? = null) {
     var error by remember { mutableStateOf<String?>(null) }
     var showServer by remember { mutableStateOf(AppPrefs.serverUrl.isBlank()) }
     var serverField by remember { mutableStateOf(AppPrefs.serverUrl) }
+    // Počet neodoslaných záznamov pri pokuse o zmenu adresy — non-null = confirm dialóg
+    var pendingWipeCount by remember { mutableStateOf<Int?>(null) }
+
+    fun applyServerUrl() {
+        AppPrefs.serverUrl = serverField
+        serverField = AppPrefs.serverUrl
+        showServer = false
+    }
 
     fun submit() {
         if (pin.length < 4 || busy) return
@@ -61,7 +71,7 @@ fun LoginScreen(onLoggedIn: () -> Unit, onOpenDochadzka: (() -> Unit)? = null) {
     }
 
     val phone = isPhone()
-    Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
+    Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize().warmCanvas()) {
         // ── Brand + server config blok (zdieľaný tablet/telefón) ──
         val brandBlock: @Composable (Modifier) -> Unit = { mod ->
             Column(mod) {
@@ -73,7 +83,8 @@ fun LoginScreen(onLoggedIn: () -> Unit, onOpenDochadzka: (() -> Unit)? = null) {
                     }
                     Spacer(Modifier.width(14.dp))
                     Column {
-                        Text("Surf Spirit POS", style = MaterialTheme.typography.titleLarge)
+                        Text("Surf Spirit POS",
+                            style = MaterialTheme.typography.titleLarge.copy(fontFamily = Serif))
                         Text("Pokladničný systém", style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -105,9 +116,12 @@ fun LoginScreen(onLoggedIn: () -> Unit, onOpenDochadzka: (() -> Unit)? = null) {
                     )
                     Spacer(Modifier.height(8.dp))
                     Button(onClick = {
-                        AppPrefs.serverUrl = serverField
-                        serverField = AppPrefs.serverUrl
-                        showServer = false
+                        // Zmena adresy wipuje offline fronty (iný server = iná DB) —
+                        // pri neodoslaných záznamoch treba explicitné potvrdenie.
+                        val pending = Store.pendingOpsCount()
+                        if (AppPrefs.normalizeUrl(serverField) != AppPrefs.serverUrl && pending > 0) {
+                            pendingWipeCount = pending
+                        } else applyServerUrl()
                     }) { Text("Uložiť adresu") }
                 }
                 error?.let {
@@ -187,6 +201,18 @@ fun LoginScreen(onLoggedIn: () -> Unit, onOpenDochadzka: (() -> Unit)? = null) {
                 brandBlock(Modifier.weight(1f).padding(end = 32.dp))
                 pinPad(Modifier.weight(1f))
             }
+        }
+
+        pendingWipeCount?.let { n ->
+            ConfirmDialog(
+                title = "Neodoslané záznamy",
+                message = "Na zariadení sú neodoslané záznamy ($n). Zmena adresy ich nenávratne vymaže.",
+                confirmLabel = "Vymazať a pokračovať",
+                dismissLabel = "Zrušiť",
+                danger = true,
+                onConfirm = { pendingWipeCount = null; applyServerUrl() },
+                onDismiss = { pendingWipeCount = null },
+            )
         }
     }
 }

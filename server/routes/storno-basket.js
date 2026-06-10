@@ -22,11 +22,11 @@ const router = Router();
 
 const VALID_REASONS = ['order_error', 'complaint', 'breakage', 'staff_meal', 'other'];
 
-// POST /api/storno-basket — manager/admin zaznamenáva storno poslaných položiek.
-// Role gate: cisnik bol predtým povolený, ale storno sent item má inventory
-// dopad + audit zodpovednosť → len manazer/admin. Cisnik dostane 403,
-// frontend ho cez showManagerPin gate prevedie na manager PIN flow.
-router.post('/', requireRole('manazer', 'admin'), asyncRoute(async (req, res) => {
+// POST /api/storno-basket — zaznamenanie storna poslaných položiek.
+// Role gate: record-only endpoint (žiaden stock change — ten ide cez /resolve,
+// ktorý ostáva manazer/admin). Cisnik je povolený zámerne: PIN gate beží na
+// klientovi a 403 tu znamenal tichú stratu storno záznamu z offline queue.
+router.post('/', asyncRoute(async (req, res) => {
   const body = req.body || {};
   const menuItemId = +body.menuItemId;
   const qty = +body.qty || 1;

@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -36,9 +37,12 @@ fun AdminContent(page: AdminPage, onOpenFloorEdit: () -> Unit, onBackToPos: () -
         AdminPage.MATERIALY -> MaterialyScreen()
         AdminPage.POHYBY -> PohybyScreen()
         AdminPage.SHISHA -> ShishaScreen()
-        // WebView fallback — zriedkavo používané / konfiguračné stránky
+        // WebView fallback — zriedkavo používané / konfiguračné stránky.
+        // key(page): tri stránky zdieľajú jedno call site, bez key by Compose
+        // recykloval tú istú AdminScreen inštanciu (WebView factory beží len raz)
+        // a prepnutie Objednávky → Nastavenia by nenavigovalo.
         AdminPage.OBJEDNAVKY, AdminPage.MAJETOK, AdminPage.NASTAVENIA ->
-            AdminScreen(onBack = onBackToPos, initialHash = page.hash)
+            key(page) { AdminScreen(onBack = onBackToPos, initialHash = page.hash) }
     }
 }
 

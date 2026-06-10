@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="cream">#F5EFE3</color>
-    <color name="terra">#B8542A</color>
-    <color name="ic_launcher_background">#F5EFE3</color>
+    <!-- Warm Hearth POS — splash / window / system bary nech ladia s Compose témou. -->
+    <color name="cream">#FFF8F6</color>
+    <color name="terra">#95442A</color>
+    <color name="ic_launcher_background">#FFF8F6</color>
 </resources>

@@ -8,6 +8,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -21,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
@@ -30,18 +32,25 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -50,6 +59,10 @@ import sk.surfspirit.pos.core.*
 import sk.surfspirit.pos.net.*
 import sk.surfspirit.pos.ui.components.*
 import sk.surfspirit.pos.ui.theme.*
+import dev.chrisbanes.haze.HazeDefaults
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.haze
+import dev.chrisbanes.haze.hazeChild
 
 /** Web _needsSaucePicker: combá + Kuracie hranolky majú omáčku v cene. */
 private val COMBO_NAME_RE = Regex("^combo\\s", RegexOption.IGNORE_CASE)
@@ -139,6 +152,9 @@ fun OrderScreen(
     var closeSummary by remember { mutableStateOf<ShiftSummaryDto?>(null) }
     var closeBusy by remember { mutableStateOf(false) }
     var closeError by remember { mutableStateOf<String?>(null) }
+    // Súhrn zmeny sa nepodarilo načítať (transport/5xx) — vedomá voľba namiesto
+    // tichého odhlásenia bez uzávierky (FloorScreen parita)
+    var closeSummaryFailed by remember { mutableStateOf(false) }
     // Move mode — presun vybraných položiek (itemId -> qty alebo null=celé)
     var moveMode by remember { mutableStateOf(false) }
     val moveSelection = remember { mutableStateMapOf<Long, Int?>() }
@@ -165,6 +181,29 @@ fun OrderScreen(
     var draftNonce by remember { mutableStateOf(java.util.UUID.randomUUID().toString()) }
     // Idempotency nonce pre platbu: nový pri otvorení payment dialógu.
     var payNonce by remember { mutableStateOf(java.util.UUID.randomUUID().toString()) }
+    // Idempotency nonce pre paragón (zrkadlí payNonce): nový pri otvorení
+    // offer dialógu a po definitívnom výsledku — retry po timeoute drží TEN
+    // ISTÝ kľúč, takže server nevystaví druhý náhradný doklad (§10 z. 289/2008).
+    var paragonNonce by remember { mutableStateOf(java.util.UUID.randomUUID().toString()) }
+    // Idempotency kľúč pre send-and-print — NESMIE byť odvodený z obsahu
+    // dávky: syncToServer preklopí lokálne riadky na serverové id-čka, obsahový
+    // hash by sa tým otočil a retry po timeoute by išiel s novým kľúčom (→ druhý
+    // bon + druhý odpis skladu). Kľúč žije per účet a otáča sa VÝHRADNE po
+    // úspešnej odpovedi (vrátane server-replay), takže ďalšia dávka dostane
+    // nový. Server kľúč pri 4xx/5xx uvoľní, takže override-retry po 422
+    // s rovnakým kľúčom prejde.
+    var sendNonce by remember(current?.id) { mutableStateOf(java.util.UUID.randomUUID().toString()) }
+    // Idempotency nonce per dialóg/akcia — kľúč vzniká pri otvorení dialógu
+    // (vstupe do módu); retry TEJ ISTEJ akcie po chybe (dialóg/mód ostáva
+    // aktívny) drží rovnaký kľúč, nová inštancia dostane nový.
+    val splitNonce = remember(showSplit) { java.util.UUID.randomUUID().toString() }
+    val movePickerNonce = remember(showMovePicker) { java.util.UUID.randomUUID().toString() }
+    val moveModeNonce = remember(moveMode) { java.util.UUID.randomUUID().toString() }
+    val mergeNonce = remember(showMerge) { java.util.UUID.randomUUID().toString() }
+    // Idempotency kľúč uzávierky — jeden na celý close-flow (od otvorenia
+    // dialógu): „Uzavrieť" retry po chybe drží ten istý kľúč, server replayne
+    // výsledok namiesto druhej uzávierky.
+    val closeShiftNonce = remember(showCloseShift) { java.util.UUID.randomUUID().toString() }
 
     fun persistDraft() {
         draftNonce = java.util.UUID.randomUUID().toString()
@@ -270,16 +309,20 @@ fun OrderScreen(
     // Fallback poll — web 30 s + WS; my bez WS, preto 10 s tichý refresh.
     // Pauzuje sa kým je otvorený hociktorý dialóg — poll nesmie potichu
     // prehodiť `current` na iný účet pod otvoreným payment/split dialógom.
+    // Beží len v RESUMED — na pozadí (vrecko čašníka) sa rádio/server nebudí.
+    val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(Unit) {
-        while (true) {
-            delay(10_000)
-            val dialogOpen = showPay || showDiscount || showSplit || showMovePicker ||
-                showCancel || showMerge || showStaffMeal || showAccountPicker ||
-                showCloseShift || showMoveTablePicker || saucePending != null ||
-                qtyPopupFor != null || confirmRemove != null || underpayConfirm != null ||
-                paragonOffer != null || stornoPrompts.isNotEmpty() || noteCartUid != null ||
-                noteServerItem != null || gateLabel != null || moveQtyPickFor != null
-            if (!busy && !moveMode && !dialogOpen) reloadOrdersQuiet()
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                delay(10_000)
+                val dialogOpen = showPay || showDiscount || showSplit || showMovePicker ||
+                    showCancel || showMerge || showStaffMeal || showAccountPicker ||
+                    showCloseShift || closeSummaryFailed || showMoveTablePicker || saucePending != null ||
+                    qtyPopupFor != null || confirmRemove != null || underpayConfirm != null ||
+                    paragonOffer != null || stornoPrompts.isNotEmpty() || noteCartUid != null ||
+                    noteServerItem != null || gateLabel != null || moveQtyPickFor != null
+                if (!busy && !moveMode && !dialogOpen) reloadOrdersQuiet()
+            }
         }
     }
 
@@ -357,25 +400,49 @@ fun OrderScreen(
         persistDraft()
     }
 
-    fun cartPayload() = newItems.map { NewItem(it.menuItemId, it.qty, it.note) }
+    fun cartPayload(lines: List<CartLine>) = lines.map { NewItem(it.menuItemId, it.qty, it.note) }
 
     /**
      * Persist košík na server (vytvorí/aktualizuje objednávku), vráti čerstvý
      * OrderDto. Idempotentné: X-Idempotency-Key = draftNonce, takže retry toho
-     * istého košíka po výpadku NEduplikuje položky. Košík sa čistí HNEĎ po
-     * úspešnej mutácii — zlyhanie následného refreshu už nesmie viesť k re-addu.
+     * istého košíka po výpadku NEduplikuje položky. Po úspešnej mutácii sa
+     * z košíka odoberú LEN odoslané riadky (snapshot) — taps počas letu
+     * requestu pridávajú nové riadky/kusy a tie musia prežiť ako koncept.
      */
     suspend fun syncToServer(): OrderDto? {
+        // Snapshot payloadu PRED volaním — bulk clear by zmietol aj riadky
+        // pridané počas requestu (tichá strata objednaného tovaru).
+        val sentLines = newItems.toList()
+        var created: OrderDto? = null
         val oid: Int = when {
-            newItems.isEmpty() -> current?.id ?: return current
-            current == null -> Api.service.createOrder("sync-$draftNonce", CreateOrderReq(tableId, cartPayload(), null)).id
-            else -> { Api.service.addItems(current!!.id, "sync-$draftNonce", AddItemsReq(cartPayload())); current!!.id }
+            sentLines.isEmpty() -> current?.id ?: return current
+            current == null -> {
+                val c = Api.service.createOrder("sync-$draftNonce", CreateOrderReq(tableId, cartPayload(sentLines), null))
+                created = c
+                c.id
+            }
+            else -> { Api.service.addItems(current!!.id, "sync-$draftNonce", AddItemsReq(cartPayload(sentLines))); current!!.id }
         }
-        // Košík je na serveri — vyčisti okamžite (draft prefs tiež).
-        if (newItems.isNotEmpty()) { newItems.clear(); Store.saveDraft(tableId, emptyList()) }
+        // Košík je na serveri — chirurgicky odober odoslané kusy; zvyšok
+        // (pridaný počas requestu) ostáva ako nový koncept v drafte.
+        if (sentLines.isNotEmpty()) {
+            sentLines.forEach { s ->
+                val i = newItems.indexOfFirst { it.uid == s.uid }
+                if (i >= 0) {
+                    val cur = newItems[i]
+                    if (cur.qty > s.qty) newItems[i] = cur.copy(qty = cur.qty - s.qty)
+                    else newItems.removeAt(i)
+                }
+            }
+            Store.saveDraft(tableId, newItems.toList())
+        }
         val fresh = runCatching { Api.service.tableOrders(tableId) }.getOrNull()
         if (fresh != null) accounts = fresh
-        return fresh?.firstOrNull { it.id == oid } ?: fresh?.firstOrNull() ?: current
+        // addItems prešiel, ale refresh zlyhal — NESMIE to vyzerať ako no-op
+        // (createOrder vetva má fallback `created`, takže flow pokračuje).
+        else if (created == null && sentLines.isNotEmpty())
+            toast = "Položky uložené, ale obnovenie zlyhalo — skús znova"
+        return fresh?.firstOrNull { it.id == oid } ?: fresh?.firstOrNull() ?: created ?: current
     }
 
     /**
@@ -425,7 +492,8 @@ fun OrderScreen(
             try {
                 val ord = withContext(Dispatchers.IO) { syncToServer() }
                 if (ord == null) { busy = false; onDone?.invoke(); return@launch }
-                val resp = withContext(Dispatchers.IO) { Api.service.sendAndPrint(ord.id, SendReq(overrideLimit)) }
+                val resp = withContext(Dispatchers.IO) { Api.service.sendAndPrint(ord.id, SendReq(overrideLimit), "send-$sendNonce") }
+                sendNonce = java.util.UUID.randomUUID().toString()
                 val printToast = withContext(Dispatchers.IO) { printItems(resp.items, ord.id, storno = false) }
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 toast = printToast ?: "Odoslané (${resp.items.sumOf { it.qty }} ks)"
@@ -504,6 +572,12 @@ fun OrderScreen(
         }
     }
 
+    /** Otvor paragón offer dialóg — nová ponuka = nový idempotency kľúč. */
+    fun offerParagon(reason: String) {
+        paragonNonce = java.util.UUID.randomUUID().toString()
+        paragonOffer = reason
+    }
+
     /**
      * Paragón fallback — vystav + vytlač + uzavri UI (web offerParagonFallback).
      * Snapshot položiek = server items + prípadné NEsynchnuté cart riadky
@@ -529,12 +603,18 @@ fun OrderScreen(
                 // zapisuje) — paragón nesie skutočne zvolený spôsob, nie ten
                 // s ktorým sa dialóg otvoril.
                 val method = payInitMethod
+                // X-Idempotency-Key — retry po timeoute NEvystaví druhý doklad
                 val res = withContext(Dispatchers.IO) {
                     Api.service.issueParagon(ParagonIssueReq(
                         orderId = ord?.id, items = items, paymentMethod = method,
-                        totalAmount = total, discountAmount = disc, reason = reason))
+                        totalAmount = total, discountAmount = disc, reason = reason),
+                        "paragon-$paragonNonce")
                 }
-                if (res.paragonNumber.isBlank()) { toast = "Paragón sa nepodarilo vystaviť"; return@launch }
+                if (res.paragonNumber.isBlank()) {
+                    // Definitívna (prázdna) odpoveď → ďalší pokus = nový kľúč
+                    paragonNonce = java.util.UUID.randomUUID().toString()
+                    toast = "Paragón sa nepodarilo vystaviť"; return@launch
+                }
                 // Tlač — best-effort (printQueue dohoní offline tlačiareň)
                 val tableName = tables.firstOrNull { it.id == tableId }?.name
                 val printFailed = withContext(Dispatchers.IO) {
@@ -549,12 +629,16 @@ fun OrderScreen(
                     "Paragón ${res.paragonNumber} vystavený, ale tlač zlyhala — vytlač cez admin → História."
                 else
                     "Paragón ${res.paragonNumber} vystavený. Po obnove eKasa sa automaticky zaregistruje."
+                paragonNonce = java.util.UUID.randomUUID().toString()
                 paragonOffer = null
                 showPay = false
                 newItems.clear(); Store.saveDraft(tableId, emptyList())
                 Store.saveLastTable(null)
                 onBack()
             } catch (e: Exception) {
+                // Definitívna HTTP odpoveď = pokus skončil → nový kľúč; transport/
+                // timeout drží TEN ISTÝ kľúč (retry nevystaví druhý doklad).
+                if (e.httpCode() != null) paragonNonce = java.util.UUID.randomUUID().toString()
                 toast = "Vystavenie paragónu zlyhalo: ${errorMessage(e)}"
             } finally { busy = false }
         }
@@ -577,7 +661,8 @@ fun OrderScreen(
                 val ord = withContext(Dispatchers.IO) { syncToServer() } ?: run { busy = false; return@launch }
                 // auto-send neodoslaných (kvôli odpočtu skladu) — s limit gate
                 try {
-                    val sresp = withContext(Dispatchers.IO) { Api.service.sendAndPrint(ord.id, SendReq(false)) }
+                    val sresp = withContext(Dispatchers.IO) { Api.service.sendAndPrint(ord.id, SendReq(false), "send-$sendNonce") }
+                    sendNonce = java.util.UUID.randomUUID().toString()
                     withContext(Dispatchers.IO) { printItems(sresp.items, ord.id, storno = false) }
                 } catch (se: Exception) {
                     if (se.httpCode() == 422) {
@@ -586,7 +671,8 @@ fun OrderScreen(
                             scope.launch {
                                 try {
                                     busy = true
-                                    val sr = withContext(Dispatchers.IO) { Api.service.sendAndPrint(ord.id, SendReq(true)) }
+                                    val sr = withContext(Dispatchers.IO) { Api.service.sendAndPrint(ord.id, SendReq(true), "send-$sendNonce") }
+                                    sendNonce = java.util.UUID.randomUUID().toString()
                                     withContext(Dispatchers.IO) { printItems(sr.items, ord.id, storno = false) }
                                     busy = false
                                     doPay(method, given, underpayConfirmed = true)
@@ -602,40 +688,83 @@ fun OrderScreen(
                 if (amount <= 0.0) { payError = "Nulová suma."; busy = false; return@launch }
 
                 // ---- Samotná platba: izolovaný error handling ----
-                // X-Idempotency-Key → timeout retry s rovnakým kľúčom vráti
-                // cached výsledok namiesto DRUHEJ platby. Timeout NIKDY
-                // neponúka paragón (server mohol platbu dokončiť — hrozil by
-                // dvojitý doklad); paragón len pri connect-level zlyhaní
-                // (request preukázateľne neodišiel) alebo Portos blocked.
+                // X-Idempotency-Key → retry s rovnakým kľúčom vráti cached
+                // výsledok namiesto DRUHEJ platby; server kľúč rezervuje už
+                // pri štarte requestu a súbežný duplikát dostane 409
+                // {error:"processing"}. pay() má per-call 60 s read timeout.
+                // Timeout NIKDY neponúka paragón (server mohol platbu dokončiť
+                // — hrozil by dvojitý doklad); paragón len pri connect-level
+                // zlyhaní (request preukázateľne neodišiel) alebo Portos blocked.
                 val payKey = "pay-$payNonce"
                 val payReq = PayReq(ord.id, method, amount)
+                // 409 + "processing" = kľúč je rezervovaný, PRVÁ požiadavka na
+                // serveri stále beží (pomalá fiškalizácia). Pozn.: pre iné kódy
+                // sa errorBody NEčíta (normalizeFiscalOutcome ho potrebuje).
+                fun isPayProcessing(e: Exception): Boolean =
+                    e.httpCode() == 409 && e.errorBody()?.contains("processing") == true
+                // Poll s TÝM ISTÝM kľúčom každých ~2,5 s (okno ~30 s) — keď
+                // prvá požiadavka dobehne, server vráti jej cached výsledok.
+                // null = okno vypršalo; definitívna HTTP chyba prepadá von.
+                suspend fun awaitPendingPay(): PayResp? {
+                    val deadline = System.currentTimeMillis() + 30_000
+                    while (System.currentTimeMillis() < deadline) {
+                        delay(2_500)
+                        try { return withContext(Dispatchers.IO) { Api.service.pay(payKey, payReq) } }
+                        catch (e: Exception) { if (!isPayProcessing(e) && !e.isTimeout()) throw e }
+                    }
+                    return null
+                }
                 val resp: PayResp = try {
                     withContext(Dispatchers.IO) { Api.service.pay(payKey, payReq) }
-                } catch (pe: Exception) {
-                    if (pe.isTimeout()) {
-                        // 1 retry s tým istým idempotency kľúčom — ak prvá
-                        // požiadavka prešla, server vráti cached success.
-                        try { withContext(Dispatchers.IO) { Api.service.pay(payKey, payReq) } }
-                        catch (_: Exception) {
-                            payError = "Stav platby je nejasný — server neodpovedal včas. NEPOSIELAJ znovu, over v admin → História."
-                            payFiscal = "Platba čaká na overenie"
+                } catch (pe0: Exception) {
+                    // Retry/poll môže skončiť definitívnou HTTP chybou — vnútorný
+                    // try ju pošle do ROVNAKEJ vetvy ako priamu odpoveď.
+                    try {
+                        when {
+                            pe0.isTimeout() -> {
+                                // Server MOŽNO stále fiškalizuje — žiadny okamžitý
+                                // retry: ~3 s pauza, potom TEN ISTÝ kľúč; busy
+                                // ostáva, kým sa stav nerozhodne.
+                                delay(3_000)
+                                try { withContext(Dispatchers.IO) { Api.service.pay(payKey, payReq) } }
+                                catch (re: Exception) {
+                                    if (isPayProcessing(re) || re.isTimeout()) {
+                                        awaitPendingPay() ?: run {
+                                            payError = "Stav platby je nejasný — server neodpovedal včas. NEPOSIELAJ znovu, over v admin → História."
+                                            payFiscal = "Platba čaká na overenie"
+                                            busy = false; return@launch
+                                        }
+                                    } else throw re
+                                }
+                            }
+                            isPayProcessing(pe0) -> {
+                                // Kľúč už je rezervovaný (napr. duplicate tap /
+                                // restart) — platba beží, počkaj na jej výsledok.
+                                awaitPendingPay() ?: run {
+                                    payError = "Platba sa stále spracováva. NEPOSIELAJ znovu, over v admin → História."
+                                    payFiscal = "Platba čaká na overenie"
+                                    busy = false; return@launch
+                                }
+                            }
+                            else -> throw pe0
+                        }
+                    } catch (pe: Exception) {
+                        if (pe.isConnectFailure()) {
+                            payError = "Pripojenie nie je dostupné — platbu nie je možné dokončiť offline."
+                            offerParagon("no_connection")
+                            busy = false; return@launch
+                        } else if (pe.httpCode() != null) {
+                            val outcome = normalizeFiscalOutcome(null, pe)
+                            payError = outcome.message; payFiscal = outcome.title
+                            when (outcome.kind) {
+                                "conflict" -> reload(ord.id, quiet = true)
+                                "blocked", "ambiguous" -> offerParagon("portos_blocked")
+                            }
+                            busy = false; return@launch
+                        } else {
+                            payError = errorMessage(pe)
                             busy = false; return@launch
                         }
-                    } else if (pe.isConnectFailure()) {
-                        payError = "Pripojenie nie je dostupné — platbu nie je možné dokončiť offline."
-                        paragonOffer = "no_connection"
-                        busy = false; return@launch
-                    } else if (pe.httpCode() != null) {
-                        val outcome = normalizeFiscalOutcome(null, pe)
-                        payError = outcome.message; payFiscal = outcome.title
-                        when (outcome.kind) {
-                            "conflict" -> reload(ord.id, quiet = true)
-                            "blocked", "ambiguous" -> paragonOffer = "portos_blocked"
-                        }
-                        busy = false; return@launch
-                    } else {
-                        payError = errorMessage(pe)
-                        busy = false; return@launch
                     }
                 }
                 val outcome = normalizeFiscalOutcome(resp, null)
@@ -651,7 +780,7 @@ fun OrderScreen(
                     }
                     "blocked", "ambiguous" -> {
                         payError = outcome.message; payFiscal = outcome.title
-                        paragonOffer = "portos_blocked"
+                        offerParagon("portos_blocked")
                     }
                     else -> { payError = outcome.message; reload(ord.id, quiet = true) }
                 }
@@ -715,7 +844,7 @@ fun OrderScreen(
             try {
                 val ord = withContext(Dispatchers.IO) { syncToServer() } ?: return@launch
                 // košík vyčistený v syncToServer
-                withContext(Dispatchers.IO) { Api.service.splitParts(ord.id, SplitPartsReq(parts)) }
+                withContext(Dispatchers.IO) { Api.service.splitParts(ord.id, SplitPartsReq(parts), "split-$splitNonce") }
                 showSplit = false; toast = "Účet rozdelený na $parts časti"
                 Store.saveLastTable(null); onBack()
             } catch (e: Exception) { splitError = errorMessage(e) } finally { busy = false }
@@ -734,7 +863,7 @@ fun OrderScreen(
                 }
                 withContext(Dispatchers.IO) {
                     Api.service.moveItems(ord.id, MoveReq(itemQtys = itemQtys,
-                        targetTableId = tableId, targetOrderId = newOrder.id))
+                        targetTableId = tableId, targetOrderId = newOrder.id), "split-items-$splitNonce")
                 }
                 showSplit = false
                 val n = itemQtys.sumOf { it.qty ?: 0 }
@@ -753,7 +882,7 @@ fun OrderScreen(
                 // košík vyčistený v syncToServer
                 val ids = ord.items.map { it.id }
                 if (ids.isEmpty()) { error = "Účet je prázdny."; busy = false; return@launch }
-                withContext(Dispatchers.IO) { Api.service.moveItems(ord.id, MoveReq(itemIds = ids, targetTableId = targetTableId)) }
+                withContext(Dispatchers.IO) { Api.service.moveItems(ord.id, MoveReq(itemIds = ids, targetTableId = targetTableId), "move-$movePickerNonce") }
                 showMovePicker = false
                 toast = "Účet presunutý na ${tables.firstOrNull { it.id == targetTableId }?.name ?: "stôl"}"
                 Store.saveLastTable(null); onBack()
@@ -797,7 +926,7 @@ fun OrderScreen(
                 val itemQtys = moveSelection.map { (id, q) -> MoveQty(id, q) }
                 withContext(Dispatchers.IO) {
                     Api.service.moveItems(src.id, MoveReq(itemQtys = itemQtys,
-                        targetTableId = targetTableId ?: tableId, targetOrderId = targetOrderId))
+                        targetTableId = targetTableId ?: tableId, targetOrderId = targetOrderId), "move-items-$moveModeNonce")
                 }
                 val n = moveSelection.size
                 exitMoveMode()
@@ -869,7 +998,8 @@ fun OrderScreen(
                 val ord = withContext(Dispatchers.IO) { syncToServer() } ?: run { busy = false; return@launch }
                 // košík vyčistený v syncToServer
                 // auto-send (odpočet skladu) pred uzávierkou
-                val sresp = withContext(Dispatchers.IO) { Api.service.sendAndPrint(ord.id, SendReq(false)) }
+                val sresp = withContext(Dispatchers.IO) { Api.service.sendAndPrint(ord.id, SendReq(false), "send-$sendNonce") }
+                sendNonce = java.util.UUID.randomUUID().toString()
                 withContext(Dispatchers.IO) { printItems(sresp.items, ord.id, storno = false) }
                 val resp = withContext(Dispatchers.IO) { Api.service.closeStaffMeal(ord.id, StaffMealReq(overrideLimit = overrideLimit)) }
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -897,7 +1027,10 @@ fun OrderScreen(
                     others.forEach { o ->
                         val ids = o.items.map { it.id }
                         if (ids.isNotEmpty())
-                            Api.service.moveItems(o.id, MoveReq(itemIds = ids, targetTableId = tableId, targetOrderId = target.id))
+                            // kľúč per zdrojový účet — jeden zdieľaný kľúč by replaynul
+                            // odpoveď prvého presunu pre všetky ďalšie účty
+                            Api.service.moveItems(o.id, MoveReq(itemIds = ids, targetTableId = tableId, targetOrderId = target.id),
+                                "merge-$mergeNonce-${o.id}")
                         else runCatching { Api.service.deleteOrder(o.id) }
                     }
                 }
@@ -1039,7 +1172,11 @@ fun OrderScreen(
             showCloseShift = true; closeSummary = null; closeError = null
             scope.launch {
                 try { closeSummary = withContext(Dispatchers.IO) { Api.service.shiftSummary() } }
-                catch (_: Exception) { showCloseShift = false; onLogout() }
+                catch (e: Exception) {
+                    showCloseShift = false
+                    classifyShiftSummaryFailure(e, onLogout = onLogout,
+                        onFailed = { closeSummaryFailed = true })
+                }
             }
         }
     }
@@ -1047,7 +1184,7 @@ fun OrderScreen(
         closeBusy = true; closeError = null
         scope.launch {
             try {
-                withContext(Dispatchers.IO) { Api.service.shiftClose(CloseShiftReq(actual)) }
+                withContext(Dispatchers.IO) { Api.service.shiftClose(CloseShiftReq(actual), "shift-close-$closeShiftNonce") }
                 showCloseShift = false; onLogout()
             } catch (e: Exception) { closeError = "Uzávierka zlyhala. Skús znova alebo len odhlás." }
             finally { closeBusy = false }
@@ -1100,24 +1237,39 @@ fun OrderScreen(
         }
         val phone = isPhone()
         var phoneTab by rememberSaveable { mutableStateOf(0) }   // 0 = Menu, 1 = Účet
+        val hazeState = remember { HazeState() }   // zdroj backdrop blur pre glass search
+        // Štýl je konštantný — alokácia patrí mimo recompozície menuPane
+        val hazeStyle = remember { HazeDefaults.style(backgroundColor = Cream) }
 
-        // ── Menu pane: hľadanie + kategórie vľavo + grid (web tablet view) ──
+        // ── Menu pane: plávajúci glass search (Haze blur) nad rail + grid ──
         val menuPane: @Composable (Modifier) -> Unit = { paneMod ->
-            Column(paneMod.padding(if (phone) 8.dp else 12.dp)) {
-                OutlinedTextField(
-                    value = search, onValueChange = { search = it },
-                    placeholder = { Text("Hľadať produkt alebo kategóriu…") },
-                    leadingIcon = { Icon(Icons.Filled.Search, null) },
-                    singleLine = true, modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(8.dp))
-                Row(Modifier.weight(1f)) {
-                    // Vertikálny category rail — všetky kategórie vidno naraz;
-                    // telefón = úzky iba-ikonový rail (64 dp)
+            var searchFocused by remember { mutableStateOf(false) }
+            // Hľadanie zahŕňa aj desc (web parita) + logické triedenie;
+            // remember — flatMap/filter/sort nebeží pri každej recompozícii
+            // (cart tap), len keď sa zmení query/kategória/menu.
+            val items = remember(search, categories, selectedCat) {
+                if (search.isBlank()) categories.getOrNull(selectedCat)?.items.orEmpty()
+                else categories.flatMap { it.items }.distinctBy { it.id }
+                    .filter { it.name.contains(search, ignoreCase = true)
+                           || it.desc.contains(search, ignoreCase = true) }
+                    .sortedWith(menuLogicComparator)
+            }
+            val catColorById = remember(categories) {
+                buildMap {
+                    categories.forEach { c ->
+                        val col = CAT_COLORS[c.slug]
+                        if (col != null) c.items.forEach { put(it.id, col) }
+                    }
+                }
+            }
+            Box(paneMod.padding(if (phone) 8.dp else 12.dp)) {
+                // Obsah = zdroj pre haze blur; scrolluje POD plávajúcim searchom
+                Row(Modifier.fillMaxSize()
+                    .haze(hazeState, style = hazeStyle)) {
                     Column(
                         Modifier.width(if (phone) 64.dp else 150.dp).fillMaxHeight()
                             .verticalScroll(rememberScrollState())
-                            .padding(end = 6.dp),
+                            .padding(top = 60.dp, end = 6.dp),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
                         categories.forEachIndexed { i, c ->
@@ -1127,24 +1279,11 @@ fun OrderScreen(
                         }
                     }
                     Spacer(Modifier.width(8.dp))
-                    // Hľadanie zahŕňa aj desc (web parita) + logické triedenie
-                    val items = if (search.isBlank()) categories.getOrNull(selectedCat)?.items.orEmpty()
-                                else categories.flatMap { it.items }.distinctBy { it.id }
-                                    .filter { it.name.contains(search, ignoreCase = true)
-                                           || it.desc.contains(search, ignoreCase = true) }
-                                    .sortedWith(menuLogicComparator)
-                    val catColorById = remember(categories) {
-                        buildMap {
-                            categories.forEach { c ->
-                                val col = CAT_COLORS[c.slug]
-                                if (col != null) c.items.forEach { put(it.id, col) }
-                            }
-                        }
-                    }
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(minSize = 118.dp),
                         horizontalArrangement = Arrangement.spacedBy(7.dp),
                         verticalArrangement = Arrangement.spacedBy(7.dp),
+                        contentPadding = PaddingValues(top = 60.dp, bottom = 4.dp),
                         modifier = Modifier.weight(1f),
                     ) {
                         items(items, key = { it.id }) { mi ->
@@ -1162,6 +1301,28 @@ fun OrderScreen(
                         }
                     }
                 }
+                // Plávajúci glass-search — reálny backdrop blur (Haze) + ember fokus prstenec.
+                // Produkty pod ním plynú „cez mliečne sklo" (designMd glassmorphism spec).
+                Box(
+                    Modifier.align(Alignment.TopCenter).fillMaxWidth()
+                        .paperShadow(4.dp, RoundedCornerShape(999.dp))
+                        .hazeChild(hazeState, shape = RoundedCornerShape(999.dp))
+                        .border(1.5.dp, if (searchFocused) Terra else BorderMid, RoundedCornerShape(999.dp)),
+                ) {
+                    OutlinedTextField(
+                        value = search, onValueChange = { search = it },
+                        placeholder = { Text("Hľadať produkt alebo kategóriu…") },
+                        leadingIcon = { Icon(Icons.Filled.Search, null, tint = MaterialTheme.colorScheme.outline) },
+                        singleLine = true, shape = RoundedCornerShape(999.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            focusedBorderColor = Color.Transparent,
+                            unfocusedBorderColor = Color.Transparent,
+                        ),
+                        modifier = Modifier.fillMaxWidth().onFocusChanged { searchFocused = it.isFocused },
+                    )
+                }
             }
         }
 
@@ -1170,8 +1331,24 @@ fun OrderScreen(
             Surface(
                 paneMod
                     .paperShadow(2.dp, RectangleShape)
-                    .drawBehind {
-                        drawLine(BorderStrong, Offset(0f, 0f), Offset(0f, size.height), strokeWidth = 2f)
+                    .drawWithCache {
+                        // ember „receipt margin" vľavo + perforácia (tear line bončeka)
+                        // — všetko závisí len od size, cache sa prestavia iba pri
+                        // zmene veľkosti, nie pri každom draw frame-e
+                        val marginSize = androidx.compose.ui.geometry.Size(3.dp.toPx(), size.height)
+                        val brush = emberBrush()
+                        val r = 1.4.dp.toPx(); val gap = 9.dp.toPx(); val py = 3.dp.toPx()
+                        val holeColor = EspressoDim.copy(alpha = 0.45f)
+                        // pozor: vnútri buildList by `size` bolo MutableList.size
+                        val w = size.width
+                        val holes = buildList {
+                            var px = gap
+                            while (px < w) { add(Offset(px, py)); px += gap }
+                        }
+                        onDrawBehind {
+                            drawRect(brush = brush, size = marginSize)
+                            holes.forEach { drawCircle(holeColor, r, it) }
+                        }
                     },
                 color = MaterialTheme.colorScheme.surfaceVariant,
             ) {
@@ -1179,7 +1356,8 @@ fun OrderScreen(
                     // hlavička + účty
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(tables.firstOrNull { it.id == tableId }?.name ?: "Stôl #$tableId",
-                            style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                            style = MaterialTheme.typography.titleMedium.copy(fontFamily = Serif),
+                            modifier = Modifier.weight(1f))
                         if (sentQty > 0) Text("$sentQty ks v kuchyni", style = MaterialTheme.typography.labelMedium, color = Sage)
                     }
                     // účty (taby s meta: počet pol. + suma — web parita)
@@ -1245,26 +1423,30 @@ fun OrderScreen(
                     Spacer(Modifier.height(8.dp))
                     // Hero CELKOM — kotva na peniaze: terra-tinted karta, Sora
                     // numeráliá, 250 ms pokladničný ticker pri zmene sumy.
+                    // Ember hero CELKOM — kotva na peniaze: teplý terracotta gradient,
+                    // Cream numeráliá (tabular), serif label, 250 ms pokladničný ticker.
                     Surface(
-                        Modifier.fillMaxWidth().paperShadow(2.dp, RoundedCornerShape(14.dp)),
-                        shape = RoundedCornerShape(14.dp),
-                        color = Terra.copy(alpha = 0.08f),
-                        border = BorderStroke(1.dp, Terra.copy(alpha = 0.26f)),
+                        Modifier.fillMaxWidth().paperShadow(6.dp, RoundedCornerShape(16.dp)),
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color.Transparent,
                     ) {
-                        Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-                            if (discount > 0) {
-                                Row { Text("Medzisúčet", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text(money(serverSubtotal + cartSubtotal), style = MaterialTheme.typography.labelSmall) }
-                                Row { Text("Zľava", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, color = Sage)
-                                    Text("− ${money(discount)}", style = MaterialTheme.typography.labelSmall, color = Sage) }
-                                Spacer(Modifier.height(4.dp))
-                            }
-                            Row(verticalAlignment = Alignment.Bottom) {
-                                Text("CELKOM", Modifier.weight(1f).padding(bottom = 4.dp),
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                AnimatedMoney(grandTotal, MaterialTheme.typography.displaySmall, Terra)
+                        Box(Modifier.background(emberBrush())) {
+                            Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                                if (discount > 0) {
+                                    Row { Text("Medzisúčet", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall,
+                                        color = Cream.copy(alpha = 0.85f))
+                                        Text(money(serverSubtotal + cartSubtotal), style = MaterialTheme.typography.labelSmall,
+                                            color = Cream.copy(alpha = 0.85f)) }
+                                    Row { Text("Zľava", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, color = Cream)
+                                        Text("− ${money(discount)}", style = MaterialTheme.typography.labelSmall, color = Cream) }
+                                    Spacer(Modifier.height(4.dp))
+                                }
+                                Row(verticalAlignment = Alignment.Bottom) {
+                                    Text("CELKOM", Modifier.weight(1f).padding(bottom = 5.dp),
+                                        style = MaterialTheme.typography.titleLarge.copy(fontFamily = Serif),
+                                        color = Cream)
+                                    AnimatedMoney(grandTotal, MaterialTheme.typography.displaySmall, Cream)
+                                }
                             }
                         }
                     }
@@ -1346,12 +1528,12 @@ fun OrderScreen(
 
         // ── Layout: tablet = dva panely vedľa seba; telefón = taby + spodný bar ──
         if (!phone) {
-            Row(Modifier.fillMaxSize().padding(pad)) {
+            Row(Modifier.fillMaxSize().warmCanvas().padding(pad)) {
                 menuPane(Modifier.weight(1.7f))
                 orderPane(Modifier.weight(1f).fillMaxHeight())
             }
         } else {
-            Column(Modifier.fillMaxSize().padding(pad)) {
+            Column(Modifier.fillMaxSize().warmCanvas().padding(pad)) {
                 // Taby Menu | Účet (s počtom kusov)
                 val cartCount = (current?.items?.sumOf { it.qty } ?: 0) + newItems.sumOf { it.qty }
                 Row(Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
@@ -1450,9 +1632,12 @@ fun OrderScreen(
                         toast = "✔ Storno zapísané"
                     } catch (e: Exception) {
                         val code = e.httpCode()
-                        if (e.isTransportError() || (code ?: 0) >= 500) {
+                        // 403 sa tiež queue-uje — Store ho drží vo fronte a server
+                        // ho po role-fixe / manažérskom prihlásení prijme.
+                        if (e.isTransportError() || code == 403 || (code ?: 0) >= 500) {
                             Store.queueStorno(req)
-                            toast = "Storno zápis zlyhal — uložené, skúsim znova po obnove spojenia"
+                            toast = if (code == 403) "Storno zápis zlyhal (403) — uložené, čaká na manažéra"
+                                    else "Storno zápis zlyhal — uložené, skúsim znova po obnove spojenia"
                         } else toast = "Storno zápis zlyhal (${code ?: "?"}) — zavolaj manažéra"
                     }
                 }
@@ -1504,6 +1689,11 @@ fun OrderScreen(
         onClose = { confirmCloseShift(it) },
         onJustLogout = { showCloseShift = false; onLogout() },
         onDismiss = { if (!closeBusy) showCloseShift = false })
+    if (closeSummaryFailed) CloseSummaryFailedDialog(
+        onRetry = { closeSummaryFailed = false; startCloseFlow() },
+        onLogout = { closeSummaryFailed = false; onLogout() },
+        onDismiss = { closeSummaryFailed = false },
+    )
     gateLabel?.let { lbl ->
         ManagerPinDialog(lbl, onVerified = {
             val a = gateAction; gateLabel = null; gateAction = null; a?.invoke()
@@ -1556,9 +1746,14 @@ private fun ServerItemRow(
                 Text("${it.qty}", Modifier.width(24.dp), style = MaterialTheme.typography.labelMedium,
                     color = Terra, fontWeight = FontWeight.Bold)
                 StepBtn("+", onPlus)
-                Spacer(Modifier.width(4.dp))
+                // Hit-boxy (44 dp pri 36 dp hlásenej šírke) presahujú 4 dp na
+                // každú stranu — susedné ovládače potrebujú 8 dp medzeru,
+                // inak tap na okraji trafí neskoršieho súrodenca (X = odobrať!)
+                Spacer(Modifier.width(8.dp))
                 IconMini(Icons.AutoMirrored.Filled.ArrowForward, "presunúť", onMove, tint = Sage)
+                Spacer(Modifier.width(8.dp))
                 IconMini(Icons.Filled.Edit, "poznámka", onNote)
+                Spacer(Modifier.width(8.dp))
                 IconMini(Icons.Filled.Close, "odobrať", onRemove, tint = Danger)
                 Spacer(Modifier.width(4.dp))
                 Text(money(it.price * it.qty), style = MaterialTheme.typography.bodyMedium)
@@ -1610,8 +1805,12 @@ private fun CartRow(line: CartLine, onMinus: () -> Unit, onPlus: () -> Unit, onN
                 Text("${line.qty}", Modifier.width(24.dp), style = MaterialTheme.typography.labelMedium,
                     color = Terra, fontWeight = FontWeight.Bold)
                 StepBtn("+", onPlus)
-                Spacer(Modifier.width(4.dp))
+                Spacer(Modifier.width(8.dp))
                 IconMini(Icons.Filled.Edit, "poznámka", onNote)
+                // Hit-box presahuje 4 dp do strán na OBOCH ovládačoch — až 8 dp
+                // medzera dáva nulový prekryv (tap na okraj ceruzky nesmie
+                // trafiť X = odobrať)
+                Spacer(Modifier.width(8.dp))
                 IconMini(Icons.Filled.Close, "odobrať", onRemove, tint = Danger)
                 Spacer(Modifier.width(4.dp))
                 Text(money(line.price * line.qty), style = MaterialTheme.typography.bodyMedium)
@@ -1622,9 +1821,28 @@ private fun CartRow(line: CartLine, onMinus: () -> Unit, onPlus: () -> Unit, onN
     }
 }
 
+/**
+ * Zväčšená dotyková plocha pre 30 dp vizuál (DESIGN-CODE tap targets) BEZ
+ * zväčšenia výšky riadku účtu: hit-box sa meria 44×36, ale riadku sa hlási
+ * len 36×30 — presah dotyku ide nad/pod riadok (Compose pointer input sa
+ * rodičovskými bounds neclipuje), takže sa do panelu zmestí rovnako veľa
+ * položiek bez scrollu (owner priorita). Výška je clampnutá na 36 dp: na
+ * účtenke s peniazmi nesmie tap pri hranici riadku trafiť susednú položku —
+ * pri 30 dp riadkoch so 6 dp medzerou sa 36 dp hit-boxy nanajvýš dotknú,
+ * nikdy neprekryjú; 36 dp je vedomý kompromis voči 44 dp guideline.
+ */
+private fun Modifier.rowTouchTarget(): Modifier = this.layout { measurable, _ ->
+    val touchW = 44.dp.roundToPx()
+    val touchH = 36.dp.roundToPx()
+    val w = 36.dp.roundToPx()
+    val h = 30.dp.roundToPx()
+    val p = measurable.measure(Constraints.fixed(touchW, touchH))
+    layout(w, h) { p.place((w - touchW) / 2, (h - touchH) / 2) }
+}
+
 @Composable
 private fun IconMini(icon: androidx.compose.ui.graphics.vector.ImageVector, cd: String, onClick: () -> Unit, tint: Color = Terra) {
-    IconButton(onClick = onClick, modifier = Modifier.size(30.dp)) {
+    IconButton(onClick = onClick, modifier = Modifier.rowTouchTarget()) {
         Icon(icon, cd, Modifier.size(17.dp), tint = tint)
     }
 }
@@ -1654,8 +1872,8 @@ private fun CatRailBtn(c: CategoryDto, active: Boolean, iconOnly: Boolean = fals
         color = fill,
         modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp).pressScale(interaction)) {
         Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
-            // Ľavý inset bar — rovnaký „ink-margin" jazyk ako riadky účtu
-            Box(Modifier.width(3.dp).fillMaxHeight()
+            // Ľavý inset bar — Warm Hearth sidebar: aktívna kategória = 4dp terra okraj
+            Box(Modifier.width(4.dp).fillMaxHeight()
                 .background(if (active) Terra else Color.Transparent))
             if (iconOnly) {
                 // Telefón: úzky rail — len emoji, vycentrované
@@ -1672,6 +1890,17 @@ private fun CatRailBtn(c: CategoryDto, active: Boolean, iconOnly: Boolean = fals
                     style = MaterialTheme.typography.bodyLarge,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(vertical = 13.dp, horizontal = 0.dp).weight(1f))
+                // Počet položiek v kategórii — rýchly scan rozsahu
+                val cnt = c.items.size
+                if (cnt > 0) {
+                    Surface(shape = RoundedCornerShape(999.dp),
+                        color = if (active) Terra else MaterialTheme.colorScheme.surfaceVariant) {
+                        Text("$cnt", Modifier.padding(horizontal = 7.dp, vertical = 1.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (active) Cream else MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                }
             }
         }
     }
@@ -1704,17 +1933,19 @@ private fun ProductCard(
 ) {
     val interaction = remember { MutableInteractionSource() }
     val inCart = inOrderQty > 0
-    // Karta rastie s obsahom (web parita) — meno aj cena sa VŽDY zmestia;
-    // in-cart stav = terra border + tint (web .product-card.in-cart).
-    Surface(shape = RoundedCornerShape(10.dp),
+    // Warm Hearth product card — rounded-xl (12dp), surface-bright plochá plocha,
+    // 1px outline-variant okraj → terra keď je v košíku; meno aj cena sa VŽDY zmestia.
+    Surface(shape = RoundedCornerShape(12.dp),
         border = BorderStroke(1.dp, if (inCart) Terra else BorderSoft),
         modifier = Modifier.heightIn(min = 96.dp)
-            .paperShadow(2.dp, RoundedCornerShape(10.dp))
+            .paperShadow(2.dp, RoundedCornerShape(12.dp))
             .pressScale(interaction)) {
         Box(Modifier.fillMaxSize()
             .background(
                 if (inCart) Brush.verticalGradient(listOf(Terra.copy(alpha = 0.06f), Terra.copy(alpha = 0.10f)))
-                else Brush.verticalGradient(listOf(Cream, CreamElev)))
+                // plná Cream — gradient s dvoma identickými stopmi by zbytočne
+                // kompiloval shader pre každú viditeľnú kartu
+                else SolidColor(Cream))
             .combinedClickable(interactionSource = interaction, indication = LocalIndication.current,
                 onClick = onClick, onLongClick = onLongClick)) {
             // Per-kategória akcent — farebná horná hrana (web --cat-color)
@@ -1722,9 +1953,10 @@ private fun ProductCard(
                 Box(Modifier.fillMaxWidth().height(3.dp).background(it.copy(alpha = 0.65f)).align(Alignment.TopCenter))
             }
             Column(Modifier.fillMaxWidth().padding(start = 9.dp, end = 9.dp, top = 9.dp, bottom = 8.dp)) {
-                Surface(shape = RoundedCornerShape(7.dp),
-                    color = (catColor ?: Terra).copy(alpha = 0.10f), modifier = Modifier.size(28.dp)) {
-                    Box(contentAlignment = Alignment.Center) { Text(mi.emoji, fontSize = 15.sp) }
+                // „coaster" — emoji v tónovanom krúžku (kategória-akcent)
+                Surface(shape = RoundedCornerShape(percent = 50),
+                    color = (catColor ?: Terra).copy(alpha = 0.12f), modifier = Modifier.size(32.dp)) {
+                    Box(contentAlignment = Alignment.Center) { Text(mi.emoji, fontSize = 17.sp) }
                 }
                 Spacer(Modifier.height(5.dp))
                 Text(mi.name,
@@ -1738,6 +1970,9 @@ private fun ProductCard(
                         fontWeight = FontWeight.ExtraBold, fontSize = 18.sp),
                     color = Espresso, maxLines = 1)
             }
+            // Stitch „+" quick-add glyf — sekundárny tap target v pravom dolnom rohu
+            Icon(Icons.Filled.Add, "pridať",
+                Modifier.align(Alignment.BottomEnd).padding(6.dp).size(18.dp), tint = Terra)
             // Qty badge — bežiaci súčet v účte; pop pri zmene = „tap dosadol"
             if (inCart) {
                 val pop = rememberPop(inOrderQty)
@@ -1761,17 +1996,30 @@ private fun StepBtn(label: String, onClick: () -> Unit) {
     // rememberUpdatedState — repeat loop musí volať NAJNOVŠÍ onClick (po
     // recompozícii s čerstvým OrderItemDto), nie lambdu z času stlačenia.
     val currentOnClick by rememberUpdatedState(onClick)
+    // Po hold-repeate NESMIE release pridať ďalší krok navyše — clickable
+    // volá onClick pri pustení bez ohľadu na dĺžku stlačenia (off-by-one).
+    var repeated by remember { mutableStateOf(false) }
     LaunchedEffect(pressed) {
         if (pressed) {
             // Haptika len pri PRVOM stlačení — nie per repeat tick (bzučalo by)
             haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             delay(400)
-            while (true) { currentOnClick(); delay(150) }
+            while (true) { repeated = true; currentOnClick(); delay(150) }
+        } else {
+            // Reset až PO release-clicku — ten beží synchrónne pri pustení,
+            // restart effectu príde o frame neskôr; ďalší tap je čistý.
+            repeated = false
         }
     }
-    Surface(onClick = onClick, interactionSource = interaction,
-        shape = RoundedCornerShape(7.dp), color = Terra.copy(alpha = 0.10f),
-        modifier = Modifier.size(30.dp).pressScale(interaction)) {
-        Box(contentAlignment = Alignment.Center) { Text(label, color = Terra, fontWeight = FontWeight.Bold, fontSize = 17.sp) }
+    Surface(onClick = { if (!repeated) onClick() }, interactionSource = interaction,
+        shape = RoundedCornerShape(7.dp), color = Color.Transparent,
+        modifier = Modifier.rowTouchTarget().pressScale(interaction)) {
+        // 30 dp vizuál vycentrovaný v 44×36 dp hit-boxe (rowTouchTarget)
+        Box(contentAlignment = Alignment.Center) {
+            Box(Modifier.size(30.dp).background(Terra.copy(alpha = 0.10f), RoundedCornerShape(7.dp)),
+                contentAlignment = Alignment.Center) {
+                Text(label, color = Terra, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+            }
+        }
     }
 }

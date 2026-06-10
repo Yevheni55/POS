@@ -268,14 +268,17 @@ private fun ShAddCard(adding: Boolean, status: String?, onAdd: () -> Unit) {
     }
 }
 
-/* ---------- Počítadlá (3 karty) ---------- */
+/* ---------- Počítadlá (3 karty; na telefóne 2 v riadku) ---------- */
 
 @Composable
 private fun ShCounters(summary: ShSummaryDto) {
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        ShCounterCard("Dnes", summary.today, Modifier.weight(1f))
-        ShCounterCard("Tento mesiac", summary.month, Modifier.weight(1f))
-        ShCounterCard("Celkovo", summary.total, Modifier.weight(1f))
+    val cards = listOf(
+        "Dnes" to summary.today,
+        "Tento mesiac" to summary.month,
+        "Celkovo" to summary.total,
+    )
+    StatGrid(cards) { (label, bucket) ->
+        ShCounterCard(label, bucket, Modifier.weight(1f))
     }
 }
 

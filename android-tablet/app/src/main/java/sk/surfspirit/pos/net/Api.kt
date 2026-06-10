@@ -17,6 +17,7 @@ import retrofit2.http.POST
 import retrofit2.http.PUT
 import retrofit2.http.Path
 import retrofit2.http.Query
+import sk.surfspirit.pos.BuildConfig
 import sk.surfspirit.pos.core.AppPrefs
 import java.util.concurrent.TimeUnit
 
@@ -27,7 +28,7 @@ import java.util.concurrent.TimeUnit
 @Serializable data class LoginResp(val token: String, val user: UserDto)
 
 @Serializable data class ManagerVerifyReq(val pin: String)
-@Serializable data class ManagerVerifyResp(val ok: Boolean = false, val name: String = "")
+@Serializable data class ManagerVerifyResp(val ok: Boolean = false, val name: String = "", val token: String = "")
 
 @Serializable data class TableDto(
     val id: Int,
@@ -282,6 +283,8 @@ import java.util.concurrent.TimeUnit
     val versionName: String = "",
     val url: String = "",
     val notes: String = "",
+    val sha256: String = "",          // SHA-256 APK — overenie integrity pred inštaláciou
+    val minVersionCode: Int = 0,      // pod túto verziu je update povinný (gate)
 )
 
 /* ===================== API service ===================== */
@@ -339,23 +342,44 @@ interface ApiService {
     suspend fun deleteItem(@Path("orderId") orderId: Int, @Path("itemId") itemId: Long): JsonElement
 
     @POST("api/orders/{id}/send-and-print")
-    suspend fun sendAndPrint(@Path("id") orderId: Int, @Body body: SendReq): SendResp
+    suspend fun sendAndPrint(
+        @Path("id") orderId: Int,
+        @Body body: SendReq,
+        @Header("X-Idempotency-Key") idempotencyKey: String? = null,
+    ): SendResp
 
+    // X-Elevated: role-gated volanie — authInterceptor preň použije elevated
+    // token po manager PIN (hlavičku pred odoslaním odstráni).
+    @retrofit2.http.Headers("X-Elevated: 1")
     @POST("api/orders/{id}/send-storno-and-print")
     suspend fun sendStornoAndPrint(@Path("id") orderId: Int, @Body body: StornoSendReq): SendResp
 
     @POST("api/orders/{id}/split")
-    suspend fun splitParts(@Path("id") orderId: Int, @Body body: SplitPartsReq): SplitResp
+    suspend fun splitParts(
+        @Path("id") orderId: Int,
+        @Body body: SplitPartsReq,
+        @Header("X-Idempotency-Key") idempotencyKey: String? = null,
+    ): SplitResp
 
     @POST("api/orders/{id}/split")
-    suspend fun splitGroups(@Path("id") orderId: Int, @Body body: SplitGroupsReq): SplitResp
+    suspend fun splitGroups(
+        @Path("id") orderId: Int,
+        @Body body: SplitGroupsReq,
+        @Header("X-Idempotency-Key") idempotencyKey: String? = null,
+    ): SplitResp
 
     @POST("api/orders/{id}/move-items")
-    suspend fun moveItems(@Path("id") orderId: Int, @Body body: MoveReq): MoveResp
+    suspend fun moveItems(
+        @Path("id") orderId: Int,
+        @Body body: MoveReq,
+        @Header("X-Idempotency-Key") idempotencyKey: String? = null,
+    ): MoveResp
 
+    @retrofit2.http.Headers("X-Elevated: 1")
     @POST("api/orders/{id}/discount")
     suspend fun applyDiscount(@Path("id") orderId: Int, @Body body: DiscountReq): JsonElement
 
+    @retrofit2.http.Headers("X-Elevated: 1")
     @DELETE("api/orders/{id}/discount")
     suspend fun removeDiscount(@Path("id") orderId: Int): JsonElement
 
@@ -365,11 +389,14 @@ interface ApiService {
     @DELETE("api/orders/{id}")
     suspend fun deleteOrder(@Path("id") orderId: Int): JsonElement
 
-    // Platby — idempotency key chráni pred dvojitou platbou pri timeout-retry
+    // Platby — idempotency key chráni pred dvojitou platbou pri timeout-retry.
+    // X-Read-Timeout-Sec: Portos fiškalizácia môže presiahnuť globálnych 20 s,
+    // readTimeoutInterceptor hlavičku odstráni a nastaví per-call read timeout.
     @POST("api/payments")
     suspend fun pay(
         @Header("X-Idempotency-Key") idempotencyKey: String? = null,
         @Body body: PayReq,
+        @Header("X-Read-Timeout-Sec") readTimeoutSec: String = "60",
     ): PayResp
 
     // Zmeny — pozn.: GET /shifts/current zámerne nevoláme (vracia top-level
@@ -381,7 +408,10 @@ interface ApiService {
     suspend fun shiftOpen(@Body body: OpenShiftReq): ShiftDto
 
     @POST("api/shifts/close")
-    suspend fun shiftClose(@Body body: CloseShiftReq): CloseShiftResp
+    suspend fun shiftClose(
+        @Body body: CloseShiftReq,
+        @Header("X-Idempotency-Key") idempotencyKey: String? = null,
+    ): CloseShiftResp
 
     @GET("api/reports/z-report")
     suspend fun zReport(@Query("date") date: String): ZReportDto
@@ -401,8 +431,12 @@ interface ApiService {
 
     // Paragón offline fallback — vystavenie lokálneho náhradného dokladu;
     // background worker na serveri ho po obnove Portos doregistruje.
+    // X-Idempotency-Key: retry po timeoute NEvystaví duplicitný doklad.
     @POST("api/paragons")
-    suspend fun issueParagon(@Body body: ParagonIssueReq): ParagonIssueResp
+    suspend fun issueParagon(
+        @Body body: ParagonIssueReq,
+        @Header("X-Idempotency-Key") idempotencyKey: String? = null,
+    ): ParagonIssueResp
 
     // Storno kôš — dôvod storna; sklad rieši admin zo Storno page.
     @POST("api/storno-basket")
@@ -456,19 +490,58 @@ object Api {
         chain.proceed(req)
     }
 
-    // Bearer token z AppPrefs (po login-e).
+    // Krátkodobé povýšenie po manager PIN — verify-manager vráti elevated token
+    // s krátkou platnosťou. Invariant: elevácia platí LEN pre volania označené
+    // marker hlavičkou X-Elevated (storno, zľava, …), nikdy pre bežné
+    // objednávky/platby — server atribuuje staffId/zmenu z JWT a bežná
+    // prevádzka musí ostať pripísaná čašníkovi.
+    @Volatile private var elevatedToken: String? = null
+    @Volatile private var elevatedUntil: Long = 0L
+
+    fun setElevated(token: String, ttlMs: Long = 110_000) {
+        elevatedToken = token.takeIf { it.isNotBlank() }
+        elevatedUntil = System.currentTimeMillis() + ttlMs
+    }
+
+    fun clearElevated() {
+        elevatedToken = null
+        elevatedUntil = 0L
+    }
+
+    // Bearer token z AppPrefs (po login-e); elevated token len pre requesty
+    // s X-Elevated. Marker hlavička sa pred odoslaním VŽDY odstráni —
+    // server ju nesmie vidieť.
     private val authInterceptor = okhttp3.Interceptor { chain ->
-        val t = AppPrefs.token
-        val req = if (!t.isNullOrBlank())
-            chain.request().newBuilder().addHeader("Authorization", "Bearer $t").build()
-        else chain.request()
-        chain.proceed(req)
+        val original = chain.request()
+        val wantsElevated = original.header("X-Elevated") != null
+        val elevated = if (wantsElevated && System.currentTimeMillis() < elevatedUntil) elevatedToken else null
+        val t = elevated ?: AppPrefs.token
+        val b = original.newBuilder().removeHeader("X-Elevated")
+        if (!t.isNullOrBlank()) b.addHeader("Authorization", "Bearer $t")
+        chain.proceed(b.build())
+    }
+
+    // Per-call read timeout: hlavička X-Read-Timeout-Sec sa odstráni a použije
+    // ako read timeout len pre daný request (pay → Portos fiškalizácia môže
+    // presiahnuť globálnych 20 s).
+    private val readTimeoutInterceptor = okhttp3.Interceptor { chain ->
+        val req = chain.request()
+        val sec = req.header("X-Read-Timeout-Sec")?.toIntOrNull()
+        if (sec != null && sec > 0) {
+            chain.withReadTimeout(sec, TimeUnit.SECONDS)
+                .proceed(req.newBuilder().removeHeader("X-Read-Timeout-Sec").build())
+        } else chain.proceed(req)
     }
 
     private val client = OkHttpClient.Builder()
         .addInterceptor(baseSwapInterceptor)
         .addInterceptor(authInterceptor)
-        .addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC })
+        .addInterceptor(readTimeoutInterceptor)
+        // HTTP log len v debug builde — release nesmie sypať API prevádzku do logcatu.
+        .apply { if (BuildConfig.DEBUG) addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC }) }
+        // Žiadny tichý OkHttp retry — kritické retry (pay, sync) sú explicitné
+        // s X-Idempotency-Key; tichý opakovaný POST by mohol duplikovať doklady.
+        .retryOnConnectionFailure(false)
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .build()

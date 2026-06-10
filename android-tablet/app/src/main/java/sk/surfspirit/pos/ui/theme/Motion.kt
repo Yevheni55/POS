@@ -17,7 +17,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
@@ -104,6 +107,26 @@ fun AnimatedMoney(value: Double, style: TextStyle, color: Color, modifier: Modif
     }
     val shown = if (anim.value.isNaN()) value else anim.value.toDouble()
     Text(money(shown), modifier, color = color, style = style)
+}
+
+// Bezstavový brush — linearGradient s default offsetmi je size-relative,
+// jedna zdieľaná inštancia je bezpečná pre všetky call sites.
+private val EmberBrush = Brush.linearGradient(listOf(TerraLight, Terra, TerraDim))
+
+/** Ember gradient — teplý terracotta priebeh pre hero plochy (CELKOM / K ÚHRADE,
+ *  receipt margin, primárne akcie). Svetlejšia terracotta → primary → deep dim. */
+fun emberBrush(): Brush = EmberBrush
+
+/** Warm canvas — jemné teplé radiálne svetlo z ľavého horného rohu (tactile
+ *  warmth z designMd). Nahrádza plochú krémovú plochu hĺbkou, nerušivé.
+ *  Brush závisí len od size — prestavia sa iba pri zmene veľkosti. */
+fun Modifier.warmCanvas(): Modifier = this.drawWithCache {
+    val brush = Brush.radialGradient(
+        colors = listOf(Color(0x16B45C3F), Color(0x00B45C3F)),
+        center = Offset(size.width * 0.12f, size.height * -0.04f),
+        radius = size.maxDimension * 0.72f,
+    )
+    onDrawBehind { drawRect(brush) }
 }
 
 /** Overshoot pop (1 → 1.16 → 1) pri zmene hodnoty — qty badge, PIN dot. */

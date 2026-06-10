@@ -2,7 +2,9 @@ package sk.surfspirit.pos.ui.admin.pages
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
@@ -28,15 +30,17 @@ import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
+import sk.surfspirit.pos.core.BRATISLAVA
 import sk.surfspirit.pos.core.errorMessage
 import sk.surfspirit.pos.core.fmtCost
 import sk.surfspirit.pos.core.httpCode
+import sk.surfspirit.pos.core.todayIso
 import sk.surfspirit.pos.net.Api
 import sk.surfspirit.pos.ui.admin.*
 import sk.surfspirit.pos.ui.theme.*
 import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalDateTime
-import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlin.math.roundToInt
 
@@ -180,9 +184,7 @@ private val CF_METHOD_LABEL = linkedMapOf(
     "other" to "Iné",
 )
 
-/* ---------- Formátovanie (web parita) ---------- */
-
-private val BRATISLAVA: ZoneId = ZoneId.of("Europe/Bratislava")
+/* ---------- Formátovanie (web parita; zóna = zdieľaná core BRATISLAVA) ---------- */
 
 /** fmtEur(n) = fmtCost(n) + " €" — sub-cent adaptívny, sk-SK čiarka. */
 private fun cfEur(v: Double): String = fmtCost(v) + " €"
@@ -203,13 +205,16 @@ private fun cfFmtDateTime(iso: String?): String {
     }
 }
 
-/** Dnešný UTC dátum YYYY-MM-DD (web todayIso = toISOString().slice(0,10)). */
-private fun cfTodayIso(): String =
-    Instant.now().toString().take(10)
+/** Dnešný dátum YYYY-MM-DD v Europe/Bratislava — server interpretuje from/to
+ *  ako bratislavské hranice dňa, UTC by po polnoci (uzávierka!) dal včerajšok. */
+private fun cfTodayIso(): String = todayIso()
 
-/** today - n dní v UTC (web todayMinusDaysIso: setUTCDate/toISOString). */
+/** today - n dní v Europe/Bratislava. */
 private fun cfTodayMinusDays(n: Int): String =
-    Instant.now().minusSeconds(n.toLong() * 86_400L).toString().take(10)
+    LocalDate.now(BRATISLAVA).minusDays(n.toLong()).toString()
+
+/** Úplný dátum filtra YYYY-MM-DD — reload sa spúšťa len pre celé dátumy. */
+private val CF_DATE_RE = Regex("""\d{4}-\d{2}-\d{2}""")
 
 /* datetime modal: lokálny Bratislava čas "yyyy-MM-dd HH:mm" ↔ ISO (UTC). */
 private val CF_MODAL_FMT: DateTimeFormatter =
@@ -263,12 +268,15 @@ fun CashflowScreen() {
     var modalEntry by remember { mutableStateOf<CfEntryDto?>(null) }  // null = create
     var modalPresetType by remember { mutableStateOf("expense") }
 
-    // Soft-delete undo stav — optimistický remove + okno na vrátenie.
-    var pendingDelete by remember { mutableStateOf<CfEntryDto?>(null) }
+    // Monotónne ID requestu — aplikuje sa len odpoveď najnovšieho load/reload
+    // (pomalá staršia odpoveď nesmie prepísať výsledok novšieho filtra).
+    val loadSeq = remember { java.util.concurrent.atomic.AtomicInteger(0) }
 
-    fun load() {
+    /** quiet=true — tiché obnovenie po akcii: bez celoplošného loadera, chyby toastom. */
+    fun load(quiet: Boolean = false) {
+        val seq = loadSeq.incrementAndGet()
+        if (!quiet) { loading = true; error = null }
         scope.launch {
-            loading = true
             try {
                 val s: CfSummaryDto
                 val l: CfListDto
@@ -277,49 +285,52 @@ fun CashflowScreen() {
                     s = cfApi.summary(from, to)
                     l = cfApi.list(from, to, ty)
                 }
+                if (seq != loadSeq.get()) return@launch   // medzitým odišiel novší request
                 summary = s
                 entries = l.entries
                 error = null
             } catch (e: Exception) {
+                if (seq != loadSeq.get()) return@launch
                 if (e.httpCode() == 401) { /* sesia rieši shell */ }
-                error = errorMessage(e)
+                if (quiet) toast.show(errorMessage(e), error = true)
+                else error = errorMessage(e)
             } finally {
-                loading = false
+                // Loading zhadzuje VŽDY najnovší finisher, aj quiet — keby tichý reload
+                // predbehol plný load, spinner by inak nikdy nezmizol (false→false neškodí).
+                if (seq == loadSeq.get()) loading = false
             }
         }
     }
 
-    fun reloadOnly() {
-        // Tiché obnovenie po akcii (bez celoplošného loadera).
-        scope.launch {
-            try {
-                val s: CfSummaryDto
-                val l: CfListDto
-                withContext(Dispatchers.IO) {
-                    val ty = typeFilter.ifBlank { null }
-                    s = cfApi.summary(from, to)
-                    l = cfApi.list(from, to, ty)
-                }
-                summary = s
-                entries = l.entries
-                error = null
-            } catch (e: Exception) {
-                toast.show(errorMessage(e), error = true)
-            }
-        }
-    }
+    // Soft-delete undo stav — optimistický remove + okno na vrátenie;
+    // commit/flush/rollback rieši zdieľaný controller (AdminUi).
+    val pendingDelete = rememberPendingDelete<CfEntryDto>(
+        toast = toast,
+        delete = { cfApi.delete(it.id) },
+        rollback = { snapshot ->
+            entries = (entries + snapshot).sortedWith(
+                compareByDescending<CfEntryDto> { it.occurredAt ?: "" }.thenByDescending { it.id }
+            )
+        },
+        onCommitted = { load(quiet = true) },
+    )
 
     LaunchedEffect(Unit) {
-        load()
-        // Dodávatelia raz na init — paralelne, stale-tolerant.
-        scope.launch {
-            try {
-                val sup = withContext(Dispatchers.IO) { cfApi.suppliers() }
-                suppliers = sup.filter { it.active }
-            } catch (_: Exception) {
-                suppliers = emptyList()
-            }
+        // Dodávatelia raz na init — stale-tolerant (hlavný load rieši debounce nižšie).
+        try {
+            val sup = withContext(Dispatchers.IO) { cfApi.suppliers() }
+            suppliers = sup.filter { it.active }
+        } catch (_: Exception) {
+            suppliers = emptyList()
         }
+    }
+
+    // Debounce 250 ms na mount + zmenu filtrov; reload len keď sú oba dátumy
+    // úplné YYYY-MM-DD (písanie po znakoch nespúšťa 400-ky ani spinner flicker).
+    LaunchedEffect(from, to, typeFilter) {
+        if (!CF_DATE_RE.matches(from) || !CF_DATE_RE.matches(to)) return@LaunchedEffect
+        delay(250)
+        load()
     }
 
     AdminScreenBox(toast) {
@@ -328,10 +339,11 @@ fun CashflowScreen() {
         // Toolbar: dátumy + typ + presety + add tlačidlá.
         CfToolbar(
             from = from, to = to, typeFilter = typeFilter,
-            onFrom = { from = it; load() },
-            onTo = { to = it; load() },
-            onType = { typeFilter = it; load() },
-            onPreset = { n -> to = cfTodayIso(); from = cfTodayMinusDays(n); load() },
+            // Reload rieši debounced LaunchedEffect(from, to, typeFilter) vyššie.
+            onFrom = { from = it },
+            onTo = { to = it },
+            onType = { typeFilter = it },
+            onPreset = { n -> to = cfTodayIso(); from = cfTodayMinusDays(n) },
             onAddIncome = { modalEntry = null; modalPresetType = "income"; modalOpen = true },
             onAddExpense = { modalEntry = null; modalPresetType = "expense"; modalOpen = true },
         )
@@ -358,9 +370,10 @@ fun CashflowScreen() {
                         entries = entries,
                         onEdit = { e -> modalEntry = e; modalPresetType = e.type; modalOpen = true },
                         onDelete = { e ->
-                            // Optimistický remove + undo okno.
+                            // Optimistický remove + undo okno; predchádzajúci pending
+                            // delete controller hneď commitne.
+                            pendingDelete.request(e)
                             entries = entries.filterNot { it.id == e.id }
-                            pendingDelete = e
                         },
                     )
                 }
@@ -393,23 +406,11 @@ fun CashflowScreen() {
     }
 
     // Undo snackbar — DELETE sa commitne až po uplynutí okna (4 s), inak undo.
-    pendingDelete?.let { snapshot ->
+    pendingDelete.pending?.let { snapshot ->
         LaunchedEffect(snapshot.id) {
             delay(4000)
-            // Okno uplynulo → reálne zmaž a obnov totals.
-            val committed = try {
-                withContext(Dispatchers.IO) { cfApi.delete(snapshot.id) }
-                true
-            } catch (e: Exception) {
-                // Zlyhanie → vráť riadok späť.
-                entries = (entries + snapshot).sortedWith(
-                    compareByDescending<CfEntryDto> { it.occurredAt ?: "" }.thenByDescending { it.id }
-                )
-                toast.show(errorMessage(e), error = true)
-                false
-            }
-            pendingDelete = null
-            if (committed) reloadOnly()
+            // Okno uplynulo → reálne zmaž (rollback + toast pri zlyhaní rieši controller).
+            pendingDelete.commit()
         }
         CfUndoSnackbar(
             label = "${CF_CAT_LABEL[snapshot.category] ?: snapshot.category} za ${cfEur(cfAmount(snapshot.amount))} zmazané",
@@ -417,7 +418,7 @@ fun CashflowScreen() {
                 entries = (entries + snapshot).sortedWith(
                     compareByDescending<CfEntryDto> { it.occurredAt ?: "" }.thenByDescending { it.id }
                 )
-                pendingDelete = null
+                pendingDelete.undo()
                 toast.show("Vrátené", error = true)
             },
         )
@@ -439,7 +440,7 @@ fun CashflowScreen() {
                         }
                         modalOpen = false
                         toast.show(if (editing != null) "Záznam upravený" else "Záznam pridaný")
-                        reloadOnly()
+                        load(quiet = true)
                     } catch (e: Exception) {
                         toast.show(errorMessage(e), error = true)
                     }
@@ -524,7 +525,7 @@ private fun CfToolbar(
     }
 }
 
-/* ---------- Stat grid (3 karty) ---------- */
+/* ---------- Stat grid (3 karty; na telefóne 2 v riadku) ---------- */
 
 @Composable
 private fun CfStatGrid(s: CfSummaryDto, from: String, to: String) {
@@ -534,28 +535,14 @@ private fun CfStatGrid(s: CfSummaryDto, from: String, to: String) {
         if (s.shishaRevenue > 0) { append(" + shisha "); append(cfEur(s.shishaRevenue)) }
     }
     val netColor = if (s.netCashflow >= 0) Sage else Danger
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        StatCard(
-            label = "Príjmy spolu",
-            value = cfEur(s.totalIncome),
-            accent = Sage,
-            sub = incomeSub,
-            modifier = Modifier.weight(1f),
-        )
-        StatCard(
-            label = "Výdavky spolu",
-            value = cfEur(s.totalExpense),
-            accent = Danger,
-            sub = "${s.manual.expenseCount} záznamov",
-            modifier = Modifier.weight(1f),
-        )
-        StatCard(
-            label = "Čistý zisk",
-            value = cfEur(s.netCashflow),
-            accent = netColor,
-            sub = "$from → $to",
-            modifier = Modifier.weight(1f),
-        )
+    data class CfStat(val label: String, val value: String, val accent: Color, val sub: String)
+    val stats = listOf(
+        CfStat("Príjmy spolu", cfEur(s.totalIncome), Sage, incomeSub),
+        CfStat("Výdavky spolu", cfEur(s.totalExpense), Danger, "${s.manual.expenseCount} záznamov"),
+        CfStat("Čistý zisk", cfEur(s.netCashflow), netColor, "$from → $to"),
+    )
+    StatGrid(stats) { st ->
+        StatCard(st.label, st.value, Modifier.weight(1f), accent = st.accent, sub = st.sub)
     }
 }
 
@@ -939,15 +926,15 @@ private fun <K> CfSelectField(
 /* ---------- Jednoduchý wrap-row bez experimentálneho FlowRow ---------- */
 
 /**
- * Minimalistický náhradník FlowRow — drží prvky vedľa seba s medzerou;
- * pri úzkej šírke sa spoľahne na to, že obsah je krátky (toolbar). Použité
- * aby sme sa vyhli @OptIn(ExperimentalLayoutApi). Pre tablet je jeden riadok
- * dostatočne široký.
+ * Minimalistický náhradník FlowRow — drží prvky vedľa seba s medzerou.
+ * Použité aby sme sa vyhli @OptIn(ExperimentalLayoutApi). Na úzkych
+ * obrazovkách (telefón) sa riadok horizontálne skroluje (PaymentsScreen
+ * vzor), takže typ filter ani „+ Výdavok" nezostanú odrezané mimo displeja.
  */
 @Composable
 private fun FlowRowCompat(spacing: androidx.compose.ui.unit.Dp, content: @Composable RowScope.() -> Unit) {
     Row(
-        Modifier.fillMaxWidth(),
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(spacing),
         verticalAlignment = Alignment.Bottom,
         content = content,

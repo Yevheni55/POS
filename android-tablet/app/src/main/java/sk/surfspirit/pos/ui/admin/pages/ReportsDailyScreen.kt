@@ -19,6 +19,7 @@ import retrofit2.http.GET
 import retrofit2.http.POST
 import retrofit2.http.Query
 
+import sk.surfspirit.pos.core.BRATISLAVA
 import sk.surfspirit.pos.core.errorMessage
 import sk.surfspirit.pos.core.fmtCost
 import sk.surfspirit.pos.core.httpCode
@@ -35,6 +36,7 @@ import sk.surfspirit.pos.ui.admin.EmptyHint
 import sk.surfspirit.pos.ui.admin.ErrorBox
 import sk.surfspirit.pos.ui.admin.LoadingBox
 import sk.surfspirit.pos.ui.admin.StatCard
+import sk.surfspirit.pos.ui.admin.StatGrid
 import sk.surfspirit.pos.ui.admin.StatusBadge
 import sk.surfspirit.pos.ui.admin.TableHeader
 import sk.surfspirit.pos.ui.admin.TableRow
@@ -179,13 +181,17 @@ fun ReportsDailyScreen() {
     val toast = rememberAdminToast()
     val scope = rememberCoroutineScope()
 
-    var date by remember { mutableStateOf(LocalDate.now()) }
+    // „Dnes" = Europe/Bratislava — device TZ (UTC tablety) by po polnoci ukázal včerajšok.
+    var date by remember { mutableStateOf(LocalDate.now(BRATISLAVA)) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var z by remember { mutableStateOf<RdZReport?>(null) }
     var hourly by remember { mutableStateOf<List<RdHour>>(emptyList()) }
+    // null summary ≠ prázdne hourly — zlyhanie volania ukáže inline poznámku.
+    var hourlyFailed by remember { mutableStateOf(false) }
     var printing by remember { mutableStateOf(false) }
     var confirmDigital by remember { mutableStateOf(false) }
+    var confirmPrint by remember { mutableStateOf(false) }
 
     fun load() {
         scope.launch {
@@ -200,6 +206,7 @@ fun ReportsDailyScreen() {
                 }
                 z = zr
                 hourly = sm?.hourly ?: emptyList()
+                hourlyFailed = sm == null
                 error = null
             } catch (e: Exception) {
                 if (e.httpCode() == 401) { /* session handled globally */ }
@@ -266,6 +273,17 @@ fun ReportsDailyScreen() {
         )
     }
 
+    if (confirmPrint) {
+        AdminConfirm(
+            title = "Tlačiť Z-report",
+            text = "Vytlačí sa papierová uzávierka dňa a zaeviduje sa výber hotovosti " +
+                "(cashflow + Portos paragón výberu, ak je v pokladni hotovosť).",
+            confirmLabel = "Tlačiť",
+            onConfirm = { confirmPrint = false; doPrint(false) },
+            onDismiss = { confirmPrint = false },
+        )
+    }
+
     AdminScreenBox(toast) {
         AdminSectionTitle("Reporty / Denné")
 
@@ -273,7 +291,7 @@ fun ReportsDailyScreen() {
             label = rdLabelFor(date),
             onPrev = { date = date.minusDays(1) },
             onNext = { date = date.plusDays(1) },
-            onToday = { date = LocalDate.now() },
+            onToday = { date = LocalDate.now(BRATISLAVA) },
         )
         Spacer(Modifier.height(12.dp))
 
@@ -284,8 +302,9 @@ fun ReportsDailyScreen() {
             else -> RdContent(
                 z = z!!,
                 hourly = hourly,
+                hourlyFailed = hourlyFailed,
                 printing = printing,
-                onPrint = { doPrint(false) },
+                onPrint = { confirmPrint = true },
                 onDigital = { confirmDigital = true },
             )
         }
@@ -298,33 +317,23 @@ fun ReportsDailyScreen() {
 private fun RdContent(
     z: RdZReport,
     hourly: List<RdHour>,
+    hourlyFailed: Boolean,
     printing: Boolean,
     onPrint: () -> Unit,
     onDigital: () -> Unit,
 ) {
-    // ===== KPI karty: tržby / fiškál / hotovosť =====
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        StatCard(
-            label = "Celkové tržby",
-            value = money(z.totalRevenue),
-            accent = Terra,
-            modifier = Modifier.weight(1f),
-            sub = "Obj. ${z.totalOrders} · Pol. ${z.totalItems}",
-        )
-        StatCard(
-            label = "Fiškálne tržby",
-            value = money(z.fiscalRevenue),
-            accent = Navy,
-            modifier = Modifier.weight(1f),
-            sub = if (z.shisha.count > 0) "Shisha ${z.shisha.count}× · ${money(z.shisha.revenue)}" else null,
-        )
-        StatCard(
-            label = "Hotovosť (fiškál)",
-            value = money(z.cashFiscal),
-            accent = Sage,
-            modifier = Modifier.weight(1f),
-            sub = "Priem. účet ${money(z.averageOrder)}",
-        )
+    // ===== KPI karty: tržby / fiškál / hotovosť (telefón = 2 v riadku) =====
+    data class RdKpi(val label: String, val value: String, val accent: Color, val sub: String?)
+    val kpis = listOf(
+        RdKpi("Celkové tržby", money(z.totalRevenue), Terra,
+            "Obj. ${z.totalOrders} · Pol. ${z.totalItems}"),
+        RdKpi("Fiškálne tržby", money(z.fiscalRevenue), Navy,
+            if (z.shisha.count > 0) "Shisha ${z.shisha.count}× · ${money(z.shisha.revenue)}" else null),
+        RdKpi("Hotovosť (fiškál)", money(z.cashFiscal), Sage,
+            "Priem. účet ${money(z.averageOrder)}"),
+    )
+    StatGrid(kpis, spacing = 10.dp) { k ->
+        StatCard(k.label, k.value, Modifier.weight(1f), accent = k.accent, sub = k.sub)
     }
     Spacer(Modifier.height(16.dp))
 
@@ -427,7 +436,15 @@ private fun RdContent(
     // ===== Hodinovka (BarChart zo summary.hourly) =====
     AdminSectionTitle("Hodinovka")
     AdminCard {
-        if (hourly.isEmpty()) {
+        if (hourlyFailed) {
+            // Zlyhanie summary volania ≠ deň bez tržieb — odlíš inline poznámkou.
+            Text(
+                "Hodinovku sa nepodarilo načítať.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Danger,
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
+        } else if (hourly.isEmpty()) {
             EmptyHint("Žiadne tržby")
         } else {
             val maxOrders = hourly.maxOfOrNull { it.orders } ?: 0

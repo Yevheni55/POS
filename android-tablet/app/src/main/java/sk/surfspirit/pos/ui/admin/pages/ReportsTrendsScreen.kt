@@ -180,11 +180,12 @@ private fun rtSigned(v: Double): String = (if (v >= 0) "+" else "") + money(v)
 
 private fun rtProfitColor(v: Double): Color = if (v >= 0) Sage else Danger
 
-/** Minúty → "Xh MMm" (web fmtHours). */
+/** Minúty → "Xh MMm" (web fmtHours). Zaokrúhli RAZ na celé minúty hneď na
+ *  vstupe — zaokrúhlenie až po delení dávalo „1h 60m" (napr. 119,6 min). */
 private fun rtHours(minutes: Double): String {
-    val total = minutes.coerceAtLeast(0.0)
-    val h = (total / 60).toInt()
-    val m = Math.round(total % 60).toInt()
+    val total = Math.round(minutes.coerceAtLeast(0.0))
+    val h = total / 60
+    val m = total % 60
     return "${h}h ${m.toString().padStart(2, '0')}m"
 }
 
@@ -263,11 +264,17 @@ private fun RtWeeklyTab() {
     var to by remember { mutableStateOf(thisMonday().plusDays(6)) }
     var selectedDay by remember { mutableStateOf<String?>(null) }
 
+    // Monotónne ID requestu — rýchle ‹/› klikanie nesmie nechať vyhrať
+    // pomalšiu staršiu odpoveď nad výsledkom posledného týždňa.
+    val loadSeq = remember { java.util.concurrent.atomic.AtomicInteger(0) }
+
     fun load() {
+        val seq = loadSeq.incrementAndGet()
         scope.launch {
             loading = true
             try {
                 val resp = withContext(Dispatchers.IO) { rtApi.weekly(from.iso(), to.iso()) }
+                if (seq != loadSeq.get()) return@launch   // medzitým odišiel novší request
                 data = resp
                 // Auto-select dnešok, inak posledný deň s dátami (web parita).
                 val days = resp.dailyHours
@@ -276,10 +283,11 @@ private fun RtWeeklyTab() {
                     ?: days.lastOrNull()?.date
                 error = null
             } catch (e: Exception) {
+                if (seq != loadSeq.get()) return@launch
                 if (e.httpCode() == 401) { /* auth shell rieši inde */ }
                 error = errorMessage(e)
             } finally {
-                loading = false
+                if (seq == loadSeq.get()) loading = false
             }
         }
     }

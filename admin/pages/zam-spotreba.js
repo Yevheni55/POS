@@ -27,16 +27,20 @@ function escapeHtml(v) {
   return d.innerHTML;
 }
 
-function todayIso() { return new Date().toISOString().slice(0, 10); }
+// bratislavaDayIso je zdielany global z /api.js (preco nie UTC — viz tam).
+function todayIso() { return bratislavaDayIso(new Date()); }
 
+// Odvodene z bratislavskeho dna, nie z lokalneho Date + toISOString (UTC):
+// lokalna polnoc 1. dna je v UTC este predosly mesiac, takze stary kod
+// vracal posledny den predosleho mesiaca.
 function firstOfMonth() {
-  const d = new Date();
-  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+  return todayIso().slice(0, 8) + '01';
 }
 
 function daysAgoIso(n) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
+  const t = todayIso();
+  const d = new Date(Date.UTC(+t.slice(0, 4), +t.slice(5, 7) - 1, +t.slice(8, 10)));
+  d.setUTCDate(d.getUTCDate() - n);
   return d.toISOString().slice(0, 10);
 }
 

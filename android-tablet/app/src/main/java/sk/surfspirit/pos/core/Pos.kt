@@ -36,12 +36,19 @@ fun fmtCost(v: Double): String {
     return s.replace('.', ',')
 }
 
+/**
+ * Prevádzková zóna — VŽDY Europe/Bratislava, nie zóna zariadenia. Lacné
+ * tablety mávajú z výroby UTC; LocalDate.now() bez zóny by po UTC polnoci
+ * (23:00/22:00 miestneho) ukazoval „dnes" včerajšok.
+ */
+val BRATISLAVA: java.time.ZoneId = java.time.ZoneId.of("Europe/Bratislava")
+
 /** ISO timestamp zo servera → "dd.MM. HH:mm" v Europe/Bratislava. */
 fun fmtBratislava(iso: String?, pattern: String = "dd.MM. HH:mm"): String {
     if (iso.isNullOrBlank()) return "—"
     return try {
         java.time.Instant.parse(iso)
-            .atZone(java.time.ZoneId.of("Europe/Bratislava"))
+            .atZone(BRATISLAVA)
             .format(java.time.format.DateTimeFormatter.ofPattern(pattern))
     } catch (_: Exception) {
         // Server môže poslať aj "YYYY-MM-DD HH:mm:ss" bez zóny
@@ -49,8 +56,8 @@ fun fmtBratislava(iso: String?, pattern: String = "dd.MM. HH:mm"): String {
     }
 }
 
-/** Dnešný dátum YYYY-MM-DD pre z-report. */
-fun todayIso(): String = LocalDate.now().toString()
+/** Dnešný dátum YYYY-MM-DD (Europe/Bratislava) pre z-report a denné filtre. */
+fun todayIso(): String = LocalDate.now(BRATISLAVA).toString()
 
 /** Je prihlásený používateľ manažér/admin? (rozhoduje o manager-PIN bránach) */
 val isManager: Boolean get() = AppPrefs.role == "manazer" || AppPrefs.role == "admin"

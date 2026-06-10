@@ -14,6 +14,17 @@ function _shouldBlockOfflineQueue(path) {
   return false;
 }
 
+// Den v Europe/Bratislava, nie UTC — server interpretuje datumy (from/to,
+// z-report date) ako bratislavske polnoci, takze medzi 00:00 a 01:00/02:00
+// miestneho casu (presne pocas uzavierky) by UTC datum z toISOString()
+// vratil vcerajsok. Locale en-CA formatuje rovno YYYY-MM-DD. Jediny zdroj
+// "dnes" pre POS aj admin stranky (api.js nacitavaju oba shelly).
+function bratislavaDayIso(date) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Bratislava', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(date || new Date());
+}
+
 const api = {
   _offline: false,
   _queue: [],

@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -23,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -36,10 +38,10 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import retrofit2.http.Body
 import retrofit2.http.POST
+import sk.surfspirit.pos.core.BRATISLAVA
 import sk.surfspirit.pos.core.errorMessage
 import sk.surfspirit.pos.net.Api
 import sk.surfspirit.pos.ui.theme.*
-import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
@@ -84,11 +86,10 @@ private val dtApi: DtApi by lazy { Api.create(DtApi::class.java) }
 private fun dtFmtMinutes(m: Int): String = "${m / 60}h ${m % 60}m"
 private fun dtFmtHours(m: Int): String = "${m / 60}h ${(m % 60).toString().padStart(2, '0')}m"
 private fun dtEur(v: Double): String = sk.surfspirit.pos.core.money(v)
-private val DT_TZ: ZoneId = ZoneId.of("Europe/Bratislava")
 private fun dtTime(iso: String?): String =
-    iso?.let { runCatching { java.time.Instant.parse(it).atZone(DT_TZ).format(DateTimeFormatter.ofPattern("HH:mm")) }.getOrNull() } ?: "—"
+    iso?.let { runCatching { java.time.Instant.parse(it).atZone(BRATISLAVA).format(DateTimeFormatter.ofPattern("HH:mm")) }.getOrNull() } ?: "—"
 private fun dtDate(iso: String?): String =
-    iso?.let { runCatching { java.time.Instant.parse(it).atZone(DT_TZ).format(DateTimeFormatter.ofPattern("dd.MM.")) }.getOrNull() } ?: "—"
+    iso?.let { runCatching { java.time.Instant.parse(it).atZone(BRATISLAVA).format(DateTimeFormatter.ofPattern("dd.MM.")) }.getOrNull() } ?: "—"
 
 /**
  * Self-service dochádzkový terminál (web dochadzka.html parita) — PIN pichačka
@@ -110,6 +111,7 @@ fun DochadzkaTerminalScreen(onBack: () -> Unit) {
     var myShifts by remember { mutableStateOf<DtMyShiftsResp?>(null) }
     var msPeriod by remember { mutableStateOf("month") }
     var resetJob by remember { mutableStateOf<Job?>(null) }
+    var identifyGen by remember { mutableStateOf(0) }   // generácia — stale identify odpovede sa ignorujú
 
     fun resetAll() {
         resetJob?.cancel()
@@ -129,14 +131,20 @@ fun DochadzkaTerminalScreen(onBack: () -> Unit) {
 
     fun identify() {
         if (pin.length < 4 || busy) return
+        val gen = identifyGen   // generácia v čase odoslania — novšia zmena PINu ju zneplatní
         scope.launch {
             try {
                 val res = withContext(Dispatchers.IO) { dtApi.identify(DtPinReq(pin)) }
+                if (gen != identifyGen) return@launch   // medzitým ďalšie číslice → stale odpoveď
                 staff = res.staff; state = res.currentState; todayMinutes = res.todayMinutes
                 scheduleReset()
             } catch (e: Exception) {
+                if (gen != identifyGen) return@launch
                 showToast(errorMessage(e).ifBlank { "Neplatný PIN" }, false)
-                pin = ""
+                // PIN nemažeme počas písania — 4-5 miestny prefix dlhšieho PINu
+                // legitímne zlyhá. Čistíme až pri maximálnej dĺžke (už sa nedá
+                // dopísať); kratší zlý PIN si zamestnanec opraví sám (C/Backspace).
+                if (pin.length >= 6) pin = ""
             }
         }
     }
@@ -150,7 +158,7 @@ fun DochadzkaTerminalScreen(onBack: () -> Unit) {
                 val res = withContext(Dispatchers.IO) { dtApi.clock(DtClockReq(pin, type)) }
                 staff = res.staff; state = res.currentState; todayMinutes = res.todayMinutes
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                val now = ZonedDateTime.now(DT_TZ).format(DateTimeFormatter.ofPattern("HH:mm"))
+                val now = ZonedDateTime.now(BRATISLAVA).format(DateTimeFormatter.ofPattern("HH:mm"))
                 splash = (if (type == "clock_in") "Príchod $now" else "Odchod $now") to res.staff.name
                 resetJob?.cancel()
                 scope.launch {
@@ -174,6 +182,17 @@ fun DochadzkaTerminalScreen(onBack: () -> Unit) {
                 // Auto-close 60 s (web parita)
                 resetJob = scope.launch { delay(60_000); myShifts = null; resetAll() }
             } catch (e: Exception) { showToast(errorMessage(e), false) }
+        }
+    }
+
+    // Debounce identify — až 350 ms po poslednom stlačení (nie pri každom
+    // stlačení od 4. číslice), aby 5-6 ciferné PINy nespúšťali prefix lookupy.
+    // Každá zmena PINu reštartuje delay a zneplatní in-flight odpoveď.
+    LaunchedEffect(pin) {
+        identifyGen++
+        if (pin.length >= 4) {
+            delay(350)
+            identify()
         }
     }
 
@@ -234,6 +253,7 @@ fun DochadzkaTerminalScreen(onBack: () -> Unit) {
                     Column {
                         if (state != "clocked_in") {
                             Button(onClick = { clock("clock_in") }, enabled = !busy,
+                                shape = RoundedCornerShape(999.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Sage, contentColor = Cream),
                                 modifier = Modifier.fillMaxWidth().height(64.dp).glow(!busy)) {
                                 Text("▶  Príchod", style = MaterialTheme.typography.titleMedium, color = Cream)
@@ -241,6 +261,7 @@ fun DochadzkaTerminalScreen(onBack: () -> Unit) {
                         }
                         if (state == "clocked_in") {
                             Button(onClick = { clock("clock_out") }, enabled = !busy,
+                                shape = RoundedCornerShape(999.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Amber, contentColor = Espresso),
                                 modifier = Modifier.fillMaxWidth().height(64.dp).glow(!busy)) {
                                 Text("⏹  Odchod", style = MaterialTheme.typography.titleMedium)
@@ -248,6 +269,7 @@ fun DochadzkaTerminalScreen(onBack: () -> Unit) {
                         }
                         Spacer(Modifier.height(10.dp))
                         OutlinedButton(onClick = { openMyShifts("month") },
+                            shape = RoundedCornerShape(999.dp),
                             modifier = Modifier.fillMaxWidth().height(48.dp),
                             border = BorderStroke(1.dp, Navy)) {
                             Text("Moje smeny a zárobky", color = Navy)
@@ -285,8 +307,7 @@ fun DochadzkaTerminalScreen(onBack: () -> Unit) {
                                     DtKey(k) {
                                         if (pin.length < 6) {
                                             haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            pin += k
-                                            if (pin.length >= 4) identify()
+                                            pin += k   // identify ide cez debounce LaunchedEffect(pin)
                                         }
                                     }
                                 }
@@ -297,8 +318,7 @@ fun DochadzkaTerminalScreen(onBack: () -> Unit) {
                             DtKey("0") {
                                 if (pin.length < 6) {
                                     haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    pin += "0"
-                                    if (pin.length >= 4) identify()
+                                    pin += "0"   // identify ide cez debounce LaunchedEffect(pin)
                                 }
                             }
                             DtKeyText("C") { resetAll() }
@@ -331,7 +351,12 @@ fun DochadzkaTerminalScreen(onBack: () -> Unit) {
     // ── Splash potvrdenie (Príchod/Odchod) ──
     splash?.let { (title, name) ->
         val isIn = title.startsWith("Príchod")
-        Box(Modifier.fillMaxSize().background((if (isIn) Sage else Amber).copy(alpha = 0.96f)),
+        // pointerInput(Unit) {} robí splash hit-testable — pohltí všetky dotyky
+        // počas 3 s, aby netrpezlivý druhý tap nepretiekol na tlačidlá pod ním
+        // (stav je už prepnutý → tap by okamžite pichol odchod).
+        Box(Modifier.fillMaxSize()
+            .background((if (isIn) Sage else Amber).copy(alpha = 0.96f))
+            .pointerInput(Unit) {},
             contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(if (isIn) "✓" else "👋", fontSize = 64.sp, color = Cream)
@@ -348,11 +373,12 @@ fun DochadzkaTerminalScreen(onBack: () -> Unit) {
     myShifts?.let { data ->
         Surface(Modifier.fillMaxSize(), color = Cream.copy(alpha = 0.98f)) {
             Column(Modifier.fillMaxSize().padding(24.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(data.staff.name + (data.staff.position.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""),
-                            style = MaterialTheme.typography.titleLarge)
-                    }
+                // Hlavička — zdieľané kúsky pre tablet/telefón layout
+                val nameText: @Composable () -> Unit = {
+                    Text(data.staff.name + (data.staff.position.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""),
+                        style = MaterialTheme.typography.titleLarge)
+                }
+                val periodPills: @Composable () -> Unit = {
                     listOf("month" to "Tento mesiac", "season" to "Sezóna", "all" to "Všetko").forEach { (key, label) ->
                         val active = msPeriod == key
                         Surface(onClick = { openMyShifts(key) }, shape = RoundedCornerShape(999.dp),
@@ -364,10 +390,32 @@ fun DochadzkaTerminalScreen(onBack: () -> Unit) {
                                 style = MaterialTheme.typography.labelMedium)
                         }
                     }
-                    Spacer(Modifier.width(10.dp))
+                }
+                val closeBtn: @Composable () -> Unit = {
                     Button(onClick = { myShifts = null; resetAll() },
                         colors = ButtonDefaults.buttonColors(containerColor = Terra, contentColor = Cream)) {
                         Text("Zavrieť")
+                    }
+                }
+                if (phone) {
+                    // Telefón: dva riadky — meno + Zavrieť, pod tým obdobia so scrollom
+                    // (jeden riadok by pretiekol a Zavrieť by sa stlačil do nečitateľna)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) { nameText() }
+                        Spacer(Modifier.width(10.dp))
+                        closeBtn()
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        periodPills()
+                    }
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) { nameText() }
+                        periodPills()
+                        Spacer(Modifier.width(10.dp))
+                        closeBtn()
                     }
                 }
                 Spacer(Modifier.height(16.dp))
@@ -391,7 +439,7 @@ fun DochadzkaTerminalScreen(onBack: () -> Unit) {
                 } else {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         items(data.shifts) { sh ->
-                            Surface(shape = RoundedCornerShape(10.dp), color = CreamElev,
+                            Surface(shape = RoundedCornerShape(14.dp), color = CreamElev,
                                 border = BorderStroke(1.dp, if (sh.closed) BorderSoft else Amber.copy(alpha = 0.5f))) {
                                 Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
                                     verticalAlignment = Alignment.CenterVertically) {

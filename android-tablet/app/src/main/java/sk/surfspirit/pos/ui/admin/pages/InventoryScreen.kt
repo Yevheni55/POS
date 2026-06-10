@@ -126,6 +126,8 @@ fun InventoryScreen() {
     var error by remember { mutableStateOf<String?>(null) }
     var data by remember { mutableStateOf<InvDashboardDto?>(null) }
     var query by remember { mutableStateOf("") }
+    // Tichý 60 s poll: toast len pri PRVOM zlyhaní v sérii (nie každú minútu).
+    var pollFailing by remember { mutableStateOf(false) }
 
     fun load(silent: Boolean = false) {
         scope.launch {
@@ -134,11 +136,15 @@ fun InventoryScreen() {
                 val res = withContext(Dispatchers.IO) { invApi.dashboard() }
                 data = res
                 error = null
+                pollFailing = false
             } catch (e: Exception) {
                 if (e.httpCode() == 401) { /* relogin rieši shell */ }
                 if (silent) {
-                    // Tiché poll zlyhanie — necháme starý obsah, len toast (web parita).
-                    toast.show(errorMessage(e).ifBlank { "Chyba nacitania inventara" }, error = true)
+                    // Tiché poll zlyhanie — necháme starý obsah; toast len raz za sériu.
+                    if (!pollFailing) {
+                        pollFailing = true
+                        toast.show(errorMessage(e).ifBlank { "Chyba nacitania inventara" }, error = true)
+                    }
                 } else {
                     error = errorMessage(e)
                 }
@@ -167,26 +173,14 @@ fun InventoryScreen() {
             else -> {
                 val d = data ?: InvDashboardDto()
 
-                // --- 3 stat karty ---
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatCard(
-                        label = "Suroviny",
-                        value = invFmtInt(d.stats.totalIngredients),
-                        accent = Sage,
-                        modifier = Modifier.weight(1f),
-                    )
-                    StatCard(
-                        label = "Nízky stav",
-                        value = invFmtInt(d.stats.totalLowStock),
-                        accent = Danger,
-                        modifier = Modifier.weight(1f),
-                    )
-                    StatCard(
-                        label = "Pohyby dnes",
-                        value = invFmtInt(d.stats.todayMovements),
-                        accent = Navy,
-                        modifier = Modifier.weight(1f),
-                    )
+                // --- 3 stat karty (na telefóne 2 v riadku) ---
+                val statCards = listOf(
+                    Triple("Suroviny", invFmtInt(d.stats.totalIngredients), Sage),
+                    Triple("Nízky stav", invFmtInt(d.stats.totalLowStock), Danger),
+                    Triple("Pohyby dnes", invFmtInt(d.stats.todayMovements), Navy),
+                )
+                StatGrid(statCards) { (label, value, accent) ->
+                    StatCard(label, value, Modifier.weight(1f), accent = accent)
                 }
 
                 Spacer(Modifier.height(18.dp))

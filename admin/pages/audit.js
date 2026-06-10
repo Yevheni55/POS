@@ -15,9 +15,13 @@ let _orderFilter = '';
 let _staffList = [];
 let _typeList = [];
 
-function todayIso() { return new Date().toISOString().slice(0, 10); }
+// bratislavaDayIso je zdielany global z /api.js (preco nie UTC — viz tam).
+function todayIso() { return bratislavaDayIso(new Date()); }
 function todayMinusDaysIso(n) {
-  const d = new Date();
+  // Kotvene na bratislavske 'dnes' — todayMinusDaysIso(0) je spodna hranica
+  // filtra 'Dnes'. Odpocet dni v UTC priestore neposunie prechod DST.
+  const p = todayIso().split('-');
+  const d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]));
   d.setUTCDate(d.getUTCDate() - n);
   return d.toISOString().slice(0, 10);
 }

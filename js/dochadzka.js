@@ -7,6 +7,11 @@
   var currentStaff = null;
   var currentState = 'clocked_out';
   var resetTimer = null;
+  // Identify debounce — request odide az ~350 ms po poslednej cislici,
+  // nie pri kazdom stlaceni od 4. cislice. Generacia oznacuje najnovsi
+  // odoslany request; starsie odpovede (out-of-order fetch) zahadzujeme.
+  var identifyTimer = null;
+  var identifyGen = 0;
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -70,12 +75,27 @@
     }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, status: r.status, data: d }; }); });
   }
 
+  function scheduleIdentify() {
+    clearTimeout(identifyTimer);
+    if (pin.length < 4) return;
+    identifyTimer = setTimeout(tryIdentify, 350);
+  }
+
   function tryIdentify() {
     if (pin.length < 4) return;
-    postJson('/api/attendance/identify', { pin: pin }).then(function (res) {
+    var gen = ++identifyGen;
+    var sentPin = pin;
+    postJson('/api/attendance/identify', { pin: sentPin }).then(function (res) {
+      // Zahod odpoved ak medzitym odisiel novsi request, alebo sa PIN
+      // zmenil (zamestnanec este pise / stlacil C) — stara odpoved by
+      // inak prepisala aktualny stav.
+      if (gen !== identifyGen || pin !== sentPin) return;
       if (!res.ok) {
         showToast(res.data.error || 'Neplatny PIN', false);
-        pin = ''; renderPin();
+        // PIN nemazeme pocas pisania — 4-miestny prefix dlhsieho PINu
+        // legitimne zlyha. Vycistime az pri maximalnej dlzke (uz sa neda
+        // dopisat); kratsi zly PIN si zamestnanec opravi sam (C/Backspace).
+        if (pin.length >= 6) { pin = ''; renderPin(); }
         return;
       }
       currentStaff = res.data.staff;
@@ -121,11 +141,11 @@
       if (pin.length >= 6) return;
       pin += b.getAttribute('data-d');
       renderPin();
-      if (pin.length >= 4) tryIdentify();
+      scheduleIdentify();
     });
   });
-  $('pinClr').addEventListener('click', function () { pin = ''; renderPin(); renderStatus(null); });
-  $('pinBk').addEventListener('click', function () { pin = pin.slice(0, -1); renderPin(); });
+  $('pinClr').addEventListener('click', function () { clearTimeout(identifyTimer); pin = ''; renderPin(); renderStatus(null); });
+  $('pinBk').addEventListener('click', function () { pin = pin.slice(0, -1); renderPin(); scheduleIdentify(); });
   $('btnIn').addEventListener('click', function () { clock('clock_in'); });
   $('btnOut').addEventListener('click', function () { clock('clock_out'); });
 
@@ -273,10 +293,11 @@
     if (/^\d$/.test(e.key)) {
       if (pin.length >= 6) return;
       pin += e.key; renderPin();
-      if (pin.length >= 4) tryIdentify();
+      scheduleIdentify();
     } else if (e.key === 'Backspace') {
-      pin = pin.slice(0, -1); renderPin();
+      pin = pin.slice(0, -1); renderPin(); scheduleIdentify();
     } else if (e.key === 'Escape') {
+      clearTimeout(identifyTimer);
       pin = ''; renderPin(); renderStatus(null);
     }
   });

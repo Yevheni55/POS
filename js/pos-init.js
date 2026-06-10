@@ -391,7 +391,27 @@ async function showCloseShiftModal(){
     document.getElementById('closeShiftActualInput').value = summary.expectedCash.toFixed(2);
     updateCloseShiftDiff();
     document.getElementById('closeShiftModal').classList.add('show');
-  } catch(e){ api.logout(); }
+  } catch(e){
+    // 404 = ziadna otvorena zmena (server: 'Ziadna otvorena zmena'),
+    // 401 = expirovana session — vtedy je odhlasenie bez uzavierky korektne.
+    if (e && (e.status === 404 || e.status === 401)) { api.logout(); return; }
+    // Sietova chyba / 5xx NESMIE potichu preskocit uzavierku: zmena by
+    // ostala otvorena, closingCash by sa nezapisal a zajtrajsie
+    // expectedCash by nesedelo. Casnik ostava prihlaseny a preskocenie
+    // uzavierky je explicitna volba, nie nahoda.
+    var msg = String((e && e.message) || 'chyba siete')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // onCancel bezi len pri kliku na 'Odhlásiť bez uzávierky' — preskocenie
+    // uzavierky musi byt explicitna volba. Escape aj klik na pozadie modal
+    // iba zatvoria a casnik ostava prihlaseny.
+    showConfirm(
+      'Uzávierka zlyhala',
+      'Nepodarilo sa načítať súhrn zmeny (' + msg + '). Zmena ostáva otvorená.',
+      function(){ showCloseShiftModal(); },
+      { type: 'warning', confirmText: 'Skúsiť znova', cancelText: 'Odhlásiť bez uzávierky',
+        onCancel: function(){ api.logout(); } }
+    );
+  }
 }
 function updateCloseShiftDiff(){
   var expected = parseFloat(document.getElementById('closeShiftExpected').textContent) || 0;
@@ -456,7 +476,9 @@ init();
 // (not 0 until first payment). Best-effort — failure leaves at 0.
 (async function loadTodayRevenue() {
   try {
-    var today = new Date().toISOString().slice(0, 10);
+    // Den v Europe/Bratislava, nie UTC — inak by sa medzi polnocou a
+    // 01:00/02:00 miestneho casu nacital vcerajsi z-report.
+    var today = bratislavaDayIso(new Date());
     var z = await api.get('/reports/z-report?date=' + today);
     if (z && typeof z.totalRevenue === 'number') {
       window._todayRevenue = z.totalRevenue;

@@ -13,6 +13,9 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,12 +28,17 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -87,30 +95,51 @@ fun FloorScreen(
     var closeSummary by remember { mutableStateOf<ShiftSummaryDto?>(null) }
     var closeBusy by remember { mutableStateOf(false) }
     var closeError by remember { mutableStateOf<String?>(null) }
+    // Súhrn zmeny sa nepodarilo načítať (transport/5xx) — vedomá voľba namiesto
+    // tichého odhlásenia bez uzávierky
+    var closeSummaryFailed by remember { mutableStateOf(false) }
+    // Idempotency kľúč uzávierky — jeden na celý close-flow (od otvorenia
+    // dialógu): „Uzavrieť" retry po chybe drží ten istý kľúč, server replayne
+    // výsledok namiesto druhej uzávierky.
+    val closeShiftNonce = remember(showCloseShift) { java.util.UUID.randomUUID().toString() }
 
-    /** Načítanie — quiet=true nepreklápa `loading` spinner (background poll). */
-    fun load(quiet: Boolean = false) {
+    /** Načítanie — quiet=true nepreklápa `loading` spinner (background poll);
+     *  fullRefresh=false preskočí zóny + z-report (poll medzi 4. tickmi). */
+    fun load(quiet: Boolean = false, fullRefresh: Boolean = true) {
         // Spinner len pri ÚPLNE prvom otvorení bez cache — návraty sú okamžité
         if (!quiet && tables.isEmpty()) { loading = true; error = null }
         draftIds = Store.draftTableIds()
         scope.launch {
             try {
-                val (tbls, ords) = withContext(Dispatchers.IO) { Api.service.tables() to Api.service.allOrders() }
-                tables = tbls
-                totals = ords.groupBy { it.tableId }.mapValues { (_, v) -> v.sumOf { o -> o.grandTotal } }
-                accountsPerTable = ords.groupBy { it.tableId }.mapValues { it.value.size }
-                oldestOrderAt = ords.groupBy { it.tableId }.mapValues { (_, v) ->
-                    v.mapNotNull { o -> o.createdAt?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() } }
-                        .minOrNull() ?: Long.MAX_VALUE
+                // Paralelný fan-out — 1 RTT namiesto 4 sekvenčných. Zóny a z-report
+                // sa menia zriedka, preto len pri plnom refreshi; ich zlyhanie
+                // load nezhodí (nezávislý runCatching ako doteraz).
+                coroutineScope {
+                    val tblsD = async(Dispatchers.IO) { Api.service.tables() }
+                    val ordsD = async(Dispatchers.IO) { Api.service.allOrders() }
+                    val zonesD = if (fullRefresh)
+                        async(Dispatchers.IO) { runCatching { Api.service.zones() }.getOrNull() } else null
+                    // z-report je requireRole(manazer/admin) — čašníkovi by vracal 403
+                    val revD = if (fullRefresh && isManager)
+                        async(Dispatchers.IO) { runCatching { Api.service.zReport(todayIso()).totalRevenue }.getOrNull() } else null
+                    val tbls = tblsD.await()
+                    val ords = ordsD.await()
+                    tables = tbls
+                    totals = ords.groupBy { it.tableId }.mapValues { (_, v) -> v.sumOf { o -> o.grandTotal } }
+                    accountsPerTable = ords.groupBy { it.tableId }.mapValues { it.value.size }
+                    oldestOrderAt = ords.groupBy { it.tableId }.mapValues { (_, v) ->
+                        v.mapNotNull { o -> o.createdAt?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() } }
+                            .minOrNull() ?: Long.MAX_VALUE
+                    }
+                    zonesD?.await()?.let { zones = it }
+                    if (activeZone == null || tbls.none { it.zone == activeZone })
+                        activeZone = zones.firstOrNull()?.slug ?: tbls.firstOrNull()?.zone
+                    revD?.await()?.let { revenueToday = it }
+                    // In-memory cache pre okamžité prechody + prefs cache pre offline boot
+                    Mem.tables = tbls; Mem.zones = zones; Mem.orders = ords; Mem.revenueToday = revenueToday
+                    Store.cacheTables(tbls)
+                    if (zones.isNotEmpty()) Store.cacheZones(zones)
                 }
-                zones = try { withContext(Dispatchers.IO) { Api.service.zones() } } catch (_: Exception) { zones }
-                if (activeZone == null || tbls.none { it.zone == activeZone })
-                    activeZone = zones.firstOrNull()?.slug ?: tbls.firstOrNull()?.zone
-                revenueToday = try { withContext(Dispatchers.IO) { Api.service.zReport(todayIso()).totalRevenue } } catch (_: Exception) { revenueToday }
-                // In-memory cache pre okamžité prechody + prefs cache pre offline boot
-                Mem.tables = tbls; Mem.zones = zones; Mem.orders = ords; Mem.revenueToday = revenueToday
-                Store.cacheTables(tbls)
-                if (zones.isNotEmpty()) Store.cacheZones(zones)
                 Net.offline.value = false
                 error = null
                 withContext(Dispatchers.IO) { runCatching { Store.flushQueue() } }
@@ -137,10 +166,17 @@ fun FloorScreen(
     LifecycleResumeEffect(Unit) { load(); onPauseOrDispose { } }
 
     // Fallback polling — web parita: 30s tick (WS nemáme, preto hustejšie 15 s).
+    // Beží len v RESUMED — na pozadí (vrecko čašníka) sa rádio/server nebudí.
+    val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(Unit) {
-        while (true) {
-            delay(15_000)
-            if (!editMode) load(quiet = true)
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            var tick = 0
+            while (true) {
+                delay(15_000)
+                tick++
+                // Zóny + z-report stačí každý 4. tick (~1 min) — menia sa zriedka
+                if (!editMode) load(quiet = true, fullRefresh = tick % 4 == 0)
+            }
         }
     }
 
@@ -163,9 +199,10 @@ fun FloorScreen(
         showCloseShift = true; closeSummary = null; closeError = null
         scope.launch {
             try { closeSummary = withContext(Dispatchers.IO) { Api.service.shiftSummary() } }
-            catch (_: Exception) {
-                // žiadna otvorená zmena → rovno odhlás
-                showCloseShift = false; onLogout()
+            catch (e: Exception) {
+                showCloseShift = false
+                classifyShiftSummaryFailure(e, onLogout = onLogout,
+                    onFailed = { closeSummaryFailed = true })
             }
         }
     }
@@ -173,7 +210,7 @@ fun FloorScreen(
         closeBusy = true; closeError = null
         scope.launch {
             try {
-                withContext(Dispatchers.IO) { Api.service.shiftClose(CloseShiftReq(actual)) }
+                withContext(Dispatchers.IO) { Api.service.shiftClose(CloseShiftReq(actual), "shift-close-$closeShiftNonce") }
                 showCloseShift = false; onLogout()
             } catch (e: Exception) { closeError = "Uzávierka zlyhala. Skús znova alebo len odhlás." }
             finally { closeBusy = false }
@@ -229,6 +266,7 @@ fun FloorScreen(
     fun zoneLabel(slug: String) = zones.firstOrNull { it.slug == slug }?.label?.ifBlank { null }
         ?: slug.replaceFirstChar { it.uppercase() }
 
+    val phone = isPhone()
     val openCount = tables.count { it.status != "free" }
     val nowMs = System.currentTimeMillis()
     fun isForgotten(t: TableDto): Boolean {
@@ -253,7 +291,7 @@ fun FloorScreen(
             }
         }
     ) { pad ->
-        Box(Modifier.fillMaxSize().padding(pad)) {
+        Box(Modifier.fillMaxSize().warmCanvas().padding(pad)) {
             when {
                 loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                 error != null -> Column(Modifier.align(Alignment.Center).padding(24.dp),
@@ -278,7 +316,9 @@ fun FloorScreen(
                                 }
                             }
                         }
-                        if (isManager) {
+                        // Priestorový edit (drag/resize x/y) má zmysel len na tablete;
+                        // telefón ukazuje responzívny grid, kde absolútne pozície neplatia.
+                        if (isManager && !phone) {
                             val editInk by animateColorAsState(if (editMode) Sage else Navy,
                                 Motion.colorSpec, label = "editInk")
                             TextButton(onClick = {
@@ -303,6 +343,27 @@ fun FloorScreen(
                                 Text("Pridaj stoly cez admin → Stoly, alebo prepni zónu vyššie.",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    } else if (phone) {
+                        // Telefón: plne responzívny grid stolov — wrapuje na šírku,
+                        // len vertikálny scroll, žiadne absolútne x/y, tap = otvor stôl.
+                        LazyVerticalGrid(
+                            columns = GridCells.Adaptive(minSize = 150.dp),
+                            contentPadding = PaddingValues(16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            items(zoneTables, key = { it.id }) { t ->
+                                PhoneTableCard(
+                                    t = t,
+                                    total = totals[t.id] ?: 0.0,
+                                    accounts = accountsPerTable[t.id] ?: 0,
+                                    forgotten = isForgotten(t),
+                                    hasDraft = draftIds.contains(t.id),
+                                    onClick = { onOpenTable(t.id) },
+                                )
                             }
                         }
                     } else {
@@ -352,6 +413,11 @@ fun FloorScreen(
             onDismiss = { if (!closeBusy) showCloseShift = false },
         )
     }
+    if (closeSummaryFailed) CloseSummaryFailedDialog(
+        onRetry = { closeSummaryFailed = false; startCloseFlow() },
+        onLogout = { closeSummaryFailed = false; onLogout() },
+        onDismiss = { closeSummaryFailed = false },
+    )
     lockCode?.let { (code, until) ->
         LockCodeDialog(code, until) { lockCode = null }
     }
@@ -374,6 +440,77 @@ private fun ZonePill(label: String, meta: String, active: Boolean, onClick: () -
             Spacer(Modifier.width(6.dp))
             Text(meta, color = if (active) Cream.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
+
+/**
+ * Telefónna karta stola — responzívny grid (žiadne absolútne x/y, žiadny drag).
+ * Rovnaký vizuálny jazyk ako TableChip, ale fillMaxWidth v gridovej bunke.
+ */
+@Composable
+private fun PhoneTableCard(
+    t: TableDto,
+    total: Double,
+    accounts: Int,
+    forgotten: Boolean,
+    hasDraft: Boolean,
+    onClick: () -> Unit,
+) {
+    val sc = statusColor(t.status)
+    val occupied = t.status == "occupied"
+    val interaction = remember { MutableInteractionSource() }
+    val shape = RoundedCornerShape(16.dp)
+    Surface(
+        onClick = onClick,
+        interactionSource = interaction,
+        shape = shape,
+        color = if (occupied) sc.copy(alpha = 0.10f) else MaterialTheme.colorScheme.surface,
+        border = BorderStroke(if (forgotten) 2.dp else 1.dp,
+            when { forgotten -> Danger; occupied -> sc.copy(alpha = 0.45f); else -> BorderSoft }),
+        modifier = Modifier.fillMaxWidth().height(100.dp)
+            .paperShadow(if (occupied) 2.dp else 4.dp, shape)
+            .pressScale(interaction),
+    ) {
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
+            if (occupied) listOf(sc.copy(alpha = 0.08f), sc.copy(alpha = 0.14f))
+            else listOf(CreamElev, CreamSunken)))) {
+            if (t.status != "free") {
+                Box(Modifier.align(Alignment.CenterStart).fillMaxHeight().width(4.dp)
+                    .background(if (forgotten) Danger else sc))
+            }
+            Column(Modifier.fillMaxSize().padding(start = 12.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
+                verticalArrangement = Arrangement.Center) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(statusGlyph(t.status), color = sc, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.width(5.dp))
+                    Text(t.name, style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface, maxLines = 1,
+                        modifier = Modifier.weight(1f))
+                    if (forgotten) Text("⏰", fontSize = 12.sp)
+                }
+                Spacer(Modifier.height(3.dp))
+                when {
+                    occupied && total > 0 -> {
+                        AnimatedMoney(total, MaterialTheme.typography.titleMedium, Terra)
+                        if (accounts > 1) Text("$accounts účty",
+                            style = MaterialTheme.typography.labelSmall, color = sc)
+                    }
+                    t.status == "reserved" && !t.time.isNullOrBlank() ->
+                        Text(t.time!!, style = MaterialTheme.typography.labelSmall, color = sc)
+                    t.status == "dirty" ->
+                        Text("vyčistiť", style = MaterialTheme.typography.labelSmall, color = sc)
+                    occupied ->
+                        Text("otvorený", style = MaterialTheme.typography.labelSmall, color = sc)
+                    hasDraft ->
+                        Text("koncept", style = MaterialTheme.typography.labelSmall, color = Amber)
+                    else ->
+                        Text(statusLabel(t.status), style = MaterialTheme.typography.labelSmall, color = sc)
+                }
+                Spacer(Modifier.height(3.dp))
+                Text("👤 ${t.seats}", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }

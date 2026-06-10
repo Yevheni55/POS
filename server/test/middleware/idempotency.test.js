@@ -254,12 +254,13 @@ describe('idempotency middleware — POST /api/orders', () => {
     it('does not cache a 400 response', async () => {
       const key = randomUUID();
 
-      // Send invalid payload — missing items
+      // Send invalid payload — tableId 0 fails the positive() check
+      // (empty items is VALID by design: a new empty ucet is created that way)
       const badRes = await request
         .post('/api/orders')
         .set('Authorization', `Bearer ${tokens.cisnik()}`)
         .set('X-Idempotency-Key', key)
-        .send({ tableId: fixtures.table1.id, items: [] });
+        .send({ tableId: 0, items: [] });
 
       assert.equal(badRes.status, 400);
 
@@ -273,12 +274,12 @@ describe('idempotency middleware — POST /api/orders', () => {
     it('allows a successful retry with the same key after a 4xx failure', async () => {
       const key = randomUUID();
 
-      // First attempt — bad payload (empty items → 400)
+      // First attempt — bad payload (tableId 0 → 400)
       const failRes = await request
         .post('/api/orders')
         .set('Authorization', `Bearer ${tokens.cisnik()}`)
         .set('X-Idempotency-Key', key)
-        .send({ tableId: fixtures.table1.id, items: [] });
+        .send({ tableId: 0, items: [] });
 
       assert.equal(failRes.status, 400);
 

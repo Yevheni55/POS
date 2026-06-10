@@ -25,6 +25,8 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
@@ -153,6 +155,10 @@ fun RecipesScreen() {
     var currentRecipe by remember { mutableStateOf<List<RcRecipeLine>>(emptyList()) }
     var recipeLoading by remember { mutableStateOf(false) }
 
+    // Serializácia autosave-ov — dve rýchle úpravy (pridaj + oprav qty) by sa
+    // inak prekrývali a starší response by mohol prepísať novší optimistický stav.
+    val saveMutex = remember { Mutex() }
+
     var search by remember { mutableStateOf("") }
     var activeFilter by remember { mutableStateOf("all") }  // all|recipe|simple|none|sold-no-recipe
 
@@ -260,7 +266,9 @@ fun RecipesScreen() {
 
     // Ulož recept (prázdny → DELETE, inak PUT). Pri non-empty server flipne
     // trackMode→recipe; lokálne to premietneme. silent = autosave bez toastu.
-    suspend fun saveRecipe(itemId: Int, silent: Boolean) {
+    // Mutex: prekrývajúce sa save-y sa radia za seba; každý číta currentRecipe
+    // až vo vnútri zámku, takže PUT vždy nesie najnovší lokálny stav.
+    suspend fun saveRecipe(itemId: Int, silent: Boolean) = saveMutex.withLock {
         if (currentRecipe.isEmpty()) {
             withContext(Dispatchers.IO) { rcApi.delRecipe(itemId) }
         } else {
@@ -273,6 +281,14 @@ fun RecipesScreen() {
         val fresh = runCatching { withContext(Dispatchers.IO) { rcApi.summary() } }.getOrNull()
         if (fresh != null) summary = fresh.associateBy { it.menuItemId }
         if (!silent) toast.show("Recept uložený")
+    }
+
+    // Po zlyhanom save NEvracaj stale snapshot (zmazal by novšiu súbežnú
+    // úpravu) — obnov recept zo servera; ak aj reload zlyhá, nechaj aktuálny
+    // lokálny stav (operátor zopakuje „Uložiť recept").
+    suspend fun reloadRecipeAfterFailure(itemId: Int) {
+        val r = runCatching { withContext(Dispatchers.IO) { rcApi.recipe(itemId) } }.getOrNull()
+        if (r != null && selectedId == itemId) currentRecipe = r
     }
 
     AdminScreenBox(toast, scrollable = false) {
@@ -353,7 +369,6 @@ fun RecipesScreen() {
                                 },
                                 onAddLine = { ingId, qty ->
                                     val ing = ingredients.firstOrNull { it.id == ingId } ?: return@RcEditor
-                                    val snapshot = currentRecipe
                                     currentRecipe = currentRecipe + RcRecipeLine(
                                         ingredientId = ingId, qtyPerUnit = qty,
                                         ingredientName = ing.name, ingredientUnit = ing.unit,
@@ -363,8 +378,8 @@ fun RecipesScreen() {
                                             saveRecipe(item.id, silent = true)
                                             toast.show("Surovina pridaná a recept uložený")
                                         } catch (e: Exception) {
-                                            currentRecipe = snapshot
                                             toast.show(errorMessage(e), error = true)
+                                            reloadRecipeAfterFailure(item.id)
                                         }
                                     }
                                 },
@@ -372,7 +387,6 @@ fun RecipesScreen() {
                                     if (idx !in currentRecipe.indices) return@RcEditor
                                     val prev = currentRecipe[idx].qtyPerUnit
                                     if (newQty == prev) return@RcEditor
-                                    val snapshot = currentRecipe
                                     currentRecipe = currentRecipe.mapIndexed { i, l ->
                                         if (i == idx) l.copy(qtyPerUnit = newQty) else l
                                     }
@@ -381,22 +395,21 @@ fun RecipesScreen() {
                                             saveRecipe(item.id, silent = true)
                                             toast.show("Množstvo upravené a recept uložený")
                                         } catch (e: Exception) {
-                                            currentRecipe = snapshot
                                             toast.show(errorMessage(e), error = true)
+                                            reloadRecipeAfterFailure(item.id)
                                         }
                                     }
                                 },
                                 onRemoveLine = { idx ->
                                     if (idx !in currentRecipe.indices) return@RcEditor
-                                    val snapshot = currentRecipe
                                     currentRecipe = currentRecipe.filterIndexed { i, _ -> i != idx }
                                     scope.launch {
                                         try {
                                             saveRecipe(item.id, silent = true)
                                             toast.show("Surovina odstránená")
                                         } catch (e: Exception) {
-                                            currentRecipe = snapshot
                                             toast.show(errorMessage(e), error = true)
+                                            reloadRecipeAfterFailure(item.id)
                                         }
                                     }
                                 },

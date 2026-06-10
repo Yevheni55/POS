@@ -1,6 +1,13 @@
 package sk.surfspirit.pos.core
 
 import androidx.compose.runtime.mutableStateOf
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.MapSerializer
@@ -77,21 +84,47 @@ object Store {
 
     private val draftsSer = MapSerializer(String.serializer(), ListSerializer(CartLine.serializer()))
 
-    private fun loadDrafts(): MutableMap<String, List<CartLine>> =
-        AppPrefs.getRaw(K_DRAFTS)?.let {
-            try { json.decodeFromString(draftsSer, it).toMutableMap() } catch (_: Exception) { mutableMapOf() }
-        } ?: mutableMapOf()
+    // Dekódovaná mapa draftov ostáva v pamäti — saveDraft beží na každý tap
+    // košíka (hold-to-repeat každých 150 ms) a opakovaný decode celého JSON-u
+    // by bol zbytočný jank na main threade. Načíta sa lenivo raz, zápis ide
+    // z cache (encode + apply(), žiadny re-decode). Prístup pod draftsLock
+    // (rovnaký štýl ako qLock pre fronty).
+    private val draftsLock = Any()
+    private var draftsCache: MutableMap<String, List<CartLine>>? = null
 
-    fun saveDraft(tableId: Int, lines: List<CartLine>) {
-        val all = loadDrafts()
-        if (lines.isEmpty()) all.remove(tableId.toString()) else all[tableId.toString()] = lines
-        put(K_DRAFTS, json.encodeToString(draftsSer, all))
+    private fun draftsLocked(): MutableMap<String, List<CartLine>> =
+        draftsCache ?: (AppPrefs.getRaw(K_DRAFTS)?.let {
+            try { json.decodeFromString(draftsSer, it).toMutableMap() } catch (_: Exception) { mutableMapOf() }
+        } ?: mutableMapOf()).also { draftsCache = it }
+
+    // Persist draftov je debounced na pozadí — encode celej mapy + commit na
+    // každý tap košíka (hold-to-repeat 150 ms) by bol jank na main threade.
+    // draftsCache je zdroj pravdy; drafty sú len restart-convenience, takže
+    // strata max. ~300 ms okna pri zabití procesu je prijateľná.
+    private val persistScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var persistJob: Job? = null   // prístup len pod draftsLock
+
+    fun saveDraft(tableId: Int, lines: List<CartLine>) = synchronized(draftsLock) {
+        val all = draftsLocked()
+        if (lines.isEmpty()) all.remove(tableId.toString()) else all[tableId.toString()] = lines.toList()
+        persistJob?.cancel()
+        persistJob = persistScope.launch {
+            delay(300)
+            synchronized(draftsLock) {
+                // cancel z clearAll beží pod draftsLock — zrušený job tu už
+                // nesmie zapísať, inak by wipe „vzkriesil" staré drafty
+                if (!isActive) return@launch
+                put(K_DRAFTS, json.encodeToString(draftsSer, draftsLocked()))
+            }
+        }
     }
 
-    fun loadDraft(tableId: Int): List<CartLine> = loadDrafts()[tableId.toString()] ?: emptyList()
+    fun loadDraft(tableId: Int): List<CartLine> =
+        synchronized(draftsLock) { draftsLocked()[tableId.toString()] ?: emptyList() }
 
     /** Stoly s rozpísaným draftom (na floor chip "occupied" indikáciu). */
-    fun draftTableIds(): Set<Int> = loadDrafts().keys.mapNotNull { it.toIntOrNull() }.toSet()
+    fun draftTableIds(): Set<Int> =
+        synchronized(draftsLock) { draftsLocked().keys.mapNotNull { it.toIntOrNull() }.toSet() }
 
     /* ---------- UI state restore (web pos_uiState) ---------- */
 
@@ -138,9 +171,14 @@ object Store {
 
     fun refreshQueueCount() = synchronized(qLock) { refreshQueueCountLocked() }
 
+    /** Počet neodoslaných operácií (storno kôš + delete retry) — UI gate
+     *  pred akciami, ktoré fronty nenávratne mažú (zmena server URL). */
+    fun pendingOpsCount(): Int = synchronized(qLock) { loadStornoQueue().size + loadRemovalsQueue().size }
+
     /**
-     * Replay čakajúcich operácií po obnove spojenia. 4xx (okrem 429) sa
-     * zahodí (replay to nevyrieši), transport/5xx ostáva vo fronte.
+     * Replay čakajúcich operácií po obnove spojenia. 4xx (okrem 429; pri
+     * storne aj 403) sa zahodí (replay to nevyrieši), transport/5xx ostáva
+     * vo fronte.
      * Sieťové volania bežia MIMO zámku; každý úspech sa odoberá z aktuálne
      * uloženého frontu individuálne (žiadny bulk-overwrite). Súbežný flush
      * je no-op cez `flushing` flag — žiadne dvojité odoslanie.
@@ -158,7 +196,10 @@ object Store {
                 val drop = try { Api.service.stornoBasket(req); true }
                 catch (e: Exception) {
                     val code = e.httpCode()
-                    !(e.isTransportError() || code == 429 || (code ?: 0) >= 500)
+                    // 403 = role-gate (čašnícka session na staršom serveri) —
+                    // storno záznam sa NIKDY nesmie stratiť; ostáva vo fronte,
+                    // kým ho flushne manažérska session.
+                    !(e.isTransportError() || code == 429 || code == 403 || (code ?: 0) >= 500)
                 }
                 if (drop) synchronized(qLock) {
                     val q = loadStornoQueue()
@@ -183,6 +224,26 @@ object Store {
                 }
             }
         } finally { flushing = false }
+    }
+
+    /**
+     * Kompletný wipe lokálneho stavu — iný server = iná DB; staré drafty/cache
+     * (menuItemId z cudzej databázy) sú nebezpečné. Volá AppPrefs pri zmene
+     * server URL.
+     */
+    fun clearAll() {
+        synchronized(draftsLock) {
+            persistJob?.cancel()   // čakajúci debounce zápis nesmie wipe prepísať
+            persistJob = null
+            draftsCache = null
+            AppPrefs.removeRaw(K_DRAFTS)
+        }
+        synchronized(qLock) {
+            AppPrefs.removeRaw(K_STORNO_Q)
+            AppPrefs.removeRaw(K_REMOVALS_Q)
+            Net.queueCount.value = 0
+        }
+        listOf(K_MENU, K_TABLES, K_ZONES, K_TOP, K_LAST_TABLE, K_LAST_CAT).forEach { AppPrefs.removeRaw(it) }
     }
 
     /* ---------- helpers ---------- */

@@ -104,10 +104,31 @@ router.post('/login', validate(loginSchema), async (req, res) => {
   res.json({ token, user: { id: found.id, name: found.name, role: found.role } });
 });
 
+/**
+ * Decode the caller's session JWT, mirroring middleware/auth.js (case-
+ * insensitive Bearer scheme, HS256 only). Returns the payload, or null when
+ * the header is missing/invalid — never rejects the request: this route is
+ * public, the session check only gates whether an elevation token is issued.
+ */
+function sessionUserFrom(req) {
+  const header = req.headers.authorization;
+  if (!header) return null;
+  const token = header.replace(/^bearer\s+/i, '');
+  try {
+    return jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
+  } catch {
+    return null;
+  }
+}
+
 // POST /api/auth/verify-manager — verify manager PIN for storno
 // PR-B: same DB-backed limiter as /login. Key: matched manager staffId
 // (per-staff lockout); falls back to IP bucket when no manager row matches.
 // Brute-force attempts therefore fill the IP bucket and lock the terminal.
+// Invariant: this route is mounted PUBLIC (before the auth middleware), so
+// the bare PIN check ({ ok, name }) is only a UI gate — the 120s elevation
+// token is issued solely into an already-authenticated session (valid Bearer
+// JWT on the request). An anonymous caller never receives a credential here.
 router.post('/verify-manager', validate(loginSchema), async (req, res) => {
   const { pin } = req.body;
   const ip = req.ip || req.connection?.remoteAddress || '';
@@ -129,7 +150,24 @@ router.post('/verify-manager', validate(loginSchema), async (req, res) => {
   }
 
   await recordAttempt({ staffId: found.id, ip, success: true });
-  res.json({ ok: true, name: found.name });
+
+  // Without a valid session JWT only the PIN-check result goes out — no
+  // credential may be minted for an anonymous caller on this public route.
+  if (!sessionUserFrom(req)) {
+    return res.json({ ok: true, name: found.name });
+  }
+
+  // Short-lived elevation token: the verified manager's identity in the same
+  // shape as /login, so the client can send it as Bearer for the single
+  // role-gated follow-up call (storno/discount) from a cisnik session.
+  // Existing clients ignore the extra field.
+  const token = jwt.sign(
+    { id: found.id, name: found.name, role: found.role },
+    process.env.JWT_SECRET,
+    { expiresIn: '120s', algorithm: 'HS256' }
+  );
+
+  res.json({ ok: true, name: found.name, token });
 });
 
 // GET /api/auth/me — verify token (protected: requires valid JWT)

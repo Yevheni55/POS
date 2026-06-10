@@ -3,6 +3,8 @@ package sk.surfspirit.pos.ui.admin.pages
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -173,9 +175,9 @@ fun MaterialyScreen() {
     val toast = rememberAdminToast()
     var tab by remember { mutableStateOf(0) }
 
-    // scrollable=true → celá stránka skroluje (tabuľky sú plain Columns, žiadny
-    // vnorený LazyColumn ktorý by v Column padol na nekonečnú výšku).
-    AdminScreenBox(toast, scrollable = true) {
+    // scrollable=false → každý tab má tabuľku v LazyColumn (stovky SKU sa
+    // nesmú komponovať naraz); toolbar + taby ostávajú fixné hore.
+    AdminScreenBox(toast, scrollable = false) {
         AdminSectionTitle("Sklad / Materiály")
         PillTabs(listOf("Suroviny", "Tovar", "Dodávatelia"), tab) { tab = it }
         Spacer(Modifier.height(12.dp))
@@ -200,9 +202,6 @@ private fun ColumnScope.MtIngredientsTab(toast: AdminToastState) {
     var editing by remember { mutableStateOf<MtIngredientDto?>(null) }
     var showForm by remember { mutableStateOf(false) }
 
-    // Pending undo delete: (id, pôvodný index, snapshot).
-    var pendingDelete by remember { mutableStateOf<Triple<Int, Int, MtIngredientDto>?>(null) }
-
     fun load() {
         scope.launch {
             loading = true
@@ -218,6 +217,19 @@ private fun ColumnScope.MtIngredientsTab(toast: AdminToastState) {
         }
     }
     LaunchedEffect(Unit) { load() }
+
+    // Pending undo delete (id, pôvodný index, snapshot) — commit/flush/rollback
+    // rieši zdieľaný controller (AdminUi), DELETE prežije odchod z tabu.
+    val pendingDelete = rememberPendingDelete<Triple<Int, Int, MtIngredientDto>>(
+        toast = toast,
+        delete = { (id, _, _) -> mtApi.deleteIngredient(id) },
+        rollback = { (_, idx, snap) ->
+            val list = items.toMutableList()
+            list.add(idx.coerceIn(0, list.size), snap)
+            items = list
+        },
+        onCommitted = { load() },
+    )
 
     val term = search.trim().lowercase()
     val filtered = if (term.isBlank()) items
@@ -249,53 +261,46 @@ private fun ColumnScope.MtIngredientsTab(toast: AdminToastState) {
             title = "Žiadne výsledky",
             text = "Pre hľadaný výraz „$search\" sa nenašla žiadna surovina. Skúste iný výraz alebo zmažte filter.",
         )
-        else -> AdminCard {
+        else -> AdminCard(Modifier.weight(1f, fill = false)) {
             TableHeader(
                 "Názov" to 2.4f, "Jedn." to 0.9f, "Množstvo" to 1.4f,
                 "Min." to 1.1f, "Cena/jedn." to 1.6f, "Stav" to 1.3f, "Akcie" to 1.3f,
             )
-            filtered.forEach { item ->
-                MtIngredientRow(
-                    item = item,
-                    canEdit = isManager,
-                    onEdit = { editing = item; showForm = true },
-                    onDelete = {
-                        val idx = items.indexOfFirst { it.id == item.id }
-                        if (idx >= 0) {
-                            pendingDelete = Triple(item.id, idx, item)
-                            items = items.filterNot { it.id == item.id }
-                        }
-                    },
-                )
+            // LazyColumn — riadky sa komponujú lenivo (stovky SKU za sezónu).
+            LazyColumn(Modifier.weight(1f, fill = false)) {
+                items(filtered, key = { it.id }) { item ->
+                    MtIngredientRow(
+                        item = item,
+                        canEdit = isManager,
+                        onEdit = { editing = item; showForm = true },
+                        onDelete = {
+                            val idx = items.indexOfFirst { it.id == item.id }
+                            if (idx >= 0) {
+                                // request() hneď commitne predošlý pending — jednoslotové
+                                // undo ho nesmie potichu zahodiť.
+                                pendingDelete.request(Triple(item.id, idx, item))
+                                items = items.filterNot { it.id == item.id }
+                            }
+                        },
+                    )
+                }
             }
         }
     }
 
     // Optimistic undo delete — 5 s, potom commit DELETE + reload.
-    pendingDelete?.let { (id, idx, snap) ->
+    pendingDelete.pending?.let { (id, idx, snap) ->
         MtUndoToast(
+            itemId = id,
             label = "„${snap.name}\" zmazaná",
             onUndo = {
                 val list = items.toMutableList()
                 list.add(idx.coerceIn(0, list.size), snap)
                 items = list
-                pendingDelete = null
+                pendingDelete.undo()
                 toast.show("Vrátené")
             },
-            onCommit = {
-                pendingDelete = null
-                scope.launch {
-                    try {
-                        withContext(Dispatchers.IO) { mtApi.deleteIngredient(id) }
-                        load()
-                    } catch (e: Exception) {
-                        val list = items.toMutableList()
-                        list.add(idx.coerceIn(0, list.size), snap)
-                        items = list
-                        toast.show(errorMessage(e), error = true)
-                    }
-                }
-            },
+            onCommit = { pendingDelete.commit() },
         )
     }
 
@@ -465,41 +470,44 @@ private fun ColumnScope.MtSuppliesTab(toast: AdminToastState) {
             title = "Žiadne výsledky",
             text = "Pre hľadaný výraz „$search\" sa nenašiel žiadny tovar.",
         )
-        else -> AdminCard {
+        else -> AdminCard(Modifier.weight(1f, fill = false)) {
             TableHeader(
                 "Názov" to 3f, "Množstvo" to 1.8f, "Minimum" to 1.5f,
                 "Stav" to 1.4f, "Akcie" to 1.3f,
             )
-            filtered.forEach { item ->
-                val (badgeText, badgeColor) = when {
-                    item.currentQty <= 0.0 -> "Chýba" to Danger
-                    item.currentQty <= item.minQty -> "Málo" to Amber
-                    else -> "OK" to Sage
-                }
-                Row(
-                    Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(item.name, Modifier.weight(3f), style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text("${mtFmtNum(item.currentQty)} ${item.unit}", Modifier.weight(1.8f),
-                        style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.End, maxLines = 1)
-                    Text(mtFmtNum(item.minQty), Modifier.weight(1.5f),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.End, maxLines = 1)
-                    Box(Modifier.weight(1.4f), contentAlignment = Alignment.Center) {
-                        StatusBadge(badgeText, badgeColor)
+            // LazyColumn — riadky sa komponujú lenivo.
+            LazyColumn(Modifier.weight(1f, fill = false)) {
+                items(filtered, key = { it.id }) { item ->
+                    val (badgeText, badgeColor) = when {
+                        item.currentQty <= 0.0 -> "Chýba" to Danger
+                        item.currentQty <= item.minQty -> "Málo" to Amber
+                        else -> "OK" to Sage
                     }
-                    Row(Modifier.weight(1.3f), horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically) {
-                        if (isManager) MtRowActions(
-                            onEdit = { editing = item; showForm = true },
-                            onDelete = { confirmDelete = item },
-                        )
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(item.name, Modifier.weight(3f), style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("${mtFmtNum(item.currentQty)} ${item.unit}", Modifier.weight(1.8f),
+                            style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.End, maxLines = 1)
+                        Text(mtFmtNum(item.minQty), Modifier.weight(1.5f),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.End, maxLines = 1)
+                        Box(Modifier.weight(1.4f), contentAlignment = Alignment.Center) {
+                            StatusBadge(badgeText, badgeColor)
+                        }
+                        Row(Modifier.weight(1.3f), horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically) {
+                            if (isManager) MtRowActions(
+                                onEdit = { editing = item; showForm = true },
+                                onDelete = { confirmDelete = item },
+                            )
+                        }
                     }
+                    HorizontalDivider(color = BorderSoft.copy(alpha = 0.5f))
                 }
-                HorizontalDivider(color = BorderSoft.copy(alpha = 0.5f))
             }
         }
     }
@@ -609,7 +617,6 @@ private fun ColumnScope.MtSuppliersTab(toast: AdminToastState) {
 
     var editing by remember { mutableStateOf<MtSupplierDto?>(null) }
     var showForm by remember { mutableStateOf(false) }
-    var pendingDelete by remember { mutableStateOf<Triple<Int, Int, MtSupplierDto>?>(null) }
 
     fun load() {
         scope.launch {
@@ -626,6 +633,19 @@ private fun ColumnScope.MtSuppliersTab(toast: AdminToastState) {
         }
     }
     LaunchedEffect(Unit) { load() }
+
+    // Pending undo delete (id, pôvodný index, snapshot) — zdieľaný controller;
+    // zlyhanie DELETE = rollback + toast (zlyhaný delete sa nesmie stratiť ticho).
+    val pendingDelete = rememberPendingDelete<Triple<Int, Int, MtSupplierDto>>(
+        toast = toast,
+        delete = { (id, _, _) -> mtApi.deleteSupplier(id) },
+        rollback = { (_, idx, snap) ->
+            val list = items.toMutableList()
+            list.add(idx.coerceIn(0, list.size), snap)
+            items = list
+        },
+        onCommitted = { load() },
+    )
 
     val term = search.trim().lowercase()
     val filtered = if (term.isBlank()) items
@@ -649,77 +669,70 @@ private fun ColumnScope.MtSuppliersTab(toast: AdminToastState) {
         error != null -> ErrorBox(error!!) { load() }
         items.isEmpty() -> EmptyHint("Žiadni dodávatelia. Pridajte prvého dodávateľa.")
         filtered.isEmpty() -> EmptyHint("Žiadne výsledky pre zadaný filter")
-        else -> AdminCard {
+        else -> AdminCard(Modifier.weight(1f, fill = false)) {
             TableHeader(
                 "Názov" to 2.2f, "Kontakt" to 1.8f, "Telefón" to 1.5f,
                 "E-mail" to 2.2f, "Stav" to 1.2f, "Akcie" to 1.2f,
             )
-            filtered.forEach { sup ->
-                Row(
-                    Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(sup.name, Modifier.weight(2.2f), style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(sup.contactPerson.ifBlank { "—" }, Modifier.weight(1.8f),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(sup.phone.ifBlank { "—" }, Modifier.weight(1.5f),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(sup.email.ifBlank { "—" }, Modifier.weight(2.2f),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Box(Modifier.weight(1.2f), contentAlignment = Alignment.CenterStart) {
-                        if (sup.active) StatusBadge("Aktívny", Sage)
-                        else StatusBadge("Neaktívny", EspressoDim)
+            // LazyColumn — riadky sa komponujú lenivo.
+            LazyColumn(Modifier.weight(1f, fill = false)) {
+                items(filtered, key = { it.id }) { sup ->
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(sup.name, Modifier.weight(2.2f), style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(sup.contactPerson.ifBlank { "—" }, Modifier.weight(1.8f),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(sup.phone.ifBlank { "—" }, Modifier.weight(1.5f),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(sup.email.ifBlank { "—" }, Modifier.weight(2.2f),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Box(Modifier.weight(1.2f), contentAlignment = Alignment.CenterStart) {
+                            if (sup.active) StatusBadge("Aktívny", Sage)
+                            else StatusBadge("Neaktívny", EspressoDim)
+                        }
+                        Row(Modifier.weight(1.2f), horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically) {
+                            if (isManager) MtRowActions(
+                                onEdit = { editing = sup; showForm = true },
+                                onDelete = {
+                                    val idx = items.indexOfFirst { it.id == sup.id }
+                                    if (idx >= 0) {
+                                        // request() hneď commitne predošlý pending — jednoslotové
+                                        // undo ho nesmie potichu zahodiť.
+                                        pendingDelete.request(Triple(sup.id, idx, sup))
+                                        items = items.filterNot { it.id == sup.id }
+                                    }
+                                },
+                            )
+                        }
                     }
-                    Row(Modifier.weight(1.2f), horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically) {
-                        if (isManager) MtRowActions(
-                            onEdit = { editing = sup; showForm = true },
-                            onDelete = {
-                                val idx = items.indexOfFirst { it.id == sup.id }
-                                if (idx >= 0) {
-                                    pendingDelete = Triple(sup.id, idx, sup)
-                                    items = items.filterNot { it.id == sup.id }
-                                }
-                            },
-                        )
-                    }
+                    HorizontalDivider(color = BorderSoft.copy(alpha = 0.5f))
                 }
-                HorizontalDivider(color = BorderSoft.copy(alpha = 0.5f))
             }
         }
     }
 
-    pendingDelete?.let { (id, idx, snap) ->
+    pendingDelete.pending?.let { (id, idx, snap) ->
         MtUndoToast(
+            itemId = id,
             label = "Dodávateľ „${snap.name}\" odstránený",
             onUndo = {
                 val list = items.toMutableList()
                 list.add(idx.coerceIn(0, list.size), snap)
                 items = list
-                pendingDelete = null
+                pendingDelete.undo()
                 toast.show("Vrátené")
             },
-            onCommit = {
-                pendingDelete = null
-                scope.launch {
-                    try {
-                        withContext(Dispatchers.IO) { mtApi.deleteSupplier(id) }
-                        load()
-                    } catch (_: Exception) {
-                        // Web parita: pri zlyhaní servera ticho vráť riadok.
-                        val list = items.toMutableList()
-                        list.add(idx.coerceIn(0, list.size), snap)
-                        items = list
-                    }
-                }
-            },
+            onCommit = { pendingDelete.commit() },
         )
     }
 
@@ -938,12 +951,15 @@ private fun MtFormDialog(
  */
 @Composable
 private fun MtUndoToast(
+    itemId: Int,
     label: String,
     onUndo: () -> Unit,
     onCommit: () -> Unit,
 ) {
     val current by rememberUpdatedState(onCommit)
-    LaunchedEffect(label) {
+    // Časovač viazaný na ID položky — dve položky s rovnakým názvom (label)
+    // nesmú zdieľať jedno undo okno.
+    LaunchedEffect(itemId) {
         delay(5000)
         current()
     }

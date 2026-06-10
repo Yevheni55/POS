@@ -5,6 +5,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -214,8 +216,12 @@ fun StaffScreen() {
             staff.isEmpty() -> EmptyHint("👥  Žiadni zamestnanci")
             filtered.isEmpty() -> EmptyHint("🔍  Žiadne výsledky")
             else -> {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    filtered.forEach { e ->
+                // LazyColumn — zoznam môže prerásť výšku obrazovky (scroll + lazy riadky).
+                LazyColumn(
+                    Modifier.weight(1f).fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    items(filtered, key = { it.id }) { e ->
                         val isRevealed = showAll || e.id in revealed
                         StfStaffRow(
                             staff = e,
@@ -297,6 +303,13 @@ private fun StfTopBar(
                     colors = ButtonDefaults.buttonColors(containerColor = Terra, contentColor = Cream),
                     modifier = Modifier.heightIn(min = 44.dp),
                 ) { Text("+ Pridať zamestnanca") }
+            } else {
+                // Read-only režim — mutácie sú len pre admina (server requireRole).
+                Text(
+                    "Úpravy len pre admina",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             if (canRevealPins) {
                 val active = showAll

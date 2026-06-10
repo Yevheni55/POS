@@ -2,6 +2,8 @@ package sk.surfspirit.pos.ui.admin.pages
 
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -257,99 +259,117 @@ fun PaymentsScreen() {
         load()
     }
 
-    AdminScreenBox(toast) {
-        AdminSectionTitle("História platieb")
-        Text(
-            "Zoznam platieb s fiškálnym stavom. Pri úspešne zaevidovanom doklade sa dá " +
-                "vytlačiť kópia alebo odoslať STORNO. STORNO je dostupné iba pre platby " +
-                "registrované v Portos (online/offline/reconciled) a pokiaľ ešte nebolo odoslané.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(12.dp))
-
-        // Filter — Rozsah (eKasa) + Spôsob platby + Hľadať.
-        AdminCard {
-            Text("Rozsah", style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(6.dp))
-            PillTabs(
-                tabs = listOf("Iba aktuálna eKasa", "Všetky (vrátane starej firmy)"),
-                selected = if (scopeAll) 1 else 0,
-                onSelect = { scopeAll = it == 1 },
-            )
-            Spacer(Modifier.height(12.dp))
-            Text("Spôsob platby", style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(6.dp))
-            PillTabs(
-                tabs = listOf("Všetky", "Hotovosť", "Karta"),
-                selected = methodTab,
-                onSelect = { methodTab = it },
-            )
-            Spacer(Modifier.height(12.dp))
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                placeholder = { Text("ID platby, stôl, objednávka…") },
-                singleLine = true,
-                label = { Text("Hľadať") },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(10.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton(onClick = { load() }, enabled = !busy) { Text("Obnoviť") }
+    AdminScreenBox(toast, scrollable = false) {
+        // Jeden zdieľaný horizontálny scroll stav pre hlavičku aj všetky riadky
+        // tabuľky — stĺpce ostávajú zarovnané a alokuje sa jediný ScrollState.
+        // Riadky sú v LazyColumn (až 200 platieb sa nekomponuje naraz).
+        val tableScroll = rememberScrollState()
+        LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+            item {
+                AdminSectionTitle("História platieb")
+                Text(
+                    "Zoznam platieb s fiškálnym stavom. Pri úspešne zaevidovanom doklade sa dá " +
+                        "vytlačiť kópia alebo odoslať STORNO. STORNO je dostupné iba pre platby " +
+                        "registrované v Portos (online/offline/reconciled) a pokiaľ ešte nebolo odoslané.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(12.dp))
             }
-        }
 
-        Spacer(Modifier.height(8.dp))
-        // Scope hint (web parita renderScopeHint).
-        val hint = when {
-            scopeAll ->
-                "Zobrazené sú všetky platby (vrátane platieb zo starej eKasy / inej firmy)."
-            hiddenByScope > 0 ->
-                "Zobrazené sú iba platby aktuálnej eKasy (" +
-                    (activeCashRegisterCode.ifBlank { "—" }) + "). Skrytých: " +
-                    hiddenByScope + " zo starej eKasy. Prepni na „Všetky“ pre celú históriu."
-            else ->
-                "Zobrazené sú iba platby aktuálnej eKasy (" +
-                    (activeCashRegisterCode.ifBlank { "—" }) + ")."
-        }
-        Text(hint, style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(12.dp))
-
-        when {
-            loading -> LoadingBox()
-            error != null -> ErrorBox(error!!) { load() }
-            items.isEmpty() -> EmptyHint("Žiadne platby podľa filtra.")
-            else -> {
+            item {
+                // Filter — Rozsah (eKasa) + Spôsob platby + Hľadať.
                 AdminCard {
-                    PmtTableHeader()
-                    items.forEach { item ->
-                        PmtRow(
-                            item = item,
-                            busy = busy,
-                            onCopy = {
-                                runAction(
-                                    successMsg = { res ->
-                                        val printed = (res as? kotlinx.serialization.json.JsonObject)
-                                            ?.get("printed")?.let {
-                                                (it as? kotlinx.serialization.json.JsonPrimitive)?.content == "true"
-                                            } ?: false
-                                        if (printed) "Kópia odoslaná na CHDU"
-                                        else "Požiadavka na kópiu prijatá"
+                    Text("Rozsah", style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(6.dp))
+                    PillTabs(
+                        tabs = listOf("Iba aktuálna eKasa", "Všetky (vrátane starej firmy)"),
+                        selected = if (scopeAll) 1 else 0,
+                        onSelect = { scopeAll = it == 1 },
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text("Spôsob platby", style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(6.dp))
+                    PillTabs(
+                        tabs = listOf("Všetky", "Hotovosť", "Karta"),
+                        selected = methodTab,
+                        onSelect = { methodTab = it },
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        placeholder = { Text("ID platby, stôl, objednávka…") },
+                        singleLine = true,
+                        label = { Text("Hľadať") },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedButton(onClick = { load() }, enabled = !busy) { Text("Obnoviť") }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+
+            item {
+                // Scope hint (web parita renderScopeHint).
+                val hint = when {
+                    scopeAll ->
+                        "Zobrazené sú všetky platby (vrátane platieb zo starej eKasy / inej firmy)."
+                    hiddenByScope > 0 ->
+                        "Zobrazené sú iba platby aktuálnej eKasy (" +
+                            (activeCashRegisterCode.ifBlank { "—" }) + "). Skrytých: " +
+                            hiddenByScope + " zo starej eKasy. Prepni na „Všetky“ pre celú históriu."
+                    else ->
+                        "Zobrazené sú iba platby aktuálnej eKasy (" +
+                            (activeCashRegisterCode.ifBlank { "—" }) + ")."
+                }
+                Text(hint, style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(12.dp))
+            }
+
+            when {
+                loading -> item { LoadingBox() }
+                error != null -> item { ErrorBox(error!!) { load() } }
+                items.isEmpty() -> item { EmptyHint("Žiadne platby podľa filtra.") }
+                else -> {
+                    item {
+                        Box(Modifier.fillMaxWidth().horizontalScroll(tableScroll)) {
+                            Column(Modifier.width(TABLE_MIN_WIDTH.dp)) { PmtTableHeader() }
+                        }
+                    }
+                    items(items, key = { it.id }) { item ->
+                        Box(Modifier.fillMaxWidth().horizontalScroll(tableScroll)) {
+                            Column(Modifier.width(TABLE_MIN_WIDTH.dp)) {
+                                PmtRow(
+                                    item = item,
+                                    busy = busy,
+                                    onCopy = {
+                                        runAction(
+                                            successMsg = { res ->
+                                                val printed = (res as? kotlinx.serialization.json.JsonObject)
+                                                    ?.get("printed")?.let {
+                                                        (it as? kotlinx.serialization.json.JsonPrimitive)?.content == "true"
+                                                    } ?: false
+                                                if (printed) "Kópia odoslaná na CHDU"
+                                                else "Požiadavka na kópiu prijatá"
+                                            },
+                                            fallbackErr = "Kópiu sa nepodarilo vytlačiť",
+                                            call = { pmtApi.receiptCopy(item.id) },
+                                        )
                                     },
-                                    fallbackErr = "Kópiu sa nepodarilo vytlačiť",
-                                    call = { pmtApi.receiptCopy(item.id) },
+                                    onRefiscalize = { confirm = PmtConfirm.Refiscalize(item.id) },
+                                    onChangeMethod = { newMethod, newLabel ->
+                                        confirm = PmtConfirm.ChangeMethod(item.id, newMethod, newLabel)
+                                    },
+                                    onStorno = { confirm = PmtConfirm.Storno(item.id) },
                                 )
-                            },
-                            onRefiscalize = { confirm = PmtConfirm.Refiscalize(item.id) },
-                            onChangeMethod = { newMethod, newLabel ->
-                                confirm = PmtConfirm.ChangeMethod(item.id, newMethod, newLabel)
-                            },
-                            onStorno = { confirm = PmtConfirm.Storno(item.id) },
-                        )
+                            }
+                        }
                     }
                 }
             }
@@ -455,8 +475,9 @@ private const val TABLE_MIN_WIDTH = 1040
 
 @Composable
 private fun PmtTableHeader() {
+    // Šírku drží volajúci (Column s TABLE_MIN_WIDTH v zdieľanom horizontálnom scrolle).
     Row(
-        Modifier.width(TABLE_MIN_WIDTH.dp).padding(vertical = 6.dp),
+        Modifier.fillMaxWidth().padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         @Composable
@@ -481,53 +502,50 @@ private fun PmtRow(
     onChangeMethod: (String, String) -> Unit,
     onStorno: () -> Unit,
 ) {
-    // Horizontálny scroll wrapper — tabuľka je široká (web .table-scroll-wrap).
-    Box(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-        Column(Modifier.width(TABLE_MIN_WIDTH.dp)) {
-            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically) {
+    // Horizontálny scroll rieši volajúci (jeden zdieľaný stav pre celú tabuľku) —
+    // riadok len vyplní šírku rodičovského Column(TABLE_MIN_WIDTH).
+    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically) {
 
-                // ID + obj. #
-                Column(Modifier.weight(W_ID)) {
-                    Text("#${item.id}", style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold, maxLines = 1)
-                    Text("obj. #${item.orderId ?: "—"}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                }
-                // Kedy — Europe/Bratislava (web používal browser TZ; tu pinneme na bony).
-                Text(
-                    pmtWhen(item.createdAt), Modifier.weight(W_WHEN),
-                    style = MaterialTheme.typography.bodyMedium, maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                // Stôl / Účet
-                Column(Modifier.weight(W_TABLE)) {
-                    Text(item.tableName ?: "—", style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (!item.orderLabel.isNullOrBlank()) {
-                        Text(item.orderLabel, style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                }
-                // Spôsob
-                Text(pmtMethodLabel(item.method), Modifier.weight(W_METHOD),
-                    style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-                // Suma
-                Text(pmtEur(item.amount), Modifier.weight(W_SUM),
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold, maxLines = 1)
-                // Fiškalizácia
-                Box(Modifier.weight(W_FISCAL)) { PmtFiscalCell(item) }
-                // Akcie
-                Box(Modifier.weight(W_ACTIONS)) {
-                    PmtActionsCell(item, busy, onCopy, onRefiscalize, onChangeMethod, onStorno)
-                }
+        // ID + obj. #
+        Column(Modifier.weight(W_ID)) {
+            Text("#${item.id}", style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold, maxLines = 1)
+            Text("obj. #${item.orderId ?: "—"}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+        }
+        // Kedy — Europe/Bratislava (web používal browser TZ; tu pinneme na bony).
+        Text(
+            pmtWhen(item.createdAt), Modifier.weight(W_WHEN),
+            style = MaterialTheme.typography.bodyMedium, maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        // Stôl / Účet
+        Column(Modifier.weight(W_TABLE)) {
+            Text(item.tableName ?: "—", style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (!item.orderLabel.isNullOrBlank()) {
+                Text(item.orderLabel, style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            HorizontalDivider(color = BorderSoft.copy(alpha = 0.5f))
+        }
+        // Spôsob
+        Text(pmtMethodLabel(item.method), Modifier.weight(W_METHOD),
+            style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+        // Suma
+        Text(pmtEur(item.amount), Modifier.weight(W_SUM),
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold, maxLines = 1)
+        // Fiškalizácia
+        Box(Modifier.weight(W_FISCAL)) { PmtFiscalCell(item) }
+        // Akcie
+        Box(Modifier.weight(W_ACTIONS)) {
+            PmtActionsCell(item, busy, onCopy, onRefiscalize, onChangeMethod, onStorno)
         }
     }
+    HorizontalDivider(color = BorderSoft.copy(alpha = 0.5f))
 }
 
 /** Kedy formátované dd.MM.yyyy HH:mm v Europe/Bratislava (pinned — match bony). */

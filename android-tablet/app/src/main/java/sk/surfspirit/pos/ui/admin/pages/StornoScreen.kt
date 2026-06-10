@@ -111,6 +111,8 @@ fun StornoScreen() {
     var data by remember { mutableStateOf(StBasketDto()) }
     var busy by remember { mutableStateOf(false) }
     var confirmDeleteId by remember { mutableStateOf<Int?>(null) }
+    // Potvrdenie resolve akcie (id, wasPrepared) — obe okamžite menia sklad.
+    var confirmResolve by remember { mutableStateOf<Pair<Int, Boolean>?>(null) }
 
     fun load() {
         scope.launch {
@@ -237,8 +239,8 @@ fun StornoScreen() {
                             StStornoRow(
                                 item = it,
                                 enabled = !busy && isManager,
-                                onReturn = { resolveItem(it.id, false) },
-                                onWriteOff = { resolveItem(it.id, true) },
+                                onReturn = { confirmResolve = it.id to false },
+                                onWriteOff = { confirmResolve = it.id to true },
                                 onDelete = { confirmDeleteId = it.id },
                             )
                             if (i < data.items.lastIndex) HorizontalDivider(color = BorderSoft.copy(alpha = 0.5f))
@@ -258,6 +260,23 @@ fun StornoScreen() {
             danger = true,
             onConfirm = { confirmDeleteId = null; deleteItem(id) },
             onDismiss = { confirmDeleteId = null },
+        )
+    }
+
+    // Resolve potvrdenie — obe akcie okamžite a nevratne menia stav skladu.
+    confirmResolve?.let { (id, wasPrepared) ->
+        AdminConfirm(
+            title = if (wasPrepared) "Odpísať ako stratu?" else "Vrátiť na sklad?",
+            text = if (wasPrepared)
+                "Suroviny sa odpíšu zo skladu ako strata (jedlo už bolo pripravené). " +
+                    "Akcia sa nedá vrátiť späť."
+            else
+                "Suroviny sa vrátia na sklad (jedlo nebolo pripravené). " +
+                    "Akcia sa nedá vrátiť späť.",
+            confirmLabel = if (wasPrepared) "Odpísať" else "Vrátiť",
+            danger = wasPrepared,
+            onConfirm = { confirmResolve = null; resolveItem(id, wasPrepared) },
+            onDismiss = { confirmResolve = null },
         )
     }
 }
@@ -317,8 +336,9 @@ private fun StStornoRow(
 
         Spacer(Modifier.width(10.dp))
 
-        // Akčné tlačidlá — vertikálne, tap target ≥ 44dp.
-        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        // Akčné tlačidlá — vertikálne, tap target ≥ 44dp; 12dp medzera, aby
+        // „Vrátiť" a „Odpísať" neboli tesne susediace rovnaké ciele.
+        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(
                 onClick = onReturn,
                 enabled = enabled,

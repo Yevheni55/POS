@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import supertest from 'supertest';
 import { app } from '../../app.js';
 import { truncateAll, seed, closeDb } from '../helpers/setup.js';
+import { tokens } from '../helpers/auth.js';
 
 // ---------------------------------------------------------------------------
 // NOTE on rate limiter state:
@@ -106,6 +107,33 @@ describe('POST /api/auth/verify-manager', () => {
     assert.equal(res.status, 200);
     assert.equal(res.body.ok, true);
     assert.ok(res.body.name, 'name must be returned');
+    // Route is public — an unauthenticated caller must never get a JWT,
+    // only the PIN-check result (UI gate).
+    assert.equal(res.body.token, undefined, 'no elevation token without a session JWT');
+  });
+
+  it('mints the 120s elevation token when the caller has a valid session JWT', async () => {
+    const res = await request
+      .post('/api/auth/verify-manager')
+      .set('Authorization', `Bearer ${tokens.cisnik()}`)
+      .send({ pin: '5678' });
+
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.ok(res.body.token, 'elevation token must be issued into a logged-in session');
+  });
+
+  it('returns ok without a token when the Bearer JWT is invalid', async () => {
+    const res = await request
+      .post('/api/auth/verify-manager')
+      .set('Authorization', 'Bearer not-a-valid-jwt')
+      .send({ pin: '5678' });
+
+    // Invalid session JWT must not reject the PIN check (public UI gate),
+    // but it must not yield a credential either.
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.token, undefined);
   });
 
   it('returns 200 for an admin PIN (9012) — admins are also managers', async () => {

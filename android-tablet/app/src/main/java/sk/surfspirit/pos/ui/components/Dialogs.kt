@@ -32,6 +32,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import sk.surfspirit.pos.core.errorMessage
+import sk.surfspirit.pos.core.httpCode
 import sk.surfspirit.pos.core.money
 import sk.surfspirit.pos.net.*
 import sk.surfspirit.pos.ui.theme.*
@@ -172,7 +173,13 @@ fun ManagerPinDialog(contextLabel: String, onVerified: () -> Unit, onDismiss: ()
         scope.launch {
             try {
                 val resp = withContext(Dispatchers.IO) { Api.service.verifyManager(ManagerVerifyReq(pin)) }
-                if (resp.ok) onVerified() else { error = "Neoprávnený prístup."; pin = "" }
+                if (resp.ok) {
+                    // Krátkodobá elevácia (~110 s okno): auth interceptor posiela
+                    // manažérsky token namiesto čašníckeho, takže gated follow-up
+                    // volanie (storno/zľava/...) prejde requireRole na serveri.
+                    if (resp.token.isNotBlank()) Api.setElevated(resp.token)
+                    onVerified()
+                } else { error = "Neoprávnený prístup."; pin = "" }
             } catch (e: Exception) {
                 error = errorMessage(e); pin = ""
             } finally { busy = false }
@@ -287,6 +294,7 @@ fun StornoReasonDialog(
                     value = note, onValueChange = { if (it.length <= 200) note = it },
                     placeholder = { Text("Poznámka (voliteľná)") },
                     modifier = Modifier.fillMaxWidth(), singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
                 )
             }
         },
@@ -357,6 +365,7 @@ fun NoteDialog(initial: String, sent: Boolean = false, onSave: (String) -> Unit,
                     value = note, onValueChange = { if (it.length <= 200) note = it },
                     placeholder = { Text("napr. bez cibule") },
                     modifier = Modifier.fillMaxWidth(), minLines = 2,
+                    shape = RoundedCornerShape(12.dp),
                 )
                 Spacer(Modifier.height(10.dp))
                 val active = parts()
@@ -411,7 +420,7 @@ fun SauceDialog(
                         interactionSource = repInt,
                         shape = RoundedCornerShape(10.dp),
                         color = Terra.copy(alpha = 0.10f),
-                        border = BorderStroke(1.dp, Terra.copy(alpha = 0.4f)),
+                        border = BorderStroke(1.dp, BorderSoft),
                         modifier = Modifier.fillMaxWidth()
                             .paperShadow(2.dp, RoundedCornerShape(10.dp))
                             .pressScale(repInt),
@@ -592,6 +601,7 @@ fun DiscountDialog(
                         modifier = Modifier.weight(1f), singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         suffix = { Text("%") },
+                        shape = RoundedCornerShape(12.dp),
                     )
                     Spacer(Modifier.width(8.dp))
                     Button(onClick = { custom.toDoubleOrNull()?.let { onApplyCustom(it) } },
@@ -641,9 +651,23 @@ fun SplitDialog(
         title = { Text("Rozdeliť účet") },
         text = {
             Column {
-                TabRow(selectedTabIndex = tab) {
-                    Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Rovnomerne") })
-                    Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Po položkách") })
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("Rovnomerne", "Po položkách").forEachIndexed { i, label ->
+                        val active = tab == i
+                        Surface(
+                            onClick = { tab = i },
+                            shape = RoundedCornerShape(999.dp),
+                            color = if (active) Terra else Cream,
+                            border = if (active) null else BorderStroke(1.dp, BorderSoft),
+                        ) {
+                            Text(
+                                label,
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = if (active) Cream else MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
+                    }
                 }
                 Spacer(Modifier.height(12.dp))
                 if (tab == 0) {
@@ -672,7 +696,7 @@ fun SplitDialog(
                                         else -> qtyPickFor = it2
                                     }
                                 },
-                                shape = RoundedCornerShape(8.dp),
+                                shape = RoundedCornerShape(10.dp),
                                 color = if (isSel) Terra.copy(alpha = 0.10f) else MaterialTheme.colorScheme.surface,
                                 border = BorderStroke(1.dp, if (isSel) Terra else MaterialTheme.colorScheme.outline),
                                 modifier = Modifier.fillMaxWidth(),
@@ -845,6 +869,9 @@ fun PaymentDialog(
     var given by remember { mutableStateOf("") }
     val givenVal = given.replace(',', '.').toDoubleOrNull() ?: 0.0
     val change = givenVal - total
+    // Hotovosť s vyplneným „Dostal som" pod sumou (CHÝBA) → Zaplatiť disabled.
+    // Prázdne pole = platí presne, povolené.
+    val shortfall = method == "hotovost" && given.isNotEmpty() && givenVal < total - 0.005
 
     AlertDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -883,6 +910,7 @@ fun PaymentDialog(
                         modifier = Modifier.fillMaxWidth(), singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         suffix = { Text("€") },
+                        shape = RoundedCornerShape(12.dp),
                     )
                     Spacer(Modifier.height(8.dp))
                     // Quick presets — Presne + najbližšie 5/10/20/50/100 € (web parita)
@@ -923,9 +951,9 @@ fun PaymentDialog(
         confirmButton = {
             Button(
                 onClick = { onPay(method, if (method == "hotovost" && givenVal > 0) givenVal else null) },
-                enabled = !busy,
+                enabled = !busy && !shortfall,
                 colors = ButtonDefaults.buttonColors(containerColor = Terra, contentColor = Cream),
-                modifier = Modifier.height(48.dp).glow(!busy),
+                modifier = Modifier.height(48.dp).glow(!busy && !shortfall),
             ) { Text("Zaplatiť ${money(total)}") }
         },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("Zrušiť") } },
@@ -947,7 +975,7 @@ private fun ReceiptPreview(
     val timeStr = remember(now) {
         now.format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy · HH:mm"))
     }
-    Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surface,
+    Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, BorderMid)) {
         Column(Modifier.fillMaxWidth().padding(10.dp)) {
             Row { Text(tableName, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
@@ -1060,6 +1088,7 @@ fun CloseShiftDialog(
                         value = actual, onValueChange = { actual = it.filter { c -> c.isDigit() || c == ',' || c == '.' } },
                         modifier = Modifier.fillMaxWidth(), singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), suffix = { Text("€") },
+                        shape = RoundedCornerShape(12.dp),
                     )
                     Spacer(Modifier.height(8.dp))
                     // Diff — crossfade sage↔rust + animovaná suma
@@ -1105,5 +1134,43 @@ private fun SumRow(label: String, value: String, bold: Boolean = false) {
         Text(label, Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(value, fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
             color = if (bold) Terra else MaterialTheme.colorScheme.onSurface)
+    }
+}
+
+/**
+ * Súhrn zmeny sa nepodarilo načítať (transport/5xx) — odhlásenie bez
+ * uzávierky musí byť vedomá voľba, nie tichý logout (inak chýba closingCash
+ * a zajtrajšia expectedCash nesedí). Zdieľané Order/Floor screenom.
+ */
+@Composable
+fun CloseSummaryFailedDialog(onRetry: () -> Unit, onLogout: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Uzávierka zmeny") },
+        text = { Text("Uzávierku sa nepodarilo načítať. Skontroluj pripojenie k serveru a skús znova, alebo sa odhlás bez uzávierky.") },
+        confirmButton = {
+            Button(onClick = onRetry,
+                colors = ButtonDefaults.buttonColors(containerColor = Terra, contentColor = Cream)) {
+                Text("Skúsiť znova")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onLogout) {
+                Text("Odhlásiť bez uzávierky")
+            }
+        },
+    )
+}
+
+/**
+ * Klasifikácia zlyhania GET shift-summary pri štarte uzávierky:
+ * 404 = žiadna otvorená zmena, 401 = expirovaný token → rovno odhlásiť;
+ * transport/5xx — zmena MOŽNO existuje, preskočenie uzávierky musí byť
+ * vedomá voľba (onFailed → CloseSummaryFailedDialog).
+ */
+fun classifyShiftSummaryFailure(e: Exception, onLogout: () -> Unit, onFailed: () -> Unit) {
+    when (e.httpCode()) {
+        404, 401 -> onLogout()
+        else -> onFailed()
     }
 }

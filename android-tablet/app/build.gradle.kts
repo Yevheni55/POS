@@ -12,15 +12,19 @@ android {
         applicationId = "sk.surfspirit.pos"
         minSdk = 26          // Android 8.0 — adaptívna ikona bez PNG; pokryje bežné 10.1" tablety
         targetSdk = 34
-        versionCode = 12
-        versionName = "2.2"
+        versionCode = 16
+        versionName = "2.5.0"
         // Default adresa POS servera (LAN). Mení sa v appke → uloží do prefs.
         resValue("string", "default_server_url", "http://192.168.1.235:3080")
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // Distribúcia zatiaľ beží cez assembleDebug (auto-update kanál) —
+            // minifikácia ovplyvní len release kanál. Keep rules pre
+            // kotlinx-serialization DTO už sú v proguard-rules.pro.
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
@@ -29,7 +33,15 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "17" }
+    kotlinOptions {
+        jvmTarget = "17"
+        // Strong skipping (experimentálne v Compose compiler 1.5.14) — skipuje aj
+        // composables s nestabilnými parametrami a memoizuje lambdy → menej
+        // recompozícií product gridu pri rýchlom markovaní. Default až v Kotlin 2.x.
+        freeCompilerArgs += listOf(
+            "-P", "plugin:androidx.compose.compiler.plugins.kotlin:strongSkipping=true",
+        )
+    }
 
     buildFeatures { compose = true; buildConfig = true }   // buildConfig pre VERSION_CODE (auto-update)
     composeOptions { kotlinCompilerExtensionVersion = "1.5.14" }   // pre Kotlin 1.9.24
@@ -54,6 +66,8 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.navigation:navigation-compose:2.7.7")
+    // Glassmorphism — reálny backdrop blur (RenderEffect API 31+, fallback nižšie)
+    implementation("dev.chrisbanes.haze:haze:0.7.3")
     // View-Material knižnica — poskytuje XML tému Theme.Material3.* (themes.xml)
     implementation("com.google.android.material:material:1.12.0")
 

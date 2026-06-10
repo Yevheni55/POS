@@ -2,6 +2,8 @@ package sk.surfspirit.pos.ui.admin.pages
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -133,9 +135,19 @@ import sk.surfspirit.pos.ui.theme.*
     val items: List<PoNewWriteOffItem>,
 )
 
+// Lite shape /api/menu — len id+name pre join menuItemId-keyed pohybov.
+@Serializable private data class PoMenuItemLite(val id: Int = 0, val name: String = "")
+@Serializable private data class PoMenuCategoryLite(val items: List<PoMenuItemLite> = emptyList())
+
 private interface PoApi {
+    // POZOR: server vracia VŠETKY riadky len pri doslovnom active="false"
+    // (chýbajúci param = len aktívne) — name-join historických pohybov
+    // potrebuje aj deaktivované suroviny.
     @GET("api/inventory/ingredients")
     suspend fun ingredients(@Query("active") active: String = "true"): List<PoIngredientDto>
+
+    @GET("api/menu")
+    suspend fun menuLite(): List<PoMenuCategoryLite>
 
     @GET("api/inventory/movements")
     suspend fun movements(
@@ -258,9 +270,13 @@ private fun ColumnScope.PoMovementsTab(toast: AdminToastState) {
     var total by remember { mutableStateOf(0) }
     var offset by remember { mutableStateOf(0) }
 
-    // Ingredients pre filter dropdown + adjust modal + name-join.
+    // Ingredients: `ingredients` (len aktívne) pre filter dropdown + adjust
+    // modal; `allIngredients` (vrátane deaktivovaných) pre name-join — inak
+    // by historické pohyby ukazovali „ID: N". Menu lookup pre menuItemId.
     var ingredients by remember { mutableStateOf<List<PoIngredientDto>>(emptyList()) }
-    val ingredientById = remember(ingredients) { ingredients.associateBy { it.id } }
+    var allIngredients by remember { mutableStateOf<List<PoIngredientDto>>(emptyList()) }
+    var menuNameById by remember { mutableStateOf<Map<Int, String>>(emptyMap()) }
+    val ingredientById = remember(allIngredients) { allIngredients.associateBy { it.id } }
 
     // Filtre (committed — aktívne pri loade).
     var fType by remember { mutableStateOf("") }            // ''/purchase/sale/adjustment/waste/inventory
@@ -323,10 +339,21 @@ private fun ColumnScope.PoMovementsTab(toast: AdminToastState) {
     }
 
     LaunchedEffect(Unit) {
-        // Ingredients (best-effort) + prvý load pohybov.
+        // Ingredients (best-effort) + prvý load pohybov. Jeden request s
+        // active="false" → všetky riadky; aktívne pre pickery filtrujeme lokálne.
         try {
-            ingredients = withContext(Dispatchers.IO) { poApi.ingredients() }
+            val all = withContext(Dispatchers.IO) { poApi.ingredients(active = "false") }
+            allIngredients = all
+            ingredients = all.filter { it.active }
         } catch (_: Exception) { /* filter zostane „Vsetky"; name-join padne na ID */ }
+        // Druhý lookup: menuItemId-keyed pohyby (simple-tracked položky) —
+        // najprv Mem cache, inak lite fetch /api/menu.
+        menuNameById = sk.surfspirit.pos.core.Mem.categories
+            ?.flatMap { it.items }?.associate { it.id to it.name }
+            ?: runCatching {
+                withContext(Dispatchers.IO) { poApi.menuLite() }
+                    .flatMap { it.items }.associate { it.id to it.name }
+            }.getOrDefault(emptyMap())
         loadMovements()
     }
 
@@ -353,12 +380,15 @@ private fun ColumnScope.PoMovementsTab(toast: AdminToastState) {
             "inventory" to "Inventúra",
         )
         FlowRowFilters {
+            // Fixné šírky — vo FlowRow by interný fillMaxWidth inak roztiahol
+            // každý prvok na celý riadok; takto sa na tablete zmestia vedľa
+            // seba a na telefóne sa zalomia.
             PoSelect(
                 label = "Typ",
                 value = typeLabels.firstOrNull { it.first == fType }?.second ?: "Všetky",
                 options = typeLabels.map { it.second },
                 onSelect = { idx -> fType = typeLabels[idx].first },
-                modifier = Modifier.widthIn(min = 150.dp),
+                modifier = Modifier.width(150.dp),
             )
             val ingOptions = buildList {
                 add("Všetky suroviny")
@@ -369,21 +399,21 @@ private fun ColumnScope.PoMovementsTab(toast: AdminToastState) {
                 value = fIngredientId?.let { id -> ingredientById[id]?.name } ?: "Všetky suroviny",
                 options = ingOptions,
                 onSelect = { idx -> fIngredientId = if (idx == 0) null else ingredients[idx - 1].id },
-                modifier = Modifier.widthIn(min = 180.dp),
+                modifier = Modifier.width(180.dp),
             )
             FormField(
                 label = "Od (YYYY-MM-DD)",
                 value = fFrom,
                 onChange = { fFrom = it },
                 placeholder = "2026-01-01",
-                modifier = Modifier.widthIn(min = 150.dp),
+                modifier = Modifier.width(150.dp),
             )
             FormField(
                 label = "Do (YYYY-MM-DD)",
                 value = fTo,
                 onChange = { fTo = it },
                 placeholder = "2026-12-31",
-                modifier = Modifier.widthIn(min = 150.dp),
+                modifier = Modifier.width(150.dp),
             )
             Column {
                 Spacer(Modifier.height(18.dp))   // zarovnaj k inputom (label výška)
@@ -417,7 +447,7 @@ private fun ColumnScope.PoMovementsTab(toast: AdminToastState) {
                         "Poznámka" to 2.2f,
                     )
                     movements.forEach { m ->
-                        PoMovementRow(m, ingredientById)
+                        PoMovementRow(m, ingredientById, menuNameById)
                     }
                 }
             }
@@ -446,7 +476,11 @@ private fun ColumnScope.PoMovementsTab(toast: AdminToastState) {
 }
 
 @Composable
-private fun PoMovementRow(m: PoMovementDto, ingredientById: Map<Int, PoIngredientDto>) {
+private fun PoMovementRow(
+    m: PoMovementDto,
+    ingredientById: Map<Int, PoIngredientDto>,
+    menuNameById: Map<Int, String>,
+) {
     val badge = poMovementBadge(m.type)
     val prev = m.previousQty.toDoubleOrNull() ?: 0.0
     val next = m.newQty.toDoubleOrNull() ?: 0.0
@@ -455,8 +489,10 @@ private fun PoMovementRow(m: PoMovementDto, ingredientById: Map<Int, PoIngredien
         diff >= 0 -> Sage
         else -> Danger
     }
-    // Item-name resolution — server nejoinuje názvy, joinujeme z ingredients.
+    // Item-name resolution — server nejoinuje názvy: najprv ingredients
+    // (vrátane deaktivovaných), potom menu (menuItemId), fallback „ID: N".
     val itemName = m.ingredientId?.let { ingredientById[it]?.name }
+        ?: m.menuItemId?.let { menuNameById[it] }
         ?: ("ID: " + (m.ingredientId ?: m.menuItemId)?.toString().orEmpty().ifBlank { "--" })
 
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -553,6 +589,7 @@ private fun PoAdjustModal(
 ) {
     var ingredientId by remember { mutableStateOf<Int?>(null) }
     var quantity by remember { mutableStateOf("") }
+    var direction by remember { mutableStateOf("add") }     // add | remove — znamienko ide programovo
     var type by remember { mutableStateOf("adjustment") }   // adjustment | waste
     var note by remember { mutableStateOf("") }
 
@@ -572,12 +609,22 @@ private fun PoAdjustModal(
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(12.dp))
+        // Smer úpravy — znamienko sa posiela programovo (numerická klávesnica
+        // na mnohých IME nemá mínus), množstvo je vždy kladné číslo.
+        Text("Smer *", style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(4.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PoSegment("+ Pridať", direction == "add", Modifier.weight(1f)) { direction = "add" }
+            PoSegment("− Odobrať", direction == "remove", Modifier.weight(1f)) { direction = "remove" }
+        }
+        Spacer(Modifier.height(12.dp))
         FormField(
             label = "Množstvo *",
             value = quantity,
-            onChange = { quantity = it.replace(',', '.') },
-            placeholder = "napr. 5 alebo -3",
-            keyboard = KeyboardOptions(keyboardType = KeyboardType.Number),
+            onChange = { quantity = it.replace(',', '.').filter { c -> c.isDigit() || c == '.' } },
+            placeholder = "napr. 5 alebo 2,5",
+            keyboard = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(12.dp))
@@ -606,7 +653,13 @@ private fun PoAdjustModal(
                 modifier = Modifier.weight(1f).heightIn(min = 44.dp),
             ) { Text("Zrušiť") }
             Button(
-                onClick = { onSave(ingredientId, quantity.trim().toDoubleOrNull(), type, note.trim()) },
+                onClick = {
+                    // Znamienko podľa Pridať/Odobrať — vstup je vždy kladný.
+                    val q = quantity.trim().toDoubleOrNull()?.let { v ->
+                        if (direction == "remove") -kotlin.math.abs(v) else kotlin.math.abs(v)
+                    }
+                    onSave(ingredientId, q, type, note.trim())
+                },
                 enabled = !busy,
                 modifier = Modifier.weight(1f).heightIn(min = 44.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Terra, contentColor = Cream),
@@ -777,19 +830,24 @@ private fun ColumnScope.PoWriteOffsTab(toast: AdminToastState) {
                 activeStatus = ""; loadList()
             }
         else -> {
+            // LazyColumn — zoznam je nepaginovaný (server nemá limit/offset),
+            // za sezónu narastie na stovky riadkov; lazy kompozícia drží
+            // prvý paint aj pamäť na uzde. Hlavička ako item, vizuál nezmenený.
             AdminCard(Modifier.weight(1f, fill = false)) {
-                Column(Modifier.verticalScroll(rememberScrollState())) {
-                    TableHeader(
-                        "ID" to 0.9f,
-                        "Dátum" to 2.0f,
-                        "Dôvod" to 1.8f,
-                        "Položky" to 1.0f,
-                        "Cena" to 1.4f,
-                        "Stav" to 1.4f,
-                        "Vytvoril" to 1.6f,
-                        "Akcie" to 1.8f,
-                    )
-                    writeOffs.forEach { wo ->
+                LazyColumn {
+                    item {
+                        TableHeader(
+                            "ID" to 0.9f,
+                            "Dátum" to 2.0f,
+                            "Dôvod" to 1.8f,
+                            "Položky" to 1.0f,
+                            "Cena" to 1.4f,
+                            "Stav" to 1.4f,
+                            "Vytvoril" to 1.6f,
+                            "Akcie" to 1.8f,
+                        )
+                    }
+                    items(writeOffs, key = { it.id }) { wo ->
                         PoWriteOffRow(
                             wo = wo,
                             enabled = !busy && isManager,
@@ -1158,7 +1216,7 @@ private fun PoNewWriteOffModal(
                     value = row.qty,
                     onChange = { rows[i] = row.copy(qty = it.replace(',', '.')) },
                     placeholder = "Množstvo",
-                    keyboard = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    keyboard = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.weight(1f),
                 )
                 Text(
@@ -1238,6 +1296,23 @@ private fun ColumnScope.PoEmptyCta(title: String, text: String, cta: String?, on
     }
 }
 
+/** Segment pill (Pridať/Odobrať) — Terra aktívny, rovnaká identita ako
+ *  ostatné segmenty adminu. */
+@Composable
+private fun PoSegment(label: String, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick, modifier = modifier.heightIn(min = 44.dp),
+        shape = RoundedCornerShape(10.dp),
+        color = if (active) Terra else MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, if (active) Terra else BorderSoft),
+    ) {
+        Box(Modifier.fillMaxWidth().padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
+            Text(label, color = if (active) Cream else MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.labelMedium)
+        }
+    }
+}
+
 /**
  * Jednoduchý select (dropdown) — label + klikateľné pole + DropdownMenu.
  * Žiadny experimentálny API, plný náhrada za <select>.
@@ -1313,14 +1388,15 @@ private fun PoModalScaffold(
     }
 }
 
-/** flex-wrap riadok filtrov — bez experimentálneho FlowRow (manuálne layout). */
+/** flex-wrap riadok filtrov — skutočný FlowRow, na telefóne / portrait
+ *  tablete sa filtre zalomia do viacerých riadkov (rovnaký @OptIn pattern
+ *  ako FlowRowChips v RecipesScreen). */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun FlowRowFilters(content: @Composable () -> Unit) {
-    // Jednoduchý wrap: použijeme Column s Row vnútri keď úzke. Pre tablet (10.1")
-    // sa všetko zmestí do jedného riadku, takže Row + horizontal spacing stačí.
-    Row(
+    FlowRow(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.Bottom,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) { content() }
 }

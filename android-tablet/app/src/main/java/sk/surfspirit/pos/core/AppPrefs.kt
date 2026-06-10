@@ -2,6 +2,7 @@ package sk.surfspirit.pos.core
 
 import android.content.Context
 import android.content.SharedPreferences
+import sk.surfspirit.pos.net.Api
 
 /**
  * Jednoduché perzistentné nastavenia (SharedPreferences) — adresa servera,
@@ -25,7 +26,17 @@ object AppPrefs {
     /** Normalizovaná base URL (vždy s schémou, bez trailing slash). */
     var serverUrl: String
         get() = sp.getString(K_SERVER, "") ?: ""
-        set(value) = sp.edit().putString(K_SERVER, normalizeUrl(value)).apply()
+        set(value) {
+            val normalized = normalizeUrl(value)
+            val changed = normalized != (sp.getString(K_SERVER, null) ?: "")
+            sp.edit().putString(K_SERVER, normalized).apply()
+            if (changed) {
+                // Iný server = iná DB; staré drafty/cache (cudzie menuItemId)
+                // sú nebezpečné — token, Mem aj Store treba kompletne wipnuť.
+                logout()
+                Store.clearAll()
+            }
+        }
 
     var token: String?
         get() = sp.getString(K_TOKEN, null)
@@ -48,11 +59,14 @@ object AppPrefs {
 
     fun logout() {
         sp.edit().remove(K_TOKEN).remove(K_USER).remove(K_ROLE).remove("session_start").apply()
+        Mem.clear()   // ďalšia session nesmie vidieť predošlé objednávky/tržby
+        Api.clearElevated()   // manažérska elevácia nesmie prežiť session
     }
 
     /** Generické raw string accessory — používa Store (cache/drafty/queue). */
     fun getRaw(key: String): String? = sp.getString(key, null)
     fun putRaw(key: String, value: String) { sp.edit().putString(key, value).apply() }
+    fun removeRaw(key: String) { sp.edit().remove(key).apply() }
 
     /** "192.168.1.235:3080" → "http://192.168.1.235:3080"; orezáva trailing "/". */
     fun normalizeUrl(raw: String): String {

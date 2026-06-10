@@ -21,7 +21,15 @@ HOST="${DEPLOY_HOST:-surfs@100.95.64.38}"
 
 [ -f "$APK" ] || { echo "APK nenájdené: $APK"; exit 1; }
 
-echo "{\"versionCode\":$VC,\"versionName\":\"$VN\",\"url\":\"api/app/download\",\"notes\":\"$NOTES\"}" > /tmp/ss-latest.json
+# Integrita: appka si pred inštaláciou overí sha256 stiahnutého APK.
+SHA256="$(sha256sum "$APK" | awk '{print $1}')"
+
+# Minimálny povolený versionCode: 0 = žiadne vynucovanie (doterajšie správanie).
+# Zdvihni (napr. MIN_VERSION_CODE=12 ./publish-update.sh ...), keď staršie
+# verzie appky už nesmú bežať — UpdateGate sa pre ne stane blokujúcim.
+MIN_VERSION_CODE="${MIN_VERSION_CODE:-0}"
+
+echo "{\"versionCode\":$VC,\"versionName\":\"$VN\",\"url\":\"api/app/download\",\"notes\":\"$NOTES\",\"sha256\":\"$SHA256\",\"minVersionCode\":$MIN_VERSION_CODE}" > /tmp/ss-latest.json
 
 echo "→ scp APK + manifest na $HOST"
 scp "$APK" "$HOST:SurfSpiritPOS.apk"

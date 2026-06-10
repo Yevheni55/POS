@@ -96,9 +96,10 @@ async function loadSummary() {
   var wrap = $('#summaryWrap');
   if (wrap) showLoading(wrap, 'Nacitavam prehlad...');
   try {
-    var now = new Date();
-    var from = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-    var to = now.toISOString().slice(0, 10);
+    // Bratislavsky den (zdielany global z /api.js), nie UTC — 'from' je
+    // prvy den toho isteho bratislavskeho mesiaca ako 'to'.
+    var to = bratislavaDayIso(new Date());
+    var from = to.slice(0, 8) + '01';
     summary = await api.get('/inventory/write-offs-summary?from=' + from + '&to=' + to);
     if (wrap) hideLoading(wrap);
     renderSummary();

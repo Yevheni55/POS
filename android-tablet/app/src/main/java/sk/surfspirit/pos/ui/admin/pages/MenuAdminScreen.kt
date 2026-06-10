@@ -153,6 +153,15 @@ private fun mnFmtVat(v: Double): String =
 
 private fun mnFmtPrice(v: Double): String = fmtCost(v) + " €"
 
+/** Cena input filter — len číslice + maximálne JEDEN desatinný oddeľovač
+ *  (druhá čiarka/bodka sa zahodí; „1,5,0" by sa inak parsla na null → 0). */
+private fun mnCleanPrice(input: String): String {
+    val s = input.replace(',', '.').filter { it.isDigit() || it == '.' }
+    val i = s.indexOf('.')
+    val single = if (i >= 0) s.substring(0, i + 1) + s.substring(i + 1).replace(".", "") else s
+    return single.replace('.', ',')
+}
+
 /* ---------- Emoji palety (zhoda s menu.js) ---------- */
 
 private val MN_CATEGORY_EMOJIS = listOf(
@@ -412,8 +421,15 @@ fun MenuAdminScreen() {
                                 value = query,
                                 onValueChange = { query = it },
                                 placeholder = { Text("Hľadať produkt…") },
-                                leadingIcon = { Icon(Icons.Filled.Search, null) },
+                                leadingIcon = { Icon(Icons.Filled.Search, null, tint = MaterialTheme.colorScheme.outline) },
                                 singleLine = true,
+                                shape = RoundedCornerShape(999.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedContainerColor = Cream,
+                                    unfocusedContainerColor = Cream,
+                                    focusedBorderColor = Terra,
+                                    unfocusedBorderColor = BorderMid,
+                                ),
                                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                             )
                         }
@@ -575,6 +591,22 @@ fun MenuAdminScreen() {
 
 private class ImageOpException(message: String) : Exception(message)
 
+/** Validačná chyba výberu fotky (veľkosť/typ) — nesie slovenskú hlášku. */
+private class MnImageError(message: String) : Exception(message)
+
+/** Bitmap downscale na max [maxDim] px (dlhšia strana), inak vráti original. */
+private fun mnScaleDown(src: android.graphics.Bitmap, maxDim: Int): android.graphics.Bitmap {
+    val d = maxOf(src.width, src.height)
+    if (d <= maxDim) return src
+    val scale = maxDim.toFloat() / d
+    return android.graphics.Bitmap.createScaledBitmap(
+        src,
+        (src.width * scale).toInt().coerceAtLeast(1),
+        (src.height * scale).toInt().coerceAtLeast(1),
+        true,
+    )
+}
+
 /* ---------- Kategória karta ---------- */
 
 @Composable
@@ -728,7 +760,7 @@ private fun MnEmojiGrid(
     onPick: (String) -> Unit,
 ) {
     Surface(
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(14.dp),
         color = MaterialTheme.colorScheme.surfaceVariant,
         border = BorderStroke(1.dp, BorderSoft),
     ) {
@@ -770,6 +802,7 @@ private fun MnCategoryDialog(
     var label by remember { mutableStateOf(initial?.label ?: "") }
     var icon by remember { mutableStateOf(initial?.icon?.ifBlank { MN_DEFAULT_EMOJI } ?: MN_DEFAULT_EMOJI) }
     var dest by remember { mutableStateOf(initial?.dest ?: "bar") }
+    var formError by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -817,13 +850,18 @@ private fun MnCategoryDialog(
                         onSelect = { dest = it },
                     )
                 }
+                // Inline validačná chyba — Uložiť nesmie „nič nerobiť" potichu.
+                formError?.let {
+                    Text(it, color = Danger, style = MaterialTheme.typography.bodySmall)
+                }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
                     val l = label.trim()
-                    if (l.isBlank()) return@Button
+                    if (l.isBlank()) { formError = "Zadaj názov"; return@Button }
+                    formError = null
                     onSave(l, icon.trim().ifBlank { MN_DEFAULT_EMOJI }, dest)
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = Terra, contentColor = Cream),
@@ -844,6 +882,7 @@ private fun MnProductDialog(
     onSave: (req: MnItemReq, pendingImage: String?, clearImage: Boolean) -> Unit,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var emoji by remember { mutableStateOf(editing?.emoji ?: "") }
     var name by remember { mutableStateOf(editing?.name ?: "") }
     var desc by remember { mutableStateOf(editing?.desc ?: "") }
@@ -856,6 +895,7 @@ private fun MnProductDialog(
     var available by remember { mutableStateOf(editing?.available ?: true) }
     var showEmojiGrid by remember { mutableStateOf(false) }
     var emojiSearch by remember { mutableStateOf("") }
+    var formError by remember { mutableStateOf<String?>(null) }
 
     // Foto stav
     var pendingImage by remember { mutableStateOf<String?>(null) }
@@ -866,22 +906,44 @@ private fun MnProductDialog(
 
     val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        try {
-            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return@rememberLauncherForActivityResult
-            if (bytes.size > 4 * 1024 * 1024) {
-                imageError = "Fotka je príliš veľká (max 4 MB)"
-                return@rememberLauncherForActivityResult
+        // Čítanie + dekódovanie + re-kompresia na Dispatchers.IO — full-res
+        // decode 4 MB fotky je ~48 MB bitmap a base64-in-JSON upload zbytočne
+        // ťahá megabajty; menu thumbnail nikdy nepotrebuje viac ako ~1280 px.
+        scope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        ?: throw MnImageError("Fotku sa nepodarilo načítať")
+                    if (bytes.size > 4 * 1024 * 1024) throw MnImageError("Fotka je príliš veľká (max 4 MB)")
+                    val mime = context.contentResolver.getType(uri) ?: "image/jpeg"
+                    val ok = mime == "image/jpeg" || mime == "image/jpg" || mime == "image/png" || mime == "image/webp"
+                    if (!ok) throw MnImageError("Podporované: JPEG, PNG, WebP")
+                    // inSampleSize decode — cieľ max ~1280 px (mocniny 2)
+                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                    var sample = 1
+                    while (bounds.outWidth / (sample * 2) >= 1280 || bounds.outHeight / (sample * 2) >= 1280) sample *= 2
+                    val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+                    val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+                        ?: throw MnImageError("Fotku sa nepodarilo načítať")
+                    // Dorovnaj presne pod 1280 px a re-komprimuj JPEG q80.
+                    val upload = mnScaleDown(decoded, 1280)
+                    val out = java.io.ByteArrayOutputStream()
+                    upload.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, out)
+                    val b64 = android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP)
+                    // Mini preview ~320 px pre 80 dp box (nedrž veľký bitmap v state)
+                    val preview = mnScaleDown(upload, 320)
+                    "data:image/jpeg;base64,$b64" to preview
+                }
+                pendingImage = result.first
+                pendingBitmap = result.second.asImageBitmap()
+                clearImage = false
+                imageError = null
+            } catch (e: MnImageError) {
+                imageError = e.message
+            } catch (e: Exception) {
+                imageError = "Fotku sa nepodarilo načítať"
             }
-            val mime = context.contentResolver.getType(uri) ?: "image/jpeg"
-            val ok = mime == "image/jpeg" || mime == "image/jpg" || mime == "image/png" || mime == "image/webp"
-            if (!ok) { imageError = "Podporované: JPEG, PNG, WebP"; return@rememberLauncherForActivityResult }
-            val b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
-            pendingImage = "data:$mime;base64,$b64"
-            clearImage = false
-            imageError = null
-            pendingBitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
-        } catch (e: Exception) {
-            imageError = "Fotku sa nepodarilo načítať"
         }
     }
 
@@ -935,7 +997,7 @@ private fun MnProductDialog(
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FormField(
-                        "Cena (EUR) *", priceText, { priceText = it.replace(',', '.').filter { c -> c.isDigit() || c == '.' }.replace('.', ',') },
+                        "Cena (EUR) *", priceText, { priceText = mnCleanPrice(it) },
                         modifier = Modifier.weight(1f),
                         placeholder = "0,00",
                         keyboard = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -1059,6 +1121,11 @@ private fun MnProductDialog(
                     Spacer(Modifier.width(8.dp))
                     Text(if (available) "Dostupný" else "Nedostupný", style = MaterialTheme.typography.bodyMedium)
                 }
+
+                // Inline validačná chyba — Uložiť nesmie „nič nerobiť" potichu.
+                formError?.let {
+                    Text(it, color = Danger, style = MaterialTheme.typography.bodySmall)
+                }
             }
         },
         confirmButton = {
@@ -1066,9 +1133,10 @@ private fun MnProductDialog(
                 onClick = {
                     val n = name.trim()
                     val price = priceText.replace(',', '.').toDoubleOrNull() ?: 0.0
-                    if (n.isBlank()) { return@Button }
-                    if (price <= 0.0) { return@Button }
-                    if (vatRate !in MN_SUPPORTED_VAT) { return@Button }
+                    if (n.isBlank()) { formError = "Zadaj názov"; return@Button }
+                    if (price <= 0.0) { formError = "Cena musí byť > 0"; return@Button }
+                    if (vatRate !in MN_SUPPORTED_VAT) { formError = "Neplatná DPH sadzba (povolené 5, 19, 23 %)"; return@Button }
+                    formError = null
                     val dov = if (destOverride == "bar" || destOverride == "kuchyna") destOverride else null
                     val req = MnItemReq(
                         categoryId = catId,
@@ -1099,7 +1167,7 @@ private fun MnSegmented(options: List<Pair<String, String>>, selected: String, o
             val active = value == selected
             Surface(
                 onClick = { onSelect(value) },
-                shape = RoundedCornerShape(8.dp),
+                shape = RoundedCornerShape(999.dp),
                 color = if (active) Terra else MaterialTheme.colorScheme.surface,
                 border = BorderStroke(1.dp, if (active) Terra else BorderSoft),
                 modifier = Modifier.weight(1f).heightIn(min = 44.dp),
@@ -1130,7 +1198,7 @@ private fun <T> MnDropdown(
     Box {
         Surface(
             onClick = { expanded = true },
-            shape = RoundedCornerShape(8.dp),
+            shape = RoundedCornerShape(12.dp),
             color = MaterialTheme.colorScheme.surface,
             border = BorderStroke(1.dp, BorderMid),
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),

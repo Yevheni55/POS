@@ -18,8 +18,14 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import sk.surfspirit.pos.core.errorMessage
 import sk.surfspirit.pos.ui.theme.*
 
 /* =====================================================================
@@ -31,7 +37,8 @@ import sk.surfspirit.pos.ui.theme.*
 @Composable
 fun AdminSectionTitle(title: String, modifier: Modifier = Modifier, action: (@Composable () -> Unit)? = null) {
     Row(modifier.fillMaxWidth().padding(bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+        Text(title, style = MaterialTheme.typography.titleMedium.copy(fontFamily = Serif),
+            modifier = Modifier.weight(1f))
         action?.invoke()
     }
 }
@@ -61,6 +68,28 @@ fun StatCard(
                 Spacer(Modifier.height(2.dp))
                 Text(it, style = MaterialTheme.typography.labelSmall,
                     color = subColor ?: MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            }
+        }
+    }
+}
+
+/**
+ * Responzívny grid stat kariet — na telefóne (pod 600 dp) 2 bunky v riadku,
+ * inak 3; neúplný riadok dopĺňajú Spacery, aby šírka buniek bola konštantná.
+ * Bunka si musí sama dať Modifier.weight(1f) (StatCard, ShCounterCard…).
+ */
+@Composable
+fun <T> StatGrid(
+    items: List<T>,
+    spacing: Dp = 12.dp,
+    cell: @Composable RowScope.(T) -> Unit,
+) {
+    val perRow = if (isPhone()) 2 else 3
+    Column(verticalArrangement = Arrangement.spacedBy(spacing)) {
+        items.chunked(perRow).forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(spacing)) {
+                row.forEach { item -> cell(item) }
+                repeat(perRow - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
     }
@@ -180,29 +209,41 @@ fun DateNav(label: String, onPrev: () -> Unit, onNext: () -> Unit, onToday: (() 
     }
 }
 
-/** Jednoduchý stĺpcový graf (Canvas) — hodiny dňa / dni týždňa. */
+/** Jednoduchý stĺpcový graf (Canvas) — hodiny dňa / dni týždňa.
+ *  `null` hodnota = údaj sa nepodarilo načítať — sivý placeholder stĺpec
+ *  fixnej výšky (vizuálne odlišný od skutočnej nuly). */
 @Composable
 fun BarChart(
-    values: List<Double>,
+    values: List<Double?>,
     labels: List<String>,
     modifier: Modifier = Modifier,
     barColor: Color = Terra,
     height: Int = 140,
 ) {
-    val maxV = (values.maxOrNull() ?: 0.0).coerceAtLeast(0.0001)
+    val maxV = (values.filterNotNull().maxOrNull() ?: 0.0).coerceAtLeast(0.0001)
     Column(modifier.fillMaxWidth()) {
         Canvas(Modifier.fillMaxWidth().height(height.dp)) {
             val n = values.size.coerceAtLeast(1)
             val slot = size.width / n
             val barW = slot * 0.62f
             values.forEachIndexed { i, v ->
-                val h = (v / maxV).toFloat() * size.height
-                drawRoundRect(
-                    color = barColor.copy(alpha = if (v > 0) 0.85f else 0.15f),
-                    topLeft = Offset(i * slot + (slot - barW) / 2, size.height - h),
-                    size = Size(barW, h.coerceAtLeast(2f)),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f, 4f),
-                )
+                if (v == null) {
+                    val h = size.height * 0.35f
+                    drawRoundRect(
+                        color = EspressoDim.copy(alpha = 0.30f),
+                        topLeft = Offset(i * slot + (slot - barW) / 2, size.height - h),
+                        size = Size(barW, h),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f, 4f),
+                    )
+                } else {
+                    val h = (v / maxV).toFloat() * size.height
+                    drawRoundRect(
+                        color = barColor.copy(alpha = if (v > 0) 0.85f else 0.15f),
+                        topLeft = Offset(i * slot + (slot - barW) / 2, size.height - h),
+                        size = Size(barW, h.coerceAtLeast(2f)),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f, 4f),
+                    )
+                }
             }
         }
         Row(Modifier.fillMaxWidth()) {
@@ -309,4 +350,79 @@ fun FormField(
             modifier = Modifier.fillMaxWidth(),
         )
     }
+}
+
+/* ---------- Optimistický delete s undo oknom ---------- */
+
+// Zdieľaný IO scope admin obrazoviek — pending DELETE musí prežiť odchod
+// z obrazovky (rememberCoroutineScope sa pri dispose zruší a DELETE by sa
+// potichu stratil).
+private val adminIoScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+/**
+ * Jednoslotový optimistic-delete s undo oknom. Invarianty:
+ *  • nový request() najprv commitne predchádzajúci pending — DELETE sa
+ *    nesmie potichu stratiť,
+ *  • dispose kompozície pending flushne (commit, nie zrušenie),
+ *  • server DELETE beží na adminIoScope, takže prežije odchod z obrazovky,
+ *  • zlyhanie servera = rollback(snapshot) + chybový toast.
+ * Odstránenie riadku zo zoznamu a undo UI rieši call site nad [pending].
+ */
+class PendingDeleteController<T : Any> internal constructor(
+    private val toast: AdminToastState,
+    private val delete: suspend (T) -> Unit,
+    private val rollback: (T) -> Unit,
+    private val onCommitted: () -> Unit,
+) {
+    var pending by mutableStateOf<T?>(null)
+        private set
+
+    /** Optimistický delete — predchádzajúci pending sa hneď commitne. */
+    fun request(snapshot: T) {
+        pending?.let { commitNow(it) }
+        pending = snapshot
+    }
+
+    /** Undo — uvoľní slot; vrátenie riadku do zoznamu rieši call site. */
+    fun undo() { pending = null }
+
+    /** Uplynutie undo okna alebo dispose — commit pending na server. */
+    fun commit() {
+        val snap = pending ?: return
+        pending = null
+        commitNow(snap)
+    }
+
+    private fun commitNow(snapshot: T) {
+        adminIoScope.launch {
+            try {
+                delete(snapshot)
+                onCommitted()
+            } catch (e: Exception) {
+                rollback(snapshot)
+                toast.show(errorMessage(e), error = true)
+            }
+        }
+    }
+}
+
+@Composable
+fun <T : Any> rememberPendingDelete(
+    toast: AdminToastState,
+    delete: suspend (T) -> Unit,
+    rollback: (T) -> Unit,
+    onCommitted: () -> Unit = {},
+): PendingDeleteController<T> {
+    // rememberUpdatedState — lambdy musia čítať aktuálny stav obrazovky,
+    // aj keď controller vznikol v prvej kompozícii.
+    val deleteCb by rememberUpdatedState(delete)
+    val rollbackCb by rememberUpdatedState(rollback)
+    val committedCb by rememberUpdatedState(onCommitted)
+    val controller = remember(toast) {
+        PendingDeleteController<T>(toast, { deleteCb(it) }, { rollbackCb(it) }, { committedCb() })
+    }
+    DisposableEffect(controller) {
+        onDispose { controller.commit() }
+    }
+    return controller
 }

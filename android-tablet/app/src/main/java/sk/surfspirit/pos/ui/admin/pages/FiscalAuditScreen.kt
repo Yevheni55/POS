@@ -2,6 +2,8 @@ package sk.surfspirit.pos.ui.admin.pages
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -29,9 +31,11 @@ import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Path
 import retrofit2.http.Query
+import sk.surfspirit.pos.core.BRATISLAVA
 import sk.surfspirit.pos.core.errorMessage
 import sk.surfspirit.pos.core.fmtBratislava
 import sk.surfspirit.pos.core.httpCode
+import sk.surfspirit.pos.core.todayIso
 import sk.surfspirit.pos.net.Api
 import sk.surfspirit.pos.ui.admin.*
 import sk.surfspirit.pos.ui.theme.*
@@ -221,8 +225,10 @@ private fun faDescribePayload(type: String, payload: JsonElement?): String {
 private fun JsonPrimitive.contentOrNullSafe(): String? =
     try { if (this.content == "null" && !this.isString) null else this.content } catch (_: Exception) { null }
 
-private fun faTodayIso(): String = LocalDate.now().toString()
-private fun faTodayMinusIso(n: Int): String = LocalDate.now().minusDays(n.toLong()).toString()
+// „Dnes" v Europe/Bratislava (zdieľané core helpery) — device TZ by po
+// UTC polnoci posunul denné filtre na včerajšok.
+private fun faTodayMinusIso(n: Int): String =
+    LocalDate.now(BRATISLAVA).minusDays(n.toLong()).toString()
 
 /* ===================================================================== */
 
@@ -234,16 +240,16 @@ fun FiscalAuditScreen() {
     AdminScreenBox(toast, scrollable = false) {
         PillTabs(listOf("Fiškálne doklady", "Audit objednávok"), tab) { tab = it }
         Spacer(Modifier.height(14.dp))
-        // Vlastný scroll obsahu (AdminScreenBox je scrollable=false kvôli fixnej
-        // hlavičke s tabmi a dlhým tabuľkám vnútri).
-        Column(
-            Modifier.weight(1f).fillMaxWidth()
-                .verticalScroll(rememberScrollState()),
-        ) {
-            when (tab) {
-                0 -> FaFiscalTab(toast)
-                else -> FaAuditTab()
+        when (tab) {
+            // Fiškálny tab — bežný vertical scroll (obsah je krátky/bounded).
+            0 -> Column(
+                Modifier.weight(1f).fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                FaFiscalTab(toast)
             }
+            // Audit tab — vlastný LazyColumn (event log môže mať stovky riadkov).
+            else -> FaAuditTab()
         }
     }
 }
@@ -265,8 +271,8 @@ private fun ColumnScope.FaFiscalTab(toast: AdminToastState) {
     var receiptIdF by remember { mutableStateOf("") }
     var externalIdF by remember { mutableStateOf("") }
     var crCode by remember { mutableStateOf("") }
-    var yearF by remember { mutableStateOf(LocalDate.now().year.toString()) }
-    var monthF by remember { mutableStateOf(LocalDate.now().monthValue.toString()) }
+    var yearF by remember { mutableStateOf(LocalDate.now(BRATISLAVA).year.toString()) }
+    var monthF by remember { mutableStateOf(LocalDate.now(BRATISLAVA).monthValue.toString()) }
     var receiptNumberF by remember { mutableStateOf("") }
 
     var results by remember { mutableStateOf<List<FaFiscalRow>>(emptyList()) }
@@ -600,8 +606,8 @@ private fun FlowActionRow(content: @Composable RowScope.() -> Unit) {
 private fun ColumnScope.FaAuditTab() {
     val scope = rememberCoroutineScope()
 
-    var from by remember { mutableStateOf(faTodayIso()) }
-    var to by remember { mutableStateOf(faTodayIso()) }
+    var from by remember { mutableStateOf(todayIso()) }
+    var to by remember { mutableStateOf(todayIso()) }
     var staffId by remember { mutableStateOf<Int?>(null) }
     var typeFilter by remember { mutableStateOf<String?>(null) }
     var orderFilter by remember { mutableStateOf("") }
@@ -656,113 +662,122 @@ private fun ColumnScope.FaAuditTab() {
         load()
     }
 
-    // Debounce pre Č. objednávky
+    // Debounce pre Č. objednávky — aj vyprázdnenie filtra reloadne (zruší
+    // filter); preskočí sa len úvodná kompozícia (mount load() je vyššie).
+    var orderFilterArmed by remember { mutableStateOf(false) }
     LaunchedEffect(orderFilter) {
-        if (orderFilter.isBlank()) return@LaunchedEffect
+        if (!orderFilterArmed) { orderFilterArmed = true; return@LaunchedEffect }
         delay(350)
         load()
     }
 
-    // ---- Toolbar ----
-    AdminCard {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("História operácií nad objednávkami", Modifier.weight(1f),
-                style = MaterialTheme.typography.titleMedium)
-            val countText = "$count záznamov" + if (truncated) " (orezané — sprísni filter)" else ""
-            Text(countText, style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.width(12.dp))
-            Button(onClick = { load() },
-                colors = ButtonDefaults.buttonColors(containerColor = Terra, contentColor = Cream)) {
-                Text("Obnoviť")
-            }
-        }
-        Spacer(Modifier.height(12.dp))
-
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            FormField("Od", from, { from = it }, modifier = Modifier.weight(1f),
-                placeholder = "RRRR-MM-DD")
-            FormField("Do", to, { to = it }, modifier = Modifier.weight(1f),
-                placeholder = "RRRR-MM-DD")
-        }
-        Spacer(Modifier.height(10.dp))
-
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            // Čašník
-            Column(Modifier.weight(1f)) {
-                Text("Čašník", style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(4.dp))
-                Box {
-                    OutlinedButton(onClick = { staffMenu = true }, modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)) {
-                        val name = staffList.firstOrNull { it.id == staffId }?.name ?: "Všetci čašníci"
-                        Text(name, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text("▾")
-                    }
-                    DropdownMenu(expanded = staffMenu, onDismissRequest = { staffMenu = false }) {
-                        DropdownMenuItem(text = { Text("Všetci čašníci") },
-                            onClick = { staffId = null; staffMenu = false; load() })
-                        staffList.forEach { s ->
-                            DropdownMenuItem(text = { Text(s.name) },
-                                onClick = { staffId = s.id; staffMenu = false; load() })
-                        }
+    // Tab ako LazyColumn — riadky event logu sa komponujú lenivo (toolbar a
+    // hlavička sú itemy), namiesto eager forEach vo verticalScroll.
+    LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+        item {
+            // ---- Toolbar ----
+            AdminCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("História operácií nad objednávkami", Modifier.weight(1f),
+                        style = MaterialTheme.typography.titleMedium)
+                    val countText = "$count záznamov" + if (truncated) " (orezané — sprísni filter)" else ""
+                    Text(countText, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.width(12.dp))
+                    Button(onClick = { load() },
+                        colors = ButtonDefaults.buttonColors(containerColor = Terra, contentColor = Cream)) {
+                        Text("Obnoviť")
                     }
                 }
-            }
-            // Typ akcie
-            Column(Modifier.weight(1f)) {
-                Text("Typ akcie", style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(4.dp))
-                Box {
-                    OutlinedButton(onClick = { typeMenu = true }, modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)) {
-                        val lbl = typeFilter?.let { faTypeLabel(it) } ?: "Všetky akcie"
-                        Text(lbl, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text("▾")
-                    }
-                    DropdownMenu(expanded = typeMenu, onDismissRequest = { typeMenu = false }) {
-                        DropdownMenuItem(text = { Text("Všetky akcie") },
-                            onClick = { typeFilter = null; typeMenu = false; load() })
-                        typeList.forEach { t ->
-                            DropdownMenuItem(text = { Text(faTypeLabel(t)) },
-                                onClick = { typeFilter = t; typeMenu = false; load() })
+                Spacer(Modifier.height(12.dp))
+
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    FormField("Od", from, { from = it }, modifier = Modifier.weight(1f),
+                        placeholder = "RRRR-MM-DD")
+                    FormField("Do", to, { to = it }, modifier = Modifier.weight(1f),
+                        placeholder = "RRRR-MM-DD")
+                }
+                Spacer(Modifier.height(10.dp))
+
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    // Čašník
+                    Column(Modifier.weight(1f)) {
+                        Text("Čašník", style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(4.dp))
+                        Box {
+                            OutlinedButton(onClick = { staffMenu = true }, modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp)) {
+                                val name = staffList.firstOrNull { it.id == staffId }?.name ?: "Všetci čašníci"
+                                Text(name, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("▾")
+                            }
+                            DropdownMenu(expanded = staffMenu, onDismissRequest = { staffMenu = false }) {
+                                DropdownMenuItem(text = { Text("Všetci čašníci") },
+                                    onClick = { staffId = null; staffMenu = false; load() })
+                                staffList.forEach { s ->
+                                    DropdownMenuItem(text = { Text(s.name) },
+                                        onClick = { staffId = s.id; staffMenu = false; load() })
+                                }
+                            }
                         }
                     }
+                    // Typ akcie
+                    Column(Modifier.weight(1f)) {
+                        Text("Typ akcie", style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(4.dp))
+                        Box {
+                            OutlinedButton(onClick = { typeMenu = true }, modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp)) {
+                                val lbl = typeFilter?.let { faTypeLabel(it) } ?: "Všetky akcie"
+                                Text(lbl, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("▾")
+                            }
+                            DropdownMenu(expanded = typeMenu, onDismissRequest = { typeMenu = false }) {
+                                DropdownMenuItem(text = { Text("Všetky akcie") },
+                                    onClick = { typeFilter = null; typeMenu = false; load() })
+                                typeList.forEach { t ->
+                                    DropdownMenuItem(text = { Text(faTypeLabel(t)) },
+                                        onClick = { typeFilter = t; typeMenu = false; load() })
+                                }
+                            }
+                        }
+                    }
+                    // Č. objednávky
+                    FormField("Č. objednávky", orderFilter, { orderFilter = it.filter(Char::isDigit) },
+                        modifier = Modifier.weight(1f), placeholder = "napr. 123",
+                        keyboard = KeyboardOptions(keyboardType = KeyboardType.Number))
+                }
+                Spacer(Modifier.height(12.dp))
+
+                // Presety
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FaPreset("Dnes") { to = todayIso(); from = faTodayMinusIso(0); load() }
+                    FaPreset("Včera") { to = todayIso(); from = faTodayMinusIso(1); load() }
+                    FaPreset("7 dní") { to = todayIso(); from = faTodayMinusIso(7); load() }
+                    FaPreset("30 dní") { to = todayIso(); from = faTodayMinusIso(30); load() }
                 }
             }
-            // Č. objednávky
-            FormField("Č. objednávky", orderFilter, { orderFilter = it.filter(Char::isDigit) },
-                modifier = Modifier.weight(1f), placeholder = "napr. 123",
-                keyboard = KeyboardOptions(keyboardType = KeyboardType.Number))
+            Spacer(Modifier.height(14.dp))
         }
-        Spacer(Modifier.height(12.dp))
 
-        // Presety
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FaPreset("Dnes") { to = faTodayIso(); from = faTodayMinusIso(0); load() }
-            FaPreset("Včera") { to = faTodayIso(); from = faTodayMinusIso(1); load() }
-            FaPreset("7 dní") { to = faTodayIso(); from = faTodayMinusIso(7); load() }
-            FaPreset("30 dní") { to = faTodayIso(); from = faTodayMinusIso(30); load() }
+        item {
+            // ---- Tabuľka ----
+            AdminSectionTitle("História operácií nad objednávkami")
+            TableHeader(
+                "Čas" to 1.9f, "Čašník" to 1.2f, "Akcia" to 1.6f,
+                "Objednávka" to 1.4f, "Stôl" to 1f, "Detail" to 2.2f,
+            )
         }
-    }
-
-    Spacer(Modifier.height(14.dp))
-
-    // ---- Tabuľka ----
-    AdminCard {
-        AdminSectionTitle("História operácií nad objednávkami")
-        TableHeader(
-            "Čas" to 1.9f, "Čašník" to 1.2f, "Akcia" to 1.6f,
-            "Objednávka" to 1.4f, "Stôl" to 1f, "Detail" to 2.2f,
-        )
         when {
-            loading -> EmptyHint("Načítavam…")
-            error != null -> Text("Chyba: $error", Modifier.padding(16.dp), color = Danger,
-                style = MaterialTheme.typography.bodyMedium)
-            events.isEmpty() -> EmptyHint("Žiadne záznamy pre toto obdobie.")
-            else -> events.forEach { ev -> FaEventRow(ev) }
+            loading -> item { EmptyHint("Načítavam…") }
+            error != null -> item {
+                Text("Chyba: $error", Modifier.padding(16.dp), color = Danger,
+                    style = MaterialTheme.typography.bodyMedium)
+            }
+            events.isEmpty() -> item { EmptyHint("Žiadne záznamy pre toto obdobie.") }
+            else -> items(events, key = { it.id }) { ev -> FaEventRow(ev) }
         }
     }
 }

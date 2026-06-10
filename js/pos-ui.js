@@ -47,8 +47,12 @@ function showConfirm(title, text, onConfirm, opts) {
 
   function close() { overlay.classList.remove('show'); setTimeout(function(){ overlay.remove(); restoreModalTrigger(); }, 300); }
 
+  // opts.onCancel bezi LEN pri kliku na cancel tlacidlo (explicitna volba,
+  // napr. 'Odhlasit bez uzavierky'). Escape a klik na pozadie modal iba
+  // zatvoria — preto keyboard handler vola overlay._dismiss, nie .click().
+  overlay._dismiss = close;
   var cancelBtn = document.getElementById('confirmCancel');
-  if (cancelBtn) cancelBtn.onclick = close;
+  if (cancelBtn) cancelBtn.onclick = function() { if (opts.onCancel) opts.onCancel(); close(); };
   document.getElementById('confirmOk').onclick = function() { close(); if (onConfirm) onConfirm(); };
   overlay.addEventListener('click', function(e) { if (e.target === overlay) close(); });
 }
@@ -576,10 +580,12 @@ document.addEventListener('touchend',function(){
 
 // Keyboard
 document.addEventListener('keydown',function(e){
-  // Dynamic confirm/prompt modals get top priority for Escape
+  // Dynamic confirm/prompt modals get top priority for Escape.
+  // Escape iba zatvori modal (_dismiss) — NESMIE klikat confirmCancel,
+  // lebo cancel tlacidlo moze niest onCancel akciu (showConfirm opts).
   var cModal=document.getElementById('confirmModal');
   if(cModal&&cModal.classList.contains('show')){
-    if(e.key==='Escape'){e.preventDefault();var cb=document.getElementById('confirmCancel');if(cb)cb.click();else{cModal.classList.remove('show');setTimeout(function(){cModal.remove()},300)}}
+    if(e.key==='Escape'){e.preventDefault();if(cModal._dismiss){cModal._dismiss()}else{cModal.classList.remove('show');setTimeout(function(){cModal.remove()},300)}}
     if(e.key==='Enter'){e.preventDefault();document.getElementById('confirmOk').click()}return}
   var pModal=document.getElementById('promptModal');
   if(pModal&&pModal.classList.contains('show')){

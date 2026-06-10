@@ -10,6 +10,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -55,9 +57,17 @@ enum class AdminPage(
     NASTAVENIA("Nastavenia", "⚙️", "settings", "SYSTÉM"),
 }
 
+/** Saver pre AdminPage — ukladá názov enum-u, bezpečný fallback na DASHBOARD
+ *  (keby konštanta medzi verziami zmizla). */
+private val AdminPageSaver = Saver<AdminPage, String>(
+    save = { it.name },
+    restore = { name -> AdminPage.entries.firstOrNull { it.name == name } ?: AdminPage.DASHBOARD },
+)
+
 @Composable
 fun AdminShell(onBackToPos: () -> Unit, onOpenFloorEdit: () -> Unit) {
-    var page by remember { mutableStateOf(AdminPage.DASHBOARD) }
+    // rememberSaveable: zvolená stránka prežije config change / process death.
+    var page by rememberSaveable(stateSaver = AdminPageSaver) { mutableStateOf(AdminPage.DASHBOARD) }
 
     BackHandler(enabled = true) { onBackToPos() }
 
@@ -162,7 +172,7 @@ private fun RailItem(p: AdminPage, active: Boolean, onClick: () -> Unit) {
         Motion.colorSpec, label = "rail")
     val ink by animateColorAsState(if (active) Terra else MaterialTheme.colorScheme.onSurface,
         Motion.colorSpec, label = "railInk")
-    Surface(onClick = onClick, interactionSource = interaction, shape = RoundedCornerShape(10.dp),
+    Surface(onClick = onClick, interactionSource = interaction, shape = RoundedCornerShape(12.dp),
         color = fill, modifier = Modifier.fillMaxWidth().pressScale(interaction)) {
         Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.width(3.dp).fillMaxHeight()

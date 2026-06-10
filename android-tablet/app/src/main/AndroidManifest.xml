@@ -9,8 +9,9 @@
     <uses-feature android:name="android.hardware.touchscreen" android:required="true" />
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
+    <!-- allowBackup=false — JWT v plain SharedPreferences nesmie ísť do cloud/D2D zálohy -->
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"

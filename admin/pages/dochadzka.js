@@ -30,9 +30,13 @@ let _openOnly = false;
 // pri init + po každej mutácii (payout / pridanie eventu / zmazanie).
 let _balance = null;
 
-function todayIso() { return new Date().toISOString().slice(0, 10); }
+// bratislavaDayIso je zdielany global z /api.js (preco nie UTC — viz tam).
+function todayIso() { return bratislavaDayIso(new Date()); }
 function todayMinusDays(n) {
-  const d = new Date();
+  // Kotvene na bratislavske 'dnes', aby _from a _to pocitali s rovnakym
+  // dnom. Odpocet dni v UTC priestore neposunie prechod DST.
+  const p = todayIso().split('-');
+  const d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]));
   d.setUTCDate(d.getUTCDate() - n);
   return d.toISOString().slice(0, 10);
 }

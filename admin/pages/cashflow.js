@@ -48,9 +48,13 @@ let _entries = [];
 // during a single session.
 let _suppliers = [];
 
-function todayIso() { return new Date().toISOString().slice(0, 10); }
+// bratislavaDayIso je zdielany global z /api.js (preco nie UTC — viz tam).
+function todayIso() { return bratislavaDayIso(new Date()); }
 function todayMinusDaysIso(n) {
-  const d = new Date();
+  // Odpocitavame kalendarne dni od bratislavskeho 'dnes' v UTC priestore,
+  // aby posun nepokazil prechod letneho/zimneho casu ani koniec mesiaca.
+  const p = todayIso().split('-');
+  const d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]));
   d.setUTCDate(d.getUTCDate() - n);
   return d.toISOString().slice(0, 10);
 }
