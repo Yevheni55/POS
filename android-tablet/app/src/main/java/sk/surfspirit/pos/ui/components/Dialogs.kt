@@ -3,6 +3,7 @@ package sk.surfspirit.pos.ui.components
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
@@ -19,6 +20,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
@@ -389,13 +391,23 @@ fun NoteDialog(initial: String, sent: Boolean = false, onSave: (String) -> Unit,
 
 /* ============================ Sauce / combo picker ============================ */
 
-private val SAUCES = listOf("Big Mac domáca", "Chilli-mayo", "Tatárka domáca", "Kečup", "BBQ")
+// Emoji = rýchly periférny scan v rušnej smene; poradie zhodné s webom.
+private val SAUCES = listOf(
+    "🍔" to "Big Mac domáca",
+    "🌶️" to "Chilli-mayo",
+    "🥒" to "Tatárka domáca",
+    "🍅" to "Kečup",
+    "🔥" to "BBQ",
+)
 
 /**
  * Sauce picker pre combá — web parita: ak má objednávka rovnaké combo už
  * s omáčkou, hore je prominent „Opakovať omáčku" CTA (1 klik = rovnaká
- * voľba) + checkboxy sú pre-checknuté. onConfirm dostáva zoznam omáčok
+ * voľba) + voľby sú pre-checknuté. onConfirm dostáva zoznam omáčok
  * (prázdny = bez omáčky); zrušenie = onDismiss.
+ *
+ * Warm Hearth: veľké tap-karty (≥46 dp) s emoji + fajkou namiesto
+ * checkboxov, ember CTA na opakovanie, pill tlačidlá.
  *
  * @param previous null = žiadna predchádzajúca voľba; [] = „bez omáčky"
  */
@@ -409,52 +421,107 @@ fun SauceDialog(
     val sel = remember { mutableStateListOf<String>().apply { previous?.let { addAll(it) } } }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Omáčka — $productName") },
-        text = {
+        title = {
             Column {
+                Text("Omáčka", style = MaterialTheme.typography.titleLarge.copy(fontFamily = Serif))
+                Text(productName, style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        text = {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 if (previous != null) {
                     val prevLabel = if (previous.isEmpty()) "bez omáčky" else previous.joinToString(" + ")
                     val repInt = remember { MutableInteractionSource() }
                     Surface(
                         onClick = { onConfirm(previous) },
                         interactionSource = repInt,
-                        shape = RoundedCornerShape(10.dp),
-                        color = Terra.copy(alpha = 0.10f),
-                        border = BorderStroke(1.dp, BorderSoft),
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color.Transparent,
                         modifier = Modifier.fillMaxWidth()
-                            .paperShadow(2.dp, RoundedCornerShape(10.dp))
+                            .paperShadow(2.dp, RoundedCornerShape(12.dp))
                             .pressScale(repInt),
                     ) {
-                        Column(Modifier.padding(12.dp)) {
-                            Text("↻ Opakovať omáčku", style = MaterialTheme.typography.labelSmall, color = Terra)
-                            Text(prevLabel, style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold, color = Terra)
+                        Row(
+                            Modifier.background(emberBrush()).padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("↻ OPAKOVAŤ OMÁČKU", style = MaterialTheme.typography.labelSmall,
+                                    color = Cream.copy(alpha = 0.85f))
+                                Text(prevLabel, style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Bold, color = Cream,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            Icon(Icons.Filled.Check, null, Modifier.size(20.dp), tint = Cream)
                         }
                     }
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(2.dp))
                 }
-                SAUCES.forEach { s ->
-                    Row(verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()) {
-                        Checkbox(checked = sel.contains(s), onCheckedChange = {
-                            if (it) sel.add(s) else sel.remove(s)
-                        })
-                        Text(s)
+                SAUCES.forEach { (emoji, name) ->
+                    SauceRow(emoji, name, selected = sel.contains(name)) {
+                        if (sel.contains(name)) sel.remove(name) else sel.add(name)
                     }
                 }
             }
         },
         confirmButton = {
             Row {
-                TextButton(onClick = { onConfirm(emptyList()) }) { Text("Bez omáčky") }
-                Spacer(Modifier.width(4.dp))
-                Button(onClick = { onConfirm(sel.toList()) },
+                OutlinedButton(
+                    onClick = { onConfirm(emptyList()) },
+                    shape = RoundedCornerShape(999.dp),
+                    border = BorderStroke(1.dp, BorderSoft),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
+                ) { Text("Bez omáčky") }
+                Spacer(Modifier.width(8.dp))
+                Button(
+                    onClick = { onConfirm(sel.toList()) },
+                    shape = RoundedCornerShape(999.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Terra, contentColor = Cream),
-                ) { Text("Potvrdiť") }
+                ) { Text(if (sel.isEmpty()) "Potvrdiť" else "Potvrdiť (${sel.size})") }
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Zrušiť") } },
     )
+}
+
+/** Tap-karta omáčky — vizuálny jazyk MoveSelectRow (terra tint + fajka v krúžku). */
+@Composable
+private fun SauceRow(emoji: String, name: String, selected: Boolean, onToggle: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val fill by animateColorAsState(
+        if (selected) Terra.copy(alpha = 0.10f) else MaterialTheme.colorScheme.surface,
+        Motion.colorSpec, label = "sauceFill")
+    val edge by animateColorAsState(if (selected) Terra else BorderSoft, Motion.colorSpec, label = "sauceEdge")
+    Surface(
+        onClick = onToggle,
+        interactionSource = interaction,
+        shape = RoundedCornerShape(12.dp),
+        color = fill,
+        border = BorderStroke(1.dp, edge),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 46.dp).pressScale(interaction),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Text(emoji, fontSize = 18.sp)
+            Spacer(Modifier.width(10.dp))
+            Text(name, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                color = if (selected) Terra else MaterialTheme.colorScheme.onSurface,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Box(
+                Modifier.size(22.dp)
+                    .background(if (selected) Terra else Color.Transparent, CircleShape)
+                    .border(1.5.dp, if (selected) Terra else BorderSoft, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (selected) Icon(Icons.Filled.Check, null, Modifier.size(14.dp), tint = Cream)
+            }
+        }
+    }
 }
 
 /* ============================ Qty pickery ============================ */
