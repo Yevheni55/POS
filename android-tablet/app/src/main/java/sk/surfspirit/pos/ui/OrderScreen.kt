@@ -248,7 +248,7 @@ fun OrderScreen(
                     runCatching { withContext(Dispatchers.IO) { Api.service.discounts() } }
                         .onSuccess { discountsList = it; Mem.discounts = it }
                 }
-                Net.offline.value = false
+                Net.reportSuccess()
                 error = null
                 withContext(Dispatchers.IO) { runCatching { Store.flushQueue() } }
                 Store.refreshQueueCount()
@@ -256,7 +256,7 @@ fun OrderScreen(
                 if (!quiet && ords.size > 1 && keepAccountId == null) showAccountPicker = true
             } catch (e: Exception) {
                 if (e.httpCode() == 401) { AppPrefs.logout(); onSessionExpired(); return@launch }
-                Net.offline.value = true
+                Net.reportFailure(e)
                 // Offline fallback — menu z cache, objednávky posledné známe
                 if (categories.isEmpty()) {
                     val cached = Store.cachedMenu()
@@ -287,10 +287,10 @@ fun OrderScreen(
                 accounts = ords
                 tables = tbls
                 current = ords.firstOrNull { it.id == current?.id } ?: ords.firstOrNull()
-                Net.offline.value = false
+                Net.reportSuccess()
             } catch (e: Exception) {
                 if (e.httpCode() == 401) { AppPrefs.logout(); onSessionExpired(); return@launch }
-                Net.offline.value = true
+                Net.reportFailure(e)
             }
         }
     }

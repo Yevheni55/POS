@@ -521,6 +521,23 @@ object Api {
         chain.proceed(b.build())
     }
 
+    // Tichý retry LEN pre idempotentné GET-y: retryOnConnectionFailure je
+    // vypnutý (tichý re-POST by mohol duplikovať doklady), ale kiosk po idle
+    // bežne trafí mŕtve pooled keep-alive spojenie — prvý GET okamžite spadne
+    // a UI by falošne bliklo OFFLINE. Druhý pokus ide na čerstvom spojení.
+    // InterruptedIOException (timeout/cancel) sa neretryuje — zdvojnásobil by
+    // čakanie a timeout nie je symptóm mŕtveho socketu.
+    private val staleGetRetryInterceptor = okhttp3.Interceptor { chain ->
+        val req = chain.request()
+        try {
+            chain.proceed(req)
+        } catch (e: java.io.IOException) {
+            val retriable = req.method.equals("GET", ignoreCase = true) &&
+                e !is java.io.InterruptedIOException
+            if (retriable) chain.proceed(req) else throw e
+        }
+    }
+
     // Per-call read timeout: hlavička X-Read-Timeout-Sec sa odstráni a použije
     // ako read timeout len pre daný request (pay → Portos fiškalizácia môže
     // presiahnuť globálnych 20 s).
@@ -536,6 +553,7 @@ object Api {
     private val client = OkHttpClient.Builder()
         .addInterceptor(baseSwapInterceptor)
         .addInterceptor(authInterceptor)
+        .addInterceptor(staleGetRetryInterceptor)
         .addInterceptor(readTimeoutInterceptor)
         // HTTP log len v debug builde — release nesmie sypať API prevádzku do logcatu.
         .apply { if (BuildConfig.DEBUG) addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC }) }

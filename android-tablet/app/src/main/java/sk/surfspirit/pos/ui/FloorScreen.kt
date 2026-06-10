@@ -140,7 +140,7 @@ fun FloorScreen(
                     Store.cacheTables(tbls)
                     if (zones.isNotEmpty()) Store.cacheZones(zones)
                 }
-                Net.offline.value = false
+                Net.reportSuccess()
                 error = null
                 withContext(Dispatchers.IO) { runCatching { Store.flushQueue() } }
                 Store.refreshQueueCount()
@@ -149,7 +149,7 @@ fun FloorScreen(
                     // Stale/expirovaný token → čisto na login (web requireAuth parita)
                     AppPrefs.logout(); onSessionExpired(); return@launch
                 }
-                Net.offline.value = true
+                Net.reportFailure(e)
                 // Offline fallback — cache stolov/zón, objednávky ostávajú posledné známe
                 val cachedT = Store.cachedTables()
                 if (tables.isEmpty() && cachedT != null) {

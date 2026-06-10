@@ -46,6 +46,24 @@ data class PendingRemoval(val orderId: Int, val itemId: Long)
 object Net {
     val offline = mutableStateOf(false)
     val queueCount = mutableStateOf(0)
+
+    // OFFLINE banner až po 2 zlyhaniach ZA SEBOU: jediný padnutý request
+    // (typicky mŕtve pooled spojenie po idle kiosku) nesmie bliknúť banner
+    // na pol minúty do ďalšieho pollu. Výnimka: connect-level chyba
+    // (ConnectException/UnknownHost) = server preukázateľne nedosiahnuteľný
+    // → banner okamžite. Successy streak nulujú a banner zhasínajú.
+    private val failStreak = java.util.concurrent.atomic.AtomicInteger(0)
+
+    fun reportSuccess() {
+        failStreak.set(0)
+        offline.value = false
+    }
+
+    fun reportFailure(e: Throwable? = null) {
+        if (e?.isConnectFailure() == true || failStreak.incrementAndGet() >= 2) {
+            offline.value = true
+        }
+    }
 }
 
 /**
