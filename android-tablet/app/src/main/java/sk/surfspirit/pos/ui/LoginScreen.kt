@@ -129,6 +129,14 @@ fun LoginScreen(onLoggedIn: () -> Unit, onOpenDochadzka: (() -> Unit)? = null) {
                     Text(it, color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodyMedium)
                 }
+                Spacer(Modifier.height(12.dp))
+                // Verzia appky — pri riešení problémov musí byť hneď jasné,
+                // ktorý build na zariadení reálne beží (update kanál je async).
+                Text(
+                    "v${sk.surfspirit.pos.BuildConfig.VERSION_NAME} (${sk.surfspirit.pos.BuildConfig.VERSION_CODE})",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                )
             }
         }
 
