@@ -11,6 +11,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -34,11 +35,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
@@ -55,11 +62,47 @@ fun statusColor(s: String): Color = when (s) {
     "dirty" -> Danger
     else -> Sage
 }
-fun statusGlyph(s: String): String = when (s) {
-    "occupied" -> "●"; "reserved" -> "◐"; "dirty" -> "✕"; else -> "○"
-}
 fun statusLabel(s: String): String = when (s) {
     "occupied" -> "obsadený"; "reserved" -> "rezerv."; "dirty" -> "špinavý"; else -> "voľný"
+}
+
+/**
+ * Vektorový stavový glyf — Canvas kresba namiesto textových znakov
+ * (●◐✕○ sa naprieč fontami renderujú nerovnako). Sémantika nesie
+ * slovenský stav pre TalkBack.
+ */
+@Composable
+fun StatusGlyph(status: String, size: Dp = 10.dp, color: Color) {
+    val desc = when (status) {
+        "occupied" -> "Obsadený"
+        "reserved" -> "Rezervovaný"
+        "dirty" -> "Na upratanie"
+        else -> "Voľný"
+    }
+    Canvas(Modifier.size(size).semantics { contentDescription = desc }) {
+        val d = this.size.minDimension
+        val ring = 1.5.dp.toPx()
+        when (status) {
+            // Plný disk
+            "occupied" -> drawCircle(color)
+            // Ľavá polovica plná (oblúk 90..270°) + tenký prstenec
+            "reserved" -> {
+                drawArc(color, startAngle = 90f, sweepAngle = 180f, useCenter = true)
+                drawCircle(color, radius = (d - ring) / 2f, style = Stroke(ring))
+            }
+            // X kríž — dva 2 dp ťahy
+            "dirty" -> {
+                val w = 2.dp.toPx()
+                val inset = d * 0.18f
+                drawLine(color, Offset(inset, inset), Offset(d - inset, d - inset),
+                    strokeWidth = w, cap = StrokeCap.Round)
+                drawLine(color, Offset(d - inset, inset), Offset(inset, d - inset),
+                    strokeWidth = w, cap = StrokeCap.Round)
+            }
+            // Voľný = prázdny prstenec
+            else -> drawCircle(color, radius = (d - ring) / 2f, style = Stroke(ring))
+        }
+    }
 }
 
 /** Terra zaoblené logo „SSS" — ako vo web header. */
@@ -96,7 +139,7 @@ private val DATE_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("EEEE d. M
 /** Segmentový prepínač Stoly | Objednávka (ako web header). */
 @Composable
 private fun SegToggle(activeTab: String, onStoly: () -> Unit) {
-    Surface(shape = RoundedCornerShape(999.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+    Surface(shape = RoundedCornerShape(Radius.full), color = MaterialTheme.colorScheme.surfaceVariant) {
         Row(Modifier.padding(3.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
             SegItem("Stoly", activeTab == "stoly", onStoly)
             SegItem("Objednávka", activeTab == "objednavka", {})
@@ -107,12 +150,12 @@ private fun SegToggle(activeTab: String, onStoly: () -> Unit) {
 @Composable
 private fun SegItem(label: String, active: Boolean, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
-    val fill by animateColorAsState(if (active) Terra else Color.Transparent, Motion.colorSpec, label = "seg")
-    val ink by animateColorAsState(if (active) Cream else EspressoSoft, Motion.colorSpec, label = "segInk")
+    val fill by animateColorAsState(if (active) Terra else Color.Transparent, colorSpecOrSnap(), label = "seg")
+    val ink by animateColorAsState(if (active) Cream else EspressoSoft, colorSpecOrSnap(), label = "segInk")
     Surface(
         onClick = onClick,
         interactionSource = interaction,
-        shape = RoundedCornerShape(999.dp),
+        shape = RoundedCornerShape(Radius.full),
         color = fill,
         modifier = Modifier.pressScale(interaction),
     ) {
@@ -142,7 +185,7 @@ fun PosHeader(
     val now by rememberNow()
     val compact = isPhone()
     // Paper-drop tieň namiesto tonal elevation — plán/menu „odpadne" pod header
-    Surface(color = CreamElev, modifier = Modifier.paperShadow(6.dp, RectangleShape)) {
+    Surface(color = CreamElev, modifier = Modifier.paperShadow(Elev.float, RectangleShape)) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = if (compact) 8.dp else 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -171,13 +214,14 @@ fun PosHeader(
                 Spacer(Modifier.width(16.dp))
             }
             userName?.let {
-                Surface(shape = RoundedCornerShape(999.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+                Surface(shape = RoundedCornerShape(Radius.full), color = MaterialTheme.colorScheme.surfaceVariant) {
                     Row(Modifier.padding(horizontal = if (compact) 6.dp else 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         Surface(shape = CircleShape, color = Terra, modifier = Modifier.size(22.dp)) {
                             Box(contentAlignment = Alignment.Center) {
                                 Text(it.take(1).uppercase(), color = Cream, fontFamily = Sora,
-                                    fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.labelMedium)
                             }
                         }
                         if (!compact) {
@@ -252,8 +296,9 @@ fun ShiftStrip(openTables: Int, totalTables: Int, revenueToday: Double?) {
 
 /**
  * Espresso snackbar — tmavý toast na cream pozadí so sémantickým ľavým
- * prúžkom (✔ sage · ⏳ amber · chyba rust · inak terra). Nahrádza stock
- * šedý M3 snackbar v oboch Scaffoldoch.
+ * prúžkom. Legacy host pre obrazovky so SnackbarHostState; NOVÝ kód má
+ * používať LocalToast + PosToastHost (ui/components/Toast.kt) s explicitným
+ * ToastTone namiesto odvodzovania tónu z textu správy.
  */
 @Composable
 fun PosSnackbarHost(state: SnackbarHostState) {
@@ -267,8 +312,8 @@ fun PosSnackbarHost(state: SnackbarHostState) {
             else -> Terra
         }
         Surface(
-            Modifier.padding(16.dp).paperShadow(6.dp, RoundedCornerShape(12.dp)),
-            shape = RoundedCornerShape(12.dp), color = Espresso, contentColor = Cream,
+            Modifier.padding(16.dp).paperShadow(Elev.float, RoundedCornerShape(Radius.md)),
+            shape = RoundedCornerShape(Radius.md), color = Espresso, contentColor = Cream,
         ) {
             Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.width(4.dp).fillMaxHeight().background(bar))
@@ -287,10 +332,14 @@ fun PosSnackbarHost(state: SnackbarHostState) {
 fun OfflineBanner() {
     val offline by sk.surfspirit.pos.core.Net.offline
     val queued by sk.surfspirit.pos.core.Net.queueCount
+    // Reduced-motion: banner sa objaví/zmizne okamžite (tween 0), bez vsúvania
+    val reduced = reducedMotion()
+    val inDur = if (reduced) 0 else Motion.NORMAL
+    val outDur = if (reduced) 0 else Motion.FAST
     AnimatedVisibility(
         visible = offline || queued > 0,
-        enter = expandVertically(tween(Motion.NORMAL)) + fadeIn(tween(Motion.NORMAL)),
-        exit = shrinkVertically(tween(Motion.FAST)) + fadeOut(tween(Motion.FAST)),
+        enter = expandVertically(tween(inDur)) + fadeIn(tween(inDur)),
+        exit = shrinkVertically(tween(outDur)) + fadeOut(tween(outDur)),
     ) {
         Surface(color = if (offline) Danger else Amber) {
             Text(

@@ -33,6 +33,7 @@ import sk.surfspirit.pos.core.fmtBratislava
 import sk.surfspirit.pos.core.httpCode
 import sk.surfspirit.pos.net.Api
 import sk.surfspirit.pos.ui.admin.*
+import sk.surfspirit.pos.ui.components.LocalToast
 import sk.surfspirit.pos.ui.theme.*
 import java.time.LocalDate
 import java.time.temporal.WeekFields
@@ -171,7 +172,7 @@ private fun ymdLocal(d: LocalDate): String = d.toString()
 
 @Composable
 fun DashboardScreen() {
-    val toast = rememberAdminToast()
+    val toast = LocalToast.current
     val scope = rememberCoroutineScope()
 
     // Hlavné štatistiky (summary + obsadenosť) + top + platby
@@ -328,7 +329,7 @@ fun DashboardScreen() {
         }
     }
 
-    AdminScreenBox(toast) {
+    AdminScreenBox {
         // (A) Kto je v práci
         DbActiveStaffPanel(activeStaff)
 
@@ -502,7 +503,7 @@ private fun DbWeeklyChartCard(values: List<Double?>, loading: Boolean, onRetry: 
                         Text(
                             when { v == null -> "?"; v > 0 -> fmtEur(v); else -> "—" },
                             Modifier.weight(1f),
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), // token-exempt: velkost mimo skaly
                             color = when {
                                 v == null -> EspressoDim
                                 v == max && v > 0 -> Terra
@@ -571,13 +572,13 @@ private fun DbTopProductsCard(items: List<DbTopItem>) {
                 // horizontálny fill bar
                 Box(
                     Modifier.weight(1.4f).height(8.dp).padding(horizontal = 6.dp)
-                        .clip(RoundedCornerShape(4.dp))
+                        .clip(RoundedCornerShape(Radius.xs))
                         .background(CreamSunken),
                 ) {
                     val frac = (p.qty.toFloat() / maxQty).coerceIn(0f, 1f)
                     Box(
                         Modifier.fillMaxHeight().fillMaxWidth(frac)
-                            .clip(RoundedCornerShape(4.dp))
+                            .clip(RoundedCornerShape(Radius.xs))
                             .background(Terra),
                     )
                 }
@@ -616,7 +617,7 @@ private fun DbPaymentMethodsCard(methods: List<DbMethod>) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
-                    Modifier.size(12.dp).clip(RoundedCornerShape(6.dp)).background(color),
+                    Modifier.size(12.dp).clip(RoundedCornerShape(Radius.sm)).background(color),
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
@@ -628,13 +629,13 @@ private fun DbPaymentMethodsCard(methods: List<DbMethod>) {
                 )
                 Box(
                     Modifier.weight(1f).height(10.dp).padding(end = 8.dp)
-                        .clip(RoundedCornerShape(5.dp))
+                        .clip(RoundedCornerShape(Radius.xs))
                         .background(CreamSunken),
                 ) {
                     val frac = (m.total / maxTotal).toFloat().coerceIn(0f, 1f)
                     Box(
                         Modifier.fillMaxHeight().fillMaxWidth(frac)
-                            .clip(RoundedCornerShape(5.dp))
+                            .clip(RoundedCornerShape(Radius.xs))
                             .background(color),
                     )
                 }

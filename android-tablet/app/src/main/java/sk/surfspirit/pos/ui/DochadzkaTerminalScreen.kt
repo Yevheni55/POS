@@ -7,26 +7,20 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Backspace
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -41,6 +35,10 @@ import retrofit2.http.POST
 import sk.surfspirit.pos.core.BRATISLAVA
 import sk.surfspirit.pos.core.errorMessage
 import sk.surfspirit.pos.net.Api
+import sk.surfspirit.pos.ui.components.PinDots
+import sk.surfspirit.pos.ui.components.PinPad
+import sk.surfspirit.pos.ui.components.PinPadCorner
+import sk.surfspirit.pos.ui.components.PinPadSize
 import sk.surfspirit.pos.ui.theme.*
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
@@ -217,8 +215,8 @@ fun DochadzkaTerminalScreen(onBack: () -> Unit) {
                 Spacer(Modifier.height(24.dp))
 
                 // Status karta
-                Surface(shape = RoundedCornerShape(22.dp), color = CreamElev,
-                    modifier = Modifier.fillMaxWidth().paperShadow(6.dp, RoundedCornerShape(22.dp))) {
+                Surface(shape = RoundedCornerShape(Radius.lg), color = CreamElev,
+                    modifier = Modifier.fillMaxWidth().paperShadow(Elev.float, RoundedCornerShape(Radius.lg))) {
                     Column(Modifier.padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         val st = staff
                         if (st == null) {
@@ -231,7 +229,7 @@ fun DochadzkaTerminalScreen(onBack: () -> Unit) {
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(Modifier.height(8.dp))
                             val inWork = state == "clocked_in"
-                            Surface(shape = RoundedCornerShape(999.dp),
+                            Surface(shape = RoundedCornerShape(Radius.full),
                                 color = (if (inWork) Sage else EspressoDim).copy(alpha = 0.14f),
                                 border = BorderStroke(1.dp, (if (inWork) Sage else EspressoDim).copy(alpha = 0.4f))) {
                                 Text(if (inWork) "V práci" else "Doma",
@@ -253,7 +251,7 @@ fun DochadzkaTerminalScreen(onBack: () -> Unit) {
                     Column {
                         if (state != "clocked_in") {
                             Button(onClick = { clock("clock_in") }, enabled = !busy,
-                                shape = RoundedCornerShape(999.dp),
+                                shape = RoundedCornerShape(Radius.full),
                                 colors = ButtonDefaults.buttonColors(containerColor = Sage, contentColor = Cream),
                                 modifier = Modifier.fillMaxWidth().height(64.dp).glow(!busy)) {
                                 Text("▶  Príchod", style = MaterialTheme.typography.titleMedium, color = Cream)
@@ -261,7 +259,7 @@ fun DochadzkaTerminalScreen(onBack: () -> Unit) {
                         }
                         if (state == "clocked_in") {
                             Button(onClick = { clock("clock_out") }, enabled = !busy,
-                                shape = RoundedCornerShape(999.dp),
+                                shape = RoundedCornerShape(Radius.full),
                                 colors = ButtonDefaults.buttonColors(containerColor = Amber, contentColor = Espresso),
                                 modifier = Modifier.fillMaxWidth().height(64.dp).glow(!busy)) {
                                 Text("⏹  Odchod", style = MaterialTheme.typography.titleMedium)
@@ -269,7 +267,7 @@ fun DochadzkaTerminalScreen(onBack: () -> Unit) {
                         }
                         Spacer(Modifier.height(10.dp))
                         OutlinedButton(onClick = { openMyShifts("month") },
-                            shape = RoundedCornerShape(999.dp),
+                            shape = RoundedCornerShape(Radius.full),
                             modifier = Modifier.fillMaxWidth().height(48.dp),
                             border = BorderStroke(1.dp, Navy)) {
                             Text("Moje smeny a zárobky", color = Navy)
@@ -284,46 +282,19 @@ fun DochadzkaTerminalScreen(onBack: () -> Unit) {
 
         // ── PIN pad (zdieľaný tablet/telefón) ──
         val pinPad: @Composable (Modifier) -> Unit = { padMod ->
-            Surface(padMod.paperShadow(6.dp, RoundedCornerShape(22.dp)),
-                shape = RoundedCornerShape(22.dp), color = CreamElev) {
+            Surface(padMod.paperShadow(Elev.float, RoundedCornerShape(Radius.lg)),
+                shape = RoundedCornerShape(Radius.lg), color = CreamElev) {
                 Column(Modifier.padding(vertical = 26.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    val dotPop = rememberPop(pin.length)
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        repeat(6) { i ->
-                            Surface(shape = CircleShape,
-                                color = if (i < pin.length) Terra else MaterialTheme.colorScheme.surfaceVariant,
-                                modifier = Modifier.size(16.dp)
-                                    .scale(if (i == pin.length - 1) dotPop else 1f)) {}
-                        }
-                    }
+                    PinDots(pin.length, dotSize = 16.dp)
                     Spacer(Modifier.height(20.dp))
-                    val keys = listOf("1","2","3","4","5","6","7","8","9")
-                    Column(horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(11.dp)) {
-                        for (r in 0..2) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(11.dp)) {
-                                for (c in 0..2) {
-                                    val k = keys[r * 3 + c]
-                                    DtKey(k) {
-                                        if (pin.length < 6) {
-                                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            pin += k   // identify ide cez debounce LaunchedEffect(pin)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(11.dp)) {
-                            DtKeyIcon { if (pin.isNotEmpty()) pin = pin.dropLast(1) }
-                            DtKey("0") {
-                                if (pin.length < 6) {
-                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    pin += "0"   // identify ide cez debounce LaunchedEffect(pin)
-                                }
-                            }
-                            DtKeyText("C") { resetAll() }
-                        }
-                    }
+                    PinPad(
+                        onDigit = { k ->
+                            if (pin.length < 6) pin += k   // identify ide cez debounce LaunchedEffect(pin)
+                        },
+                        onBackspace = { if (pin.isNotEmpty()) pin = pin.dropLast(1) },
+                        size = PinPadSize.Terminal,
+                        corner = PinPadCorner.Action("C", { resetAll() }),
+                    )
                 }
             }
         }
@@ -359,9 +330,9 @@ fun DochadzkaTerminalScreen(onBack: () -> Unit) {
             .pointerInput(Unit) {},
             contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(if (isIn) "✓" else "👋", fontSize = 64.sp, color = Cream)
+                Text(if (isIn) "✓" else "👋", fontSize = 64.sp, color = Cream)   // token-exempt: velkost mimo skaly
                 Spacer(Modifier.height(8.dp))
-                Text(title, style = MaterialTheme.typography.titleLarge.copy(fontSize = 40.sp),
+                Text(title, style = MaterialTheme.typography.titleLarge.copy(fontSize = 40.sp),   // token-exempt: velkost mimo skaly
                     color = if (isIn) Cream else Espresso)
                 Text(name, style = MaterialTheme.typography.titleMedium,
                     color = (if (isIn) Cream else Espresso).copy(alpha = 0.85f))
@@ -381,7 +352,7 @@ fun DochadzkaTerminalScreen(onBack: () -> Unit) {
                 val periodPills: @Composable () -> Unit = {
                     listOf("month" to "Tento mesiac", "season" to "Sezóna", "all" to "Všetko").forEach { (key, label) ->
                         val active = msPeriod == key
-                        Surface(onClick = { openMyShifts(key) }, shape = RoundedCornerShape(999.dp),
+                        Surface(onClick = { openMyShifts(key) }, shape = RoundedCornerShape(Radius.full),
                             color = if (active) Terra else CreamElev,
                             border = BorderStroke(1.dp, if (active) Terra else BorderSoft),
                             modifier = Modifier.padding(start = 6.dp)) {
@@ -439,7 +410,7 @@ fun DochadzkaTerminalScreen(onBack: () -> Unit) {
                 } else {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         items(data.shifts) { sh ->
-                            Surface(shape = RoundedCornerShape(14.dp), color = CreamElev,
+                            Surface(shape = RoundedCornerShape(Radius.md), color = CreamElev,
                                 border = BorderStroke(1.dp, if (sh.closed) BorderSoft else Amber.copy(alpha = 0.5f))) {
                                 Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
                                     verticalAlignment = Alignment.CenterVertically) {
@@ -471,8 +442,8 @@ fun DochadzkaTerminalScreen(onBack: () -> Unit) {
     // ── Toast ──
     toast?.let { (msg, ok) ->
         Box(Modifier.fillMaxSize().padding(bottom = 28.dp), contentAlignment = Alignment.BottomCenter) {
-            Surface(shape = RoundedCornerShape(12.dp), color = Espresso, contentColor = Cream,
-                modifier = Modifier.paperShadow(6.dp, RoundedCornerShape(12.dp))) {
+            Surface(shape = RoundedCornerShape(Radius.md), color = Espresso, contentColor = Cream,
+                modifier = Modifier.paperShadow(Elev.float, RoundedCornerShape(Radius.md))) {
                 Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.width(4.dp).fillMaxHeight().background(if (ok) Sage else Danger))
                     Text(msg, Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
@@ -487,15 +458,15 @@ fun DochadzkaTerminalScreen(onBack: () -> Unit) {
 
 @Composable
 private fun BrandBadge() {
-    Surface(color = Terra, shape = RoundedCornerShape(14.dp)) {
-        Text("🕐", Modifier.padding(horizontal = 14.dp, vertical = 10.dp), fontSize = 22.sp)
+    Surface(color = Terra, shape = RoundedCornerShape(Radius.md)) {
+        Text("🕐", Modifier.padding(horizontal = 14.dp, vertical = 10.dp), fontSize = 22.sp)   // token-exempt: velkost mimo skaly
     }
 }
 
 @Composable
 private fun DtStat(label: String, value: String, foot: String, accent: Color, modifier: Modifier) {
-    Surface(modifier.paperShadow(2.dp, RoundedCornerShape(14.dp)),
-        shape = RoundedCornerShape(14.dp), color = CreamElev,
+    Surface(modifier.paperShadow(Elev.rest, RoundedCornerShape(Radius.md)),
+        shape = RoundedCornerShape(Radius.md), color = CreamElev,
         border = BorderStroke(1.dp, BorderSoft)) {
         Column(Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(label.uppercase(), style = MaterialTheme.typography.labelSmall,
@@ -503,44 +474,6 @@ private fun DtStat(label: String, value: String, foot: String, accent: Color, mo
             Text(value, style = MaterialTheme.typography.titleLarge, color = accent)
             Text(foot, style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
-private fun DtKey(label: String, onClick: () -> Unit) {
-    val interaction = remember { MutableInteractionSource() }
-    Surface(onClick = onClick, interactionSource = interaction,
-        shape = RoundedCornerShape(16.dp), color = Cream,
-        border = BorderStroke(1.dp, BorderSoft),
-        modifier = Modifier.size(78.dp).paperShadow(2.dp, RoundedCornerShape(16.dp)).pressScale(interaction)) {
-        Box(contentAlignment = Alignment.Center) {
-            Text(label, fontSize = 28.sp, style = MaterialTheme.typography.titleLarge)
-        }
-    }
-}
-
-@Composable
-private fun DtKeyText(label: String, onClick: () -> Unit) {
-    val interaction = remember { MutableInteractionSource() }
-    Surface(onClick = onClick, interactionSource = interaction,
-        shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceVariant,
-        modifier = Modifier.size(78.dp).paperShadow(2.dp, RoundedCornerShape(16.dp)).pressScale(interaction)) {
-        Box(contentAlignment = Alignment.Center) {
-            Text(label, fontSize = 22.sp, color = EspressoSoft, fontWeight = FontWeight.Bold)
-        }
-    }
-}
-
-@Composable
-private fun DtKeyIcon(onClick: () -> Unit) {
-    val interaction = remember { MutableInteractionSource() }
-    Surface(onClick = onClick, interactionSource = interaction,
-        shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceVariant,
-        modifier = Modifier.size(78.dp).paperShadow(2.dp, RoundedCornerShape(16.dp)).pressScale(interaction)) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(Icons.AutoMirrored.Filled.Backspace, "Vymazať", Modifier.size(26.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

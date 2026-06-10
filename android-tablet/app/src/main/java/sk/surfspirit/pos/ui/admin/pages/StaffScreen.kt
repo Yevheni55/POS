@@ -35,6 +35,7 @@ import sk.surfspirit.pos.core.errorMessage
 import sk.surfspirit.pos.core.fmtCost
 import sk.surfspirit.pos.net.Api
 import sk.surfspirit.pos.ui.admin.*
+import sk.surfspirit.pos.ui.components.LocalToast
 import sk.surfspirit.pos.ui.theme.*
 import kotlin.random.Random
 
@@ -113,7 +114,7 @@ private fun stfGenPin(): String = (1000 + Random.nextInt(9000)).toString()
 
 @Composable
 fun StaffScreen() {
-    val toast = rememberAdminToast()
+    val toast = LocalToast.current
     val scope = rememberCoroutineScope()
     val isAdmin = AppPrefs.role == "admin"
     val canRevealPins = AppPrefs.role == "admin" || AppPrefs.role == "manazer"
@@ -195,7 +196,7 @@ fun StaffScreen() {
         }
     }
 
-    AdminScreenBox(toast, scrollable = false) {
+    AdminScreenBox(scrollable = false) {
         AdminSectionTitle("Zamestnanci")
 
         // Top bar: pridať (admin) + hľadanie + filter rolí + master PIN toggle.
@@ -213,8 +214,8 @@ fun StaffScreen() {
         when {
             loading -> LoadingBox()
             error != null -> ErrorBox(error!!) { load() }
-            staff.isEmpty() -> EmptyHint("👥  Žiadni zamestnanci")
-            filtered.isEmpty() -> EmptyHint("🔍  Žiadne výsledky")
+            staff.isEmpty() -> EmptyHint("Žiadni zamestnanci")
+            filtered.isEmpty() -> EmptyHint("Žiadne výsledky")
             else -> {
                 // LazyColumn — zoznam môže prerásť výšku obrazovky (scroll + lazy riadky).
                 LazyColumn(
@@ -344,7 +345,7 @@ private fun StfTopBar(
                 val sel = roleFilter == value
                 Surface(
                     onClick = { onRoleFilter(value) },
-                    shape = RoundedCornerShape(999.dp),
+                    shape = RoundedCornerShape(Radius.full),
                     color = if (sel) Terra else MaterialTheme.colorScheme.surface,
                     border = BorderStroke(1.dp, if (sel) Terra else BorderSoft),
                 ) {
@@ -509,7 +510,7 @@ private fun StfStaffEditor(
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
             Modifier.fillMaxWidth(0.92f).widthIn(max = 520.dp),
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(Radius.md),
             color = MaterialTheme.colorScheme.surface,
             border = BorderStroke(1.dp, BorderSoft),
         ) {
@@ -536,7 +537,7 @@ private fun StfStaffEditor(
                             val sel = role == r
                             Surface(
                                 onClick = { role = r },
-                                shape = RoundedCornerShape(999.dp),
+                                shape = RoundedCornerShape(Radius.full),
                                 color = if (sel) Terra else MaterialTheme.colorScheme.surface,
                                 border = BorderStroke(1.dp, if (sel) Terra else BorderSoft),
                             ) {

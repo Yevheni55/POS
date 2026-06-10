@@ -5,11 +5,19 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import sk.surfspirit.pos.core.AppPrefs
 import sk.surfspirit.pos.ui.AppNav
+import sk.surfspirit.pos.ui.components.LocalToast
+import sk.surfspirit.pos.ui.components.PosToastHost
+import sk.surfspirit.pos.ui.components.PosToastState
 import sk.surfspirit.pos.ui.theme.SurfSpiritTheme
 import sk.surfspirit.pos.ui.update.UpdateGate
 
@@ -29,8 +37,16 @@ class MainActivity : ComponentActivity() {
         applyImmersive()
         setContent {
             SurfSpiritTheme {
-                AppNav()
-                UpdateGate()   // skontroluje /uploads/app/latest.json a ponúkne update
+                // Globálny toast — žije NAD navigáciou, prežije prepnutie
+                // admin stránky aj admin ↔ POS.
+                val toast = remember { PosToastState() }
+                CompositionLocalProvider(LocalToast provides toast) {
+                    Box(Modifier.fillMaxSize()) {
+                        AppNav()
+                        UpdateGate()   // skontroluje /uploads/app/latest.json a ponúkne update
+                        PosToastHost(toast)   // posledné dieťa — toast nad všetkým
+                    }
+                }
             }
         }
     }

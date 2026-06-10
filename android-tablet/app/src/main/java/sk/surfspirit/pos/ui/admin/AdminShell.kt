@@ -8,6 +8,26 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
+import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
+import androidx.compose.material.icons.automirrored.outlined.TrendingUp
+import androidx.compose.material.icons.automirrored.outlined.Undo
+import androidx.compose.material.icons.outlined.AdminPanelSettings
+import androidx.compose.material.icons.outlined.Air
+import androidx.compose.material.icons.outlined.Grain
+import androidx.compose.material.icons.outlined.Group
+import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material.icons.outlined.Payments
+import androidx.compose.material.icons.outlined.Restaurant
+import androidx.compose.material.icons.outlined.RestaurantMenu
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.Sell
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.ShoppingCart
+import androidx.compose.material.icons.outlined.SpaceDashboard
+import androidx.compose.material.icons.outlined.SwapHoriz
+import androidx.compose.material.icons.outlined.TableRestaurant
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.Saver
@@ -16,10 +36,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import sk.surfspirit.pos.ui.theme.*
 
 /**
@@ -29,32 +49,32 @@ import sk.surfspirit.pos.ui.theme.*
  */
 enum class AdminPage(
     val title: String,
-    val icon: String,
+    val icon: ImageVector,
     val hash: String,
     val section: String,
 ) {
-    DASHBOARD("Dashboard", "📊", "dashboard", "PREHĽAD"),
-    REPORTY("Reporty", "📈", "reports", "PREHĽAD"),
-    HISTORIA("História", "🧾", "payments", "PREHĽAD"),
-    CASHFLOW("Cashflow", "💶", "cashflow", "PREHĽAD"),
+    DASHBOARD("Dashboard", Icons.Outlined.SpaceDashboard, "dashboard", "PREHĽAD"),
+    REPORTY("Reporty", Icons.AutoMirrored.Outlined.TrendingUp, "reports", "PREHĽAD"),
+    HISTORIA("História", Icons.AutoMirrored.Outlined.ReceiptLong, "payments", "PREHĽAD"),
+    CASHFLOW("Cashflow", Icons.Outlined.Payments, "cashflow", "PREHĽAD"),
 
-    MENU("Menu", "🍔", "menu", "PREDAJ"),
-    RECEPTY("Receptúry", "📖", "recipes", "PREDAJ"),
-    STOLY("Stoly", "🪑", "tables", "PREDAJ"),
+    MENU("Menu", Icons.Outlined.RestaurantMenu, "menu", "PREDAJ"),
+    RECEPTY("Receptúry", Icons.AutoMirrored.Outlined.MenuBook, "recipes", "PREDAJ"),
+    STOLY("Stoly", Icons.Outlined.TableRestaurant, "tables", "PREDAJ"),
 
-    LUDIA("Zamestnanci", "👥", "staff", "ĽUDIA"),
-    DOCHADZKA("Dochádzka", "🕐", "dochadzka", "ĽUDIA"),
-    ZAM_SPOTREBA("Zam. spotreba", "🍽️", "zam-spotreba", "ĽUDIA"),
-    STORNO("Storno kôš", "↩️", "storno", "ĽUDIA"),
+    LUDIA("Zamestnanci", Icons.Outlined.Group, "staff", "ĽUDIA"),
+    DOCHADZKA("Dochádzka", Icons.Outlined.Schedule, "dochadzka", "ĽUDIA"),
+    ZAM_SPOTREBA("Zam. spotreba", Icons.Outlined.Restaurant, "zam-spotreba", "ĽUDIA"),
+    STORNO("Storno kôš", Icons.AutoMirrored.Outlined.Undo, "storno", "ĽUDIA"),
 
-    SKLAD_PREHLAD("Prehľad skladu", "📦", "inventory-dashboard", "SKLAD"),
-    MATERIALY("Materiály", "🥕", "ingredients", "SKLAD"),
-    POHYBY("Pohyby", "🔄", "stock-movements", "SKLAD"),
-    OBJEDNAVKY("Objednávky", "🛒", "purchase-orders", "SKLAD"),
-    MAJETOK("Majetok", "🏷️", "assets", "SKLAD"),
-    SHISHA("Shisha", "💨", "shisha", "SKLAD"),
+    SKLAD_PREHLAD("Prehľad skladu", Icons.Outlined.Inventory2, "inventory-dashboard", "SKLAD"),
+    MATERIALY("Materiály", Icons.Outlined.Grain, "ingredients", "SKLAD"),
+    POHYBY("Pohyby", Icons.Outlined.SwapHoriz, "stock-movements", "SKLAD"),
+    OBJEDNAVKY("Objednávky", Icons.Outlined.ShoppingCart, "purchase-orders", "SKLAD"),
+    MAJETOK("Majetok", Icons.Outlined.Sell, "assets", "SKLAD"),
+    SHISHA("Shisha", Icons.Outlined.Air, "shisha", "SKLAD"),
 
-    NASTAVENIA("Nastavenia", "⚙️", "settings", "SYSTÉM"),
+    NASTAVENIA("Nastavenia", Icons.Outlined.Settings, "settings", "SYSTÉM"),
 }
 
 /** Saver pre AdminPage — ukladá názov enum-u, bezpečný fallback na DASHBOARD
@@ -80,12 +100,16 @@ fun AdminShell(onBackToPos: () -> Unit, onOpenFloorEdit: () -> Unit) {
     if (isPhone()) {
         var navOpen by remember { mutableStateOf(false) }
         Column(Modifier.fillMaxSize().background(Cream)) {
-            Surface(color = CreamElev, modifier = Modifier.paperShadow(2.dp, RectangleShape)) {
+            Surface(color = CreamElev, modifier = Modifier.paperShadow(Elev.rest, RectangleShape)) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     Box {
                         TextButton(onClick = { navOpen = true }) {
-                            Text("☰  ${page.icon} ${page.title}",
+                            Text("☰", style = MaterialTheme.typography.titleSmall, color = Terra)
+                            Spacer(Modifier.width(8.dp))
+                            Icon(page.icon, null, Modifier.size(IconSize.md), tint = Terra)
+                            Spacer(Modifier.width(6.dp))
+                            Text(page.title,
                                 style = MaterialTheme.typography.titleSmall, color = Terra)
                         }
                         DropdownMenu(expanded = navOpen, onDismissRequest = { navOpen = false }) {
@@ -98,7 +122,9 @@ fun AdminShell(onBackToPos: () -> Unit, onOpenFloorEdit: () -> Unit) {
                                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                                 DropdownMenuItem(
-                                    text = { Text("${p.icon} ${p.title}",
+                                    leadingIcon = { Icon(p.icon, null, Modifier.size(IconSize.md),
+                                        tint = if (p == page) Terra else MaterialTheme.colorScheme.onSurface) },
+                                    text = { Text(p.title,
                                         color = if (p == page) Terra else MaterialTheme.colorScheme.onSurface) },
                                     onClick = { page = p; navOpen = false },
                                 )
@@ -119,14 +145,14 @@ fun AdminShell(onBackToPos: () -> Unit, onOpenFloorEdit: () -> Unit) {
     Row(Modifier.fillMaxSize().background(Cream)) {
         // ── Rail ──
         Surface(
-            Modifier.width(200.dp).fillMaxHeight().paperShadow(2.dp, RectangleShape),
+            Modifier.width(200.dp).fillMaxHeight().paperShadow(Elev.rest, RectangleShape),
             color = CreamElev,
         ) {
             Column(Modifier.fillMaxHeight()) {
                 // Brand hlavička railu
                 Row(Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically) {
-                    Text("⚙️", fontSize = 18.sp)
+                    Icon(Icons.Outlined.AdminPanelSettings, null, Modifier.size(IconSize.lg), tint = Terra)
                     Spacer(Modifier.width(8.dp))
                     Text("Admin", style = MaterialTheme.typography.titleMedium)
                 }
@@ -169,17 +195,17 @@ fun AdminShell(onBackToPos: () -> Unit, onOpenFloorEdit: () -> Unit) {
 private fun RailItem(p: AdminPage, active: Boolean, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val fill by animateColorAsState(if (active) Terra.copy(alpha = 0.10f) else Color.Transparent,
-        Motion.colorSpec, label = "rail")
+        colorSpecOrSnap(), label = "rail")
     val ink by animateColorAsState(if (active) Terra else MaterialTheme.colorScheme.onSurface,
-        Motion.colorSpec, label = "railInk")
-    Surface(onClick = onClick, interactionSource = interaction, shape = RoundedCornerShape(12.dp),
+        colorSpecOrSnap(), label = "railInk")
+    Surface(onClick = onClick, interactionSource = interaction, shape = RoundedCornerShape(Radius.md),
         color = fill, modifier = Modifier.fillMaxWidth().pressScale(interaction)) {
         Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.width(3.dp).fillMaxHeight()
                 .background(if (active) Terra else Color.Transparent))
             Spacer(Modifier.width(8.dp))
-            Text(p.icon, fontSize = 15.sp, modifier = Modifier.width(22.dp))
-            Spacer(Modifier.width(4.dp))
+            Icon(p.icon, null, Modifier.size(IconSize.md), tint = ink)
+            Spacer(Modifier.width(8.dp))
             Text(p.title, color = ink,
                 fontWeight = if (active) FontWeight.ExtraBold else FontWeight.SemiBold,
                 style = MaterialTheme.typography.bodyMedium,

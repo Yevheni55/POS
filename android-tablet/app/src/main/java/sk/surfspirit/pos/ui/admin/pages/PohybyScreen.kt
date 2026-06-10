@@ -36,6 +36,8 @@ import sk.surfspirit.pos.core.httpCode
 import sk.surfspirit.pos.core.isManager
 import sk.surfspirit.pos.net.Api
 import sk.surfspirit.pos.ui.admin.*
+import sk.surfspirit.pos.ui.components.LocalToast
+import sk.surfspirit.pos.ui.components.PosToastState
 import sk.surfspirit.pos.ui.theme.*
 
 /* =====================================================================
@@ -242,10 +244,10 @@ private fun poStatusBadge(status: String): PoBadge = when (status) {
 
 @Composable
 fun PohybyScreen() {
-    val toast = rememberAdminToast()
+    val toast = LocalToast.current
     var tab by remember { mutableStateOf(0) }   // 0 = Pohyby, 1 = Odpisy
 
-    AdminScreenBox(toast, scrollable = false) {
+    AdminScreenBox(scrollable = false) {
         AdminSectionTitle("Sklad — pohyby a odpisy")
         PillTabs(listOf("Pohyby", "Odpisy"), tab) { tab = it }
         Spacer(Modifier.height(14.dp))
@@ -261,7 +263,7 @@ fun PohybyScreen() {
 /* ===================================================================== */
 
 @Composable
-private fun ColumnScope.PoMovementsTab(toast: AdminToastState) {
+private fun ColumnScope.PoMovementsTab(toast: PosToastState) {
     val scope = rememberCoroutineScope()
 
     var loading by remember { mutableStateOf(true) }
@@ -431,7 +433,7 @@ private fun ColumnScope.PoMovementsTab(toast: AdminToastState) {
     when {
         loading -> LoadingBox()
         error != null -> ErrorBox(error!!) { loadMovements() }
-        movements.isEmpty() -> EmptyHint("📦 Žiadne pohyby — pre zvolené filtre neboli nájdené žiadne skladové pohyby.")
+        movements.isEmpty() -> EmptyHint("Žiadne pohyby — pre zvolené filtre neboli nájdené žiadne skladové pohyby.")
         else -> {
             // Tabuľka v LazyColumn vlastnom — ale obrazovka nescrolluje, takže
             // vložíme do AdminCard s vnútorným verticalScroll (krátke stránky 50).
@@ -673,7 +675,7 @@ private fun PoAdjustModal(
 /* ===================================================================== */
 
 @Composable
-private fun ColumnScope.PoWriteOffsTab(toast: AdminToastState) {
+private fun ColumnScope.PoWriteOffsTab(toast: PosToastState) {
     val scope = rememberCoroutineScope()
 
     var view by remember { mutableStateOf(0) }              // 0 = Zoznam, 1 = Prehľad
@@ -824,9 +826,9 @@ private fun ColumnScope.PoWriteOffsTab(toast: AdminToastState) {
         loading -> LoadingBox()
         error != null -> ErrorBox(error!!) { loadList() }
         writeOffs.isEmpty() && activeStatus.isBlank() ->
-            PoEmptyCta("📋 Žiadne odpisy", "Vytvor prvý odpis pre záznam strát.", "Nový odpis".takeIf { isManager }) { showNew = true }
+            PoEmptyCta("Žiadne odpisy", "Vytvor prvý odpis pre záznam strát.", "Nový odpis".takeIf { isManager }) { showNew = true }
         writeOffs.isEmpty() ->
-            PoEmptyCta("🔍 Žiadne výsledky", "Pre zvolený filter sa nenašli žiadne odpisy.", "Zrušiť filter") {
+            PoEmptyCta("Žiadne výsledky", "Pre zvolený filter sa nenašli žiadne odpisy.", "Zrušiť filter") {
                 activeStatus = ""; loadList()
             }
         else -> {
@@ -1302,7 +1304,7 @@ private fun ColumnScope.PoEmptyCta(title: String, text: String, cta: String?, on
 private fun PoSegment(label: String, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Surface(
         onClick = onClick, modifier = modifier.heightIn(min = 44.dp),
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(Radius.sm),
         color = if (active) Terra else MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, if (active) Terra else BorderSoft),
     ) {
@@ -1373,8 +1375,8 @@ private fun PoModalScaffold(
         Surface(
             Modifier.fillMaxWidth(0.94f).widthIn(max = maxWidth)
                 .heightIn(max = 640.dp)
-                .paperShadow(8.dp, RoundedCornerShape(18.dp)),
-            shape = RoundedCornerShape(18.dp),
+                .paperShadow(Elev.float, RoundedCornerShape(Radius.md)),
+            shape = RoundedCornerShape(Radius.md),
             color = MaterialTheme.colorScheme.surface,
             border = BorderStroke(1.dp, BorderSoft),
         ) {

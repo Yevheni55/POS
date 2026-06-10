@@ -6,6 +6,7 @@ import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -61,6 +62,15 @@ fun reducedMotion(): Boolean {
     }
 }
 
+/**
+ * colorSpec rešpektujúci reduced-motion — pri vypnutých systémových
+ * animáciách farba preskočí okamžite (snap). Používaj namiesto priameho
+ * Motion.colorSpec vo VŠETKÝCH animateColorAsState.
+ */
+@Composable
+fun colorSpecOrSnap(): AnimationSpec<Color> =
+    if (reducedMotion()) snap() else Motion.colorSpec
+
 /* ===== Paper-drop tiene — teplý espresso ambient (web --shadow-sm/md/lg) =====
    2 dp = resting karty/chipy · 6 dp = floating panel/header · 14 dp = dialógy */
 private val ShadowAmbient = Color(0x141E1812)   // rgba(30,24,18,.08)
@@ -70,7 +80,10 @@ fun Modifier.paperShadow(elevation: Dp, shape: Shape): Modifier = this.shadow(
     elevation, shape, clip = false, ambientColor = ShadowAmbient, spotColor = ShadowSpot)
 
 /* Terra emphasis glow (web --color-accent-glow rgba(184,84,42,.22)) —
-   JEDINÝ primárny cue per fáza objednávky (is-primary state machine). */
+   JEDINÝ primárny cue per fáza objednávky (is-primary state machine).
+   DISCIPLÍNA: max JEDEN žiariaci prvok na obrazovku/okno naraz — fázový
+   primár (Poslať / Hotovosť / OK). Sekundárne akcie = outline/solid bez
+   glow, inak sa stráca vodiaci signál. */
 private val GlowTerra = Color(0x52B8542A)
 
 fun Modifier.glow(on: Boolean, shape: Shape = RoundedCornerShape(999.dp)): Modifier =

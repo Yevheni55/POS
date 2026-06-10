@@ -57,6 +57,15 @@ object AppPrefs {
 
     val isLoggedIn: Boolean get() = !token.isNullOrBlank()
 
+    /**
+     * Undo okno pre explicitné „Poslať" (sekundy, 0 = vypnuté). Server pred
+     * sendAndPrint nič nerobí, takže Vrátiť v okne je úplne bez následkov;
+     * implicitné sendy (odchod zo stola, platba) okno obchádzajú.
+     */
+    var sendUndoSecs: Int
+        get() = sp.getInt("send_undo_secs", 5)
+        set(value) = sp.edit().putInt("send_undo_secs", value.coerceIn(0, 10)).apply()
+
     fun logout() {
         sp.edit().remove(K_TOKEN).remove(K_USER).remove(K_ROLE).remove("session_start").apply()
         Mem.clear()   // ďalšia session nesmie vidieť predošlé objednávky/tržby

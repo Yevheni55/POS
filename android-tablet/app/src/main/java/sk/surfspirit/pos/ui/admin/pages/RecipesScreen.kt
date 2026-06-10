@@ -41,6 +41,8 @@ import sk.surfspirit.pos.core.httpCode
 import sk.surfspirit.pos.core.isManager
 import sk.surfspirit.pos.net.Api
 import sk.surfspirit.pos.ui.admin.*
+import sk.surfspirit.pos.ui.components.LocalToast
+import sk.surfspirit.pos.ui.components.PosToastState
 import sk.surfspirit.pos.ui.theme.*
 
 /* =====================================================================
@@ -141,7 +143,7 @@ private fun foodCostColor(pct: Double): Color = when {
 
 @Composable
 fun RecipesScreen() {
-    val toast = rememberAdminToast()
+    val toast = LocalToast.current
     val scope = rememberCoroutineScope()
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -291,7 +293,7 @@ fun RecipesScreen() {
         if (r != null && selectedId == itemId) currentRecipe = r
     }
 
-    AdminScreenBox(toast, scrollable = false) {
+    AdminScreenBox(scrollable = false) {
         AdminSectionTitle("Receptúry")
         when {
             loading -> LoadingBox()
@@ -548,7 +550,7 @@ private fun FlowRowChips(tabs: List<Pair<String, String>>, selected: String, onS
             val active = f == selected
             Surface(
                 onClick = { onSelect(f) },
-                shape = RoundedCornerShape(999.dp),
+                shape = RoundedCornerShape(Radius.full),
                 color = if (active) Terra else MaterialTheme.colorScheme.surface,
                 border = BorderStroke(1.dp, if (active) Terra else BorderSoft),
             ) {
@@ -578,7 +580,7 @@ private fun RcItemRow(
     val interaction = remember { MutableInteractionSource() }
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(Radius.sm),
         color = if (selected) Terra.copy(alpha = 0.10f) else Color.Transparent,
         border = if (selected) BorderStroke(1.dp, Terra.copy(alpha = 0.4f)) else null,
         modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp).pressScale(interaction),
@@ -588,7 +590,7 @@ private fun RcItemRow(
             Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(item.emoji.ifBlank { "🍽" }, fontSize = 18.sp)
+            Text(item.emoji.ifBlank { "🍽" }, style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.width(8.dp))
             Column(Modifier.weight(1f)) {
                 Text(
@@ -639,7 +641,7 @@ private fun RcItemRow(
 @Composable
 private fun RcMiniBadge(text: String, color: Color, bold: Boolean) {
     Surface(
-        shape = RoundedCornerShape(4.dp),
+        shape = RoundedCornerShape(Radius.xs),
         color = color.copy(alpha = 0.14f),
     ) {
         Text(
@@ -660,7 +662,7 @@ private fun RcEmptyEditor() {
     AdminCard(Modifier.fillMaxWidth()) {
         Box(Modifier.fillMaxWidth().padding(vertical = 60.dp), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("👈", fontSize = 32.sp)
+                Text("👈", fontSize = 32.sp) // token-exempt: velkost mimo skaly
                 Spacer(Modifier.height(8.dp))
                 Text("Vyberte položku", style = MaterialTheme.typography.titleSmall)
                 Spacer(Modifier.height(4.dp))
@@ -682,7 +684,7 @@ private fun RcEditor(
     recipeLoading: Boolean,
     ingredients: List<RcIngredient>,
     foodCost: Double,
-    toast: AdminToastState,
+    toast: PosToastState,
     onChangeMode: (String) -> Unit,
     onSaveSimple: (Double, Double) -> Unit,
     onAddLine: (Int, Double) -> Unit,
@@ -747,7 +749,7 @@ private fun RcEditor(
             "none" -> {
                 Box(Modifier.fillMaxWidth().padding(vertical = 36.dp), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("🚫", fontSize = 28.sp)
+                        Text("🚫", fontSize = 28.sp) // token-exempt: velkost mimo skaly
                         Spacer(Modifier.height(6.dp))
                         Text("Sledovanie skladu vypnuté", style = MaterialTheme.typography.titleSmall)
                         Spacer(Modifier.height(4.dp))
@@ -778,7 +780,7 @@ private fun RcModeButton(label: String, active: Boolean, enabled: Boolean, onCli
     Surface(
         onClick = onClick,
         enabled = enabled,
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(Radius.sm),
         color = if (active) Terra else MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, if (active) Terra else BorderSoft),
         modifier = Modifier.heightIn(min = 44.dp),
@@ -824,7 +826,7 @@ private fun RcRecipeForm(
     recipe: List<RcRecipeLine>,
     recipeLoading: Boolean,
     ingredients: List<RcIngredient>,
-    toast: AdminToastState,
+    toast: PosToastState,
     onAddLine: (Int, Double) -> Unit,
     onEditQty: (Int, Double) -> Unit,
     onRemoveLine: (Int) -> Unit,
@@ -836,12 +838,12 @@ private fun RcRecipeForm(
             recipe.isEmpty() -> {
                 Box(
                     Modifier.fillMaxWidth()
-                        .border(1.5.dp, BorderMid, RoundedCornerShape(12.dp))
+                        .border(1.5.dp, BorderMid, RoundedCornerShape(Radius.md))
                         .padding(vertical = 28.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("🧪", fontSize = 24.sp)
+                        Text("🧪", style = MaterialTheme.typography.titleLarge)
                         Spacer(Modifier.height(6.dp))
                         Text("Prázdny recept", style = MaterialTheme.typography.titleSmall, color = EspressoSoft)
                         Spacer(Modifier.height(2.dp))
@@ -890,11 +892,11 @@ private fun rcUnitColor(unit: String): Color = when (unit.lowercase()) {
 }
 
 @Composable
-private fun RcRecipeCard(line: RcRecipeLine, toast: AdminToastState, onCommitQty: (Double) -> Unit, onRemove: () -> Unit) {
+private fun RcRecipeCard(line: RcRecipeLine, toast: PosToastState, onCommitQty: (Double) -> Unit, onRemove: () -> Unit) {
     val uc = rcUnitColor(line.ingredientUnit)
     var qtyText by remember(line.id, line.ingredientId, line.qtyPerUnit) { mutableStateOf(rcNumStr(line.qtyPerUnit)) }
     Surface(
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(Radius.sm),
         color = uc.copy(alpha = 0.05f),
         border = BorderStroke(1.dp, uc.copy(alpha = 0.18f)),
         modifier = Modifier.fillMaxWidth(),
@@ -931,7 +933,7 @@ private fun RcRecipeCard(line: RcRecipeLine, toast: AdminToastState, onCommitQty
                         onCommitQty(v)
                     }
                 },
-                shape = RoundedCornerShape(8.dp),
+                shape = RoundedCornerShape(Radius.sm),
                 color = uc.copy(alpha = 0.12f),
                 modifier = Modifier.size(40.dp),
             ) {
@@ -940,7 +942,7 @@ private fun RcRecipeCard(line: RcRecipeLine, toast: AdminToastState, onCommitQty
             StatusBadge(line.ingredientUnit.uppercase(), uc)
             Surface(
                 onClick = onRemove,
-                shape = RoundedCornerShape(8.dp),
+                shape = RoundedCornerShape(Radius.sm),
                 color = Color.Transparent,
                 modifier = Modifier.size(40.dp),
             ) {
@@ -954,7 +956,7 @@ private fun RcRecipeCard(line: RcRecipeLine, toast: AdminToastState, onCommitQty
 private fun RcAddIngredient(
     ingredients: List<RcIngredient>,
     usedIds: Set<Int>,
-    toast: AdminToastState,
+    toast: PosToastState,
     onAdd: (Int, Double) -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
@@ -975,7 +977,7 @@ private fun RcAddIngredient(
     }
 
     Surface(
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(Radius.md),
         color = CreamSunken.copy(alpha = 0.5f),
         border = BorderStroke(1.dp, BorderSoft),
         modifier = Modifier.fillMaxWidth(),

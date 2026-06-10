@@ -40,7 +40,7 @@ import sk.surfspirit.pos.ui.admin.StatGrid
 import sk.surfspirit.pos.ui.admin.StatusBadge
 import sk.surfspirit.pos.ui.admin.TableHeader
 import sk.surfspirit.pos.ui.admin.TableRow
-import sk.surfspirit.pos.ui.admin.rememberAdminToast
+import sk.surfspirit.pos.ui.components.LocalToast
 import sk.surfspirit.pos.ui.theme.BorderSoft
 import sk.surfspirit.pos.ui.theme.Danger
 import sk.surfspirit.pos.ui.theme.Navy
@@ -178,7 +178,7 @@ private fun rdLabelFor(date: LocalDate): String =
 
 @Composable
 fun ReportsDailyScreen() {
-    val toast = rememberAdminToast()
+    val toast = LocalToast.current
     val scope = rememberCoroutineScope()
 
     // „Dnes" = Europe/Bratislava — device TZ (UTC tablety) by po polnoci ukázal včerajšok.
@@ -284,7 +284,7 @@ fun ReportsDailyScreen() {
         )
     }
 
-    AdminScreenBox(toast) {
+    AdminScreenBox {
         AdminSectionTitle("Reporty / Denné")
 
         DateNav(

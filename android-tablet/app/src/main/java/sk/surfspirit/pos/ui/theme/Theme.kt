@@ -39,7 +39,10 @@ val Navy         = Color(0xFF1F3A5C)   // utility action (Predúčet / presun / 
 /* Text — deep coffee (Stitch on-surface #281811) */
 val Espresso     = Color(0xFF281811)   // on-surface / on-background
 val EspressoSoft = Color(0xFF55433D)   // on-surface-variant
-val EspressoDim  = Color(0xFF88726C)   // outline — muted brown
+// Pôvodné #88726C malo na Cream len 4,29:1 a na CreamSunken 3,86:1 (pod AA
+// 4,5:1 pre bežný text). #6E5A53 dáva 6,55:1 / 5,90:1 — AA všade, hue ostáva.
+// Bordery NIŽŠIE zámerne ostávajú na #88726C — sú dekoratívne, nie text.
+val EspressoDim  = Color(0xFF6E5A53)   // outline — muted brown (AA-safe)
 
 /* Error — Stitch error #ba1a1a */
 val Danger       = Color(0xFFBA1A1A)

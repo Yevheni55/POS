@@ -38,6 +38,8 @@ import sk.surfspirit.pos.core.httpCode
 import sk.surfspirit.pos.core.todayIso
 import sk.surfspirit.pos.net.Api
 import sk.surfspirit.pos.ui.admin.*
+import sk.surfspirit.pos.ui.components.LocalToast
+import sk.surfspirit.pos.ui.components.PosToastState
 import sk.surfspirit.pos.ui.theme.*
 import java.time.LocalDate
 
@@ -234,10 +236,10 @@ private fun faTodayMinusIso(n: Int): String =
 
 @Composable
 fun FiscalAuditScreen() {
-    val toast = rememberAdminToast()
+    val toast = LocalToast.current
     var tab by remember { mutableStateOf(0) }
 
-    AdminScreenBox(toast, scrollable = false) {
+    AdminScreenBox(scrollable = false) {
         PillTabs(listOf("Fiškálne doklady", "Audit objednávok"), tab) { tab = it }
         Spacer(Modifier.height(14.dp))
         when (tab) {
@@ -263,7 +265,7 @@ private enum class FaSearchMode(val label: String) {
 }
 
 @Composable
-private fun ColumnScope.FaFiscalTab(toast: AdminToastState) {
+private fun ColumnScope.FaFiscalTab(toast: PosToastState) {
     val scope = rememberCoroutineScope()
 
     var mode by remember { mutableStateOf(FaSearchMode.RECEIPT_ID) }
@@ -333,7 +335,7 @@ private fun ColumnScope.FaFiscalTab(toast: AdminToastState) {
             OutlinedButton(
                 onClick = { modeMenu = true },
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(10.dp),
+                shape = RoundedCornerShape(Radius.sm),
             ) {
                 Text(mode.label, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("▾")
@@ -402,7 +404,7 @@ private fun ColumnScope.FaFiscalTab(toast: AdminToastState) {
                 results.forEach { row ->
                     val active = selected?.id == row.id
                     val rowMod = if (active)
-                        Modifier.background(Navy.copy(alpha = 0.08f), RoundedCornerShape(6.dp))
+                        Modifier.background(Navy.copy(alpha = 0.08f), RoundedCornerShape(Radius.sm))
                     else Modifier
                     FaResultRow(row, rowMod) { loadDetail(row.id) }
                 }
@@ -707,7 +709,7 @@ private fun ColumnScope.FaAuditTab() {
                         Spacer(Modifier.height(4.dp))
                         Box {
                             OutlinedButton(onClick = { staffMenu = true }, modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(10.dp)) {
+                                shape = RoundedCornerShape(Radius.sm)) {
                                 val name = staffList.firstOrNull { it.id == staffId }?.name ?: "Všetci čašníci"
                                 Text(name, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text("▾")
@@ -729,7 +731,7 @@ private fun ColumnScope.FaAuditTab() {
                         Spacer(Modifier.height(4.dp))
                         Box {
                             OutlinedButton(onClick = { typeMenu = true }, modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(10.dp)) {
+                                shape = RoundedCornerShape(Radius.sm)) {
                                 val lbl = typeFilter?.let { faTypeLabel(it) } ?: "Všetky akcie"
                                 Text(lbl, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text("▾")
@@ -785,7 +787,7 @@ private fun ColumnScope.FaAuditTab() {
 @Composable
 private fun FaPreset(label: String, onClick: () -> Unit) {
     OutlinedButton(onClick = onClick, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-        shape = RoundedCornerShape(999.dp)) {
+        shape = RoundedCornerShape(Radius.full)) {
         Text(label, style = MaterialTheme.typography.labelMedium)
     }
 }

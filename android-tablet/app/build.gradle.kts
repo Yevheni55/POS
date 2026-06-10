@@ -12,8 +12,8 @@ android {
         applicationId = "sk.surfspirit.pos"
         minSdk = 26          // Android 8.0 — adaptívna ikona bez PNG; pokryje bežné 10.1" tablety
         targetSdk = 34
-        versionCode = 19
-        versionName = "2.5.3"
+        versionCode = 20
+        versionName = "3.0.0"
         // Default adresa POS servera (LAN). Mení sa v appke → uloží do prefs.
         resValue("string", "default_server_url", "http://192.168.1.235:3080")
     }
@@ -81,3 +81,41 @@ dependencies {
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
+
+// Dizajn tokeny (ui/theme/Dimens.kt) — lacný regex strážca: žiadne literálové
+// radius/elevation/icon-size/fontSize v ui zdrojoch mimo theme/. Výnimka
+// potrebuje `// token-exempt: dôvod` na TOM ISTOM riadku. Spacing sa nestráži
+// (konvencia). Ratchet: allowlist nemigrovaných súborov drž prázdny.
+val tokenExemptAllowlist = setOf<String>()
+
+tasks.register("checkDesignTokens") {
+    group = "verification"
+    description = "Zlyhá pri literálových dp/sp hodnotách mimo dizajn tokenov v ui zdrojoch"
+    doLast {
+        val uiDir = file("src/main/java/sk/surfspirit/pos/ui")
+        val patterns = listOf(
+            Regex("""RoundedCornerShape\(\s*\d+(\.\d+)?\.dp"""),
+            Regex("""paperShadow\(\s*\d+(\.\d+)?\.dp"""),
+            Regex("""fontSize\s*=\s*\d+(\.\d+)?\.sp"""),
+        )
+        val violations = mutableListOf<String>()
+        uiDir.walkTopDown()
+            .filter { it.isFile && it.extension == "kt" && !it.path.replace('\\', '/').contains("/theme/") }
+            .filter { it.name !in tokenExemptAllowlist }
+            .forEach { f ->
+                f.readLines().forEachIndexed { i, line ->
+                    if (line.contains("token-exempt")) return@forEachIndexed
+                    patterns.forEach { p ->
+                        if (p.containsMatchIn(line)) violations += "${f.name}:${i + 1}: ${line.trim().take(100)}"
+                    }
+                }
+            }
+        if (violations.isNotEmpty()) {
+            throw GradleException(
+                "Dizajn tokeny: ${violations.size} literálov mimo Dimens.kt (pridaj token alebo // token-exempt):\n" +
+                violations.take(40).joinToString("\n"))
+        }
+    }
+}
+
+tasks.named("check") { dependsOn("checkDesignTokens") }

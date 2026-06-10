@@ -508,6 +508,15 @@ object Api {
         elevatedUntil = 0L
     }
 
+    /** Beží manažérske okno? gate() vďaka tomu nepýta PIN pri každej akcii. */
+    fun isElevated(): Boolean =
+        elevatedToken != null && System.currentTimeMillis() < elevatedUntil
+
+    /** Zostávajúce ms elevácie (0 = žiadna) — pre odpočet na chipe v UI. */
+    fun elevatedRemainingMs(): Long =
+        if (elevatedToken == null) 0L
+        else (elevatedUntil - System.currentTimeMillis()).coerceAtLeast(0L)
+
     // Bearer token z AppPrefs (po login-e); elevated token len pre requesty
     // s X-Elevated. Marker hlavička sa pred odoslaním VŽDY odstráni —
     // server ju nesmie vidieť.

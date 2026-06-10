@@ -80,7 +80,6 @@ private fun zsDayLabel(iso: String): String {
 
 @Composable
 fun ZamSpotrebaScreen() {
-    val toast = rememberAdminToast()
     val scope = rememberCoroutineScope()
 
     var loading by remember { mutableStateOf(true) }
@@ -134,7 +133,7 @@ fun ZamSpotrebaScreen() {
 
     LaunchedEffect(Unit) { load() }
 
-    AdminScreenBox(toast) {
+    AdminScreenBox {
         AdminSectionTitle("Zamestnanecká spotreba")
 
         // --- Top bar: rozsah + presety ---
@@ -271,8 +270,8 @@ private fun ZsSplitBar(food: Double, drink: Double) {
         Spacer(Modifier.height(12.dp))
         Row(
             Modifier.fillMaxWidth().height(14.dp)
-                .background(CreamSunken, RoundedCornerShape(7.dp))
-                .clip(RoundedCornerShape(7.dp))
+                .background(CreamSunken, RoundedCornerShape(Radius.sm))
+                .clip(RoundedCornerShape(Radius.sm))
         ) {
             if (foodPct > 0) Box(Modifier.weight(foodPct.toFloat()).fillMaxHeight().background(Sage))
             if (drinkPct > 0) Box(Modifier.weight(drinkPct.toFloat()).fillMaxHeight().background(Terra))
@@ -288,7 +287,7 @@ private fun ZsSplitBar(food: Double, drink: Double) {
 @Composable
 private fun ZsLegend(color: Color, label: String, amount: String, pct: Double) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Box(Modifier.size(12.dp).background(color, RoundedCornerShape(3.dp)))
+        Box(Modifier.size(12.dp).background(color, RoundedCornerShape(Radius.xs)))
         Text(label, style = MaterialTheme.typography.bodySmall)
         Text(amount, style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = Espresso)
         Text("(${String.format("%.1f", pct).replace('.', ',')} %)",
@@ -309,18 +308,18 @@ private fun ZsDailyChart(daily: List<ZsDailyDto>) {
             val pct = (d.staffMeal / max).toFloat().coerceIn(0f, 1f)
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(34.dp)) {
                 Text(zsFmtEur(d.staffMeal),
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp), // token-exempt: velkost mimo skaly
                     color = EspressoDim, maxLines = 1, overflow = TextOverflow.Clip)
                 Spacer(Modifier.height(2.dp))
                 Box(
                     Modifier.width(24.dp).height(80.dp)
-                        .background(CreamSunken, RoundedCornerShape(4.dp)),
+                        .background(CreamSunken, RoundedCornerShape(Radius.xs)),
                     contentAlignment = Alignment.BottomCenter,
                 ) {
                     Box(
                         Modifier.fillMaxWidth()
                             .fillMaxHeight(pct)
-                            .background(Terra, RoundedCornerShape(4.dp))
+                            .background(Terra, RoundedCornerShape(Radius.xs))
                     )
                 }
                 Spacer(Modifier.height(4.dp))

@@ -38,6 +38,8 @@ import sk.surfspirit.pos.core.fmtCost
 import sk.surfspirit.pos.core.isManager
 import sk.surfspirit.pos.net.Api
 import sk.surfspirit.pos.ui.admin.*
+import sk.surfspirit.pos.ui.components.LocalToast
+import sk.surfspirit.pos.ui.components.PosToastState
 import sk.surfspirit.pos.ui.theme.*
 
 /* =====================================================================
@@ -172,12 +174,12 @@ private val MT_UNITS = listOf("ks", "kg", "g", "l", "ml")
 
 @Composable
 fun MaterialyScreen() {
-    val toast = rememberAdminToast()
+    val toast = LocalToast.current
     var tab by remember { mutableStateOf(0) }
 
     // scrollable=false → každý tab má tabuľku v LazyColumn (stovky SKU sa
     // nesmú komponovať naraz); toolbar + taby ostávajú fixné hore.
-    AdminScreenBox(toast, scrollable = false) {
+    AdminScreenBox(scrollable = false) {
         AdminSectionTitle("Sklad / Materiály")
         PillTabs(listOf("Suroviny", "Tovar", "Dodávatelia"), tab) { tab = it }
         Spacer(Modifier.height(12.dp))
@@ -192,7 +194,7 @@ fun MaterialyScreen() {
 /* ====================== TAB 1: Suroviny ====================== */
 
 @Composable
-private fun ColumnScope.MtIngredientsTab(toast: AdminToastState) {
+private fun ColumnScope.MtIngredientsTab(toast: PosToastState) {
     val scope = rememberCoroutineScope()
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -413,7 +415,7 @@ private fun MtIngredientDialog(
 /* ====================== TAB 2: Tovar ====================== */
 
 @Composable
-private fun ColumnScope.MtSuppliesTab(toast: AdminToastState) {
+private fun ColumnScope.MtSuppliesTab(toast: PosToastState) {
     val scope = rememberCoroutineScope()
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -608,7 +610,7 @@ private fun MtSupplyDialog(
 /* ====================== TAB 3: Dodávatelia ====================== */
 
 @Composable
-private fun ColumnScope.MtSuppliersTab(toast: AdminToastState) {
+private fun ColumnScope.MtSuppliersTab(toast: PosToastState) {
     val scope = rememberCoroutineScope()
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -892,7 +894,7 @@ private fun MtUnitPicker(selected: String, onSelect: (String) -> Unit) {
                 val active = u == selected
                 Surface(
                     onClick = { onSelect(u) },
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(Radius.sm),
                     color = if (active) Terra else MaterialTheme.colorScheme.surface,
                     border = BorderStroke(1.dp, if (active) Terra else BorderSoft),
                 ) {
@@ -919,8 +921,8 @@ private fun MtFormDialog(
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
             Modifier.fillMaxWidth(0.92f).widthIn(max = 520.dp)
-                .paperShadow(8.dp, RoundedCornerShape(18.dp)),
-            shape = RoundedCornerShape(18.dp),
+                .paperShadow(Elev.float, RoundedCornerShape(Radius.md)),
+            shape = RoundedCornerShape(Radius.md),
             color = MaterialTheme.colorScheme.surface,
             border = BorderStroke(1.dp, BorderSoft),
         ) {
@@ -965,8 +967,8 @@ private fun MtUndoToast(
     }
     Popup(alignment = Alignment.BottomCenter) {
         Surface(
-            Modifier.padding(16.dp).paperShadow(6.dp, RoundedCornerShape(12.dp)),
-            shape = RoundedCornerShape(12.dp), color = Espresso, contentColor = Cream,
+            Modifier.padding(16.dp).paperShadow(Elev.float, RoundedCornerShape(Radius.md)),
+            shape = RoundedCornerShape(Radius.md), color = Espresso, contentColor = Cream,
         ) {
             Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.width(4.dp).fillMaxHeight().background(Amber))

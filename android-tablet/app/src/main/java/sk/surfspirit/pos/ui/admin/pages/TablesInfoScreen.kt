@@ -27,6 +27,7 @@ import sk.surfspirit.pos.core.errorMessage
 import sk.surfspirit.pos.core.isManager
 import sk.surfspirit.pos.net.Api
 import sk.surfspirit.pos.ui.admin.*
+import sk.surfspirit.pos.ui.components.LocalToast
 import sk.surfspirit.pos.ui.theme.*
 
 /* =====================================================================
@@ -79,7 +80,7 @@ private fun tinSlugify(name: String): String =
 
 @Composable
 fun TablesInfoScreen(onOpenFloorEdit: () -> Unit) {
-    val toast = rememberAdminToast()
+    val toast = LocalToast.current
     val scope = rememberCoroutineScope()
     val canManage = isManager   // server requireRole('manazer','admin') — čašník je read-only
 
@@ -108,7 +109,7 @@ fun TablesInfoScreen(onOpenFloorEdit: () -> Unit) {
     }
     LaunchedEffect(Unit) { load() }
 
-    AdminScreenBox(toast) {
+    AdminScreenBox {
         AdminSectionTitle("Stoly")
 
         // ---- Vysvetľujúca karta + CTA na natívny floor editor ----
@@ -244,7 +245,7 @@ private fun TinFloorInfoCard(onOpenFloorEdit: () -> Unit) {
             onClick = onOpenFloorEdit,
             colors = ButtonDefaults.buttonColors(containerColor = Terra, contentColor = Cream),
             modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(Radius.md),
         ) {
             Text("Otvoriť plán stolov", style = MaterialTheme.typography.titleSmall)
         }
@@ -308,7 +309,7 @@ private fun TinAddZoneDialog(
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
             Modifier.fillMaxWidth(0.92f).widthIn(max = 480.dp),
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(Radius.md),
             color = MaterialTheme.colorScheme.surface,
             border = BorderStroke(1.dp, BorderSoft),
         ) {
@@ -359,7 +360,7 @@ private fun TinRenameZoneDialog(
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
             Modifier.fillMaxWidth(0.92f).widthIn(max = 480.dp),
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(Radius.md),
             color = MaterialTheme.colorScheme.surface,
             border = BorderStroke(1.dp, BorderSoft),
         ) {

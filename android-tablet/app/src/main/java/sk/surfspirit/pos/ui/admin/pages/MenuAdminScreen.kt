@@ -47,6 +47,7 @@ import sk.surfspirit.pos.core.fmtCost
 import sk.surfspirit.pos.core.isManager
 import sk.surfspirit.pos.net.Api
 import sk.surfspirit.pos.ui.admin.*
+import sk.surfspirit.pos.ui.components.LocalToast
 import sk.surfspirit.pos.ui.theme.*
 
 /* =====================================================================
@@ -266,7 +267,7 @@ private const val MN_DEFAULT_EMOJI = "🍽"  // 🍽
 
 @Composable
 fun MenuAdminScreen() {
-    val toast = rememberAdminToast()
+    val toast = LocalToast.current
     val scope = rememberCoroutineScope()
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -340,7 +341,7 @@ fun MenuAdminScreen() {
         confirmCatDelete = cat
     }
 
-    AdminScreenBox(toast, scrollable = false) {
+    AdminScreenBox(scrollable = false) {
         AdminSectionTitle("Menu")
         when {
             loading -> LoadingBox()
@@ -409,7 +410,7 @@ fun MenuAdminScreen() {
                                     onClick = { prodEditing = null; prodDialogOpen = true },
                                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                                 ) {
-                                    Icon(Icons.Filled.Add, null, Modifier.size(18.dp))
+                                    Icon(Icons.Filled.Add, null, Modifier.size(IconSize.md))
                                     Spacer(Modifier.width(6.dp))
                                     Text("Pridať")
                                 }
@@ -423,7 +424,7 @@ fun MenuAdminScreen() {
                                 placeholder = { Text("Hľadať produkt…") },
                                 leadingIcon = { Icon(Icons.Filled.Search, null, tint = MaterialTheme.colorScheme.outline) },
                                 singleLine = true,
-                                shape = RoundedCornerShape(999.dp),
+                                shape = RoundedCornerShape(Radius.full),
                                 colors = OutlinedTextFieldDefaults.colors(
                                     focusedContainerColor = Cream,
                                     unfocusedContainerColor = Cream,
@@ -619,7 +620,7 @@ private fun MnCategoryCard(
 ) {
     Surface(
         onClick = onSelect,
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(Radius.md),
         color = if (active) Terra.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, if (active) Terra else BorderSoft),
     ) {
@@ -627,7 +628,7 @@ private fun MnCategoryCard(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(cat.icon, fontSize = 22.sp)
+            Text(cat.icon, fontSize = 22.sp) // token-exempt: velkost mimo skaly
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Text(
@@ -644,10 +645,10 @@ private fun MnCategoryCard(
             }
             if (isManager) {
                 IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Filled.Edit, "Upraviť", Modifier.size(18.dp), tint = EspressoSoft)
+                    Icon(Icons.Filled.Edit, "Upraviť", Modifier.size(IconSize.md), tint = EspressoSoft)
                 }
                 IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Filled.Delete, "Zmazať", Modifier.size(18.dp), tint = Danger)
+                    Icon(Icons.Filled.Delete, "Zmazať", Modifier.size(IconSize.md), tint = Danger)
                 }
             }
         }
@@ -665,7 +666,7 @@ private fun MnProductRow(
     onDelete: () -> Unit,
 ) {
     Surface(
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(Radius.md),
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, BorderSoft),
     ) {
@@ -673,7 +674,7 @@ private fun MnProductRow(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(item.emoji.ifBlank { MN_DEFAULT_EMOJI }, fontSize = 24.sp)
+            Text(item.emoji.ifBlank { MN_DEFAULT_EMOJI }, style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Text(
@@ -716,10 +717,10 @@ private fun MnProductRow(
             )
             if (manager) {
                 IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Filled.Edit, "Upraviť", Modifier.size(18.dp), tint = EspressoSoft)
+                    Icon(Icons.Filled.Edit, "Upraviť", Modifier.size(IconSize.md), tint = EspressoSoft)
                 }
                 IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Filled.Delete, "Odstrániť", Modifier.size(18.dp), tint = Danger)
+                    Icon(Icons.Filled.Delete, "Odstrániť", Modifier.size(IconSize.md), tint = Danger)
                 }
             }
         }
@@ -734,7 +735,7 @@ private fun MnEmptyState(icon: String, title: String, text: String, cta: String?
         Modifier.fillMaxWidth().padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(icon, fontSize = 40.sp)
+        Text(icon, fontSize = 40.sp) // token-exempt: velkost mimo skaly
         Spacer(Modifier.height(8.dp))
         Text(title, style = MaterialTheme.typography.titleSmall)
         Spacer(Modifier.height(4.dp))
@@ -760,7 +761,7 @@ private fun MnEmojiGrid(
     onPick: (String) -> Unit,
 ) {
     Surface(
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(Radius.md),
         color = MaterialTheme.colorScheme.surfaceVariant,
         border = BorderStroke(1.dp, BorderSoft),
     ) {
@@ -772,15 +773,15 @@ private fun MnEmojiGrid(
                         Box(
                             Modifier.weight(1f).aspectRatio(1f)
                                 .padding(2.dp)
-                                .clip(RoundedCornerShape(8.dp))
+                                .clip(RoundedCornerShape(Radius.sm))
                                 .background(if (isSel) Terra.copy(alpha = 0.18f) else androidx.compose.ui.graphics.Color.Transparent)
                                 .border(
                                     BorderStroke(1.dp, if (isSel) Terra else androidx.compose.ui.graphics.Color.Transparent),
-                                    RoundedCornerShape(8.dp),
+                                    RoundedCornerShape(Radius.sm),
                                 )
                                 .clickable { onPick(e) },
                             contentAlignment = Alignment.Center,
-                        ) { Text(e, fontSize = 20.sp) }
+                        ) { Text(e, fontSize = 20.sp) } // token-exempt: velkost mimo skaly
                     }
                     // dorovnaj poslednú nekompletnú radu
                     repeat(cols - row.size) { Spacer(Modifier.weight(1f)) }
@@ -819,12 +820,12 @@ private fun MnCategoryDialog(
                     Spacer(Modifier.height(4.dp))
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Surface(
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RoundedCornerShape(Radius.sm),
                             color = MaterialTheme.colorScheme.surfaceVariant,
                             border = BorderStroke(1.dp, BorderSoft),
                         ) {
                             Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-                                Text(icon.ifBlank { MN_DEFAULT_EMOJI }, fontSize = 28.sp)
+                                Text(icon.ifBlank { MN_DEFAULT_EMOJI }, fontSize = 28.sp) // token-exempt: velkost mimo skaly
                             }
                         }
                         OutlinedTextField(
@@ -1071,7 +1072,7 @@ private fun MnProductDialog(
                     Spacer(Modifier.height(4.dp))
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Surface(
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RoundedCornerShape(Radius.sm),
                             color = MaterialTheme.colorScheme.surfaceVariant,
                             border = BorderStroke(1.dp, BorderSoft),
                         ) {
@@ -1081,11 +1082,11 @@ private fun MnProductDialog(
                                     bmp != null -> androidx.compose.foundation.Image(
                                         bitmap = bmp,
                                         contentDescription = null,
-                                        modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)),
+                                        modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(Radius.sm)),
                                         contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                                     )
-                                    !clearImage && currentImage != null -> Text("🖼", fontSize = 30.sp)
-                                    else -> Text("—", fontSize = 28.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    !clearImage && currentImage != null -> Text("🖼", style = MaterialTheme.typography.displaySmall)
+                                    else -> Text("—", fontSize = 28.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) // token-exempt: velkost mimo skaly
                                 }
                             }
                         }
@@ -1167,7 +1168,7 @@ private fun MnSegmented(options: List<Pair<String, String>>, selected: String, o
             val active = value == selected
             Surface(
                 onClick = { onSelect(value) },
-                shape = RoundedCornerShape(999.dp),
+                shape = RoundedCornerShape(Radius.full),
                 color = if (active) Terra else MaterialTheme.colorScheme.surface,
                 border = BorderStroke(1.dp, if (active) Terra else BorderSoft),
                 modifier = Modifier.weight(1f).heightIn(min = 44.dp),
@@ -1198,7 +1199,7 @@ private fun <T> MnDropdown(
     Box {
         Surface(
             onClick = { expanded = true },
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(Radius.md),
             color = MaterialTheme.colorScheme.surface,
             border = BorderStroke(1.dp, BorderMid),
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),

@@ -25,6 +25,7 @@ import sk.surfspirit.pos.core.httpCode
 import sk.surfspirit.pos.core.isManager
 import sk.surfspirit.pos.net.Api
 import sk.surfspirit.pos.ui.admin.*
+import sk.surfspirit.pos.ui.components.LocalToast
 import sk.surfspirit.pos.ui.theme.*
 
 /* =====================================================================
@@ -124,7 +125,7 @@ private fun shTimeLabel(iso: String?): String = sk.surfspirit.pos.core.fmtBratis
 
 @Composable
 fun ShishaScreen() {
-    val toast = rememberAdminToast()
+    val toast = LocalToast.current
     val scope = rememberCoroutineScope()
     val canDelete = isManager      // manažér | admin (server navyše vynucuje)
 
@@ -184,7 +185,7 @@ fun ShishaScreen() {
         }
     }
 
-    AdminScreenBox(toast) {
+    AdminScreenBox {
         AdminSectionTitle("Shisha")
 
         // Veľká karta s +1 tlačidlom + status riadkom (vždy viditeľná).
@@ -239,7 +240,7 @@ private fun ShAddCard(adding: Boolean, status: String?, onAdd: () -> Unit) {
             Button(
                 onClick = onAdd,
                 enabled = !adding,
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(Radius.md),
                 colors = ButtonDefaults.buttonColors(containerColor = Terra, contentColor = Cream),
                 contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
                 modifier = Modifier.fillMaxWidth().widthIn(max = 420.dp).heightIn(min = 80.dp),
@@ -285,8 +286,8 @@ private fun ShCounters(summary: ShSummaryDto) {
 @Composable
 private fun ShCounterCard(label: String, bucket: ShBucketDto, modifier: Modifier = Modifier) {
     Surface(
-        modifier.paperShadow(2.dp, RoundedCornerShape(14.dp)),
-        shape = RoundedCornerShape(14.dp),
+        modifier.paperShadow(Elev.rest, RoundedCornerShape(Radius.md)),
+        shape = RoundedCornerShape(Radius.md),
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, BorderSoft),
     ) {

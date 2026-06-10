@@ -233,10 +233,9 @@ private fun rtWeekday(iso: String): Int = try {
 
 @Composable
 fun ReportsTrendsScreen() {
-    val toast = rememberAdminToast()
     var tab by remember { mutableStateOf(0) }   // 0 = Týždeň, 1 = Sezóna
 
-    AdminScreenBox(toast) {
+    AdminScreenBox {
         AdminSectionTitle("Reporty / Trendy")
         PillTabs(listOf("Týždeň", "Sezóna"), tab) { tab = it }
         Spacer(Modifier.height(14.dp))
@@ -453,7 +452,7 @@ private fun RtDayTabs(days: List<RtDailyHours>, selected: String?, onSelect: (St
             val hasData = day.totalRevenue > 0
             Surface(
                 onClick = { onSelect(day.date) },
-                shape = RoundedCornerShape(10.dp),
+                shape = RoundedCornerShape(Radius.sm),
                 color = if (active) Terra.copy(alpha = 0.10f) else MaterialTheme.colorScheme.surface,
                 border = BorderStroke(1.dp, if (active) Terra else BorderSoft),
             ) {
@@ -780,8 +779,8 @@ private fun RtCategoryBreakdown(products: List<RtProduct>, totalRev: Double) {
 @Composable
 private fun RtDayCard(day: RtDaily, title: String, accent: Color) {
     Surface(
-        Modifier.fillMaxWidth().paperShadow(2.dp, RoundedCornerShape(14.dp)),
-        shape = RoundedCornerShape(14.dp),
+        Modifier.fillMaxWidth().paperShadow(Elev.rest, RoundedCornerShape(Radius.md)),
+        shape = RoundedCornerShape(Radius.md),
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, BorderSoft),
     ) {
@@ -825,7 +824,7 @@ private fun RtDestSplit(rev: RtRevenueByDest) {
     val barPct = if (total > 0) bar / total * 100 else 0.0
     val kuchPct = if (total > 0) kuch / total * 100 else 0.0
     // Split bar
-    Row(Modifier.fillMaxWidth().height(12.dp).clip(RoundedCornerShape(6.dp))) {
+    Row(Modifier.fillMaxWidth().height(12.dp).clip(RoundedCornerShape(Radius.sm))) {
         if (barPct > 0) Box(Modifier.weight(barPct.toFloat()).fillMaxHeight().background(Terra))
         if (kuchPct > 0) Box(Modifier.weight(kuchPct.toFloat()).fillMaxHeight().background(Sage))
         if (total <= 0) Box(Modifier.weight(1f).fillMaxHeight().background(CreamSunken))
@@ -840,7 +839,7 @@ private fun RtDestSplit(rev: RtRevenueByDest) {
 private fun RtDestRow(label: String, dot: Color, pct: Double, eur: Double, ks: Int) {
     Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Row(Modifier.weight(1.6f), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(10.dp).clip(RoundedCornerShape(3.dp)).background(dot))
+            Box(Modifier.size(10.dp).clip(RoundedCornerShape(Radius.xs)).background(dot))
             Spacer(Modifier.width(8.dp))
             Text(label, style = MaterialTheme.typography.bodyMedium)
         }
@@ -879,11 +878,11 @@ private fun RtDowChart(daily: List<RtDaily>) {
         order.forEach { wd ->
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(if (cnt[wd] > 0) rtNoEur0(rev[wd] / cnt[wd]) else "—",
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp), // token-exempt: velkost mimo skaly
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1, overflow = TextOverflow.Clip)
                 Text("${cnt[wd]} dní",
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), // token-exempt: velkost mimo skaly
                     color = EspressoDim, maxLines = 1)
             }
         }
@@ -917,12 +916,12 @@ private fun RtStatGrid(vararg specs: StatSpec) {
 private fun RtWarningPanel(title: String, text: String) {
     Surface(
         Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(Radius.md),
         color = Amber.copy(alpha = 0.08f),
         border = BorderStroke(1.dp, Amber.copy(alpha = 0.35f)),
     ) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
-            Text("⚠️", fontSize = 18.sp)
+            Text("⚠️", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.width(12.dp))
             Column {
                 Text(title, style = MaterialTheme.typography.titleSmall)

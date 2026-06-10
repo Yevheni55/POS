@@ -2,6 +2,9 @@ package sk.surfspirit.pos.ui.admin.pages
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Autorenew
+import androidx.compose.material.icons.outlined.LocalFireDepartment
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -33,11 +36,12 @@ import sk.surfspirit.pos.ui.admin.AdminSectionTitle
 import sk.surfspirit.pos.ui.admin.ErrorBox
 import sk.surfspirit.pos.ui.admin.LoadingBox
 import sk.surfspirit.pos.ui.admin.StatCard
-import sk.surfspirit.pos.ui.admin.rememberAdminToast
+import sk.surfspirit.pos.ui.components.LocalToast
 import sk.surfspirit.pos.ui.theme.Amber
 import sk.surfspirit.pos.ui.theme.BorderSoft
 import sk.surfspirit.pos.ui.theme.Cream
 import sk.surfspirit.pos.ui.theme.Danger
+import sk.surfspirit.pos.ui.theme.IconSize
 import sk.surfspirit.pos.ui.theme.Navy
 import sk.surfspirit.pos.ui.theme.Sage
 
@@ -104,7 +108,7 @@ private fun stEur(n: Double): String = fmtCost(n) + " €"
 
 @Composable
 fun StornoScreen() {
-    val toast = rememberAdminToast()
+    val toast = LocalToast.current
     val scope = rememberCoroutineScope()
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -168,7 +172,7 @@ fun StornoScreen() {
 
     LaunchedEffect(Unit) { load() }
 
-    AdminScreenBox(toast) {
+    AdminScreenBox {
         AdminSectionTitle("Storno koš")
         when {
             loading -> LoadingBox()
@@ -214,8 +218,8 @@ fun StornoScreen() {
                     // Vysvetľujúci riadok pre tri akcie.
                     Text(
                         buildString {
-                            append("🔄 Vrátiť = suroviny späť na sklad (jedlo nebolo urobené). ")
-                            append("🔥 Odpísať = jedlo už bolo urobené, ide ako strata. ")
+                            append("Vrátiť = suroviny späť na sklad (jedlo nebolo urobené). ")
+                            append("Odpísať = jedlo už bolo urobené, ide ako strata. ")
                             append("× = záznam bol omyl, žiadna akcia skladu.")
                         },
                         style = MaterialTheme.typography.bodySmall,
@@ -229,7 +233,7 @@ fun StornoScreen() {
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
-                                "Žiadne čakajúce storná 🎉",
+                                "Žiadne čakajúce storná",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -314,11 +318,20 @@ private fun StStornoRow(
             }
             Spacer(Modifier.height(2.dp))
             // Pôvodný úsudok čašníka (amber = pripravené, indigo = nepripravené).
-            Text(
-                if (item.wasPrepared) "🔥 Čašník: pripravené" else "🔄 Čašník: nepripravené",
-                style = MaterialTheme.typography.labelSmall,
-                color = if (item.wasPrepared) Amber else INDIGO,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    if (item.wasPrepared) Icons.Outlined.LocalFireDepartment else Icons.Outlined.Autorenew,
+                    contentDescription = null,
+                    tint = if (item.wasPrepared) Amber else INDIGO,
+                    modifier = Modifier.size(IconSize.sm),
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    if (item.wasPrepared) "Čašník: pripravené" else "Čašník: nepripravené",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (item.wasPrepared) Amber else INDIGO,
+                )
+            }
             Spacer(Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 StMeta("Dôvod", reasonLabel.ifBlank { "—" })
@@ -345,14 +358,22 @@ private fun StStornoRow(
                 colors = ButtonDefaults.buttonColors(containerColor = Sage, contentColor = Cream),
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
                 modifier = Modifier.heightIn(min = 44.dp),
-            ) { Text("🔄 Vrátiť") }
+            ) {
+                Icon(Icons.Outlined.Autorenew, contentDescription = null, modifier = Modifier.size(IconSize.md))
+                Spacer(Modifier.width(6.dp))
+                Text("Vrátiť")
+            }
             Button(
                 onClick = onWriteOff,
                 enabled = enabled,
                 colors = ButtonDefaults.buttonColors(containerColor = Danger, contentColor = Cream),
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
                 modifier = Modifier.heightIn(min = 44.dp),
-            ) { Text("🔥 Odpísať") }
+            ) {
+                Icon(Icons.Outlined.LocalFireDepartment, contentDescription = null, modifier = Modifier.size(IconSize.md))
+                Spacer(Modifier.width(6.dp))
+                Text("Odpísať")
+            }
             OutlinedButton(
                 onClick = onDelete,
                 enabled = enabled,

@@ -20,6 +20,7 @@ import sk.surfspirit.pos.core.errorMessage
 import sk.surfspirit.pos.core.httpCode
 import sk.surfspirit.pos.net.Api
 import sk.surfspirit.pos.ui.admin.*
+import sk.surfspirit.pos.ui.components.LocalToast
 import sk.surfspirit.pos.ui.theme.*
 
 /* =====================================================================
@@ -119,7 +120,7 @@ private fun invStockBadge(currentQty: Double): InvBadge =
 
 @Composable
 fun InventoryScreen() {
-    val toast = rememberAdminToast()
+    val toast = LocalToast.current
     val scope = rememberCoroutineScope()
 
     var loading by remember { mutableStateOf(true) }
@@ -164,7 +165,7 @@ fun InventoryScreen() {
         }
     }
 
-    AdminScreenBox(toast) {
+    AdminScreenBox {
         AdminSectionTitle("Prehľad skladu")
 
         when {

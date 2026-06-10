@@ -41,7 +41,7 @@ import sk.surfspirit.pos.ui.admin.ErrorBox
 import sk.surfspirit.pos.ui.admin.LoadingBox
 import sk.surfspirit.pos.ui.admin.PillTabs
 import sk.surfspirit.pos.ui.admin.StatusBadge
-import sk.surfspirit.pos.ui.admin.rememberAdminToast
+import sk.surfspirit.pos.ui.components.LocalToast
 import sk.surfspirit.pos.ui.theme.Amber
 import sk.surfspirit.pos.ui.theme.BorderSoft
 import sk.surfspirit.pos.ui.theme.Cream
@@ -185,7 +185,7 @@ private sealed interface PmtConfirm {
 
 @Composable
 fun PaymentsScreen() {
-    val toast = rememberAdminToast()
+    val toast = LocalToast.current
     val scope = rememberCoroutineScope()
 
     var loading by remember { mutableStateOf(true) }
@@ -259,7 +259,7 @@ fun PaymentsScreen() {
         load()
     }
 
-    AdminScreenBox(toast, scrollable = false) {
+    AdminScreenBox(scrollable = false) {
         // Jeden zdieľaný horizontálny scroll stav pre hlavičku aj všetky riadky
         // tabuľky — stĺpce ostávajú zarovnané a alokuje sa jediný ScrollState.
         // Riadky sú v LazyColumn (až 200 platieb sa nekomponuje naraz).

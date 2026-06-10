@@ -18,6 +18,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -39,6 +41,7 @@ import sk.surfspirit.pos.core.errorMessage
 import sk.surfspirit.pos.core.fmtCost
 import sk.surfspirit.pos.net.Api
 import sk.surfspirit.pos.ui.admin.*
+import sk.surfspirit.pos.ui.components.LocalToast
 import sk.surfspirit.pos.ui.theme.*
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -338,7 +341,7 @@ private fun dochBuildCsv(rows: List<DochSummaryRow>, from: String, to: String): 
 
 @Composable
 fun DochadzkaScreen() {
-    val toast = rememberAdminToast()
+    val toast = LocalToast.current
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
 
@@ -417,7 +420,7 @@ fun DochadzkaScreen() {
     }
     val totals = remember(visibleRows) { dochTotalsFor(visibleRows) }
 
-    AdminScreenBox(toast, scrollable = false) {
+    AdminScreenBox(scrollable = false) {
         AdminSectionTitle("Dochádzka")
 
         when {
@@ -708,8 +711,8 @@ private fun DochBalancePanel(b: DochBalanceResp) {
     val accent = if (owed > 0.01) Amber else Sage
 
     Surface(
-        Modifier.fillMaxWidth().paperShadow(2.dp, RoundedCornerShape(14.dp)),
-        shape = RoundedCornerShape(14.dp),
+        Modifier.fillMaxWidth().paperShadow(Elev.rest, RoundedCornerShape(Radius.md)),
+        shape = RoundedCornerShape(Radius.md),
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, BorderSoft),
     ) {
@@ -733,7 +736,7 @@ private fun DochBalancePanel(b: DochBalanceResp) {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         debtors.forEach { d ->
                             Surface(
-                                Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp),
+                                Modifier.fillMaxWidth(), shape = RoundedCornerShape(Radius.sm),
                                 color = MaterialTheme.colorScheme.surfaceVariant,
                                 border = BorderStroke(1.dp, BorderSoft),
                             ) {
@@ -780,8 +783,8 @@ private fun DochKpiGrid(totals: DochTotals, from: String, to: String, openOnly: 
             // Otvorené smeny — clickable filter toggle
             Surface(
                 onClick = onToggleOpen,
-                modifier = Modifier.weight(1f).paperShadow(2.dp, RoundedCornerShape(14.dp)),
-                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.weight(1f).paperShadow(Elev.rest, RoundedCornerShape(Radius.md)),
+                shape = RoundedCornerShape(Radius.md),
                 color = MaterialTheme.colorScheme.surface,
                 border = BorderStroke(if (openOnly) 2.dp else 1.dp, if (openOnly) Amber else BorderSoft),
             ) {
@@ -903,12 +906,12 @@ private fun DochRow(
             // Akcie
             Column(Modifier.weight(DOCH_COLS[8].second), horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Surface(onClick = onPayout, shape = RoundedCornerShape(8.dp),
+                Surface(onClick = onPayout, shape = RoundedCornerShape(Radius.sm),
                     color = Sage.copy(alpha = 0.10f), border = BorderStroke(1.dp, Sage.copy(alpha = 0.35f))) {
                     Text("Vyplatiť", Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                         color = Sage, style = MaterialTheme.typography.labelMedium)
                 }
-                Surface(onClick = onToggle, shape = RoundedCornerShape(8.dp),
+                Surface(onClick = onToggle, shape = RoundedCornerShape(Radius.sm),
                     color = MaterialTheme.colorScheme.surfaceVariant, border = BorderStroke(1.dp, BorderSoft)) {
                     Text(if (isOpen) "Skryť" else "Detail", Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                         style = MaterialTheme.typography.labelMedium)
@@ -934,8 +937,8 @@ private fun DochDetail(
     onAddEvent: (type: String, reason: String, atIso: String, note: String) -> Unit,
 ) {
     Surface(
-        Modifier.fillMaxWidth().paperShadow(2.dp, RoundedCornerShape(14.dp)),
-        shape = RoundedCornerShape(14.dp),
+        Modifier.fillMaxWidth().paperShadow(Elev.rest, RoundedCornerShape(Radius.md)),
+        shape = RoundedCornerShape(Radius.md),
         color = MaterialTheme.colorScheme.surfaceVariant,
         border = BorderStroke(1.dp, BorderMid),
     ) {
@@ -1043,7 +1046,7 @@ private fun DochShiftRow(
             val end = s.end
             when {
                 end?.id != null && end.id != 0 && end.paid != null -> {
-                    Surface(onClick = { onUnpay(end.paid.id) }, shape = RoundedCornerShape(8.dp),
+                    Surface(onClick = { onUnpay(end.paid.id) }, shape = RoundedCornerShape(Radius.sm),
                         color = Sage.copy(alpha = 0.12f), border = BorderStroke(1.dp, Sage.copy(alpha = 0.35f))) {
                         Text("✓ Vyplatené ${dochFmtDate(end.paid.paidAt)}",
                             Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -1051,7 +1054,7 @@ private fun DochShiftRow(
                     }
                 }
                 end?.id != null && end.id != 0 && wage != null -> {
-                    Surface(onClick = { onPayShift(end.id, wage) }, shape = RoundedCornerShape(8.dp),
+                    Surface(onClick = { onPayShift(end.id, wage) }, shape = RoundedCornerShape(Radius.sm),
                         color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, BorderMid)) {
                         Text("Označiť ako vyplatené", Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                             style = MaterialTheme.typography.labelSmall, maxLines = 1)
@@ -1112,7 +1115,8 @@ private fun DochAuditRow(e: DochEvent, onDelete: (Int) -> Unit) {
             color = if (e.note.isBlank()) EspressoDim else MaterialTheme.colorScheme.onSurface,
             style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Box(Modifier.weight(DOCH_AUDIT_COLS[5].second), contentAlignment = Alignment.CenterEnd) {
-            Surface(onClick = { onDelete(e.id) }, shape = RoundedCornerShape(8.dp),
+            Surface(onClick = { onDelete(e.id) }, shape = RoundedCornerShape(Radius.sm),
+                modifier = Modifier.semantics { contentDescription = "Vymazať záznam" },
                 color = Danger.copy(alpha = 0.08f), border = BorderStroke(1.dp, Danger.copy(alpha = 0.3f))) {
                 Text("✕", Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                     color = Danger, style = MaterialTheme.typography.labelMedium)
@@ -1134,7 +1138,7 @@ private fun DochManualForm(onAddEvent: (type: String, reason: String, atIso: Str
     var note by remember { mutableStateOf("") }
     var localError by remember { mutableStateOf<String?>(null) }
 
-    Surface(onClick = { show = !show }, color = Color_Transparent, shape = RoundedCornerShape(8.dp)) {
+    Surface(onClick = { show = !show }, color = Color_Transparent, shape = RoundedCornerShape(Radius.sm)) {
         Text((if (show) "− " else "+ ") + "Manuálna úprava záznamu",
             Modifier.padding(vertical = 6.dp),
             style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
@@ -1192,7 +1196,7 @@ private fun DochManualForm(onAddEvent: (type: String, reason: String, atIso: Str
 private fun DochSegment(label: String, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Surface(
         onClick = onClick, modifier = modifier.heightIn(min = 44.dp),
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(Radius.sm),
         color = if (active) Terra else MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, if (active) Terra else BorderSoft),
     ) {
@@ -1250,8 +1254,8 @@ private fun DochPayoutDialog(
         "≈ ${String.format("%.1f", amtVal / req.hourlyRate)} hod pri sadzbe ${dochFmtEur(req.hourlyRate)}/h" else ""
 
     Dialog(onDismissRequest = onDismiss) {
-        Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface,
-            modifier = Modifier.fillMaxWidth().paperShadow(14.dp, RoundedCornerShape(16.dp))) {
+        Surface(shape = RoundedCornerShape(Radius.md), color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier.fillMaxWidth().paperShadow(Elev.modal, RoundedCornerShape(Radius.md))) {
             Column(Modifier.padding(20.dp).verticalScroll(rememberScrollState())) {
                 Text("💸 Vyplatiť ${req.staffName}", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(14.dp))
@@ -1330,7 +1334,7 @@ private fun DochPayoutDialog(
 
 @Composable
 private fun DochChip(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Surface(onClick = onClick, modifier = modifier.heightIn(min = 40.dp), shape = RoundedCornerShape(8.dp),
+    Surface(onClick = onClick, modifier = modifier.heightIn(min = 40.dp), shape = RoundedCornerShape(Radius.sm),
         color = MaterialTheme.colorScheme.surfaceVariant, border = BorderStroke(1.dp, BorderSoft)) {
         Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
             Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)

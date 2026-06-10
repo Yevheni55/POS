@@ -13,6 +13,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -37,6 +39,7 @@ import sk.surfspirit.pos.core.httpCode
 import sk.surfspirit.pos.core.todayIso
 import sk.surfspirit.pos.net.Api
 import sk.surfspirit.pos.ui.admin.*
+import sk.surfspirit.pos.ui.components.LocalToast
 import sk.surfspirit.pos.ui.theme.*
 import java.time.Instant
 import java.time.LocalDate
@@ -249,7 +252,7 @@ private fun cfModalToIso(local: String): String? {
 
 @Composable
 fun CashflowScreen() {
-    val toast = rememberAdminToast()
+    val toast = LocalToast.current
     val scope = rememberCoroutineScope()
 
     var loading by remember { mutableStateOf(true) }
@@ -333,7 +336,7 @@ fun CashflowScreen() {
         load()
     }
 
-    AdminScreenBox(toast) {
+    AdminScreenBox {
         AdminSectionTitle("Cashflow")
 
         // Toolbar: dátumy + typ + presety + add tlačidlá.
@@ -490,7 +493,7 @@ private fun CfToolbar(
                         val active = typeFilter == value
                         Surface(
                             onClick = { onType(value) },
-                            shape = RoundedCornerShape(999.dp),
+                            shape = RoundedCornerShape(Radius.full),
                             color = if (active) Terra else MaterialTheme.colorScheme.surface,
                             border = BorderStroke(1.dp, if (active) Terra else BorderSoft),
                         ) {
@@ -640,10 +643,11 @@ private fun RowScope.cfHeaderCell(label: String, weight: Float) {
 private fun CfIconButton(glyph: String, desc: String, color: Color, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(Radius.sm),
         color = color.copy(alpha = 0.10f),
         border = BorderStroke(1.dp, color.copy(alpha = 0.30f)),
-        modifier = Modifier.sizeIn(minWidth = 44.dp, minHeight = 44.dp),
+        modifier = Modifier.sizeIn(minWidth = 44.dp, minHeight = 44.dp)
+            .semantics { contentDescription = desc },
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(glyph, color = color, style = MaterialTheme.typography.bodyLarge)
@@ -702,7 +706,7 @@ private fun CfBreakdownBlock(
                 Spacer(Modifier.height(4.dp))
                 Box(
                     Modifier.fillMaxWidth().height(6.dp)
-                        .clip(RoundedCornerShape(3.dp))
+                        .clip(RoundedCornerShape(Radius.xs))
                         .background(CreamSunken),
                 ) {
                     Box(
@@ -723,8 +727,8 @@ private fun CfUndoSnackbar(label: String, onUndo: () -> Unit) {
     Box(Modifier.fillMaxSize()) {
         Surface(
             Modifier.align(Alignment.BottomCenter).padding(16.dp)
-                .paperShadow(6.dp, RoundedCornerShape(12.dp)),
-            shape = RoundedCornerShape(12.dp),
+                .paperShadow(Elev.float, RoundedCornerShape(Radius.md)),
+            shape = RoundedCornerShape(Radius.md),
             color = Espresso, contentColor = Cream,
         ) {
             Row(
@@ -894,7 +898,7 @@ private fun <K> CfSelectField(
         Box {
             Surface(
                 onClick = { expanded = true },
-                shape = RoundedCornerShape(8.dp),
+                shape = RoundedCornerShape(Radius.sm),
                 color = MaterialTheme.colorScheme.surface,
                 border = BorderStroke(1.dp, BorderMid),
                 modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp),

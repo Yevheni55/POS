@@ -27,9 +27,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -65,6 +68,7 @@ fun FloorScreen(
 ) {
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
+    val haptics = LocalHapticFeedback.current
     // Štart z in-memory cache — návrat z objednávky kreslí plán OKAMŽITE
     // (žiadny spinner), sieť ho len potichu obnoví.
     var tables by remember { mutableStateOf(Mem.tables ?: emptyList()) }
@@ -312,6 +316,9 @@ fun FloorScreen(
                                 if (zt.isEmpty() && zones.none { it.slug == slug }) return@forEach
                                 val occ = zt.count { it.status == "occupied" || it.status == "reserved" }
                                 ZonePill(zoneLabel(slug), "${occ}/${zt.size}", slug == activeZone) {
+                                    // Guard: prepnutie zóny v edit móde tichým autosave
+                                    // (rovnaká rutina ako „Hotovo") — dirty pozície sa nestratia
+                                    if (editMode) saveLayout()
                                     activeZone = slug
                                 }
                             }
@@ -320,7 +327,7 @@ fun FloorScreen(
                         // telefón ukazuje responzívny grid, kde absolútne pozície neplatia.
                         if (isManager && !phone) {
                             val editInk by animateColorAsState(if (editMode) Sage else Navy,
-                                Motion.colorSpec, label = "editInk")
+                                colorSpecOrSnap(), label = "editInk")
                             TextButton(onClick = {
                                 if (editMode) saveLayout()
                                 editMode = !editMode
@@ -335,7 +342,7 @@ fun FloorScreen(
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant,
                                     modifier = Modifier.size(56.dp)) {
-                                    Box(contentAlignment = Alignment.Center) { Text("🪑", fontSize = 26.sp) }
+                                    Box(contentAlignment = Alignment.Center) { Text("🪑", style = MaterialTheme.typography.headlineSmall) }
                                 }
                                 Spacer(Modifier.height(12.dp))
                                 Text("Žiadne stoly v tejto zóne", style = MaterialTheme.typography.titleMedium)
@@ -362,7 +369,11 @@ fun FloorScreen(
                                     accounts = accountsPerTable[t.id] ?: 0,
                                     forgotten = isForgotten(t),
                                     hasDraft = draftIds.contains(t.id),
-                                    onClick = { onOpenTable(t.id) },
+                                    onClick = {
+                                        // Hmat pri otvorení stola — potvrdenie tapu v rušnej prevádzke
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        onOpenTable(t.id)
+                                    },
                                 )
                             }
                         }
@@ -385,7 +396,13 @@ fun FloorScreen(
                                             pulse = pulsingIds.contains(t.id),
                                             hasDraft = draftIds.contains(t.id),
                                             editMode = editMode,
-                                            onClick = { if (!editMode) onOpenTable(t.id) },
+                                            onClick = {
+                                                if (!editMode) {
+                                                    // Hmat pri otvorení stola (parita s telefónom)
+                                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    onOpenTable(t.id)
+                                                }
+                                            },
                                             onMoved = { nx, ny ->
                                                 tables = tables.map { if (it.id == t.id) it.copy(x = nx, y = ny) else it }
                                                 if (!dirtyTables.contains(t.id)) dirtyTables.add(t.id)
@@ -427,12 +444,12 @@ fun FloorScreen(
 private fun ZonePill(label: String, meta: String, active: Boolean, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val fill by animateColorAsState(if (active) Terra else MaterialTheme.colorScheme.surface,
-        Motion.colorSpec, label = "zoneFill")
-    val edge by animateColorAsState(if (active) Terra else BorderSoft, Motion.colorSpec, label = "zoneEdge")
-    Surface(onClick = onClick, interactionSource = interaction, shape = RoundedCornerShape(999.dp),
+        colorSpecOrSnap(), label = "zoneFill")
+    val edge by animateColorAsState(if (active) Terra else BorderSoft, colorSpecOrSnap(), label = "zoneEdge")
+    Surface(onClick = onClick, interactionSource = interaction, shape = RoundedCornerShape(Radius.full),
         color = fill, border = BorderStroke(1.dp, edge),
         modifier = Modifier
-            .then(if (active) Modifier.paperShadow(2.dp, RoundedCornerShape(999.dp)) else Modifier)
+            .then(if (active) Modifier.paperShadow(Elev.rest, RoundedCornerShape(Radius.full)) else Modifier)
             .pressScale(interaction)) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(label, color = if (active) Cream else MaterialTheme.colorScheme.onSurface,
@@ -460,7 +477,7 @@ private fun PhoneTableCard(
     val sc = statusColor(t.status)
     val occupied = t.status == "occupied"
     val interaction = remember { MutableInteractionSource() }
-    val shape = RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(Radius.md)
     Surface(
         onClick = onClick,
         interactionSource = interaction,
@@ -469,7 +486,8 @@ private fun PhoneTableCard(
         border = BorderStroke(if (forgotten) 2.dp else 1.dp,
             when { forgotten -> Danger; occupied -> sc.copy(alpha = 0.45f); else -> BorderSoft }),
         modifier = Modifier.fillMaxWidth().height(100.dp)
-            .paperShadow(if (occupied) 2.dp else 4.dp, shape)
+            // voľný stôl „pláva" vyššie než obsadený — parita s tablet chipom
+            .paperShadow(if (occupied) Elev.rest else Elev.float, shape)
             .pressScale(interaction),
     ) {
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
@@ -482,12 +500,14 @@ private fun PhoneTableCard(
             Column(Modifier.fillMaxSize().padding(start = 12.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
                 verticalArrangement = Arrangement.Center) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(statusGlyph(t.status), color = sc, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    StatusGlyph(t.status, color = sc)
                     Spacer(Modifier.width(5.dp))
                     Text(t.name, style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.onSurface, maxLines = 1,
                         modifier = Modifier.weight(1f))
-                    if (forgotten) Text("⏰", fontSize = 12.sp)
+                    if (forgotten) Text("⏰",
+                        Modifier.semantics { contentDescription = "Čaká vyše 20 minút" },
+                        style = MaterialTheme.typography.labelMedium)
                 }
                 Spacer(Modifier.height(3.dp))
                 when {
@@ -508,7 +528,9 @@ private fun PhoneTableCard(
                         Text(statusLabel(t.status), style = MaterialTheme.typography.labelSmall, color = sc)
                 }
                 Spacer(Modifier.height(3.dp))
-                Text("👤 ${t.seats}", style = MaterialTheme.typography.labelSmall,
+                Text("👤 ${t.seats}",
+                    Modifier.semantics { contentDescription = "Miest: ${t.seats}" },
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -537,7 +559,7 @@ private fun TableChip(
     val occupied = t.status == "occupied"
     val w = chipW(t)
     val h = chipH(t)
-    val shape = if (t.shape == "round") CircleShape else RoundedCornerShape(14.dp)
+    val shape = if (t.shape == "round") CircleShape else RoundedCornerShape(Radius.md)
     val interaction = remember { MutableInteractionSource() }
     // Lokálny drag offset počas gesta — commit (snap 20px) až na dragEnd.
     var dragX by remember(t.x) { mutableStateOf(t.x.toFloat()) }
@@ -547,15 +569,15 @@ private fun TableChip(
     var isDragging by remember { mutableStateOf(false) }
 
     // Status farby plynú pri poll flipe free→occupied (žiadne skoky)
-    val fillTop by animateColorAsState(if (occupied) sc.copy(alpha = 0.08f) else CreamElev, Motion.colorSpec, label = "ft")
-    val fillBot by animateColorAsState(if (occupied) sc.copy(alpha = 0.14f) else CreamSunken, Motion.colorSpec, label = "fb")
+    val fillTop by animateColorAsState(if (occupied) sc.copy(alpha = 0.08f) else CreamElev, colorSpecOrSnap(), label = "ft")
+    val fillBot by animateColorAsState(if (occupied) sc.copy(alpha = 0.14f) else CreamSunken, colorSpecOrSnap(), label = "fb")
     val edge by animateColorAsState(
         when {
             forgotten -> Danger
             editMode -> Navy.copy(alpha = 0.6f)
             occupied -> sc.copy(alpha = 0.45f)
             else -> BorderSoft
-        }, Motion.colorSpec, label = "edge")
+        }, colorSpecOrSnap(), label = "edge")
     // Forgotten pulz na ľavom prúžku (reduced-motion → statický)
     val barAlpha = if (forgotten && pulse && !reducedMotion()) {
         val tr = rememberInfiniteTransition(label = "forgot")
@@ -575,7 +597,7 @@ private fun TableChip(
             .size(resW.dp, resH.dp)
             // Voľné stoly „plávajú" vyššie (pozývajú na tap), obsadené sedia;
             // počas dragu sa chip zdvihne najvyššie.
-            .paperShadow(if (isDragging) 14.dp else if (occupied) 2.dp else 6.dp, shape)
+            .paperShadow(if (isDragging) Elev.modal else if (occupied) Elev.rest else Elev.float, shape)
             .graphicsLayer { scaleX = dragScale; scaleY = dragScale }
             .pressScale(interaction, enabled = !editMode)
             .then(if (editMode) Modifier.pointerInput(t.id) {
@@ -607,11 +629,13 @@ private fun TableChip(
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(statusGlyph(t.status), color = sc, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    StatusGlyph(t.status, color = sc)
                     Spacer(Modifier.width(4.dp))
                     Text(t.name, style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
-                    if (forgotten) { Spacer(Modifier.width(3.dp)); Text("⏰", fontSize = 11.sp) }
+                    if (forgotten) { Spacer(Modifier.width(3.dp)); Text("⏰",
+                        Modifier.semantics { contentDescription = "Čaká vyše 20 minút" },
+                        style = MaterialTheme.typography.labelSmall) }
                 }
                 when {
                     occupied && total > 0 -> {
@@ -632,7 +656,9 @@ private fun TableChip(
                 }
                 // Kapacita — pri obsadených/rezervovaných/špinavých + v edit móde
                 if (t.status != "free" || editMode) {
-                    Text("👤 ${t.seats}", style = MaterialTheme.typography.labelSmall,
+                    Text("👤 ${t.seats}",
+                        Modifier.semantics { contentDescription = "Miest: ${t.seats}" },
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
@@ -655,7 +681,8 @@ private fun TableChip(
                         }
                     },
                     contentAlignment = Alignment.Center) {
-                    Text("◢", color = Navy, fontSize = 13.sp)
+                    Text("◢", Modifier.semantics { contentDescription = "Zmeniť veľkosť stola" },
+                        color = Navy, fontSize = 13.sp) // token-exempt: velkost mimo skaly
                 }
             }
         }

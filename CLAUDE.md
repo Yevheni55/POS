@@ -17,6 +17,18 @@ pravidlá tam definované. Najmä:
 - Sub-cent ceny cez `fmtCost()` adaptívny formátter
 - Slovak locale (`sk-SK`) — čiarka ako oddeľovač
 
+### Android (android-tablet/) — dizajn tokeny
+
+V `ui` zdrojoch (mimo `ui/theme/`) sa NEpíšu literály pre radius, eleváciu,
+icon-size ani fontSize — vždy tokeny z `ui/theme/Dimens.kt` (`Space`, `Radius`,
+`Elev`, `IconSize`, `MinTouch`) a typografia z `MaterialTheme.typography`.
+Výnimka potrebuje `// token-exempt: dôvod` na tom istom riadku. Stráži to
+gradle task `checkDesignTokens` (súčasť `check`). Farby len cez pomenované
+vals z `Theme.kt`; `animateColorAsState` vždy s `colorSpecOrSnap()` (reduced
+motion). PIN pady cez `ui/components/PinPad.kt`, toasty cez `LocalToast`
+(`ui/components/Toast.kt`) — žiadne nové lokálne implementácie. Max jeden
+`glow()` prvok na obrazovku (fázový primár).
+
 ## Deploy flow
 
 ```sh

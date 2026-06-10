@@ -5,7 +5,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -13,16 +12,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Backspace
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.Autorenew
+import androidx.compose.material.icons.outlined.LocalFireDepartment
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -71,88 +69,16 @@ fun ConfirmDialog(
     )
 }
 
-/* ============================ PIN pad (zdieľaný) ============================ */
+/* ============================ PIN pad (zdieľaný) ============================
+   Implementácia žije v PinPad.kt (PinPad/PinDots/PinPadSize/PinPadCorner). */
 
-@Composable
-fun PinDots(len: Int, max: Int = 6) {
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        repeat(max) { i ->
-            Surface(
-                shape = CircleShape,
-                color = if (i < len) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                modifier = Modifier.size(14.dp),
-            ) {}
-        }
-    }
-}
-
+@Deprecated("Použi PinPad(size = PinPadSize.Dialog, corner = PinPadCorner.Confirm(...))",
+    ReplaceWith("PinPad(onDigit, onBackspace, size = PinPadSize.Dialog, corner = PinPadCorner.Confirm(okEnabled, onOk))"))
 @Composable
 fun NumPad(onDigit: (String) -> Unit, onBackspace: () -> Unit, onOk: () -> Unit, okEnabled: Boolean, keySize: Int = 64) {
-    val keys = listOf("1","2","3","4","5","6","7","8","9")
-    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        for (r in 0..2) {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                for (c in 0..2) PadKey(keys[r * 3 + c], keySize) { onDigit(keys[r * 3 + c]) }
-            }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            PadKeyIcon(keySize, onBackspace)
-            PadKey("0", keySize) { onDigit("0") }
-            PadKeyOk(keySize, okEnabled, onOk)
-        }
-    }
-}
-
-@Composable
-private fun PadKey(label: String, size: Int, onClick: () -> Unit) {
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val haptics = LocalHapticFeedback.current
-    val fill by animateColorAsState(
-        if (pressed) Terra.copy(alpha = 0.10f) else MaterialTheme.colorScheme.surface,
-        Motion.colorSpec, label = "padKey")
-    Surface(onClick = { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); onClick() },
-        interactionSource = interaction, shape = RoundedCornerShape(14.dp), color = fill,
-        border = BorderStroke(1.dp, BorderSoft),
-        modifier = Modifier.size(size.dp)
-            .paperShadow(2.dp, RoundedCornerShape(14.dp))
-            .pressScale(interaction)) {
-        Box(contentAlignment = Alignment.Center) { Text(label, fontSize = (size * 0.32f).sp, style = MaterialTheme.typography.titleLarge) }
-    }
-}
-
-@Composable
-private fun PadKeyIcon(size: Int, onClick: () -> Unit) {
-    val interaction = remember { MutableInteractionSource() }
-    Surface(onClick = onClick, interactionSource = interaction,
-        shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceVariant,
-        modifier = Modifier.size(size.dp)
-            .paperShadow(2.dp, RoundedCornerShape(14.dp))
-            .pressScale(interaction)) {
-        Box(contentAlignment = Alignment.Center) {
-            androidx.compose.material3.Icon(Icons.AutoMirrored.Filled.Backspace, "Vymazať", Modifier.size((size * 0.34f).dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
-private fun PadKeyOk(size: Int, enabled: Boolean, onClick: () -> Unit) {
-    val interaction = remember { MutableInteractionSource() }
-    val fill by animateColorAsState(
-        if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-        Motion.colorSpec, label = "padOk")
-    Surface(onClick = { if (enabled) onClick() }, interactionSource = interaction,
-        shape = RoundedCornerShape(14.dp), color = fill,
-        modifier = Modifier.size(size.dp)
-            .glow(enabled, RoundedCornerShape(14.dp))
-            .pressScale(interaction, enabled = enabled)) {
-        Box(contentAlignment = Alignment.Center) {
-            Text("OK", fontSize = (size * 0.26f).sp,
-                color = if (enabled) Cream else MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.labelLarge)
-        }
-    }
+    PinPad(onDigit, onBackspace,
+        size = PinPadSize.Dialog,
+        corner = PinPadCorner.Confirm(okEnabled, onOk))
 }
 
 /* ======================== Manager PIN gate ======================== */
@@ -200,12 +126,15 @@ fun ManagerPinDialog(contextLabel: String, onVerified: () -> Unit, onDismiss: ()
                 }
                 PinDots(pin.length)
                 Spacer(Modifier.height(16.dp))
-                NumPad(
+                PinPad(
                     onDigit = { if (pin.length < 6) pin += it },
                     onBackspace = { if (pin.isNotEmpty()) pin = pin.dropLast(1) },
-                    onOk = { submit() },
-                    okEnabled = pin.length >= 4 && !busy,
-                    keySize = 58,
+                    size = PinPadSize.Dialog,
+                    corner = PinPadCorner.Confirm(
+                        enabled = pin.length >= 4 && !busy,
+                        onConfirm = { submit() },
+                        busy = busy,
+                    ),
                 )
                 error?.let {
                     Spacer(Modifier.height(10.dp))
@@ -232,38 +161,57 @@ private val STORNO_REASONS = listOf(
 )
 
 /**
- * Cashier musí explicitne vybrať DVE veci (žiadne auto-defaulty):
- * 1. Bolo už pripravené? Áno (odpis) / Nie (vrátiť na sklad)
- * 2. Dôvod (5 možností) + voliteľná poznámka.
- * „Potvrdiť" je disabled kým nie sú obe zvolené. Zhoda s web showStornoReason.
+ * Bežný prípad = 1 tap: voľby sú PREDVOLENÉ (storno sa v praxi týka už
+ * odoslanej položky → pripravené=true, dôvod=chyba objednávky) a cashier
+ * ich len potvrdí alebo zmení vo výnimke. Vedomá divergencia od webu
+ * (tam žiadne defaulty) — schválené pri návrhu v3.0.
  */
 @Composable
 fun StornoReasonDialog(
     itemName: String,
     qty: Int,
+    defaultPrepared: Boolean? = null,
+    defaultReason: String? = null,
+    batchLines: List<String> = emptyList(),   // >1 položka = spoločný dôvod pre všetky
     onConfirm: (StornoReason) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var wasPrepared by remember { mutableStateOf<Boolean?>(null) }
-    var reason by remember { mutableStateOf<String?>(null) }
+    var wasPrepared by remember { mutableStateOf(defaultPrepared) }
+    var reason by remember { mutableStateOf(defaultReason) }
     var note by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Column {
-                Text("$qty× $itemName", style = MaterialTheme.typography.titleMedium)
+                Text(if (batchLines.isEmpty()) "$qty× $itemName" else itemName,
+                    style = MaterialTheme.typography.titleMedium)
                 Text("STORNO", style = MaterialTheme.typography.labelSmall, color = Danger)
             }
         },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
+                if (batchLines.isNotEmpty()) {
+                    Surface(shape = RoundedCornerShape(Radius.sm),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)) {
+                        Column(Modifier.fillMaxWidth().padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            batchLines.forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                        }
+                    }
+                    Text("Spoločný dôvod pre všetky položky",
+                        Modifier.padding(top = 4.dp, bottom = 8.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 Text("Bolo už pripravené?", style = MaterialTheme.typography.labelMedium)
                 Spacer(Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PrepBtn("🔥 Áno, pripravené", "jedlo / nápoj išlo von → odpis",
+                    PrepBtn("Áno, pripravené", "jedlo / nápoj išlo von → odpis",
+                        Icons.Outlined.LocalFireDepartment,
                         wasPrepared == true, Modifier.weight(1f)) { wasPrepared = true }
-                    PrepBtn("🔄 Nie, nestihli sme", "vrátiť suroviny na sklad",
+                    PrepBtn("Nie, nestihli sme", "vrátiť suroviny na sklad",
+                        Icons.Outlined.Autorenew,
                         wasPrepared == false, Modifier.weight(1f)) { wasPrepared = false }
                 }
                 Spacer(Modifier.height(12.dp))
@@ -276,7 +224,7 @@ fun StornoReasonDialog(
                                 val active = reason == value
                                 Surface(
                                     onClick = { reason = value },
-                                    shape = RoundedCornerShape(10.dp),
+                                    shape = RoundedCornerShape(Radius.sm),
                                     color = if (active) Terra.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface,
                                     border = BorderStroke(1.dp, if (active) Terra else MaterialTheme.colorScheme.outline),
                                     modifier = Modifier.weight(1f),
@@ -296,7 +244,7 @@ fun StornoReasonDialog(
                     value = note, onValueChange = { if (it.length <= 200) note = it },
                     placeholder = { Text("Poznámka (voliteľná)") },
                     modifier = Modifier.fillMaxWidth(), singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(Radius.md),
                 )
             }
         },
@@ -315,19 +263,28 @@ fun StornoReasonDialog(
 }
 
 @Composable
-private fun PrepBtn(label: String, hint: String, active: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun PrepBtn(
+    label: String, hint: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    active: Boolean, modifier: Modifier, onClick: () -> Unit,
+) {
     val interaction = remember { MutableInteractionSource() }
     val fill by animateColorAsState(if (active) Terra.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface,
-        Motion.colorSpec, label = "prep")
-    val edge by animateColorAsState(if (active) Terra else BorderSoft, Motion.colorSpec, label = "prepE")
+        colorSpecOrSnap(), label = "prep")
+    val edge by animateColorAsState(if (active) Terra else BorderSoft, colorSpecOrSnap(), label = "prepE")
     Surface(
-        onClick = onClick, interactionSource = interaction, shape = RoundedCornerShape(10.dp),
+        onClick = onClick, interactionSource = interaction, shape = RoundedCornerShape(Radius.sm),
         color = fill, border = BorderStroke(1.dp, edge),
         modifier = modifier.pressScale(interaction),
     ) {
         Column(Modifier.padding(10.dp)) {
-            Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
-                color = if (active) Terra else MaterialTheme.colorScheme.onSurface)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(icon, null, Modifier.size(IconSize.md),
+                    tint = if (active) Terra else MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.width(6.dp))
+                Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
+                    color = if (active) Terra else MaterialTheme.colorScheme.onSurface)
+            }
             Text(hint, style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -367,7 +324,7 @@ fun NoteDialog(initial: String, sent: Boolean = false, onSave: (String) -> Unit,
                     value = note, onValueChange = { if (it.length <= 200) note = it },
                     placeholder = { Text("napr. bez cibule") },
                     modifier = Modifier.fillMaxWidth(), minLines = 2,
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(Radius.md),
                 )
                 Spacer(Modifier.height(10.dp))
                 val active = parts()
@@ -439,10 +396,10 @@ fun SauceDialog(
                     Surface(
                         onClick = { onConfirm(previous) },
                         interactionSource = repInt,
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(Radius.md),
                         color = Color.Transparent,
                         modifier = Modifier.fillMaxWidth()
-                            .paperShadow(2.dp, RoundedCornerShape(12.dp))
+                            .paperShadow(Elev.rest, RoundedCornerShape(Radius.md))
                             .pressScale(repInt),
                     ) {
                         Row(
@@ -456,7 +413,7 @@ fun SauceDialog(
                                     fontWeight = FontWeight.Bold, color = Cream,
                                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-                            Icon(Icons.Filled.Check, null, Modifier.size(20.dp), tint = Cream)
+                            Icon(Icons.Filled.Check, null, Modifier.size(IconSize.lg), tint = Cream)
                         }
                     }
                     Spacer(Modifier.height(2.dp))
@@ -472,14 +429,14 @@ fun SauceDialog(
             Row {
                 OutlinedButton(
                     onClick = { onConfirm(emptyList()) },
-                    shape = RoundedCornerShape(999.dp),
+                    shape = RoundedCornerShape(Radius.full),
                     border = BorderStroke(1.dp, BorderSoft),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
                 ) { Text("Bez omáčky") }
                 Spacer(Modifier.width(8.dp))
                 Button(
                     onClick = { onConfirm(sel.toList()) },
-                    shape = RoundedCornerShape(999.dp),
+                    shape = RoundedCornerShape(Radius.full),
                     colors = ButtonDefaults.buttonColors(containerColor = Terra, contentColor = Cream),
                 ) { Text(if (sel.isEmpty()) "Potvrdiť" else "Potvrdiť (${sel.size})") }
             }
@@ -494,19 +451,19 @@ private fun SauceRow(emoji: String, name: String, selected: Boolean, onToggle: (
     val interaction = remember { MutableInteractionSource() }
     val fill by animateColorAsState(
         if (selected) Terra.copy(alpha = 0.10f) else MaterialTheme.colorScheme.surface,
-        Motion.colorSpec, label = "sauceFill")
-    val edge by animateColorAsState(if (selected) Terra else BorderSoft, Motion.colorSpec, label = "sauceEdge")
+        colorSpecOrSnap(), label = "sauceFill")
+    val edge by animateColorAsState(if (selected) Terra else BorderSoft, colorSpecOrSnap(), label = "sauceEdge")
     Surface(
         onClick = onToggle,
         interactionSource = interaction,
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(Radius.md),
         color = fill,
         border = BorderStroke(1.dp, edge),
         modifier = Modifier.fillMaxWidth().heightIn(min = 46.dp).pressScale(interaction),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
-            Text(emoji, fontSize = 18.sp)
+            Text(emoji, style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.width(10.dp))
             Text(name, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge,
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
@@ -518,7 +475,7 @@ private fun SauceRow(emoji: String, name: String, selected: Boolean, onToggle: (
                     .border(1.5.dp, if (selected) Terra else BorderSoft, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
-                if (selected) Icon(Icons.Filled.Check, null, Modifier.size(14.dp), tint = Cream)
+                if (selected) Icon(Icons.Filled.Check, null, Modifier.size(IconSize.sm), tint = Cream)
             }
         }
     }
@@ -530,30 +487,43 @@ private fun SauceRow(emoji: String, name: String, selected: Boolean, onToggle: (
  * Long-press bulk add — mriežka 1..10, jeden gest = 5× Pivo (web qtyPopup).
  */
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)   // ModalBottomSheet
 fun QtyPopupDialog(itemName: String, onPick: (Int) -> Unit, onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(itemName, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Počet kusov", style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                (1..10).chunked(5).forEach { row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        row.forEach { n ->
-                            Surface(onClick = { onPick(n) }, shape = RoundedCornerShape(10.dp),
-                                color = MaterialTheme.colorScheme.surface,
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                                modifier = Modifier.size(52.dp)) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Text("$n", style = MaterialTheme.typography.titleMedium, color = Terra)
-                                }
+    val qtyGrid: @Composable () -> Unit = {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Počet kusov", style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            (1..10).chunked(5).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    row.forEach { n ->
+                        Surface(onClick = { onPick(n) }, shape = RoundedCornerShape(Radius.sm),
+                            color = MaterialTheme.colorScheme.surface,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                            modifier = Modifier.size(52.dp)) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text("$n", style = MaterialTheme.typography.titleMedium, color = Terra)
                             }
                         }
                     }
                 }
             }
-        },
+        }
+    }
+    if (isPhone()) {
+        // Telefón: bottom sheet — palec dosiahne, swipe-down zruší, menu
+        // ostáva viditeľné nad sheetom (modal dialog by zakryl celú obrazovku).
+        ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Cream) {
+            Column(Modifier.padding(horizontal = Space.s4).padding(bottom = Space.s6)) {
+                Text(itemName, style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(10.dp))
+                qtyGrid()
+            }
+        }
+    } else AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(itemName, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        text = { qtyGrid() },
         confirmButton = {},
         dismissButton = { TextButton(onClick = onDismiss) { Text("Zrušiť") } },
     )
@@ -622,7 +592,7 @@ fun LockCodeDialog(code: String, validUntil: String, onDismiss: () -> Unit) {
         title = { Text("🔐 Kód zámku") },
         text = {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                Text(code, style = MaterialTheme.typography.titleLarge.copy(fontSize = 44.sp, letterSpacing = 8.sp),
+                Text(code, style = MaterialTheme.typography.titleLarge.copy(fontSize = 44.sp, letterSpacing = 8.sp),   // token-exempt: velkost mimo skaly
                     color = Terra, fontWeight = FontWeight.ExtraBold)
                 Spacer(Modifier.height(8.dp))
                 Text("Platný do: $validUntil", style = MaterialTheme.typography.bodyMedium,
@@ -668,7 +638,7 @@ fun DiscountDialog(
                         modifier = Modifier.weight(1f), singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         suffix = { Text("%") },
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(Radius.md),
                     )
                     Spacer(Modifier.width(8.dp))
                     Button(onClick = { custom.toDoubleOrNull()?.let { onApplyCustom(it) } },
@@ -723,7 +693,7 @@ fun SplitDialog(
                         val active = tab == i
                         Surface(
                             onClick = { tab = i },
-                            shape = RoundedCornerShape(999.dp),
+                            shape = RoundedCornerShape(Radius.full),
                             color = if (active) Terra else Cream,
                             border = if (active) null else BorderStroke(1.dp, BorderSoft),
                         ) {
@@ -738,6 +708,27 @@ fun SplitDialog(
                 }
                 Spacer(Modifier.height(12.dp))
                 if (tab == 0) {
+                    // Rush path: chips = 1 tap na bežné počty; ± stepper ostáva
+                    // len pre nepárne hodnoty (7/9/10).
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()) {
+                        listOf(2, 3, 4, 5, 6, 8).forEach { n ->
+                            val active = parts == n
+                            Surface(
+                                onClick = { parts = n },
+                                shape = RoundedCornerShape(Radius.full),
+                                color = if (active) Terra else MaterialTheme.colorScheme.surface,
+                                border = BorderStroke(1.dp, if (active) Terra else BorderSoft),
+                                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text("$n", style = MaterialTheme.typography.titleMedium,
+                                        color = if (active) Cream else MaterialTheme.colorScheme.onSurface)
+                                }
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
                     Row(verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
                         OutlinedButton(onClick = { if (parts > 2) parts-- }, enabled = parts > 2) { Text("−") }
@@ -763,7 +754,7 @@ fun SplitDialog(
                                         else -> qtyPickFor = it2
                                     }
                                 },
-                                shape = RoundedCornerShape(10.dp),
+                                shape = RoundedCornerShape(Radius.sm),
                                 color = if (isSel) Terra.copy(alpha = 0.10f) else MaterialTheme.colorScheme.surface,
                                 border = BorderStroke(1.dp, if (isSel) Terra else MaterialTheme.colorScheme.outline),
                                 modifier = Modifier.fillMaxWidth(),
@@ -771,7 +762,7 @@ fun SplitDialog(
                                 Row(verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
                                     Icon(if (isSel) Icons.Filled.Check else Icons.Filled.Close,
-                                        null, Modifier.size(16.dp),
+                                        null, Modifier.size(IconSize.md),
                                         tint = if (isSel) Terra else MaterialTheme.colorScheme.outline)
                                     Spacer(Modifier.width(8.dp))
                                     Text("${it2.emoji} ${it2.name}", Modifier.weight(1f),
@@ -886,7 +877,7 @@ fun AccountPickerDialog(
                     val count = o.items.sumOf { it.qty }
                     var preview = o.items.take(4).joinToString(" ") { it.emoji }
                     if (o.items.size > 4) preview += " +${o.items.size - 4}"
-                    Surface(onClick = { onPick(o.id) }, shape = RoundedCornerShape(10.dp),
+                    Surface(onClick = { onPick(o.id) }, shape = RoundedCornerShape(Radius.sm),
                         color = MaterialTheme.colorScheme.surface,
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                         modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
@@ -929,6 +920,8 @@ fun PaymentDialog(
     error: String?,
     fiscalNote: String?,
     initialMethod: String = "hotovost",
+    payPhase: Int? = null,           // 1=odosielam 2=fiškalizujem 3=čakám na server
+    payPhaseStartedAt: Long = 0L,
     onPay: (method: String, given: Double?) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -947,7 +940,7 @@ fun PaymentDialog(
         text = {
             Column(Modifier.widthIn(min = 320.dp, max = 460.dp).verticalScroll(rememberScrollState())) {
                 // Hero „K ÚHRADE" — rovnaký money-anchor jazyk ako CELKOM karta
-                Surface(shape = RoundedCornerShape(14.dp), color = Terra.copy(alpha = 0.08f),
+                Surface(shape = RoundedCornerShape(Radius.md), color = Terra.copy(alpha = 0.08f),
                     border = BorderStroke(1.dp, Terra.copy(alpha = 0.26f)),
                     modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
@@ -977,7 +970,7 @@ fun PaymentDialog(
                         modifier = Modifier.fillMaxWidth(), singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         suffix = { Text("€") },
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(Radius.md),
                     )
                     Spacer(Modifier.height(8.dp))
                     // Quick presets — Presne + najbližšie 5/10/20/50/100 € (web parita)
@@ -987,7 +980,8 @@ fun PaymentDialog(
                             OutlinedButton(onClick = { given = String.format("%.2f", p).replace('.', ',') },
                                 contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
                                 modifier = Modifier.weight(1f).height(44.dp)) {
-                                Text(if (p == total) "Presne" else "${p.toInt()}", maxLines = 1, fontSize = 13.sp)
+                                Text(if (p == total) "Presne" else "${p.toInt()}", maxLines = 1,
+                                    fontSize = 13.sp)   // token-exempt: velkost mimo skaly
                             }
                         }
                     }
@@ -995,7 +989,7 @@ fun PaymentDialog(
                     if (givenVal > 0) {
                         // Výdavok/CHÝBA — animovaná suma + crossfade sage↔rust
                         val ok = change >= 0
-                        val ink by animateColorAsState(if (ok) Sage else Danger, Motion.colorSpec, label = "chg")
+                        val ink by animateColorAsState(if (ok) Sage else Danger, colorSpecOrSnap(), label = "chg")
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(if (ok) "Vydať: " else "CHÝBA: ",
                                 style = MaterialTheme.typography.titleMedium, color = ink)
@@ -1012,7 +1006,22 @@ fun PaymentDialog(
                     Spacer(Modifier.height(8.dp))
                     Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
                 }
-                if (busy) { Spacer(Modifier.height(12.dp)); CircularProgressIndicator(Modifier.size(24.dp)) }
+                if (payPhase != null) {
+                    Spacer(Modifier.height(12.dp))
+                    PayProgressTracker(payPhase, payPhaseStartedAt)
+                } else if (busy) {
+                    Spacer(Modifier.height(12.dp)); CircularProgressIndicator(Modifier.size(24.dp))
+                }
+                // Nejasný stav po vyčerpaní pollingu — re-poll cez ten istý onPay
+                // je bezpečný: idempotency kľúč sa nemení, server replayne
+                // výsledok, nikdy nevznikne druhá platba.
+                if (!busy && fiscalNote?.contains("overenie") == true) {
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedButton(
+                        onClick = { onPay(method, if (method == "hotovost" && givenVal > 0) givenVal else null) },
+                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                    ) { Text("Skontrolovať znova") }
+                }
             }
         },
         confirmButton = {
@@ -1025,6 +1034,50 @@ fun PaymentDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("Zrušiť") } },
     )
+}
+
+/**
+ * Fázový tracker platby — namiesto anonymného spinnera cashier VIDÍ, kde
+ * platba je a koľko to trvá. Od fázy 2 (Portos) trvalé varovanie: ukončenie
+ * appky počas fiškalizácie = riziko dvojitého dokladu pri slepom opakovaní.
+ */
+@Composable
+private fun PayProgressTracker(phase: Int, startedAt: Long) {
+    var elapsed by remember { mutableStateOf(0L) }
+    LaunchedEffect(phase, startedAt) {
+        while (true) {
+            elapsed = (System.currentTimeMillis() - startedAt) / 1000
+            kotlinx.coroutines.delay(1_000)
+        }
+    }
+    val steps = listOf("Odosielam objednávku…", "Fiškalizujem (Portos)…", "Čakám na odpoveď servera…")
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        steps.forEachIndexed { i, label ->
+            val stepNo = i + 1
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                when {
+                    stepNo < phase -> Icon(Icons.Filled.Check, null, Modifier.size(IconSize.md), tint = Sage)
+                    stepNo == phase -> CircularProgressIndicator(Modifier.size(IconSize.md), strokeWidth = 2.dp, color = Terra)
+                    else -> Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier.size(IconSize.sm)) {}
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
+                    color = if (stepNo <= phase) MaterialTheme.colorScheme.onSurface
+                        else MaterialTheme.colorScheme.onSurfaceVariant)
+                if (stepNo == phase) Text("${elapsed} s", style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        if (phase >= 2) {
+            Surface(shape = RoundedCornerShape(Radius.sm), color = Amber.copy(alpha = 0.12f),
+                border = BorderStroke(1.dp, Amber.copy(alpha = 0.4f))) {
+                Text("Neukončuj aplikáciu — platba prebieha. Pri slepom opakovaní hrozí dvojitý doklad.",
+                    Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                    style = MaterialTheme.typography.labelMedium, color = Amber)
+            }
+        }
+    }
 }
 
 /** Thermal-receipt-styled náhľad — stôl + čas + obsluha + položky + SPOLU. */
@@ -1042,7 +1095,7 @@ private fun ReceiptPreview(
     val timeStr = remember(now) {
         now.format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy · HH:mm"))
     }
-    Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surface,
+    Surface(shape = RoundedCornerShape(Radius.sm), color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, BorderMid)) {
         Column(Modifier.fillMaxWidth().padding(10.dp)) {
             Row { Text(tableName, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
@@ -1107,12 +1160,12 @@ private fun cashPresets(total: Double): List<Double> {
 private fun MethodBtn(label: String, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val fill by animateColorAsState(if (active) Terra else MaterialTheme.colorScheme.surface,
-        Motion.colorSpec, label = "method")
-    val edge by animateColorAsState(if (active) Terra else BorderSoft, Motion.colorSpec, label = "methodE")
+        colorSpecOrSnap(), label = "method")
+    val edge by animateColorAsState(if (active) Terra else BorderSoft, colorSpecOrSnap(), label = "methodE")
     Surface(
         onClick = onClick, interactionSource = interaction,
         modifier = modifier.height(52.dp).pressScale(interaction),
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(Radius.sm),
         color = fill, border = BorderStroke(1.dp, edge),
     ) {
         Box(contentAlignment = Alignment.Center) {
@@ -1155,13 +1208,13 @@ fun CloseShiftDialog(
                         value = actual, onValueChange = { actual = it.filter { c -> c.isDigit() || c == ',' || c == '.' } },
                         modifier = Modifier.fillMaxWidth(), singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), suffix = { Text("€") },
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(Radius.md),
                     )
                     Spacer(Modifier.height(8.dp))
                     // Diff — crossfade sage↔rust + animovaná suma
                     val isShort = diff < -0.001
                     val diffInk by animateColorAsState(if (isShort) Danger else Sage,
-                        Motion.colorSpec, label = "diff")
+                        colorSpecOrSnap(), label = "diff")
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(when {
                             diff > 0.001 -> "Prebytok: "

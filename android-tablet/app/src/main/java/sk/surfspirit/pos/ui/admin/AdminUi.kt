@@ -2,13 +2,15 @@ package sk.surfspirit.pos.ui.admin
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -16,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -26,6 +29,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import sk.surfspirit.pos.core.errorMessage
+import sk.surfspirit.pos.ui.components.PosToastState
 import sk.surfspirit.pos.ui.theme.*
 
 /* =====================================================================
@@ -54,8 +58,8 @@ fun StatCard(
     subColor: Color? = null,
 ) {
     Surface(
-        modifier.paperShadow(2.dp, RoundedCornerShape(14.dp)),
-        shape = RoundedCornerShape(14.dp),
+        modifier.paperShadow(Elev.rest, RoundedCornerShape(Radius.md)),
+        shape = RoundedCornerShape(Radius.md),
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, BorderSoft),
     ) {
@@ -99,8 +103,8 @@ fun <T> StatGrid(
 @Composable
 fun AdminCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     Surface(
-        modifier.paperShadow(2.dp, RoundedCornerShape(14.dp)),
-        shape = RoundedCornerShape(14.dp),
+        modifier.paperShadow(Elev.rest, RoundedCornerShape(Radius.md)),
+        shape = RoundedCornerShape(Radius.md),
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, BorderSoft),
     ) {
@@ -152,7 +156,7 @@ fun PillTabs(tabs: List<String>, selected: Int, onSelect: (Int) -> Unit) {
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         tabs.forEachIndexed { i, t ->
             val active = i == selected
-            Surface(onClick = { onSelect(i) }, shape = RoundedCornerShape(999.dp),
+            Surface(onClick = { onSelect(i) }, shape = RoundedCornerShape(Radius.full),
                 color = if (active) Terra else MaterialTheme.colorScheme.surface,
                 border = BorderStroke(1.dp, if (active) Terra else BorderSoft)) {
                 Text(t, Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
@@ -166,7 +170,7 @@ fun PillTabs(tabs: List<String>, selected: Int, onSelect: (Int) -> Unit) {
 /** Status badge — tint + farba podľa sémantiky. */
 @Composable
 fun StatusBadge(text: String, color: Color) {
-    Surface(shape = RoundedCornerShape(6.dp), color = color.copy(alpha = 0.12f),
+    Surface(shape = RoundedCornerShape(Radius.sm), color = color.copy(alpha = 0.12f),
         border = BorderStroke(1.dp, color.copy(alpha = 0.35f))) {
         Text(text, Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
             style = MaterialTheme.typography.labelSmall, color = color, maxLines = 1)
@@ -191,8 +195,12 @@ fun ErrorBox(message: String, onRetry: () -> Unit) {
 }
 
 @Composable
-fun EmptyHint(text: String) {
-    Box(Modifier.fillMaxWidth().padding(28.dp), contentAlignment = Alignment.Center) {
+fun EmptyHint(text: String, icon: ImageVector? = null) {
+    Column(Modifier.fillMaxWidth().padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        icon?.let {
+            Icon(it, null, Modifier.size(IconSize.xl), tint = EspressoDim)
+            Spacer(Modifier.height(8.dp))
+        }
         Text(text, style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
@@ -202,9 +210,14 @@ fun EmptyHint(text: String) {
 @Composable
 fun DateNav(label: String, onPrev: () -> Unit, onNext: () -> Unit, onToday: (() -> Unit)? = null) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        OutlinedButton(onClick = onPrev, contentPadding = PaddingValues(horizontal = 10.dp)) { Text("‹") }
+        // Touch target: M3 OutlinedButton má minimumInteractiveComponentSize ≥ 48 dp
+        OutlinedButton(onClick = onPrev, contentPadding = PaddingValues(horizontal = 10.dp)) {
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Predchádzajúci deň", Modifier.size(IconSize.lg))
+        }
         Text(label, style = MaterialTheme.typography.titleSmall)
-        OutlinedButton(onClick = onNext, contentPadding = PaddingValues(horizontal = 10.dp)) { Text("›") }
+        OutlinedButton(onClick = onNext, contentPadding = PaddingValues(horizontal = 10.dp)) {
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Nasledujúci deň", Modifier.size(IconSize.lg))
+        }
         onToday?.let { TextButton(onClick = it) { Text("Dnes", color = Navy) } }
     }
 }
@@ -248,7 +261,7 @@ fun BarChart(
         }
         Row(Modifier.fillMaxWidth()) {
             labels.forEach {
-                Text(it, Modifier.weight(1f), style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                Text(it, Modifier.weight(1f), style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), // token-exempt: velkost mimo skaly
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1, overflow = TextOverflow.Clip)
             }
@@ -256,48 +269,20 @@ fun BarChart(
     }
 }
 
-/* ---------- Toast + screen scaffold ---------- */
-
-class AdminToastState {
-    var message by mutableStateOf<String?>(null)
-    var isError by mutableStateOf(false)
-    fun show(msg: String, error: Boolean = false) { message = msg; isError = error }
-}
-
-@Composable
-fun rememberAdminToast(): AdminToastState = remember { AdminToastState() }
+/* ---------- Screen scaffold ---------- */
 
 /**
- * Obal admin obrazovky — scroll obsah + toast overlay (espresso pill so
- * sémantickým prúžkom). Každá obrazovka si drží vlastný AdminToastState.
+ * Obal admin obrazovky — scroll obsah. Toasty rieši globálny PosToastHost
+ * v MainActivity (LocalToast), obrazovka si nič nedrží.
  */
 @Composable
 fun AdminScreenBox(
-    toast: AdminToastState,
     scrollable: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Box(Modifier.fillMaxSize()) {
         val base = Modifier.fillMaxSize().padding(16.dp)
         Column(if (scrollable) base.verticalScroll(rememberScrollState()) else base, content = content)
-        toast.message?.let { msg ->
-            LaunchedEffect(msg) {
-                kotlinx.coroutines.delay(if (toast.isError) 4000 else 2500)
-                toast.message = null
-            }
-            Surface(
-                Modifier.align(Alignment.BottomCenter).padding(16.dp)
-                    .paperShadow(6.dp, RoundedCornerShape(12.dp)),
-                shape = RoundedCornerShape(12.dp), color = Espresso, contentColor = Cream,
-            ) {
-                Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.width(4.dp).fillMaxHeight()
-                        .background(if (toast.isError) Danger else Sage))
-                    Text(msg, Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                        style = MaterialTheme.typography.bodyMedium)
-                }
-            }
-        }
     }
 }
 
@@ -369,7 +354,7 @@ private val adminIoScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
  * Odstránenie riadku zo zoznamu a undo UI rieši call site nad [pending].
  */
 class PendingDeleteController<T : Any> internal constructor(
-    private val toast: AdminToastState,
+    private val toast: PosToastState,
     private val delete: suspend (T) -> Unit,
     private val rollback: (T) -> Unit,
     private val onCommitted: () -> Unit,
@@ -408,7 +393,7 @@ class PendingDeleteController<T : Any> internal constructor(
 
 @Composable
 fun <T : Any> rememberPendingDelete(
-    toast: AdminToastState,
+    toast: PosToastState,
     delete: suspend (T) -> Unit,
     rollback: (T) -> Unit,
     onCommitted: () -> Unit = {},
