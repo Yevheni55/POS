@@ -339,6 +339,11 @@ const api = {
     return this.post('/payments/' + paymentId + '/fiscal-storno', {});
   },
 
+  // Položky dokladu pre admin Históriu platieb (manazer/admin).
+  getPaymentItems(paymentId) {
+    return this.get('/payments/' + paymentId + '/items');
+  },
+
   printReceiptCopy(paymentId) {
     return this.post('/payments/' + paymentId + '/receipt-copy', {});
   },

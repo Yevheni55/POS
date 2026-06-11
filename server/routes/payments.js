@@ -23,6 +23,7 @@ import { fiscalStornoHandler } from '../lib/payments/fiscal-storno.js';
 import { historyHandler } from '../lib/payments/history.js';
 import { receiptCopyHandler } from '../lib/payments/receipt-copy.js';
 import { refiscalizeHandler } from '../lib/payments/refiscalize.js';
+import { paymentItemsHandler } from '../lib/payments/items.js';
 
 export { STORNO_ELIGIBLE_MODES } from '../lib/payments/shared.js';
 
@@ -32,6 +33,7 @@ const staff = requireRole('cisnik', 'manazer', 'admin');
 
 router.post('/',                  staff, validate(createPaymentSchema),       asyncRoute(createPaymentHandler));
 router.get('/history',            mgr,                                        asyncRoute(historyHandler));
+router.get('/:id/items',          mgr,                                        asyncRoute(paymentItemsHandler));
 router.get('/:id/fiscal',         mgr,                                        asyncRoute(fiscalGetHandler));
 router.post('/:id/receipt-copy',                                              asyncRoute(receiptCopyHandler));
 router.post('/:id/refiscalize',   mgr,                                        asyncRoute(refiscalizeHandler));

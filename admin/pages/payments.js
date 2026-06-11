@@ -5,6 +5,9 @@ let items = [];
 let filter = { method: '', q: '', scope: 'current' };
 let loading = false;
 let lastMeta = { hiddenByScope: 0, activeCashRegisterCode: '' };
+// Rozkliknuté detaily dokladov: paymentId -> { loading, error, data } —
+// fetch raz, potom cache; prežíva re-render tabuľky (nie reload filtra).
+let expanded = {};
 
 function byId(id) {
   return _container.querySelector('#' + id);
@@ -69,6 +72,11 @@ function fiscalCell(item) {
 
 function actionsCell(item) {
   var html = '';
+  if (item.orderId) {
+    var isOpen = !!expanded[item.id];
+    html += '<button class="btn-save btn-sm" data-payment-items="' + item.id + '" style="margin-right:6px">'
+          + (isOpen ? 'Skryť položky' : 'Položky') + '</button>';
+  }
   if (item.copyAvailable) {
     html += '<button class="btn-save btn-sm" data-payment-copy="' + item.id + '" style="margin-right:6px">Kópia dokladu</button>';
   }
@@ -136,9 +144,85 @@ function renderTable() {
     html += '<td class="data-td">' + fiscalCell(item) + '</td>';
     html += '<td class="data-td">' + actionsCell(item) + '</td>';
     html += '</tr>';
+    if (expanded[item.id]) {
+      html += '<tr><td class="data-td" colspan="7" style="padding:0;border-bottom:1px solid var(--color-border,#3a3a44)">'
+            + detailCell(expanded[item.id]) + '</td></tr>';
+    }
   });
   html += '</tbody></table></div>';
   el.innerHTML = html;
+}
+
+// Detail dokladu — položky objednávky. Ceny sú z AKTUÁLNEHO menu
+// (order_items nemá cenový snapshot), preto sa pri rozdiele voči sume
+// dokladu rozdiel priznáva namiesto tichého dopočítavania.
+function detailCell(d) {
+  if (d.loading) {
+    return '<div class="loading-hint" style="padding:12px 16px">Načítavam položky…</div>';
+  }
+  if (d.error) {
+    return '<div class="empty-hint" style="padding:12px 16px;color:var(--color-danger,#ff8b8b)">' + escapeHtml(d.error) + '</div>';
+  }
+  var data = d.data || {};
+  var list = data.items || [];
+  if (!list.length) {
+    return '<div class="empty-hint" style="padding:12px 16px">Objednávka nemá položky (zmazané alebo presunuté).</div>';
+  }
+  var html = '<div style="padding:10px 16px 14px;background:rgba(255,255,255,0.02)">';
+  html += '<table style="width:100%;border-collapse:collapse;font-size:13px">';
+  list.forEach(function (it) {
+    html += '<tr>';
+    html += '<td style="padding:4px 8px 4px 0;width:46px;white-space:nowrap"><strong>' + it.qty + '×</strong></td>';
+    html += '<td style="padding:4px 8px 4px 0">' + escapeHtml((it.emoji ? it.emoji + ' ' : '') + it.name)
+          + (it.note ? '<div class="text-muted" style="font-size:12px">+ ' + escapeHtml(it.note) + '</div>' : '')
+          + '</td>';
+    html += '<td class="num" style="padding:4px 8px;text-align:right;white-space:nowrap;color:var(--color-text-muted,#b9b9c7)">'
+          + (it.price == null ? '—' : escapeHtml(fmtEur(it.price))) + '</td>';
+    html += '<td class="num" style="padding:4px 0;text-align:right;white-space:nowrap;width:90px"><strong>'
+          + (it.lineTotal == null ? '—' : escapeHtml(fmtEur(it.lineTotal))) + '</strong></td>';
+    html += '</tr>';
+  });
+  html += '</table>';
+
+  var amount = Number(data.amount);
+  var itemsTotal = Number(data.itemsTotal);
+  var foot = '<div style="display:flex;gap:18px;justify-content:flex-end;margin-top:8px;padding-top:8px;border-top:1px dashed var(--color-border,#3a3a44);font-size:13px">';
+  if (data.discountAmount > 0) {
+    foot += '<span class="text-muted">Zľava: −' + escapeHtml(fmtEur(data.discountAmount)) + '</span>';
+  }
+  foot += '<span class="text-muted">Súčet položiek: ' + escapeHtml(fmtEur(itemsTotal)) + '</span>';
+  foot += '<span><strong>Suma dokladu: ' + escapeHtml(fmtEur(amount)) + '</strong></span>';
+  foot += '</div>';
+  html += foot;
+
+  var diff = Math.abs((itemsTotal - (data.discountAmount > 0 ? data.discountAmount : 0)) - amount);
+  if (data.priceMissing || (Number.isFinite(diff) && diff > 0.01)) {
+    html += '<div class="text-muted" style="font-size:12px;margin-top:6px">'
+          + 'Pozn.: ceny položiek sú z aktuálneho menu — pri zmene cien po platbe sa súčet môže líšiť od sumy dokladu.'
+          + (data.priceMissing ? ' Niektoré položky už nie sú v menu.' : '')
+          + '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+async function toggleItems(id) {
+  if (expanded[id]) {
+    delete expanded[id];
+    renderTable();
+    return;
+  }
+  expanded[id] = { loading: true, error: null, data: null };
+  renderTable();
+  try {
+    var data = await api.getPaymentItems(id);
+    if (!expanded[id]) return;   // medzitým zavreté
+    expanded[id] = { loading: false, error: null, data: data };
+  } catch (e) {
+    if (!expanded[id]) return;
+    expanded[id] = { loading: false, error: e.message || 'Položky sa nepodarilo načítať', data: null };
+  }
+  renderTable();
 }
 
 async function loadHistory() {
@@ -255,6 +339,11 @@ function confirmStorno(id) {
 }
 
 function onClick(event) {
+  var itemsBtn = event.target.closest('[data-payment-items]');
+  if (itemsBtn) {
+    toggleItems(Number(itemsBtn.dataset.paymentItems));
+    return;
+  }
   var changeMethod = event.target.closest('[data-payment-change-method]');
   if (changeMethod) {
     confirmChangeMethod(
@@ -359,4 +448,5 @@ export function destroy() {
   items = [];
   filter = { method: '', q: '' };
   loading = false;
+  expanded = {};
 }
