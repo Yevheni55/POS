@@ -1,5 +1,6 @@
 package sk.surfspirit.pos.net
 
+import androidx.compose.runtime.Immutable
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -54,6 +55,11 @@ import java.util.concurrent.TimeUnit
 
 @Serializable data class ZoneDto(val slug: String = "", val label: String = "")
 
+// @Immutable — DTO sa po deserializácii NIKDY nemutuje. Hint pre Compose:
+// composables s týmto typom (ProductCard, CatRailBtn, riadky účtu) sa spoľahlivo
+// preskočia keď sa inštancia nezmení → menej rekompozície pri každom tape
+// (citeľné na slabom tablete).
+@Immutable
 @Serializable data class MenuItemDto(
     val id: Int,
     val name: String = "",
@@ -70,6 +76,7 @@ import java.util.concurrent.TimeUnit
     val totalQty: Int = 0,                         // pre /menu/top ranking
 )
 
+@Immutable
 @Serializable data class CategoryDto(
     val id: Int,
     val slug: String = "",
@@ -79,6 +86,7 @@ import java.util.concurrent.TimeUnit
     val items: List<MenuItemDto> = emptyList(),
 )
 
+@Immutable
 @Serializable data class OrderItemDto(
     val id: Long = 0,
     val menuItemId: Int = 0,
@@ -91,6 +99,7 @@ import java.util.concurrent.TimeUnit
     val desc: String = "",
 )
 
+@Immutable
 @Serializable data class OrderDto(
     val id: Int,
     val tableId: Int = 0,

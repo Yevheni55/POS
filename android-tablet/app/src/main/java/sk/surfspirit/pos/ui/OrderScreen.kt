@@ -332,8 +332,11 @@ fun OrderScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(Unit) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            // Slabý tablet: redší poll → menej periodických rekompozícií, ktoré
+            // súperia s tapmi (užívateľská akcia refreshne hneď tak či tak).
+            val pollMs = if (Perf.lowEnd) 20_000L else 10_000L
             while (true) {
-                delay(10_000)
+                delay(pollMs)
                 val dialogOpen = showPay || showDiscount || showSplit || showMovePicker ||
                     showCancel || showMerge || showStaffMeal || showAccountPicker ||
                     showCloseShift || closeSummaryFailed || showMoveTablePicker || saucePending != null ||
@@ -2136,7 +2139,9 @@ private fun ProductCard(
                 val pop = rememberPop(inOrderQty)
                 Surface(shape = RoundedCornerShape(Radius.full), color = Terra,
                     modifier = Modifier.align(Alignment.TopEnd).padding(6.dp)
-                        .graphicsLayer { scaleX = pop; scaleY = pop }) {
+                        // graphicsLayer = render layer navyše per karta; v lowEnd
+                        // (pop je konštantne 1f) ho vôbec nealokuj.
+                        .then(if (pop != 1f) Modifier.graphicsLayer { scaleX = pop; scaleY = pop } else Modifier)) {
                     Text("$inOrderQty", Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
                         color = Cream, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                 }

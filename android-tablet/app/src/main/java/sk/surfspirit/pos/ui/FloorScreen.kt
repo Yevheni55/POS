@@ -175,8 +175,9 @@ fun FloorScreen(
     LaunchedEffect(Unit) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             var tick = 0
+            val pollMs = if (Perf.lowEnd) 25_000L else 15_000L
             while (true) {
-                delay(15_000)
+                delay(pollMs)
                 tick++
                 // Zóny + z-report stačí každý 4. tick (~1 min) — menia sa zriedka
                 if (!editMode) load(quiet = true, fullRefresh = tick % 4 == 0)
