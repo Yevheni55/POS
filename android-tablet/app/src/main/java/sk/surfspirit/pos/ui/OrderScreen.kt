@@ -112,8 +112,12 @@ fun OrderScreen(
     var categories by remember { mutableStateOf(Mem.categories ?: emptyList()) }
     var discountsList by remember { mutableStateOf(Mem.discounts ?: emptyList()) }
     var tables by remember { mutableStateOf(Mem.tables ?: emptyList()) }
-    var accounts by remember { mutableStateOf<List<OrderDto>>(emptyList()) }
-    var current by remember { mutableStateOf<OrderDto?>(null) }
+    // Účty stola SEEDni z Mem.orders (floor poll ich práve načítal — rovnaký
+    // enrichOrders aj s položkami) → existujúce položky vidno OKAMŽITE bez
+    // 0,5 s spinnera; reload() ich vzápätí potichu refreshne (správnosť).
+    val seededAccounts = remember(tableId) { Mem.orders?.filter { it.tableId == tableId } ?: emptyList() }
+    var accounts by remember { mutableStateOf(seededAccounts) }
+    var current by remember { mutableStateOf(seededAccounts.firstOrNull()) }
     val newItems = remember { mutableStateListOf<CartLine>() }
 
     var selectedCat by remember { mutableStateOf(Store.lastCategory()) }
