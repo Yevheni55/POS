@@ -66,6 +66,15 @@ object AppPrefs {
         get() = sp.getInt("send_undo_secs", 5)
         set(value) = sp.edit().putInt("send_undo_secs", value.coerceIn(0, 10)).apply()
 
+    /**
+     * Výkonový režim pre slabé tablety: "auto" (default — detekuje sa z RAM),
+     * "on" (vždy vypnúť drahé efekty), "off" (vždy plný vizuál). Override sa
+     * prejaví po reštarte appky (Perf.lowEnd sa číta raz v MainActivity).
+     */
+    var perfMode: String
+        get() = sp.getString("perf_mode", "auto") ?: "auto"
+        set(value) = sp.edit().putString("perf_mode", value).apply()
+
     fun logout() {
         sp.edit().remove(K_TOKEN).remove(K_USER).remove(K_ROLE).remove("session_start").apply()
         Mem.clear()   // ďalšia session nesmie vidieť predošlé objednávky/tržby

@@ -34,6 +34,7 @@ fun LoginScreen(onLoggedIn: () -> Unit, onOpenDochadzka: (() -> Unit)? = null) {
     var error by remember { mutableStateOf<String?>(null) }
     var showServer by remember { mutableStateOf(AppPrefs.serverUrl.isBlank()) }
     var serverField by remember { mutableStateOf(AppPrefs.serverUrl) }
+    var perfMode by remember { mutableStateOf(AppPrefs.perfMode) }
     // Počet neodoslaných záznamov pri pokuse o zmenu adresy — non-null = confirm dialóg
     var pendingWipeCount by remember { mutableStateOf<Int?>(null) }
 
@@ -119,6 +120,23 @@ fun LoginScreen(onLoggedIn: () -> Unit, onOpenDochadzka: (() -> Unit)? = null) {
                             pendingWipeCount = pending
                         } else applyServerUrl()
                     }) { Text("Uložiť adresu") }
+
+                    // Výkonový režim pre slabé tablety — cyklus Auto → Zap → Vyp.
+                    // Prejaví sa po reštarte appky (Perf.lowEnd sa číta raz pri štarte).
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(onClick = {
+                        perfMode = when (perfMode) {
+                            "auto" -> "on"; "on" -> "off"; else -> "auto"
+                        }
+                        AppPrefs.perfMode = perfMode
+                    }, modifier = Modifier.height(44.dp)) {
+                        val lbl = when (perfMode) {
+                            "on" -> "Zapnutý (slabý tablet)"; "off" -> "Vypnutý (plný vizuál)"; else -> "Auto"
+                        }
+                        Text("⚡ Výkonový režim: $lbl")
+                    }
+                    Text("Po zmene reštartuj appku.", style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 error?.let {
                     Spacer(Modifier.height(16.dp))

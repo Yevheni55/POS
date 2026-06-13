@@ -9,6 +9,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -46,6 +48,17 @@ object Motion {
     val popSpec = spring<Float>(dampingRatio = 0.45f, stiffness = Spring.StiffnessMediumLow)
 }
 
+/**
+ * Režim slabého tabletu — vypína drahé GPU efekty (backdrop blur, mäkké
+ * tiene, radiálny gradient, glow, mikro-animácie). Nastaví sa RAZ pri štarte
+ * v MainActivity z ActivityManager (auto) alebo z AppPrefs (manuálny override).
+ * Plain @Volatile flag, nie composable state — čítajú ho aj non-composable
+ * Modifier helpery (paperShadow/glow/warmCanvas) bez recompose nákladov.
+ */
+object Perf {
+    @Volatile var lowEnd: Boolean = false
+}
+
 /** Telefónny breakpoint — šírka okna < 600 dp (web mobile breakpoint parita). */
 @Composable
 fun isPhone(): Boolean =
@@ -69,15 +82,18 @@ fun reducedMotion(): Boolean {
  */
 @Composable
 fun colorSpecOrSnap(): AnimationSpec<Color> =
-    if (reducedMotion()) snap() else Motion.colorSpec
+    if (reducedMotion() || Perf.lowEnd) snap() else Motion.colorSpec
 
 /* ===== Paper-drop tiene — teplý espresso ambient (web --shadow-sm/md/lg) =====
    2 dp = resting karty/chipy · 6 dp = floating panel/header · 14 dp = dialógy */
 private val ShadowAmbient = Color(0x141E1812)   // rgba(30,24,18,.08)
 private val ShadowSpot = Color(0x1F1E1812)      // rgba(30,24,18,.12)
 
-fun Modifier.paperShadow(elevation: Dp, shape: Shape): Modifier = this.shadow(
-    elevation, shape, clip = false, ambientColor = ShadowAmbient, spotColor = ShadowSpot)
+fun Modifier.paperShadow(elevation: Dp, shape: Shape): Modifier =
+    // Slabý tablet: mäkký blurnutý tieň je #1 fill-rate náklad → nahraď ho
+    // lacným 1 px okrajom (zachová hranu karty bez GPU blur vrstvy).
+    if (Perf.lowEnd) this.border(BorderStroke(1.dp, BorderSoft), shape)
+    else this.shadow(elevation, shape, clip = false, ambientColor = ShadowAmbient, spotColor = ShadowSpot)
 
 /* Terra emphasis glow (web --color-accent-glow rgba(184,84,42,.22)) —
    JEDINÝ primárny cue per fáza objednávky (is-primary state machine).
@@ -87,7 +103,9 @@ fun Modifier.paperShadow(elevation: Dp, shape: Shape): Modifier = this.shadow(
 private val GlowTerra = Color(0x52B8542A)
 
 fun Modifier.glow(on: Boolean, shape: Shape = RoundedCornerShape(999.dp)): Modifier =
-    if (on) this.shadow(10.dp, shape, clip = false, ambientColor = GlowTerra, spotColor = GlowTerra)
+    // Glow = ďalšia blur shadow vrstva → na slabom tablete vypnuté (tlačidlo
+    // ostáva farebne dominantné aj bez žiary).
+    if (on && !Perf.lowEnd) this.shadow(10.dp, shape, clip = false, ambientColor = GlowTerra, spotColor = GlowTerra)
     else this
 
 /**
@@ -96,6 +114,8 @@ fun Modifier.glow(on: Boolean, shape: Shape = RoundedCornerShape(999.dp)): Modif
  */
 @Composable
 fun Modifier.pressScale(interaction: MutableInteractionSource, enabled: Boolean = true): Modifier {
+    // Slabý tablet: žiadna graphicsLayer + animácia na každom tlačidle.
+    if (Perf.lowEnd) return this
     // Bezpodmienečné composable volania — scale sa pri flipe `enabled`
     // (busy toggle) neresetuje cez skupinový swap, len prestane reagovať.
     val reduced = reducedMotion()
@@ -112,7 +132,7 @@ fun Modifier.pressScale(interaction: MutableInteractionSource, enabled: Boolean 
  */
 @Composable
 fun AnimatedMoney(value: Double, style: TextStyle, color: Color, modifier: Modifier = Modifier) {
-    if (reducedMotion()) { Text(money(value), modifier, color = color, style = style); return }
+    if (reducedMotion() || Perf.lowEnd) { Text(money(value), modifier, color = color, style = style); return }
     val anim = remember { Animatable(Float.NaN) }
     LaunchedEffect(value) {
         if (anim.value.isNaN()) anim.snapTo(value.toFloat())
@@ -133,19 +153,23 @@ fun emberBrush(): Brush = EmberBrush
 /** Warm canvas — jemné teplé radiálne svetlo z ľavého horného rohu (tactile
  *  warmth z designMd). Nahrádza plochú krémovú plochu hĺbkou, nerušivé.
  *  Brush závisí len od size — prestavia sa iba pri zmene veľkosti. */
-fun Modifier.warmCanvas(): Modifier = this.drawWithCache {
-    val brush = Brush.radialGradient(
-        colors = listOf(Color(0x16B45C3F), Color(0x00B45C3F)),
-        center = Offset(size.width * 0.12f, size.height * -0.04f),
-        radius = size.maxDimension * 0.72f,
-    )
-    onDrawBehind { drawRect(brush) }
-}
+fun Modifier.warmCanvas(): Modifier =
+    // Slabý tablet: žiadny full-screen radiálny gradient overdraw — plochá
+    // krémová plocha (Surface ju aj tak vyfarbí).
+    if (Perf.lowEnd) this
+    else this.drawWithCache {
+        val brush = Brush.radialGradient(
+            colors = listOf(Color(0x16B45C3F), Color(0x00B45C3F)),
+            center = Offset(size.width * 0.12f, size.height * -0.04f),
+            radius = size.maxDimension * 0.72f,
+        )
+        onDrawBehind { drawRect(brush) }
+    }
 
 /** Overshoot pop (1 → 1.16 → 1) pri zmene hodnoty — qty badge, PIN dot. */
 @Composable
 fun rememberPop(key: Any?): Float {
-    if (reducedMotion()) return 1f
+    if (reducedMotion() || Perf.lowEnd) return 1f
     val s = remember { Animatable(1f) }
     LaunchedEffect(key) {
         s.snapTo(1f); s.animateTo(1.16f, Motion.popSpec); s.animateTo(1f, Motion.popSpec)

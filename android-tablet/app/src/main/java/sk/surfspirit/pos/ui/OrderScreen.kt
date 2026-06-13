@@ -1350,10 +1350,14 @@ fun OrderScreen(
                     }
                 }
             }
+            // Slabý tablet: žiadny backdrop blur (RenderEffect nad scrollujúcim
+            // gridom je najdrahší GPU efekt) — search dostane nepriehľadné
+            // krémové pozadie, vizuálne takmer rovnaké nad krémovým gridom.
+            val glass = !Perf.lowEnd
             Box(paneMod.padding(if (phone) 8.dp else 12.dp)) {
                 // Obsah = zdroj pre haze blur; scrolluje POD plávajúcim searchom
                 Row(Modifier.fillMaxSize()
-                    .haze(hazeState, style = hazeStyle)) {
+                    .then(if (glass) Modifier.haze(hazeState, style = hazeStyle) else Modifier)) {
                     Column(
                         Modifier.width(if (phone) 64.dp else 150.dp).fillMaxHeight()
                             .verticalScroll(rememberScrollState())
@@ -1394,7 +1398,8 @@ fun OrderScreen(
                 Box(
                     Modifier.align(Alignment.TopCenter).fillMaxWidth()
                         .paperShadow(Elev.rest, RoundedCornerShape(Radius.full))
-                        .hazeChild(hazeState, shape = RoundedCornerShape(Radius.full))
+                        .then(if (glass) Modifier.hazeChild(hazeState, shape = RoundedCornerShape(Radius.full))
+                              else Modifier.background(Cream.copy(alpha = 0.95f), RoundedCornerShape(Radius.full)))
                         .border(1.5.dp, if (searchFocused) Terra else BorderMid, RoundedCornerShape(Radius.full)),
                 ) {
                     OutlinedTextField(

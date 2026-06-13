@@ -13,8 +13,10 @@ import androidx.compose.ui.Modifier
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import android.app.ActivityManager
 import sk.surfspirit.pos.core.AppPrefs
 import sk.surfspirit.pos.ui.AppNav
+import sk.surfspirit.pos.ui.theme.Perf
 import sk.surfspirit.pos.ui.components.LocalToast
 import sk.surfspirit.pos.ui.components.PosToastHost
 import sk.surfspirit.pos.ui.components.PosToastState
@@ -25,6 +27,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         AppPrefs.init(applicationContext, getString(R.string.default_server_url))
+        Perf.lowEnd = detectLowEnd()
         // Tablet (sw ≥ 600 dp) = kiosk landscape ako doteraz; telefón = voľná
         // rotácia (čašník drží mobil na výšku).
         requestedOrientation = if (resources.configuration.smallestScreenWidthDp >= 600)
@@ -49,6 +52,23 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * Slabý tablet? Manuálny override v AppPrefs (perf_mode on/off) má prednosť;
+     * inak auto: isLowRamDevice, malý per-app heap (memoryClass ≤ 160 MB) alebo
+     * < ~3 GB RAM = lacný tablet → vypni drahé GPU efekty (Perf.lowEnd).
+     */
+    private fun detectLowEnd(): Boolean {
+        when (AppPrefs.perfMode) {
+            "on" -> return true
+            "off" -> return false
+        }
+        return try {
+            val am = getSystemService(ACTIVITY_SERVICE) as ActivityManager
+            val mem = ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }
+            am.isLowRamDevice || am.memoryClass <= 160 || mem.totalMem < 3_000_000_000L
+        } catch (_: Exception) { false }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
