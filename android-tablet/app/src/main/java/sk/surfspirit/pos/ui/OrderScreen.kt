@@ -1065,9 +1065,16 @@ fun OrderScreen(
         busy = true; error = null
         scope.launch {
             try {
-                val ord = withContext(Dispatchers.IO) { syncToServer() } ?: run { busy = false; return@launch }
-                // košík vyčistený v syncToServer
-                // auto-send (odpočet skladu) pred uzávierkou
+                // syncToServer vráti null len pri zlyhaní (prázdny účet → tlačidlo
+                // je aj tak disabled). NESMIE to byť tichý no-op — daj feedback
+                // a nechaj dialóg otvorený, nech sa dá zopakovať.
+                val ord = withContext(Dispatchers.IO) { syncToServer() }
+                if (ord == null) {
+                    toast = "Účet sa nepodarilo pripraviť — skús znova"
+                    busy = false; return@launch
+                }
+                // auto-send (odpočet skladu) pred uzávierkou; položky, ktoré už
+                // boli odoslané, server preskočí → prázdny send je neškodný
                 val sresp = withContext(Dispatchers.IO) { Api.service.sendAndPrint(ord.id, SendReq(false), "send-$sendNonce") }
                 sendNonce = java.util.UUID.randomUUID().toString()
                 withContext(Dispatchers.IO) { printItems(sresp.items, ord.id, storno = false) }
@@ -1079,10 +1086,17 @@ fun OrderScreen(
                         else "Zamestnanecká spotreba zaznamenaná"
                 Store.saveLastTable(null); onBack()
             } catch (e: Exception) {
+                if (e.httpCode() == 401) { AppPrefs.logout(); onSessionExpired(); return@launch }
                 if (e.httpCode() == 422 && !overrideLimit) {
+                    // Prekročený denný limit zamestnanca → vyžaduje manažéra
                     showStaffMeal = false
                     gate(errorMessage(e) + " Pokračovať?") { doStaffMeal(overrideLimit = true) }
-                } else error = errorMessage(e)
+                } else {
+                    // Zlyhanie (sieť/server) — viditeľný toast, dialóg ostáva
+                    // otvorený na zopakovanie (celý flow je idempotentný).
+                    error = errorMessage(e)
+                    toast = "Zamestnanecká spotreba zlyhala: ${errorMessage(e)}"
+                }
             } finally { busy = false }
         }
     }
