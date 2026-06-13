@@ -30,6 +30,18 @@ const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
 // HTTP server
 const httpServer = createServer(app);
 
+// Keep-alive okno — Node default je iba 5 s, ale klienti (Android kasa,
+// web POS) pollujú každých 10-15 s. Pri 5 s server zatvoril idle keep-alive
+// spojenie MEDZI pollmi, OkHttp/fetch ho z poolu znova použil → prvý request
+// padol "nedostupný server", druhý šiel po čerstvom spojení. 65 s > poll
+// interval → spojenie ostáva teplé, sokety nestarnú. headersTimeout MUSÍ byť
+// väčší než keepAliveTimeout (inak vlastná race podľa Node docs).
+function tuneKeepAlive(srv) {
+  srv.keepAliveTimeout = 65000;
+  srv.headersTimeout = 66000;
+}
+tuneKeepAlive(httpServer);
+
 // HTTPS server (self-signed cert for PWA fullscreen on LAN)
 let httpsServer = null;
 try {
@@ -37,6 +49,7 @@ try {
   const sslKey = fs.readFileSync(path.join(certPath, 'key.pem'));
   const sslCert = fs.readFileSync(path.join(certPath, 'cert.pem'));
   httpsServer = createHttpsServer({ key: sslKey, cert: sslCert }, app);
+  tuneKeepAlive(httpsServer);
 } catch (e) { /* no certs = no HTTPS, that's fine */ }
 
 const ioServer = httpsServer || httpServer;

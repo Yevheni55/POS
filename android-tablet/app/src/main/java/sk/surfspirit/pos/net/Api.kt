@@ -569,6 +569,11 @@ object Api {
         // Žiadny tichý OkHttp retry — kritické retry (pay, sync) sú explicitné
         // s X-Idempotency-Key; tichý opakovaný POST by mohol duplikovať doklady.
         .retryOnConnectionFailure(false)
+        // Idle sokety vyhadzuj po 60 s — TESNE pod serverový keepAliveTimeout
+        // (65 s). Klient tak NIKDY nepoužije spojenie, ktoré už server zatvoril,
+        // takže ani POST (login/platba) nezlyhá na mŕtvom poolovanom sokete.
+        // staleGetRetryInterceptor ostáva ako poistka pre GET-y.
+        .connectionPool(okhttp3.ConnectionPool(5, 60, TimeUnit.SECONDS))
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .build()
