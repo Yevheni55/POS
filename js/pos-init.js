@@ -30,6 +30,35 @@ async function generateLockCode() {
   }
 }
 
+// ===== Téma: svetlá Daylight / tmavá warm-dark =====
+// Perzistencia v localStorage('pos_theme') = 'dark' | 'light' (default light).
+// Atribút data-theme na <html> aktivuje [data-theme="dark"] overridy v
+// pos-dark.css. Anti-FOUC inline skript v <head> nastaví atribút už pred CSS;
+// tu len doladíme ikonu prepínača, aria-pressed a meta theme-color.
+function applyPosTheme(theme) {
+  var dark = theme === 'dark';
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  var meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', dark ? '#1c1710' : '#f5efe3');
+  // V tmavom ukáž slnko (klik = na svetlo), v svetlom mesiac (klik = na tmu).
+  var toggles = document.querySelectorAll('[data-theme-toggle]');
+  for (var i = 0; i < toggles.length; i++) {
+    toggles[i].setAttribute('aria-pressed', dark ? 'true' : 'false');
+    var sun = toggles[i].querySelector('.theme-ic-sun');
+    var moon = toggles[i].querySelector('.theme-ic-moon');
+    if (sun) sun.style.display = dark ? '' : 'none';
+    if (moon) moon.style.display = dark ? 'none' : '';
+  }
+}
+function togglePosTheme() {
+  var next = (localStorage.getItem('pos_theme') === 'dark') ? 'light' : 'dark';
+  try { localStorage.setItem('pos_theme', next); } catch (e) {}
+  applyPosTheme(next);
+  if (typeof showToast === 'function') showToast(next === 'dark' ? 'Tmavy rezim zapnuty' : 'Svetly rezim zapnuty', true);
+}
+// Zladenie ikon/meta pri štarte (atribút už nastavil anti-FOUC skript v head).
+try { applyPosTheme(localStorage.getItem('pos_theme') === 'dark' ? 'dark' : 'light'); } catch (e) {}
+
 // Apply settings from admin panel (localStorage)
 function applyPosSettings() {
   try {

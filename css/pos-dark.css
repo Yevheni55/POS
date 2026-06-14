@@ -1,0 +1,255 @@
+/* ================================================================
+   POS DARK THEME — warm-dark sibling of the Daylight (cream) theme
+   ================================================================
+   Loaded AFTER pos.css. Aktivuje sa cez [data-theme="dark"] na <html>.
+   Filozofia: NIE holý revert na fialovú tokens.css — zachovávame TERRA
+   brand (clay) a teplý charakter Daylightu, len preklopené na tmavé
+   espresso-čierne plochy. Mení iba FARBY + tiene; fonty/rozmery ostávajú
+   (žiadny layout shift medzi režimami).
+
+   Warm-dark palette:
+     base    #1c1710  warm espresso-black canvas
+     elev    #261f16  panels / header
+     terra   #e0764a  primary accent (clay, brightened for dark, AA ~5:1)
+     forest  #6fb35a  success
+     amber   #e0a83c  warning
+     rust    #e8675c  danger
+     text    #f2ebde  warm off-white
+   ================================================================ */
+
+:root[data-theme="dark"] {
+  /* Surfaces — warm dark ladder */
+  --color-bg-sunken:   #14100b;
+  --color-bg:          #1c1710;
+  --color-bg-elevated: #261f16;
+  --color-bg-surface:  rgba(245, 239, 227, .05);
+  --color-bg-hover:    rgba(245, 239, 227, .09);
+  --color-bg-active:   rgba(245, 239, 227, .13);
+  --color-overlay:     rgba(0, 0, 0, .62);
+
+  /* Borders — warm cream alpha */
+  --color-border:        rgba(245, 239, 227, .12);
+  --color-border-hover:  rgba(245, 239, 227, .18);
+  --color-border-strong: rgba(245, 239, 227, .28);
+
+  /* Accent — terra clay, brightened for dark bg */
+  --color-accent:           #e0764a;
+  --color-accent-dim:       #c96338;
+  --color-accent-bg:        rgba(224, 118, 74, .12);
+  --color-accent-bg-hover:  rgba(224, 118, 74, .20);
+  --color-accent-border:    rgba(224, 118, 74, .30);
+  --color-accent-glow:      rgba(224, 118, 74, .30);
+
+  /* Secondary accent — navy lifted for dark */
+  --color-accent-secondary:        #7da7d9;
+  --color-accent-secondary-soft:   rgba(125, 167, 217, .12);
+  --color-accent-secondary-strong: #9bbde8;
+
+  /* Success — forest brightened (AA on dark) */
+  --color-success:        #6fb35a;
+  --color-success-bg:     rgba(111, 179, 90, .12);
+  --color-success-border: rgba(111, 179, 90, .26);
+
+  /* Danger — rust brightened */
+  --color-danger:        #e8675c;
+  --color-danger-bg:     rgba(232, 103, 92, .12);
+  --color-danger-border: rgba(232, 103, 92, .26);
+
+  /* Text — warm off-white, AA on espresso-black */
+  --color-text:     #f2ebde;
+  --color-text-sec: rgba(242, 235, 222, .62);
+  --color-text-dim: rgba(242, 235, 222, .34);
+
+  /* Focus — terra ring */
+  --color-focus: #e0764a;
+
+  /* Amber (warning) — brightened for dark */
+  --accent-amber: #e0a83c;
+
+  /* Shadows — tmavé drop stacks (Daylight používa svetlé) */
+  --shadow-sm:    0 1px 2px rgba(0, 0, 0, .40),
+                  0 2px 6px -1px rgba(0, 0, 0, .50);
+  --shadow-md:    0 1px 3px rgba(0, 0, 0, .40),
+                  0 4px 12px -2px rgba(0, 0, 0, .50),
+                  0 8px 24px -4px rgba(0, 0, 0, .45);
+  --shadow-lg:    0 4px 8px rgba(0, 0, 0, .45),
+                  0 12px 32px -4px rgba(0, 0, 0, .55),
+                  0 24px 64px -16px rgba(0, 0, 0, .60);
+  --shadow-glow:  0 2px 16px rgba(224, 118, 74, .30);
+  --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, .35);
+
+  /* Semantic aliasy — explicit re-map (Daylight ich tiež re-aliasuje) */
+  --surface-app:    var(--color-bg);
+  --surface-raised: var(--color-bg-elevated);
+  --surface-sunken: var(--color-bg-sunken);
+  --surface-card:   var(--color-bg-surface);
+  --border-default: var(--color-border);
+  --border-strong:  var(--color-border-strong);
+  --border-focus:   rgba(224, 118, 74, .45);
+  --text-primary:   var(--color-text);
+  --text-secondary: var(--color-text-sec);
+  --text-muted:     var(--color-text-dim);
+
+  --action-primary:           var(--color-accent);
+  --action-primary-dim:       var(--color-accent-dim);
+  --action-primary-bg:        var(--color-accent-bg);
+  --action-primary-bg-hover:  var(--color-accent-bg-hover);
+  --action-primary-border:    var(--color-accent-border);
+
+  --action-success:        var(--color-success);
+  --action-success-bg:     var(--color-success-bg);
+  --action-success-border: var(--color-success-border);
+
+  --action-danger:        var(--color-danger);
+  --action-danger-bg:     var(--color-danger-bg);
+  --action-danger-border: var(--color-danger-border);
+}
+
+/* Native widgets (select, date/time pickers) — dark scheme */
+:root[data-theme="dark"] { color-scheme: dark; }
+:root[data-theme="dark"] select { color-scheme: dark !important; }
+:root[data-theme="dark"] select option {
+  background: var(--color-bg-elevated);
+  color: var(--color-text);
+}
+:root[data-theme="dark"] input[type="date"],
+:root[data-theme="dark"] input[type="time"],
+:root[data-theme="dark"] input[type="datetime-local"] { color-scheme: dark; }
+
+/* Checkbox + radio — Daylight ich prebíja cez !important na svetlo,
+   takže dark potrebuje rovnako !important + vyššiu špecificitu. */
+:root[data-theme="dark"] input[type="checkbox"],
+:root[data-theme="dark"] input[type="radio"] {
+  background: rgba(245, 239, 227, .05) !important;
+  border-color: var(--color-border-hover) !important;
+}
+:root[data-theme="dark"] input[type="checkbox"]:hover,
+:root[data-theme="dark"] input[type="radio"]:hover {
+  background: rgba(245, 239, 227, .09) !important;
+}
+:root[data-theme="dark"] input[type="checkbox"]:checked {
+  background: var(--color-accent) !important;
+  border-color: var(--color-accent) !important;
+}
+
+/* === Prepínač témy (sun/moon) — vizuál tlačidla v headeri === */
+.theme-toggle-ic { width: 18px; height: 18px; display: block; }
+
+/* ================================================================
+   TARGETED OVERRIDES — pravidlá v pos.css ktoré HARDCODUJÚ daylight
+   farby (cream plochy / espresso-ink alfa / biele plochy) a cez
+   premenné sa nepreklopia. Z auditu (85 breaking nálezov).
+   Špecificita :root[data-theme="dark"] .x (0,2,1) prebíja base (.x).
+   ================================================================ */
+
+/* B. Cream page base → warm-dark. Teplé terra/navy accent washe ostávajú
+   (len zosvetlené pre tmavé pozadie), iba cream linear sa preklopí. */
+:root[data-theme="dark"] body,
+:root[data-theme="dark"] .bg-scene {
+  background:
+    radial-gradient(ellipse 80% 60% at 30% 10%, rgba(224, 118, 74, .07) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 80% at 80% 90%, rgba(125, 167, 217, .05) 0%, transparent 50%),
+    linear-gradient(180deg, #1c1710 0%, #14100b 100%);
+}
+
+/* C. Espresso-ink alfa fill (rgba(30,24,18,.0x)) → tmavé surface tokeny.
+   Pokojové plochy → --color-bg-surface. */
+:root[data-theme="dark"] .header-user,
+:root[data-theme="dark"] .floor-legend,
+:root[data-theme="dark"] .storno-suggest,
+:root[data-theme="dark"] .cat-key,
+:root[data-theme="dark"] .search-input,
+:root[data-theme="dark"] .search-input:focus,
+:root[data-theme="dark"] .discount-item,
+:root[data-theme="dark"] .form-input,
+:root[data-theme="dark"] .form-select,
+:root[data-theme="dark"] .form-input:focus,
+:root[data-theme="dark"] .form-select:focus,
+:root[data-theme="dark"] .s-served,
+:root[data-theme="dark"] .item-dest,
+:root[data-theme="dark"] .mqp-quick-chip,
+:root[data-theme="dark"] .note-kb-key,
+:root[data-theme="dark"] .split-tab-btn,
+:root[data-theme="dark"] .cash-numpad-btn,
+:root[data-theme="dark"] .u-modal-field input,
+:root[data-theme="dark"] .u-modal-field textarea,
+:root[data-theme="dark"] .u-modal-field select,
+:root[data-theme="dark"] .u-modal-field input:focus,
+:root[data-theme="dark"] .u-modal-field textarea:focus,
+:root[data-theme="dark"] .u-modal-field select:focus,
+:root[data-theme="dark"] #noteInput,
+:root[data-theme="dark"] #cashGivenInput,
+:root[data-theme="dark"] #noteInput:focus,
+:root[data-theme="dark"] #cashGivenInput:focus,
+:root[data-theme="dark"] .kbd,
+:root[data-theme="dark"] .qty-popup-btn {
+  background: var(--color-bg-surface);
+}
+
+/* Hover / pressed fill → --color-bg-hover. */
+:root[data-theme="dark"] .cat-btn:hover,
+:root[data-theme="dark"] .form-input:hover,
+:root[data-theme="dark"] .form-select:hover,
+:root[data-theme="dark"] .u-modal-field input:hover,
+:root[data-theme="dark"] .u-modal-field select:hover,
+:root[data-theme="dark"] .note-kb-key:active,
+:root[data-theme="dark"] .cash-numpad-btn:active,
+:root[data-theme="dark"] .u-btn-ghost:hover,
+:root[data-theme="dark"] .u-btn-ghost:active {
+  background: var(--color-bg-hover);
+}
+
+/* D. Scrollbary — ink/taupe thumb neviditeľný na tmavom → border token. */
+:root[data-theme="dark"] .products-grid,
+:root[data-theme="dark"] .order-items,
+:root[data-theme="dark"] .categories {
+  scrollbar-color: var(--color-border) transparent;
+}
+:root[data-theme="dark"] .products-grid::-webkit-scrollbar-thumb,
+:root[data-theme="dark"] .order-items::-webkit-scrollbar-thumb,
+:root[data-theme="dark"] .categories::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+}
+
+/* E. Drag handle + kbd-hint pill — ink/black tint zmizne na tmavom. */
+:root[data-theme="dark"] .ap-handle { background: var(--color-border-strong); }
+:root[data-theme="dark"] .table-search-overlay-hint { background: var(--color-bg-surface); }
+:root[data-theme="dark"] .offline-queue { background: rgba(255, 255, 255, .10); }
+
+/* F. Ink-tinted tiene → tmavé shadow tokeny (na tmavom by zanikli). */
+:root[data-theme="dark"] .u-modal { box-shadow: var(--shadow-lg); }
+@media (pointer: coarse) {
+  /* Daylight tu používa !important ink-shadow, takže dark musí tiež. */
+  :root[data-theme="dark"] .product-card,
+  :root[data-theme="dark"] .table-chip,
+  :root[data-theme="dark"] .order-row,
+  :root[data-theme="dark"] .order-item-wrap,
+  :root[data-theme="dark"] .order-item-inner,
+  :root[data-theme="dark"] .stat-card,
+  :root[data-theme="dark"] .u-modal,
+  :root[data-theme="dark"] .modal-island,
+  :root[data-theme="dark"] .toast {
+    box-shadow: var(--shadow-md) !important;
+  }
+  :root[data-theme="dark"] .product-card:hover,
+  :root[data-theme="dark"] .table-chip:hover,
+  :root[data-theme="dark"] .order-item-wrap:hover,
+  :root[data-theme="dark"] .order-row:hover {
+    box-shadow: var(--shadow-lg) !important;
+  }
+}
+
+/* G. qty-popup — už je tmavý navy popup, ale má takmer čierny ink text
+   (latentný bug aj v svetlom). Na tmavom ho spravíme čitateľným. */
+:root[data-theme="dark"] .qty-popup-title { color: var(--color-text-sec); }
+:root[data-theme="dark"] .qty-popup-btn { color: var(--color-text); }
+
+/* H. „Odoslané" riadok — forest .06 wash je na tmavom príliš slabý. */
+:root[data-theme="dark"] .order-item-inner.sent { background: var(--color-success-bg); }
+
+/* I. Ručne kreslený oddeľovač — taupe je zapečený v SVG data-URI a cez
+   premennú sa nepreklopí; na tmavom dáme jednoduchú čiaru z tokenu. */
+:root[data-theme="dark"] .hr-handdrawn {
+  background-image: none;
+  border-top: 1px solid var(--color-border);
+}
