@@ -74,11 +74,11 @@ function actionsCell(item) {
   var html = '';
   if (item.orderId) {
     var isOpen = !!expanded[item.id];
-    html += '<button class="btn-save btn-sm" data-payment-items="' + item.id + '" style="margin-right:6px">'
+    html += '<button class="btn-save btn-sm" data-payment-items="' + item.id + '">'
           + (isOpen ? 'Skryť položky' : 'Položky') + '</button>';
   }
   if (item.copyAvailable) {
-    html += '<button class="btn-save btn-sm" data-payment-copy="' + item.id + '" style="margin-right:6px">Kópia dokladu</button>';
+    html += '<button class="btn-save btn-sm" data-payment-copy="' + item.id + '">Kópia dokladu</button>';
   }
   // Re-fiškalizácia: pre prípady keď doklad v Portos nezodpovedá objednávke
   // (mismatch_rejected) alebo keď cashier hlási že blok nevyšiel / vyšiel cudzí.
@@ -88,7 +88,7 @@ function actionsCell(item) {
     var fiscalStatus = String(item.fiscal.status || '');
     var needsRefiscalize = fiscalStatus === 'mismatch_rejected' || fiscalStatus === 'ambiguous' || fiscalStatus === 'rejected';
     var btnTone = needsRefiscalize ? 'background:var(--color-warning,#E0A830)' : '';
-    html += '<button class="btn-save btn-sm" data-payment-refiscalize="' + item.id + '" style="margin-right:6px;' + btnTone + '" title="Pošle nový fiškálny request a vytlačí blok">Re-fiškalizovať</button>';
+    html += '<button class="btn-save btn-sm" data-payment-refiscalize="' + item.id + '" style="' + btnTone + '" title="Pošle nový fiškálny request a vytlačí blok">Re-fiškalizovať</button>';
   }
   // Zmena sposobu platby — dostupna iba ak je platba storno-eligible
   // (= povodny doklad je v stave kde sa da storno + nie je uz stornovany).
@@ -96,7 +96,7 @@ function actionsCell(item) {
   if (item.stornoEligible) {
     var swapTo = item.method === 'hotovost' ? 'karta' : 'hotovost';
     var swapLabel = item.method === 'hotovost' ? 'Karta' : 'Hotovost';
-    html += '<button class="btn-save btn-sm" data-payment-change-method="' + item.id + '" data-new-method="' + swapTo + '" style="margin-right:6px;background:var(--color-accent,#8b7cf6)" title="Storno povodneho dokladu + novy doklad s novym sposobom">→ ' + swapLabel + '</button>';
+    html += '<button class="btn-save btn-sm" data-payment-change-method="' + item.id + '" data-new-method="' + swapTo + '" style="background:var(--color-accent,#8b7cf6)" title="Storno povodneho dokladu + novy doklad s novym sposobom">→ ' + swapLabel + '</button>';
   }
   if (item.stornoEligible) {
     html += '<button class="btn-save btn-sm" data-payment-storno="' + item.id + '" style="background:var(--color-danger,#c44)">STORNO</button>';
@@ -107,7 +107,7 @@ function actionsCell(item) {
   } else {
     html += '<span class="text-muted" style="font-size:12px">Nedostupné</span>';
   }
-  return html;
+  return '<div class="pay-actions">' + html + '</div>';
 }
 
 function renderTable() {

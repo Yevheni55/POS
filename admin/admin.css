@@ -779,6 +779,17 @@ textarea.form-input,textarea.form-select,.u-modal-field textarea{height:auto;min
 .btn-reset{padding:var(--space-3) var(--space-6);border:1px solid var(--color-border);border-radius:var(--radius-sm);background:rgba(30, 24, 18, .03);color:var(--color-text-sec);font-family:var(--font-body);font-weight:var(--weight-bold);font-size:var(--text-lg);cursor:pointer;transition:all var(--transition-fast);min-height:var(--btn-h-md)}
 .btn-reset:hover{background:rgba(30, 24, 18, .06);color:var(--color-text)}
 
+/* Kompaktny variant tlacidiel — pouzity v hustych akcnych bunkach tabuliek
+   (platby, fiskalne doklady, nastavenia). Predtym NEDEFINOVANY → btn-sm nerobil
+   nic a tlacidla ostavali v plnej velkosti btn-save (44px, padding 32px), co
+   v stlpci Akcie vytvaralo prehnany zhluk. Musi byt PO .btn-save aj .btn-reset
+   (rovnaka specificita → rozhoduje poradie) aby prebilo padding/font/min-height. */
+.btn-save.btn-sm,.btn-reset.btn-sm,.btn-sm{padding:var(--space-2) var(--space-4);font-size:var(--text-base);font-weight:var(--weight-semibold);min-height:var(--btn-h-sm)}
+
+/* Akcie platby — adaptivny flex-wrap zhluk namiesto inline-block ragged
+   zalamovania; rovnomerne medzery (gap) + zarovnanie na vysku riadku. */
+.pay-actions{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+
 /* Required field marker */
 .required-mark{color:var(--rose, #b03830);font-weight:700}
 
