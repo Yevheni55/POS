@@ -611,3 +611,22 @@ export const offlineParagons = pgTable('offline_paragons', {
   index('offline_paragons_status_idx').on(t.status, t.issuedAt),
   index('offline_paragons_order_idx').on(t.orderId),
 ]);
+
+// ===================== WC KÓDY (TTLock pool) =====================
+// Predgenerovaný rotujúci pool kódov k WC zámku (TTLock). Namiesto živého
+// volania TTLock cloudu pri každom kliknutí (pomalé, závisí od gateway) sa
+// vygeneruje N kódov platných ~3 mesiace naraz; pri tlači sa len náhodne
+// vyberie jeden platný z poolu → okamžité. Kódy sa recyklujú (rotating),
+// ten istý kód môže dostať viac zákazníkov. keyboardPwdId drží TTLock id
+// kvôli neskoršiemu zmazaniu/expirácii pri refille.
+export const wcCodes = pgTable('wc_codes', {
+  id: serial('id').primaryKey(),
+  code: varchar('code', { length: 10 }).notNull(),
+  keyboardPwdId: varchar('keyboard_pwd_id', { length: 40 }),
+  startDate: timestamp('start_date').notNull(),
+  endDate: timestamp('end_date').notNull(),
+  active: boolean('active').notNull().default(true),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (t) => [
+  index('wc_codes_active_end_idx').on(t.active, t.endDate),
+]);

@@ -4,7 +4,6 @@
 // TTLock — generate passcode and print
 async function generateLockCode() {
   try {
-    showToast('Generujem kod zamku...');
     var result = await api.post('/ttlock/passcode', {});
     var code = result.passcode;
     var endDate = new Date(result.endDate);
