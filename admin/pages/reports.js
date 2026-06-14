@@ -85,10 +85,10 @@ function showEmptyReports() {
 }
 
 function renderStats(data) {
-  // The 8-card grid is rendered top-to-bottom: 4 sales KPIs (Trzby, Pocet,
+  // The 9-card grid is rendered top-to-bottom: 4 sales KPIs (Trzby, Pocet,
   // Priemerny ucet, Trzby/zam), then 4 hospodársky-výsledok cards (Vyroba,
-  // Mzdy, Zam.spotreba, Vysledok). Values flow into them by index because
-  // the existing template binds via .stat-value class (no IDs).
+  // Mzdy, Zam.spotreba, Vysledok), then Predane burgery. Values flow into
+  // them by index because the template binds via .stat-value class (no IDs).
   const statValues = $$('.stat-value');
   if (data.totalRevenue !== undefined && statValues[0]) {
     statValues[0].innerHTML = fmtEur(data.totalRevenue);
@@ -127,6 +127,10 @@ function renderStats(data) {
                 : v < 0 ? 'var(--color-danger, #ef4444)'
                 : 'var(--color-text-sec, #94a3b8)';
     statValues[7].innerHTML = '<span style="color:' + color + '">' + fmtEur(v) + '</span>';
+  }
+  // Predané burgery — počet kusov (4 burgery + 4 combá dokopy) za obdobie.
+  if (data.burgersSold !== undefined && statValues[8]) {
+    statValues[8].textContent = data.burgersSold;
   }
 }
 
@@ -1175,6 +1179,17 @@ const TEMPLATE = `
       <div class="stat-info">
         <div class="stat-label">Vysledok</div>
         <div class="stat-value">-- &euro;</div>
+      </div>
+    </div>
+    <!-- Predane burgery — pocet kusov (4 burgery + 4 comba dokopy, bez
+         omacky) z kategorie 'burgre' za zvolene obdobie. -->
+    <div class="stat-card">
+      <div class="stat-icon amber">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 11h18a0 0 0 0 1 0 0 3 3 0 0 1-3 3H6a3 3 0 0 1-3-3 0 0 0 0 1 0 0z"/><path d="M4 7a8 8 0 0 1 16 0"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </div>
+      <div class="stat-info">
+        <div class="stat-label">Predane burgery</div>
+        <div class="stat-value">--</div>
       </div>
     </div>
   </div>

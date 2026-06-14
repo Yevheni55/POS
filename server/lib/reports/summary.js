@@ -109,6 +109,25 @@ export async function summaryHandler(req, res) {
   const shishaRevenue = parseFloat(shisha.revenue) || 0;
   const fiscalTotal = parseFloat(revenue.total) || 0;
 
+  // Predané burgery — počet kusov burgerov za obdobie. Ráta 4 samostatné
+  // burgery + 4 combá (combo = burger + hranolky + nápoj, takže 1 combo =
+  // 1 burger) z kategórie 'burgre'. Vylučuje "Omáčka (combo)" (to nie je
+  // burger) a staff_meal/cancelled — chceme PREDANÉ kusy. Combo aj burger
+  // sa rátajú dokopy podľa požiadavky prevádzky.
+  const burgersRes = await db.execute(sql`
+    SELECT COALESCE(SUM(oi.qty), 0)::int AS qty
+    FROM order_items oi
+    INNER JOIN orders o ON o.id = oi.order_id
+    INNER JOIN menu_items mi ON mi.id = oi.menu_item_id
+    INNER JOIN menu_categories mc ON mc.id = mi.category_id
+    WHERE o.created_at >= ${fromBoundary} AND o.created_at <= ${toBoundary}
+      AND o.status != 'cancelled'
+      AND COALESCE(o.closure_type, 'paid') != 'staff_meal'
+      AND mc.slug = 'burgre'
+      AND mi.name NOT ILIKE 'Omáčka%'
+  `);
+  const burgersSold = Number(burgersRes.rows[0] && burgersRes.rows[0].qty) || 0;
+
   // Per-day breakdown for the Trzby tab (chronological). Bins payments by
   // their LOCAL Bratislava date so a 01:30-local payment lands in the same
   // day the bartender thinks of, not the next UTC day.
@@ -512,6 +531,7 @@ export async function summaryHandler(req, res) {
     totalLabor,
     totalStaffMeal,
     totalProfit,
+    burgersSold,
     staffMealByPerson: staffMealByPersonRows.rows.map(r => ({
       name: r.person_name,
       meals: Number(r.meals) || 0,
