@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, numeric, boolean, timestamp, varchar, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, serial, text, integer, numeric, boolean, timestamp, date, varchar, index, uniqueIndex } from 'drizzle-orm/pg-core';
 
 export const staff = pgTable('staff', {
   id: serial('id').primaryKey(),
@@ -629,4 +629,33 @@ export const wcCodes = pgTable('wc_codes', {
   createdAt: timestamp('created_at').defaultNow(),
 }, (t) => [
   index('wc_codes_active_end_idx').on(t.active, t.endDate),
+]);
+
+// ===================== ODHADY TRŽIEB (forecast log) =====================
+// Uchováva moje (asistentove) odhady dennej tržby aby sa dali po týždňoch /
+// mesiacoch spätne vyhodnotiť oproti realite. Jeden riadok = jeden odhad pre
+// jeden cieľový deň. `actualEur` sa dopĺňa neskôr zo skutočných platieb,
+// `errorPct` = 100*(actual-estimate)/actual. `method` verzionuje model, aby
+// sa dalo porovnať zlepšovanie. Snapshot predpovede počasia (temp/precip/code)
+// je súčasťou riadku — kľúčové pre analýzu, či chyba bola v počasí alebo modeli.
+export const revenueForecasts = pgTable('revenue_forecasts', {
+  id: serial('id').primaryKey(),
+  targetDate: date('target_date').notNull(),
+  madeAt: timestamp('made_at', { withTimezone: true }).defaultNow(),
+  horizonDays: integer('horizon_days'),            // koľko dní dopredu bol odhad
+  estimateEur: numeric('estimate_eur', { precision: 10, scale: 2 }),
+  lowEur: numeric('low_eur', { precision: 10, scale: 2 }),
+  highEur: numeric('high_eur', { precision: 10, scale: 2 }),
+  fcTempMaxC: numeric('fc_temp_max_c', { precision: 5, scale: 2 }),
+  fcPrecipMm: numeric('fc_precip_mm', { precision: 5, scale: 2 }),
+  fcWeatherCode: integer('fc_weather_code'),
+  weekday: integer('weekday'),                     // ISO 1=Po .. 7=Ne
+  method: varchar('method', { length: 60 }).notNull().default('v1'),
+  note: text('note').notNull().default(''),
+  actualEur: numeric('actual_eur', { precision: 10, scale: 2 }),   // doplní eval
+  errorPct: numeric('error_pct', { precision: 6, scale: 2 }),
+  evaluatedAt: timestamp('evaluated_at', { withTimezone: true }),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (t) => [
+  uniqueIndex('revenue_forecasts_target_method_uniq').on(t.targetDate, t.method),
 ]);
