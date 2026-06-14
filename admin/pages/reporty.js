@@ -20,6 +20,7 @@ export async function init(container, subRoute) {
       { slug: 'denny',  label: 'Denné',  importer: function () { return import('./reports.js'); } },
       { slug: 'tyzden', label: 'Týždeň', importer: function () { return import('./weekly.js'); } },
       { slug: 'sezona', label: 'Sezóna', importer: function () { return import('./season.js'); } },
+      { slug: 'predpoved', label: 'Predpoveď', importer: function () { return import('./forecasts.js'); } },
     ],
   });
   return shell;

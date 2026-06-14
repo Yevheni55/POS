@@ -12,6 +12,7 @@ import { weeklyHandler } from '../lib/reports/weekly.js';
 import { zReportHandler } from '../lib/reports/z-report.js';
 import { exportHandler } from '../lib/reports/export.js';
 import { staffHandler } from '../lib/reports/staff.js';
+import { forecastsHandler } from '../lib/reports/forecasts.js';
 
 const router = Router();
 const mgr = requireRole('manazer', 'admin');
@@ -22,5 +23,6 @@ router.get('/weekly',   mgr, weeklyHandler);
 router.get('/z-report', mgr, zReportHandler);
 router.get('/export',   mgr, exportHandler);
 router.get('/staff',    mgr, staffHandler);
+router.get('/forecasts', mgr, forecastsHandler);
 
 export default router;
