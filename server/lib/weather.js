@@ -136,15 +136,17 @@ let _hourlyTimer = null;
  */
 export function startWeatherHourlyCron() {
   if (_hourlyTimer) return;
-  // Initial fetch — neblokuj boot
+  // Initial fetch — neblokuj boot. pastDays:7 zahojí prípadné medzery po
+  // dlhšom výpadku/odstávke (upsert je idempotentný, ~168 riadkov jednorazovo).
   setTimeout(() => {
-    fetchAndStoreWeather({ pastDays: 1 })
+    fetchAndStoreWeather({ pastDays: 7 })
       .then(r => console.log(`[weather] boot fetch: ${r.inserted} rows, latest ${r.latestAt}`))
       .catch(e => console.warn('[weather] boot fetch failed:', e.message));
   }, 5000);
-  // Hourly refresh
+  // Hourly refresh — pastDays:3 sa priebežne self-healuje (re-fetch posledných
+  // 3 dní každú hodinu cez ON CONFLICT, takže krátky výpadok nenechá dieru).
   _hourlyTimer = setInterval(() => {
-    fetchAndStoreWeather({ pastDays: 1 })
+    fetchAndStoreWeather({ pastDays: 3 })
       .then(r => console.log(`[weather] hourly fetch: ${r.inserted} rows`))
       .catch(e => console.warn('[weather] hourly fetch failed:', e.message));
   }, 60 * 60 * 1000);
