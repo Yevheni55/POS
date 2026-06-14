@@ -1,0 +1,295 @@
+/* ================================================================
+   ADMIN DARK THEME — warm-dark, zhodný s POS (css/pos-dark.css)
+   ================================================================
+   Loaded AFTER admin.css. Aktivuje sa cez [data-theme="dark"] na <html>.
+   Zdieľa pos_theme s POS (rovnaký origin) → jedna téma pre celý systém.
+   Mení iba FARBY + tiene; fonty/rozmery ostávajú (žiadny layout shift).
+   ================================================================ */
+
+:root[data-theme="dark"] {
+  /* Surfaces — warm dark ladder */
+  --color-bg-sunken:   #14100b;
+  --color-bg:          #1c1710;
+  --color-bg-elevated: #261f16;
+  --color-bg-surface:  rgba(245, 239, 227, .05);
+  --color-bg-hover:    rgba(245, 239, 227, .09);
+  --color-bg-active:   rgba(245, 239, 227, .13);
+  --color-overlay:     rgba(0, 0, 0, .62);
+
+  /* Borders — warm cream alpha */
+  --color-border:        rgba(245, 239, 227, .12);
+  --color-border-hover:  rgba(245, 239, 227, .18);
+  --color-border-strong: rgba(245, 239, 227, .28);
+
+  /* Accent — terra clay, brightened for dark */
+  --color-accent:           #e0764a;
+  --color-accent-dim:       #c96338;
+  --color-accent-bg:        rgba(224, 118, 74, .12);
+  --color-accent-bg-hover:  rgba(224, 118, 74, .20);
+  --color-accent-border:    rgba(224, 118, 74, .30);
+  --color-accent-glow:      rgba(224, 118, 74, .30);
+
+  /* Success — forest brightened */
+  --color-success:        #6fb35a;
+  --color-success-bg:     rgba(111, 179, 90, .12);
+  --color-success-border: rgba(111, 179, 90, .26);
+
+  /* Danger — rust brightened */
+  --color-danger:        #e8675c;
+  --color-danger-bg:     rgba(232, 103, 92, .12);
+  --color-danger-border: rgba(232, 103, 92, .26);
+
+  /* Text — warm off-white */
+  --color-text:     #f2ebde;
+  --color-text-sec: rgba(242, 235, 222, .62);
+  --color-text-dim: rgba(242, 235, 222, .34);
+
+  --color-focus: #e0764a;
+  --accent-amber: #e0a83c;
+
+  /* Warning (amber) — admin semantic, brightened pre dark */
+  --color-warning:        #e0a83c;
+  --color-warning-bg:     rgba(224, 168, 60, .14);
+  --color-warning-border: rgba(224, 168, 60, .30);
+
+  /* Shadows — tmavé drop stacks */
+  --shadow-sm:    0 1px 2px rgba(0, 0, 0, .40),
+                  0 2px 6px -1px rgba(0, 0, 0, .50);
+  --shadow-md:    0 1px 3px rgba(0, 0, 0, .40),
+                  0 4px 12px -2px rgba(0, 0, 0, .50),
+                  0 8px 24px -4px rgba(0, 0, 0, .45);
+  --shadow-lg:    0 4px 8px rgba(0, 0, 0, .45),
+                  0 12px 32px -4px rgba(0, 0, 0, .55),
+                  0 24px 64px -16px rgba(0, 0, 0, .60);
+  --shadow-glow:  0 2px 16px rgba(224, 118, 74, .30);
+
+  /* Semantic aliasy */
+  --surface-app:    var(--color-bg);
+  --surface-raised: var(--color-bg-elevated);
+  --surface-sunken: var(--color-bg-sunken);
+  --surface-card:   var(--color-bg-surface);
+  --border-default: var(--color-border);
+  --border-strong:  var(--color-border-strong);
+  --border-focus:   rgba(224, 118, 74, .45);
+  --text-primary:   var(--color-text);
+  --text-secondary: var(--color-text-sec);
+  --text-muted:     var(--color-text-dim);
+  --action-primary:           var(--color-accent);
+  --action-primary-dim:       var(--color-accent-dim);
+  --action-primary-bg:        var(--color-accent-bg);
+  --action-primary-bg-hover:  var(--color-accent-bg-hover);
+  --action-primary-border:    var(--color-accent-border);
+  --action-success:        var(--color-success);
+  --action-success-bg:     var(--color-success-bg);
+  --action-success-border: var(--color-success-border);
+  --action-danger:        var(--color-danger);
+  --action-danger-bg:     var(--color-danger-bg);
+  --action-danger-border: var(--color-danger-border);
+}
+
+/* Native widgets + form prvky — dark scheme (admin.css ich prebíja na svetlo) */
+:root[data-theme="dark"] { color-scheme: dark; }
+:root[data-theme="dark"] select { color-scheme: dark !important; }
+:root[data-theme="dark"] select option { background: var(--color-bg-elevated); color: var(--color-text); }
+:root[data-theme="dark"] input[type="date"],
+:root[data-theme="dark"] input[type="time"],
+:root[data-theme="dark"] input[type="datetime-local"] { color-scheme: dark; }
+:root[data-theme="dark"] input[type="checkbox"],
+:root[data-theme="dark"] input[type="radio"] {
+  background: rgba(245, 239, 227, .05) !important;
+  border-color: var(--color-border-hover) !important;
+}
+:root[data-theme="dark"] input[type="checkbox"]:hover,
+:root[data-theme="dark"] input[type="radio"]:hover {
+  background: rgba(245, 239, 227, .09) !important;
+}
+:root[data-theme="dark"] input[type="checkbox"]:checked {
+  background: var(--color-accent) !important;
+  border-color: var(--color-accent) !important;
+  box-shadow: 0 0 8px rgba(224, 118, 74, .30) !important;
+}
+
+/* ================================================================
+   TARGETED OVERRIDES — admin.css pravidlá ktoré HARDCODUJÚ daylight
+   farby a cez premenné sa nepreklopia. Doplnené z auditu.
+   ================================================================ */
+/* G1 — Cream SOLID elevated surfaces → bg-elevated */
+:root[data-theme="dark"] .u-modal,
+:root[data-theme="dark"] .toast,
+:root[data-theme="dark"] .table-chip,
+:root[data-theme="dark"] .u-modal-btns { background: var(--color-bg-elevated); }
+:root[data-theme="dark"] .u-modal { background: var(--color-bg-elevated) !important; }
+:root[data-theme="dark"] .toast { background: var(--color-bg-elevated) !important; }
+
+/* G2 — .bg-scene gradient → dark warm gradient */
+:root[data-theme="dark"] .bg-scene {
+  background: linear-gradient(160deg, var(--color-bg) 0%, var(--color-bg-elevated) 55%, var(--color-bg-sunken) 100%);
+}
+
+/* G3 — Espresso-ink alfa RESTING surface fill → bg-surface */
+:root[data-theme="dark"] .sidebar,
+:root[data-theme="dark"] .header-user,
+:root[data-theme="dark"] .product-row:nth-child(odd),
+:root[data-theme="dark"] .health-item,
+:root[data-theme="dark"] .header-back-pos,
+:root[data-theme="dark"] .u-btn-ghost,
+:root[data-theme="dark"] .form-input,
+:root[data-theme="dark"] .form-select,
+:root[data-theme="dark"] .u-modal-field input,
+:root[data-theme="dark"] .u-modal-field textarea,
+:root[data-theme="dark"] .u-modal-field select,
+:root[data-theme="dark"] .form-input:disabled,
+:root[data-theme="dark"] .form-select:disabled,
+:root[data-theme="dark"] .toolbar-btn,
+:root[data-theme="dark"] .grid-check,
+:root[data-theme="dark"] .btn-secondary,
+:root[data-theme="dark"] .cat-panel,
+:root[data-theme="dark"] .prod-row,
+:root[data-theme="dark"] .act-btn,
+:root[data-theme="dark"] .search-input,
+:root[data-theme="dark"] .filter-select,
+:root[data-theme="dark"] .btn-edit,
+:root[data-theme="dark"] .btn-toggle-status,
+:root[data-theme="dark"] .tip-opt,
+:root[data-theme="dark"] .time-input,
+:root[data-theme="dark"] .time-input:disabled,
+:root[data-theme="dark"] .btn-reset,
+:root[data-theme="dark"] .date-input,
+:root[data-theme="dark"] .progress-wrap,
+:root[data-theme="dark"] .hour-bar-wrap,
+:root[data-theme="dark"] .skeleton-row,
+:root[data-theme="dark"] .skeleton-block,
+:root[data-theme="dark"] .inline-form-panel,
+:root[data-theme="dark"] .doch-input,
+:root[data-theme="dark"] .doch-detail-summary,
+:root[data-theme="dark"] .doch-manual-form,
+:root[data-theme="dark"] .cmdk-input-kbd kbd,
+:root[data-theme="dark"] .cmdk-footer kbd,
+:root[data-theme="dark"] .cmdk-row-icon,
+:root[data-theme="dark"] .cmdk-footer { background: var(--color-bg-surface); }
+
+/* G4 — Ink alfa ako :hover / :active / :focus background → bg-hover */
+:root[data-theme="dark"] .nav-item:hover,
+:root[data-theme="dark"] .product-row:hover,
+:root[data-theme="dark"] .data-table tbody tr:hover,
+:root[data-theme="dark"] .header-back-pos:hover,
+:root[data-theme="dark"] .u-toggle-track,
+:root[data-theme="dark"] .u-toggle-track:hover,
+:root[data-theme="dark"] .form-input:hover,
+:root[data-theme="dark"] .form-select:hover,
+:root[data-theme="dark"] .zone-btn:hover,
+:root[data-theme="dark"] .zone-rename-btn:hover,
+:root[data-theme="dark"] .sortable-table thead th.sortable-th:hover,
+:root[data-theme="dark"] .toolbar-btn:hover,
+:root[data-theme="dark"] .props-close:hover,
+:root[data-theme="dark"] .btn-secondary:hover,
+:root[data-theme="dark"] .cat-item:hover,
+:root[data-theme="dark"] .cat-add-btn:hover,
+:root[data-theme="dark"] .prod-row:hover,
+:root[data-theme="dark"] .toggle,
+:root[data-theme="dark"] .toggle:hover,
+:root[data-theme="dark"] .act-btn:hover,
+:root[data-theme="dark"] .inline-edit:focus,
+:root[data-theme="dark"] .search-input:hover,
+:root[data-theme="dark"] .filter-select:hover,
+:root[data-theme="dark"] .time-input:hover,
+:root[data-theme="dark"] .btn-reset:hover,
+:root[data-theme="dark"] .period-btn:hover,
+:root[data-theme="dark"] .date-input:hover,
+:root[data-theme="dark"] .table-chip:hover,
+:root[data-theme="dark"] .occ-bar-wrap,
+:root[data-theme="dark"] .product-bar-wrap,
+:root[data-theme="dark"] .doch-input:focus { background: var(--color-bg-hover); }
+
+/* G5 — Ink alfa BORDER-BOTTOM → border */
+:root[data-theme="dark"] .sidebar-logo,
+:root[data-theme="dark"] .dashboard-page .bar-wrapper,
+:root[data-theme="dark"] .dashboard-pay-legend-row,
+:root[data-theme="dark"] .data-table th,
+:root[data-theme="dark"] .data-table td,
+:root[data-theme="dark"] .props-header,
+:root[data-theme="dark"] .cat-panel-header,
+:root[data-theme="dark"] .prod-header,
+:root[data-theme="dark"] .hours-table th,
+:root[data-theme="dark"] .hours-table td,
+:root[data-theme="dark"] .toolbar,
+:root[data-theme="dark"] .tabs { border-bottom-color: var(--color-border); }
+
+/* G6 — Ink alfa BORDER-TOP → border */
+:root[data-theme="dark"] .sidebar-bottom,
+:root[data-theme="dark"] .dashboard-chart-hint,
+:root[data-theme="dark"] .props-actions { border-top-color: var(--color-border); }
+
+/* G7 — nav-divider (solid ink background-as-line) → border */
+:root[data-theme="dark"] .nav-divider { background: var(--color-border); }
+
+/* G8 — Ink alfa shorthand border → border */
+:root[data-theme="dark"] .prod-row,
+:root[data-theme="dark"] .act-btn { border-color: var(--color-border); }
+
+/* G9 — Dashed add-button → dashed border token */
+:root[data-theme="dark"] .cat-add-btn { border: 1px dashed var(--color-border); }
+
+/* G10 — Hover border-color escalations → border-hover */
+:root[data-theme="dark"] .cat-add-btn:hover,
+:root[data-theme="dark"] .prod-row:hover,
+:root[data-theme="dark"] .section:hover { border-color: var(--color-border-hover); }
+
+/* G11 — tfoot strong border → border-strong */
+:root[data-theme="dark"] .data-table tfoot td { border-top-color: var(--color-border-strong); }
+
+/* G12 — Scrollbar thumb (ink) → border-strong (pôvodné pravidlo !important) */
+:root[data-theme="dark"] .nav::-webkit-scrollbar-thumb,
+:root[data-theme="dark"] .content::-webkit-scrollbar-thumb,
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb { background: var(--color-border-strong) !important; }
+:root[data-theme="dark"] .cat-list::-webkit-scrollbar-thumb,
+:root[data-theme="dark"] .prod-list::-webkit-scrollbar-thumb,
+:root[data-theme="dark"] .cmdk-list::-webkit-scrollbar-thumb { background: var(--color-border-strong); }
+:root[data-theme="dark"] .nav,
+:root[data-theme="dark"] .content,
+:root[data-theme="dark"] .cat-list,
+:root[data-theme="dark"] .prod-list,
+:root[data-theme="dark"] .cmdk-list { scrollbar-color: var(--color-border-strong) transparent; }
+
+/* G13 — Modal scrollbar thumb → border-strong / hover */
+:root[data-theme="dark"] .u-modal-body::-webkit-scrollbar-thumb { background: var(--color-border-strong); }
+:root[data-theme="dark"] .u-modal-body::-webkit-scrollbar-thumb:hover { background: var(--color-border-hover); }
+:root[data-theme="dark"] .u-modal-body { scrollbar-color: var(--color-border-strong) transparent; }
+
+/* G14 — Modály / toasty / cmdk box-shadow → shadow-lg (u-modal/toast pôvodne !important) */
+:root[data-theme="dark"] .toast-undo,
+:root[data-theme="dark"] .cmdk-modal { box-shadow: var(--shadow-lg); }
+:root[data-theme="dark"] .u-modal { box-shadow: var(--shadow-lg) !important; }
+:root[data-theme="dark"] .toast { box-shadow: var(--shadow-md) !important; }
+
+/* G15 — Sticky mobile + last-column box-shadow → shadow-md */
+:root[data-theme="dark"] .u-modal-btns,
+:root[data-theme="dark"] .data-table th:last-child,
+:root[data-theme="dark"] .data-table td:last-child,
+:root[data-theme="dark"] .toolbar-btn:hover { box-shadow: var(--shadow-md); }
+
+/* G16 — Karty / panely box-shadow → shadow-sm/md */
+:root[data-theme="dark"] .stat-card,
+:root[data-theme="dark"] .panel { box-shadow: var(--shadow-sm); }
+:root[data-theme="dark"] .stat-card:hover { box-shadow: var(--shadow-md); }
+:root[data-theme="dark"] .header-avatar { box-shadow: inset 0 1px 0 rgba(255,255,255,.18), var(--shadow-sm); }
+
+/* G17 — Čierne INSET shadow na :focus → jemný focus glow */
+:root[data-theme="dark"] .form-input:focus,
+:root[data-theme="dark"] .form-select:focus,
+:root[data-theme="dark"] .u-modal-field input:focus,
+:root[data-theme="dark"] .u-modal-field textarea:focus,
+:root[data-theme="dark"] .u-modal-field select:focus,
+:root[data-theme="dark"] .search-input:focus { box-shadow: 0 0 0 3px var(--color-accent-bg); }
+
+/* G18 — Overlay / scrim → overlay token */
+:root[data-theme="dark"] .cmdk-overlay { background: var(--color-overlay); }
+
+/* G19 — STATUS text (light-on-dark) */
+:root[data-theme="dark"] .badge-warning { color: var(--color-warning) !important; }
+:root[data-theme="dark"] .badge-info { color: #7da7d9 !important; }
+:root[data-theme="dark"] .required-mark { color: var(--color-danger); }
+:root[data-theme="dark"] .product-row:nth-child(3) .product-rank { color: var(--color-text-sec); }
+
+/* G20 — Drag handle .u-modal::after (ink) → border token */
+:root[data-theme="dark"] .u-modal::after { background: var(--color-border); }

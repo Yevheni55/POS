@@ -5,9 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#f5efe3">
 <title>POS Admin</title>
+<script>/* Anti-FOUC: téma na <html> PRED CSS (zdieľa pos_theme s POS, rovnaký origin) */try{document.documentElement.setAttribute('data-theme',localStorage.getItem('pos_theme')==='dark'?'dark':'light');}catch(e){}</script>
 <link rel="stylesheet" href="/tokens.css">
 <link rel="stylesheet" href="/fonts/fonts.css">
 <link rel="stylesheet" href="admin.css?v=21">
+<link rel="stylesheet" href="admin-dark.css?v=1">
 </head>
 <body>
 <div class="bg-scene"></div>
@@ -125,6 +127,7 @@
     <header class="header">
       <h1 class="header-title" id="pageTitle">Dashboard</h1>
       <div class="header-right">
+        <button type="button" class="header-back-pos" data-theme-toggle onclick="togglePosTheme()" title="Svetlý / tmavý režim" aria-label="Prepnúť tmavý režim" aria-pressed="false"><svg class="theme-ic-moon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg><svg class="theme-ic-sun" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg></button>
         <button type="button" class="header-back-pos" id="headerBackToPOS" title="Späť na POS" aria-label="Späť na POS">
           <svg aria-hidden="true" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
         </button>
@@ -164,6 +167,28 @@
 <script src="/api.js"></script>
 <script>
 var ROLE_LABELS={admin:'Admin',manazer:'Manažér',cisnik:'Čašník'};
+
+// ===== Téma: svetlá Daylight / tmavá warm-dark (zdieľaná s POS cez pos_theme) =====
+function applyPosTheme(theme){
+  var dark=theme==='dark';
+  document.documentElement.setAttribute('data-theme',dark?'dark':'light');
+  var meta=document.querySelector('meta[name="theme-color"]');
+  if(meta) meta.setAttribute('content',dark?'#1c1710':'#f5efe3');
+  var toggles=document.querySelectorAll('[data-theme-toggle]');
+  for(var i=0;i<toggles.length;i++){
+    toggles[i].setAttribute('aria-pressed',dark?'true':'false');
+    var sun=toggles[i].querySelector('.theme-ic-sun'),moon=toggles[i].querySelector('.theme-ic-moon');
+    if(sun) sun.style.display=dark?'':'none';
+    if(moon) moon.style.display=dark?'none':'';
+  }
+}
+function togglePosTheme(){
+  var next=(localStorage.getItem('pos_theme')==='dark')?'light':'dark';
+  try{localStorage.setItem('pos_theme',next);}catch(e){}
+  applyPosTheme(next);
+  if(typeof showToast==='function') showToast(next==='dark'?'Tmavý režim zapnutý':'Svetlý režim zapnutý',true);
+}
+try{applyPosTheme(localStorage.getItem('pos_theme')==='dark'?'dark':'light');}catch(e){}
 
 // Handoff consumer for the mobile admin shortcut. POS stashes token+user
 // into localStorage just-in-time before opening /admin/ in a new tab,
