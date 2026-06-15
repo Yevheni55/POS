@@ -69,11 +69,11 @@ export async function weeklyHandler(req, res) {
       s.position,
       COALESCE(s.hourly_rate, 0)::float AS "hourlyRate",
       paired.at AS "inAt",
-      paired.next_at AS "outAt"
+      COALESCE(paired.next_at, LEAST((now() AT TIME ZONE 'UTC'), (${toBoundary} AT TIME ZONE 'UTC'))) AS "outAt"
     FROM paired
     JOIN staff s ON s.id = paired.staff_id
     WHERE paired.type = 'clock_in'
-      AND paired.next_type = 'clock_out'
+      AND (paired.next_type = 'clock_out' OR paired.next_type IS NULL)
       AND paired.at >= ${fromBoundary}
       AND paired.at <= ${toBoundary}
     ORDER BY paired.at

@@ -268,8 +268,11 @@ export async function summaryHandler(req, res) {
   // next event (which should be the matching clock_out) and computes
   // hours × hourly_rate. Bucketed by clock_in's LOCAL Bratislava date so
   // a shift that starts before midnight lands on the date the cashier
-  // walked in (not the date they clocked out). Open shifts (no matching
-  // clock_out) and admin staff with NULL hourly_rate contribute 0.
+  // walked in (not the date they clocked out). OTVORENÉ zmeny (prihlásený,
+  // ešte neodhlásený) sa rátajú PRIEBEŽNE: koniec = min(teraz, koniec obdobia),
+  // takže dnešný dashboard ukazuje rastúci náklad na mzdy už počas dňa. V
+  // historickom reporte sa otvorená zmena zaráta len po koniec daného dňa
+  // (žiadne preťaženie keď niekto zabudol odhlásiť). Admin s NULL hourly_rate = 0.
   const laborRows = await db.execute(sql`
     WITH paired AS (
       SELECT
@@ -282,12 +285,12 @@ export async function summaryHandler(req, res) {
     )
     SELECT
       to_char((paired.at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ})::date, 'YYYY-MM-DD') AS date,
-      COALESCE(SUM(EXTRACT(EPOCH FROM (paired.next_at - paired.at)) / 3600.0
+      COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(paired.next_at, LEAST((now() AT TIME ZONE 'UTC'), (${toBoundary} AT TIME ZONE 'UTC'))) - paired.at)) / 3600.0
         * COALESCE(s.hourly_rate, 0)::numeric), 0)::float AS labor
     FROM paired
     INNER JOIN staff s ON s.id = paired.staff_id
     WHERE paired.type = 'clock_in'
-      AND paired.next_type = 'clock_out'
+      AND (paired.next_type = 'clock_out' OR paired.next_type IS NULL)
       AND paired.at >= ${fromBoundary}
       AND paired.at <= ${toBoundary}
     GROUP BY 1
@@ -296,8 +299,8 @@ export async function summaryHandler(req, res) {
 
   // Per-staff labor breakdown — rovnaka paired CTE, ale GROUP BY staff_id.
   // Pouzite v admin Reportoch panelom "Mzdy podla zamestnancov" aby sef
-  // vedel kto najviac stal firmu cez zvolene obdobie. Open shifts (chybajuci
-  // clock_out) sa nepocitaju — co je konzistentne s totalLabor agregaciou.
+  // vedel kto najviac stal firmu cez zvolene obdobie. Otvorene zmeny sa rataju
+  // priebezne (koniec = min(teraz, koniec obdobia)) — konzistentne s totalLabor.
   const laborByStaffRows = await db.execute(sql`
     WITH paired AS (
       SELECT
@@ -313,18 +316,18 @@ export async function summaryHandler(req, res) {
       s.name AS staff_name,
       COALESCE(s.position, '') AS position,
       COALESCE(s.hourly_rate, 0)::float AS hourly_rate,
-      COALESCE(SUM(EXTRACT(EPOCH FROM (paired.next_at - paired.at)) / 3600.0), 0)::float AS hours,
-      COALESCE(SUM(EXTRACT(EPOCH FROM (paired.next_at - paired.at)) / 3600.0
+      COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(paired.next_at, LEAST((now() AT TIME ZONE 'UTC'), (${toBoundary} AT TIME ZONE 'UTC'))) - paired.at)) / 3600.0), 0)::float AS hours,
+      COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(paired.next_at, LEAST((now() AT TIME ZONE 'UTC'), (${toBoundary} AT TIME ZONE 'UTC'))) - paired.at)) / 3600.0
         * COALESCE(s.hourly_rate, 0)::numeric), 0)::float AS labor,
       COUNT(*)::int AS shifts
     FROM paired
     INNER JOIN staff s ON s.id = paired.staff_id
     WHERE paired.type = 'clock_in'
-      AND paired.next_type = 'clock_out'
+      AND (paired.next_type = 'clock_out' OR paired.next_type IS NULL)
       AND paired.at >= ${fromBoundary}
       AND paired.at <= ${toBoundary}
     GROUP BY s.id, s.name, s.position, s.hourly_rate
-    HAVING COALESCE(SUM(EXTRACT(EPOCH FROM (paired.next_at - paired.at)) / 3600.0), 0) > 0
+    HAVING COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(paired.next_at, LEAST((now() AT TIME ZONE 'UTC'), (${toBoundary} AT TIME ZONE 'UTC'))) - paired.at)) / 3600.0), 0) > 0
     ORDER BY labor DESC, s.name ASC
   `);
 
