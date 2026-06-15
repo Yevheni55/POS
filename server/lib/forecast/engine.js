@@ -13,6 +13,7 @@
 import { db } from '../../db/index.js';
 import { sql } from 'drizzle-orm';
 import { fitRidge, predictOne, buildStandardizer, pickLambda } from './ridge.js';
+import { runForecastHourly } from './engine-hourly.js';
 
 const TZ = 'Europe/Bratislava';
 const LAT = 48.1014;
@@ -315,11 +316,18 @@ async function upsertForecasts(rows) {
 
 export function startForecastCron() {
   if (_timer) return;
-  const tick = () => runForecast()
-    .then((r) => console.log('[forecast] ' + (r.ok
-      ? `OK ${r.days} dní, R²=${r.r2}, λ=${r.lambda}, ±${r.residEur}€, ${r.features} feature, ${r.trainDays} dní`
-      : 'skip: ' + r.reason)))
-    .catch((e) => console.warn('[forecast] zlyhal:', e.message));
+  const tick = async () => {
+    try {
+      const r = await runForecast();
+      console.log('[forecast v2] ' + (r.ok
+        ? `OK ${r.days}d R²=${r.r2} λ=${r.lambda} ±${r.residEur}€ ${r.features}f ${r.trainDays}d` : 'skip: ' + r.reason));
+    } catch (e) { console.warn('[forecast v2] zlyhal:', e.message); }
+    try {
+      const r3 = await runForecastHourly();
+      console.log('[forecast v3] ' + (r3.ok
+        ? `OK ${r3.days}d R²=${r3.r2} ±${r3.residHourEur}€/h ${r3.trainRows}r ${r3.trainDays}d` : 'skip: ' + r3.reason));
+    } catch (e) { console.warn('[forecast v3] zlyhal:', e.message); }
+  };
   setTimeout(tick, 12000);                  // krátko po boote (po weather fetchi)
   _timer = setInterval(tick, 60 * 60 * 1000); // každú hodinu
 }
