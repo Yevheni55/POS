@@ -17,6 +17,7 @@ import { corsOriginCallback } from './lib/cors-origin.js';
 import { getPortosConfig, isPortosEnabled } from './lib/portos.js';
 import { runPortosProfileSync, startPortosProfileSync } from './lib/portos-sync-job.js';
 import { startWeatherHourlyCron } from './lib/weather.js';
+import { startForecastCron } from './lib/forecast/engine.js';
 import { isVatRegisteredBusiness } from './lib/vat-registration.js';
 import { startIdempotencyCleanup } from './middleware/idempotency.js';
 import { startPrintQueue, startPrinterKeepAlive } from './routes/print.js';
@@ -122,6 +123,9 @@ httpServer.listen(PORT, () => {
   // Hourly weather fetch from Open-Meteo (Drazdiak coordinates).
   // Boot fetch + each 60 min. Errors are logged but don't crash boot.
   startWeatherHourlyCron();
+  // Hourly revenue forecast (ridge model: počasie + kalendár + hodinový profil).
+  // Pretrénuje sa, projektuje dnešok + 7 dní → revenue_forecasts (method v2-ridge).
+  startForecastCron();
   if (isPortosEnabled()) {
     startPortosProfileSync();
     runPortosProfileSync({ timeoutMs: 12000 })

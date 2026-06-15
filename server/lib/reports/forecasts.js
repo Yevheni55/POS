@@ -57,14 +57,19 @@ export async function forecastsHandler(req, res) {
     };
   });
 
-  const ev = list.filter((x) => x.evaluable);
-  const summary = {
-    total: list.length,
-    evaluated: ev.length,
-    avgAbsErrorPct: ev.length ? Math.round((ev.reduce((s, x) => s + Math.abs(x.errorPct), 0) / ev.length) * 10) / 10 : null,
-    biasPct: ev.length ? Math.round((ev.reduce((s, x) => s + x.errorPct, 0) / ev.length) * 10) / 10 : null,
-    inRange: ev.filter((x) => x.inRange).length,
+  const summarize = (arr) => {
+    const ev = arr.filter((x) => x.evaluable);
+    return {
+      total: arr.length,
+      evaluated: ev.length,
+      avgAbsErrorPct: ev.length ? Math.round((ev.reduce((s, x) => s + Math.abs(x.errorPct), 0) / ev.length) * 10) / 10 : null,
+      biasPct: ev.length ? Math.round((ev.reduce((s, x) => s + x.errorPct, 0) / ev.length) * 10) / 10 : null,
+      inRange: ev.filter((x) => x.inRange).length,
+    };
   };
+  const summary = summarize(list);
+  const methods = [...new Set(list.map((x) => x.method))];
+  const summaryByMethod = methods.map((m) => Object.assign({ method: m }, summarize(list.filter((x) => x.method === m))));
 
-  res.json({ forecasts: list, summary });
+  res.json({ forecasts: list, summary, summaryByMethod });
 }

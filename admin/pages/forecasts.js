@@ -38,6 +38,7 @@ function errColor(p) {
   const a = Math.abs(Number(p) || 0);
   return a < 15 ? 'var(--color-success)' : a < 30 ? 'var(--color-warning)' : 'var(--color-danger)';
 }
+function methodLabel(m) { return String(m || '').split('-')[0] || '?'; }
 
 export async function init(container) {
   _c = container;
@@ -77,20 +78,35 @@ function render(data) {
   html += card('Trafené do rozpätia', s.evaluated ? ((s.inRange || 0) + ' / ' + s.evaluated) : '—');
   html += '</div>';
 
+  const byMethod = (data && data.summaryByMethod) || [];
+  if (byMethod.length > 1) {
+    html += '<div class="panel" style="margin-bottom:16px;padding:12px 16px"><div class="stat-label" style="margin-bottom:8px">Presnosť podľa modelu</div>';
+    byMethod.forEach(function (m) {
+      html += '<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:13px;padding:3px 0">'
+        + '<strong style="min-width:130px">' + esc(m.method) + '</strong>'
+        + '<span class="text-muted">Ø odchýlka: <strong style="color:' + (m.avgAbsErrorPct == null ? 'inherit' : errColor(m.avgAbsErrorPct)) + '">' + (m.avgAbsErrorPct == null ? '—' : m.avgAbsErrorPct + ' %') + '</strong></span>'
+        + '<span class="text-muted">Bias: ' + (m.biasPct == null ? '—' : (m.biasPct > 0 ? '+' : '') + m.biasPct + ' %') + '</span>'
+        + '<span class="text-muted">V rozpätí: ' + (m.evaluated ? (m.inRange + '/' + m.evaluated) : '—') + '</span>'
+        + '</div>';
+    });
+    html += '</div>';
+  }
+
   html += '<div class="panel"><div class="table-scroll-wrap"><table class="data-table"><thead><tr>';
-  ['Dátum', 'Deň', 'Počasie', 'Predpoveď', 'Realita', 'Odchýlka', 'Stav'].forEach(function (h) {
+  ['Dátum', 'Deň', 'Model', 'Počasie', 'Predpoveď', 'Realita', 'Odchýlka', 'Stav'].forEach(function (h) {
     html += '<th class="data-th">' + h + '</th>';
   });
   html += '</tr></thead><tbody>';
 
   if (!f.length) {
-    html += '<tr><td class="data-td" colspan="7"><span class="text-muted">Zatiaľ žiadne uložené predpovede.</span></td></tr>';
+    html += '<tr><td class="data-td" colspan="8"><span class="text-muted">Zatiaľ žiadne uložené predpovede.</span></td></tr>';
   }
   f.forEach(function (r) {
     const w = wx(r.code);
     html += '<tr class="data-row">';
     html += '<td class="data-td"><strong>' + fmtDate(r.date) + '</strong></td>';
     html += '<td class="data-td">' + (DOW[r.weekday] || '') + '</td>';
+    html += '<td class="data-td"><span class="text-muted" style="font-size:12px" title="' + esc(r.method) + '">' + esc(methodLabel(r.method)) + '</span></td>';
     html += '<td class="data-td">' + w.e + ' ' + esc(w.l)
           + (r.temp != null ? ' · ' + Math.round(r.temp) + '°' : '')
           + (r.precip > 0 ? ' 💧' : '') + '</td>';
