@@ -1482,8 +1482,9 @@ fun OrderScreen(
         val phone = isPhone()
         var phoneTab by rememberSaveable { mutableStateOf(0) }   // 0 = Menu, 1 = Účet
         val hazeState = remember { HazeState() }   // zdroj backdrop blur pre glass search
-        // Štýl je konštantný — alokácia patrí mimo recompozície menuPane
-        val hazeStyle = remember { HazeDefaults.style(backgroundColor = Cream) }
+        // Štýl závisí od palety (dark mode) — hoist + remember s kľúčom
+        val hazeBg = Cream
+        val hazeStyle = remember(hazeBg) { HazeDefaults.style(backgroundColor = hazeBg) }
 
         // ── Menu pane: plávajúci glass search (Haze blur) nad rail + grid ──
         val menuPane: @Composable (Modifier) -> Unit = { paneMod ->
@@ -1587,6 +1588,9 @@ fun OrderScreen(
 
         // ── Order pane: „order pad" s ľavou linkou a paper tieňom ──
         val orderPane: @Composable (Modifier) -> Unit = { paneMod ->
+            // Hoist palety pre drawWithCache lambdu (nie je composable scope)
+            val ember = emberBrush()
+            val holeInk = EspressoDim.copy(alpha = 0.45f)
             Surface(
                 paneMod
                     .paperShadow(Elev.rest, RectangleShape)
@@ -1595,9 +1599,9 @@ fun OrderScreen(
                         // — všetko závisí len od size, cache sa prestavia iba pri
                         // zmene veľkosti, nie pri každom draw frame-e
                         val marginSize = androidx.compose.ui.geometry.Size(3.dp.toPx(), size.height)
-                        val brush = emberBrush()
+                        val brush = ember
                         val r = 1.4.dp.toPx(); val gap = 9.dp.toPx(); val py = 3.dp.toPx()
-                        val holeColor = EspressoDim.copy(alpha = 0.45f)
+                        val holeColor = holeInk
                         // pozor: vnútri buildList by `size` bolo MutableList.size
                         val w = size.width
                         val holes = buildList {

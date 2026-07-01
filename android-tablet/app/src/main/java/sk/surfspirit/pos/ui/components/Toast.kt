@@ -51,8 +51,15 @@ import sk.surfspirit.pos.ui.theme.reducedMotion
    toast prežije prepnutie admin stránky aj admin ↔ POS.
    ===================================================================== */
 
-enum class ToastTone(val bar: Color) {
-    Success(Sage), Info(sk.surfspirit.pos.ui.theme.Terra), Warning(Amber), Error(Danger)
+enum class ToastTone { Success, Info, Warning, Error }
+
+/** Farba stavového prúžku — z aktívnej Hearth palety (dark mode v3.2). */
+@Composable
+fun ToastTone.barColor(): Color = when (this) {
+    ToastTone.Success -> Sage
+    ToastTone.Info -> sk.surfspirit.pos.ui.theme.Terra
+    ToastTone.Warning -> Amber
+    ToastTone.Error -> Danger
 }
 
 class PosToastState {
@@ -105,7 +112,7 @@ fun PosToastHost(state: PosToastState) {
             ) {
                 Row(Modifier.height(IntrinsicSize.Min)
                     .semantics { liveRegion = LiveRegionMode.Polite }) {
-                    Box(Modifier.width(4.dp).fillMaxHeight().background(tone.bar))
+                    Box(Modifier.width(4.dp).fillMaxHeight().background(tone.barColor()))
                     Text(text, Modifier.padding(horizontal = Space.s4 - 2.dp, vertical = Space.s3),
                         style = MaterialTheme.typography.bodyMedium)
                 }

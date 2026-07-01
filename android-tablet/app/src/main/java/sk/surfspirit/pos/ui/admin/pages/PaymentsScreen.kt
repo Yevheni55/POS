@@ -148,6 +148,7 @@ private fun pmtMethodLabel(method: String): String = when (method) {
 }
 
 /** Web parita actionsCell tone: green=success, amber=accepted, red=ambig/error/…, inak grey. */
+@Composable
 private fun pmtFiscalTone(status: String): Color {
     val s = status.lowercase()
     return when {

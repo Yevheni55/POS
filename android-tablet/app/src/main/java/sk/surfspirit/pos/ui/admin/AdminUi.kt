@@ -234,6 +234,7 @@ fun BarChart(
     height: Int = 140,
 ) {
     val maxV = (values.filterNotNull().maxOrNull() ?: 0.0).coerceAtLeast(0.0001)
+    val placeholderInk = EspressoDim.copy(alpha = 0.30f)   // hoist — Canvas lambda nie je composable
     Column(modifier.fillMaxWidth()) {
         Canvas(Modifier.fillMaxWidth().height(height.dp)) {
             val n = values.size.coerceAtLeast(1)
@@ -243,7 +244,7 @@ fun BarChart(
                 if (v == null) {
                     val h = size.height * 0.35f
                     drawRoundRect(
-                        color = EspressoDim.copy(alpha = 0.30f),
+                        color = placeholderInk,
                         topLeft = Offset(i * slot + (slot - barW) / 2, size.height - h),
                         size = Size(barW, h),
                         cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f, 4f),

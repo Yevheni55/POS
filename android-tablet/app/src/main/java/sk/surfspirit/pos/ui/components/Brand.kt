@@ -23,6 +23,8 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.DarkMode
+import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -58,6 +60,8 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /* ===== Status farby/glyfy — zhoda s web POS (T2 accessibility glyfy) ===== */
+// @Composable — farby idú z aktívnej Hearth palety (dark mode v3.2).
+@Composable
 fun statusColor(s: String): Color = when (s) {
     "occupied" -> Terra
     "reserved" -> Amber
@@ -254,6 +258,13 @@ fun PosHeader(
             onDochadzka?.let { IconButton(onClick = it) { Icon(Icons.Filled.Schedule, "Dochádzka") } }
             onAdmin?.let { IconButton(onClick = it) { Icon(Icons.Filled.Settings, "Admin") } }
             if (!compact) onLockCode?.let { IconButton(onClick = it) { Icon(Icons.Filled.Lock, "Vygenerovať kód zámku") } }
+            // Prepínač témy (web data-theme-toggle parita) — v tme slnko
+            // (klik = na svetlo), vo svetle mesiac. Explicitný tap ruší auto.
+            val darkNow = LocalHearth.current.isDark
+            IconButton(onClick = { setThemeMode(if (darkNow) "light" else "dark") }) {
+                Icon(if (darkNow) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
+                    if (darkNow) "Prepnúť na svetlý režim" else "Prepnúť na tmavý režim")
+            }
             onRefresh?.let { IconButton(onClick = it) { Icon(Icons.Filled.Refresh, "Obnoviť") } }
             IconButton(onClick = onLogout) { Icon(Icons.AutoMirrored.Filled.Logout, "Odhlásiť") }
         }
@@ -283,9 +294,10 @@ fun ShiftStrip(openTables: Int, totalTables: Int, revenueToday: Double?) {
             infiniteRepeatable(tween(1100), RepeatMode.Reverse), label = "dotA").value
     } else 1f
 
+    val borderInk = BorderSoft   // hoist — drawBehind lambda nie je composable
     Surface(color = MaterialTheme.colorScheme.surfaceVariant,
         modifier = Modifier.drawBehind {
-            drawLine(BorderSoft, start = androidx.compose.ui.geometry.Offset(0f, size.height),
+            drawLine(borderInk, start = androidx.compose.ui.geometry.Offset(0f, size.height),
                 end = androidx.compose.ui.geometry.Offset(size.width, size.height), strokeWidth = 1f)
         }) {
         Row(

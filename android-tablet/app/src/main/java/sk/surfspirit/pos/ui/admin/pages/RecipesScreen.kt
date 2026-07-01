@@ -132,6 +132,7 @@ private fun foldDia(s: String): String =
         .replace(Regex("\\p{Mn}+"), "")
 
 /** Food-cost farba podľa % z predajnej ceny (HoReCa pravidlo). */
+@Composable
 private fun foodCostColor(pct: Double): Color = when {
     pct <= 0.0 -> EspressoDim
     pct < 30.0 -> Sage          // < 30 % dobré (zelená)
@@ -884,6 +885,7 @@ private fun RcRecipeForm(
 }
 
 /** Farebné ladenie podľa jednotky: ks=Navy, kg/g=Sage, l/ml=Amber. */
+@Composable
 private fun rcUnitColor(unit: String): Color = when (unit.lowercase()) {
     "ks" -> Navy
     "kg", "g" -> Sage

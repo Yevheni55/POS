@@ -28,6 +28,7 @@ import sk.surfspirit.pos.ui.admin.AdminSectionTitle
 import sk.surfspirit.pos.ui.admin.PillTabs
 import sk.surfspirit.pos.ui.theme.Cream
 import sk.surfspirit.pos.ui.theme.Terra
+import sk.surfspirit.pos.ui.theme.setThemeMode
 
 /**
  * AppSettingsScreen — nastavenia APLIKÁCIE na tomto zariadení (AppPrefs).
@@ -42,6 +43,10 @@ fun AppSettingsScreen() {
         mutableStateOf(when (AppPrefs.perfMode) { "on" -> 1; "off" -> 2; else -> 0 })
     }
 
+    var themeIdx by remember {
+        mutableStateOf(when (AppPrefs.themeMode) { "dark" -> 1; "auto" -> 2; else -> 0 })
+    }
+
     AdminScreenBox {
         AdminSectionTitle("Aplikácia — nastavenia zariadenia")
         Text(
@@ -51,6 +56,21 @@ fun AppSettingsScreen() {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(14.dp))
+
+        AdminCard {
+            Text("Téma", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "Night Service — tmavý režim pre večernú prevádzku. Auto prepína 19:00–06:00.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(8.dp))
+            PillTabs(listOf("Svetlá", "Tmavá", "Auto"), themeIdx) {
+                themeIdx = it
+                setThemeMode(when (it) { 1 -> "dark"; 2 -> "auto"; else -> "light" })
+            }
+        }
+        Spacer(Modifier.height(12.dp))
 
         AdminCard {
             Row(verticalAlignment = Alignment.CenterVertically) {

@@ -67,6 +67,15 @@ object AppPrefs {
         set(value) = sp.edit().putInt("send_undo_secs", value.coerceIn(0, 10)).apply()
 
     /**
+     * Téma: "light" (Warm Hearth) | "dark" (Night Service) | "auto"
+     * (19:00–06:00 tma). Web parita: pos_theme prepínač. Zmenu aplikuje
+     * ui/theme/setThemeMode() (živý mutableState v Theme.kt).
+     */
+    var themeMode: String
+        get() = sp.getString("theme_mode", "light") ?: "light"
+        set(value) = sp.edit().putString("theme_mode", value).apply()
+
+    /**
      * QR platba (Portos PayMe) — vypínateľná per zariadenie (web parita:
      * pos_settings.sQrPaymentEnabled, default zapnutá). Kým banková
      * notifikácia nefunguje spoľahlivo, prevádzka ju môže vypnúť.

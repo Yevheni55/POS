@@ -187,6 +187,7 @@ private val FA_TYPE_LABELS = mapOf(
 
 private fun faTypeLabel(type: String): String = FA_TYPE_LABELS[type] ?: type
 
+@Composable
 private fun faTypeColor(type: String): Color = when (type) {
     "order_cancelled", "storno_rejected", "item_removed" -> Danger
     "order_sent", "order_paid", "storno_approved" -> Sage

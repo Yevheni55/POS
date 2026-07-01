@@ -89,9 +89,11 @@ fun colorSpecOrSnap(): AnimationSpec<Color> =
 private val ShadowAmbient = Color(0x141E1812)   // rgba(30,24,18,.08)
 private val ShadowSpot = Color(0x1F1E1812)      // rgba(30,24,18,.12)
 
+@Composable
 fun Modifier.paperShadow(elevation: Dp, shape: Shape): Modifier =
     // Slabý tablet: mäkký blurnutý tieň je #1 fill-rate náklad → nahraď ho
     // lacným 1 px okrajom (zachová hranu karty bez GPU blur vrstvy).
+    // @Composable kvôli BorderSoft z aktívnej palety (dark mode).
     if (Perf.lowEnd) this.border(BorderStroke(1.dp, BorderSoft), shape)
     else this.shadow(elevation, shape, clip = false, ambientColor = ShadowAmbient, spotColor = ShadowSpot)
 
@@ -101,12 +103,16 @@ fun Modifier.paperShadow(elevation: Dp, shape: Shape): Modifier =
    primár (Poslať / Hotovosť / OK). Sekundárne akcie = outline/solid bez
    glow, inak sa stráca vodiaci signál. */
 private val GlowTerra = Color(0x52B8542A)
+private val GlowNight = Color(0x66E2926B)   // +25 % alfa na tme (plán v3.2)
 
-fun Modifier.glow(on: Boolean, shape: Shape = RoundedCornerShape(999.dp)): Modifier =
+@Composable
+fun Modifier.glow(on: Boolean, shape: Shape = RoundedCornerShape(999.dp)): Modifier {
     // Glow = ďalšia blur shadow vrstva → na slabom tablete vypnuté (tlačidlo
     // ostáva farebne dominantné aj bez žiary).
-    if (on && !Perf.lowEnd) this.shadow(10.dp, shape, clip = false, ambientColor = GlowTerra, spotColor = GlowTerra)
-    else this
+    if (!on || Perf.lowEnd) return this
+    val g = if (LocalHearth.current.isDark) GlowNight else GlowTerra
+    return this.shadow(10.dp, shape, clip = false, ambientColor = g, spotColor = g)
+}
 
 /**
  * Univerzálny press micro-interaction — scale 0.97 (120 ms). Rovnaký
@@ -142,29 +148,41 @@ fun AnimatedMoney(value: Double, style: TextStyle, color: Color, modifier: Modif
     Text(money(shown), modifier, color = color, style = style)
 }
 
-// Bezstavový brush — linearGradient s default offsetmi je size-relative,
-// jedna zdieľaná inštancia je bezpečná pre všetky call sites.
-private val EmberBrush = Brush.linearGradient(listOf(TerraLight, Terra, TerraDim))
+// Bezstavové brushe — linearGradient s default offsetmi je size-relative,
+// jedna zdieľaná inštancia per paleta je bezpečná pre všetky call sites.
+// Night hero sa NEinvertuje, len posunie do svetlejších uhlíkov (plán v3.2).
+private val EmberBrushLight = Brush.linearGradient(
+    listOf(LightHearth.emberStart, LightHearth.emberMid, LightHearth.emberEnd))
+private val EmberBrushNight = Brush.linearGradient(
+    listOf(NightHearth.emberStart, NightHearth.emberMid, NightHearth.emberEnd))
 
 /** Ember gradient — teplý terracotta priebeh pre hero plochy (CELKOM / K ÚHRADE,
- *  receipt margin, primárne akcie). Svetlejšia terracotta → primary → deep dim. */
-fun emberBrush(): Brush = EmberBrush
+ *  receipt margin, primárne akcie). V draw lambdách si ho HOISTNI v composable
+ *  scope (val ember = emberBrush()) — getter číta aktívnu paletu. */
+@Composable
+fun emberBrush(): Brush =
+    if (LocalHearth.current.isDark) EmberBrushNight else EmberBrushLight
 
 /** Warm canvas — jemné teplé radiálne svetlo z ľavého horného rohu (tactile
  *  warmth z designMd). Nahrádza plochú krémovú plochu hĺbkou, nerušivé.
  *  Brush závisí len od size — prestavia sa iba pri zmene veľkosti. */
-fun Modifier.warmCanvas(): Modifier =
+@Composable
+fun Modifier.warmCanvas(): Modifier {
     // Slabý tablet: žiadny full-screen radiálny gradient overdraw — plochá
     // krémová plocha (Surface ju aj tak vyfarbí).
-    if (Perf.lowEnd) this
-    else this.drawWithCache {
+    if (Perf.lowEnd) return this
+    // Na tme mierne výraznejší ember tint (+25 % alfa) — inak zanikne.
+    val tintTop = if (LocalHearth.current.isDark) Color(0x1FE2926B) else Color(0x16B45C3F)
+    val tintNone = tintTop.copy(alpha = 0f)
+    return this.drawWithCache {
         val brush = Brush.radialGradient(
-            colors = listOf(Color(0x16B45C3F), Color(0x00B45C3F)),
+            colors = listOf(tintTop, tintNone),
             center = Offset(size.width * 0.12f, size.height * -0.04f),
             radius = size.maxDimension * 0.72f,
         )
         onDrawBehind { drawRect(brush) }
     }
+}
 
 /** Overshoot pop (1 → 1.16 → 1) pri zmene hodnoty — qty badge, PIN dot. */
 @Composable

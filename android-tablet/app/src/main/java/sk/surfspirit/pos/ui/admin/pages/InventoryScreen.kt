@@ -106,6 +106,7 @@ private val InvPurple = Color(0xFF6B4FA0)   // sale → badge-purple
 
 private data class InvBadge(val label: String, val color: Color)
 
+@Composable
 private fun invMovementBadge(type: String): InvBadge = when (type) {
     "purchase"   -> InvBadge("Prijem", Sage)
     "sale"       -> InvBadge("Predaj", InvPurple)
@@ -115,6 +116,7 @@ private fun invMovementBadge(type: String): InvBadge = when (type) {
     else         -> InvBadge(if (type.isBlank()) "—" else type, EspressoDim)
 }
 
+@Composable
 private fun invStockBadge(currentQty: Double): InvBadge =
     if (currentQty <= 0.0) InvBadge("Prazdny", Danger) else InvBadge("Nizky", Amber)
 

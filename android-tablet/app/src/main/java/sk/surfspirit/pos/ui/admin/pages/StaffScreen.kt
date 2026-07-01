@@ -95,6 +95,7 @@ private fun stfRoleLabel(role: String): String = when (role) {
     else -> role
 }
 
+@Composable
 private fun stfRoleColor(role: String): Color = when (role) {
     "admin" -> Terra
     "manazer" -> Navy

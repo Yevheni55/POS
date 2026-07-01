@@ -215,6 +215,7 @@ private val PoPurple = Color(0xFF6B4FA0)   // sale / theft
 private data class PoBadge(val label: String, val color: Color)
 
 /** Typ pohybu → badge (zhoda s dashboard / inventory mapou). */
+@Composable
 private fun poMovementBadge(type: String): PoBadge = when (type) {
     "purchase"   -> PoBadge("Prijem", Sage)
     "sale"       -> PoBadge("Predaj", PoPurple)
@@ -224,6 +225,7 @@ private fun poMovementBadge(type: String): PoBadge = when (type) {
     else         -> PoBadge(if (type.isBlank()) "—" else type, EspressoDim)
 }
 
+@Composable
 private fun poReasonBadge(reason: String): PoBadge = when (reason) {
     "expiration" -> PoBadge("Expiracia", Amber)
     "damage"     -> PoBadge("Poskodenie", Danger)
@@ -233,6 +235,7 @@ private fun poReasonBadge(reason: String): PoBadge = when (reason) {
     else         -> PoBadge(if (reason.isBlank()) "—" else reason, EspressoDim)
 }
 
+@Composable
 private fun poStatusBadge(status: String): PoBadge = when (status) {
     "pending"  -> PoBadge("Caka", Amber)
     "approved" -> PoBadge("Schvaleny", Sage)

@@ -178,6 +178,7 @@ private val RT_MONTH_FULL = listOf(
 /** "+12,50 €" / "-3,20 €" so znamienkom (zhoda s web profit zápisom). */
 private fun rtSigned(v: Double): String = (if (v >= 0) "+" else "") + money(v)
 
+@Composable
 private fun rtProfitColor(v: Double): Color = if (v >= 0) Sage else Danger
 
 /** Minúty → "Xh MMm" (web fmtHours). Zaokrúhli RAZ na celé minúty hneď na
