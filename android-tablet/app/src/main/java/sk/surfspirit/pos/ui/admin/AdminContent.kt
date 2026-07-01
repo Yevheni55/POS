@@ -37,6 +37,7 @@ fun AdminContent(page: AdminPage, onOpenFloorEdit: () -> Unit, onBackToPos: () -
         AdminPage.MATERIALY -> MaterialyScreen()
         AdminPage.POHYBY -> PohybyScreen()
         AdminPage.SHISHA -> ShishaScreen()
+        AdminPage.APLIKACIA -> AppSettingsScreen()
         // WebView fallback — zriedkavo používané / konfiguračné stránky.
         // key(page): tri stránky zdieľajú jedno call site, bez key by Compose
         // recykloval tú istú AdminScreen inštanciu (WebView factory beží len raz)

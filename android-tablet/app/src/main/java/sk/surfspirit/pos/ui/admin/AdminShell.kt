@@ -28,6 +28,7 @@ import androidx.compose.material.icons.outlined.ShoppingCart
 import androidx.compose.material.icons.outlined.SpaceDashboard
 import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.outlined.TableRestaurant
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.Saver
@@ -75,6 +76,7 @@ enum class AdminPage(
     SHISHA("Shisha", Icons.Outlined.Air, "shisha", "SKLAD"),
 
     NASTAVENIA("Nastavenia", Icons.Outlined.Settings, "settings", "SYSTÉM"),
+    APLIKACIA("Aplikácia", Icons.Outlined.Tune, "app-settings", "SYSTÉM"),
 }
 
 /** Saver pre AdminPage — ukladá názov enum-u, bezpečný fallback na DASHBOARD

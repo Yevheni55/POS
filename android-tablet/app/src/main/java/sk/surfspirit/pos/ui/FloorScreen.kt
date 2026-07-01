@@ -33,9 +33,11 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.repeatOnLifecycle
@@ -58,6 +60,15 @@ import kotlin.math.roundToInt
 private fun chipW(t: TableDto): Int = t.width ?: when (t.shape) { "large" -> 170; "round" -> 105; else -> 110 }
 private fun chipH(t: TableDto): Int = t.height ?: when (t.shape) { "large" -> 120; "round" -> 105; else -> 95 }
 
+/** Meno hosťa per stôl — prvý label otvoreného účtu mimo defaultu „Ucet N"
+ *  (web _tableCustomName parita). */
+private val DEFAULT_LABEL_RE = Regex("^ucet\\s*\\d+$", RegexOption.IGNORE_CASE)
+private fun computeCustomNames(ords: List<OrderDto>): Map<Int, String> =
+    ords.groupBy { it.tableId }.mapNotNull { (tid, list) ->
+        list.firstOrNull { it.label.isNotBlank() && !DEFAULT_LABEL_RE.matches(it.label.trim()) }
+            ?.let { tid to it.label }
+    }.toMap()
+
 @Composable
 fun FloorScreen(
     onOpenTable: (Int) -> Unit,
@@ -78,6 +89,10 @@ fun FloorScreen(
     var accountsPerTable by remember { mutableStateOf(
         Mem.orders?.groupBy { it.tableId }?.mapValues { it.value.size } ?: emptyMap()) }
     var oldestOrderAt by remember { mutableStateOf<Map<Int, Long>>(emptyMap()) }
+    // Vlastný názov účtu (meno hosťa) — web .chip-customer parita: prvý label
+    // otvoreného účtu ktorý NIE JE default „Ucet N".
+    var customNames by remember { mutableStateOf(
+        Mem.orders?.let { computeCustomNames(it) } ?: emptyMap()) }
     var revenueToday by remember { mutableStateOf(Mem.revenueToday) }
     var activeZone by remember { mutableStateOf<String?>(
         Mem.zones?.firstOrNull()?.slug ?: Mem.tables?.firstOrNull()?.zone) }
@@ -131,6 +146,7 @@ fun FloorScreen(
                     tables = tbls
                     totals = ords.groupBy { it.tableId }.mapValues { (_, v) -> v.sumOf { o -> o.grandTotal } }
                     accountsPerTable = ords.groupBy { it.tableId }.mapValues { it.value.size }
+                    customNames = computeCustomNames(ords)
                     oldestOrderAt = ords.groupBy { it.tableId }.mapValues { (_, v) ->
                         v.mapNotNull { o -> o.createdAt?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() } }
                             .minOrNull() ?: Long.MAX_VALUE
@@ -186,6 +202,22 @@ fun FloorScreen(
     }
 
     LaunchedEffect(toast) { toast?.let { snackbar.showSnackbar(it); toast = null } }
+
+    // QR platby na pozadí — toasty o výsledku + refresh podlažia po úhrade.
+    // (Pooling beží v QrPay registry nezávisle od navigácie.)
+    val qrEntries by QrPay.entries.collectAsState()
+    LaunchedEffect(Unit) {
+        QrPay.events.collect { ev ->
+            when (ev) {
+                is QrPay.Event.Paid -> { toast = ev.message; load(quiet = true, fullRefresh = true) }
+                is QrPay.Event.Expired -> {
+                    QrPay.cancel(ev.entry.transactionId)
+                    toast = "⏱ QR pre ${ev.entry.tableName} vypršal — nezaplatené."
+                }
+                is QrPay.Event.FinalizeProblem -> { toast = ev.message }
+            }
+        }
+    }
 
     // Zabezpeč otvorenú zmenu (web parita: auto-open s 0 ak žiadna nie je).
     // Pozn.: nevoláme GET /shifts/current — vracia literál `null` (bez otvorenej
@@ -297,6 +329,24 @@ fun FloorScreen(
         }
     ) { pad ->
         Box(Modifier.fillMaxSize().warmCanvas().padding(pad)) {
+            // Plávajúci indikátor bežiacich QR platieb — tap otvorí daný stôl
+            // (dialóg s QR sa dá re-otvoriť tam). Kreslí sa nad obsahom (zOrder).
+            val pendingQr = qrEntries.filter { !it.finalizing }
+            if (pendingQr.isNotEmpty() && !loading) {
+                val first = pendingQr.first()
+                Surface(
+                    onClick = { onOpenTable(first.tableId) },
+                    shape = RoundedCornerShape(Radius.full),
+                    color = Terra,
+                    modifier = Modifier.align(Alignment.BottomStart).padding(14.dp)
+                        .graphicsLayer { }.zIndex(2f)
+                        .paperShadow(Elev.float, RoundedCornerShape(Radius.full)),
+                ) {
+                    Text("⏳ QR čaká: ${first.tableName}" + if (pendingQr.size > 1) " +${pendingQr.size - 1}" else "",
+                        Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        style = MaterialTheme.typography.labelLarge, color = Cream)
+                }
+            }
             when {
                 loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                 error != null -> Column(Modifier.align(Alignment.Center).padding(24.dp),
@@ -370,6 +420,7 @@ fun FloorScreen(
                                     accounts = accountsPerTable[t.id] ?: 0,
                                     forgotten = isForgotten(t),
                                     hasDraft = draftIds.contains(t.id),
+                                    customName = customNames[t.id],
                                     onClick = {
                                         // Hmat pri otvorení stola — potvrdenie tapu v rušnej prevádzke
                                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -396,6 +447,7 @@ fun FloorScreen(
                                             forgotten = isForgotten(t),
                                             pulse = pulsingIds.contains(t.id),
                                             hasDraft = draftIds.contains(t.id),
+                                            customName = customNames[t.id],
                                             editMode = editMode,
                                             onClick = {
                                                 if (!editMode) {
@@ -473,6 +525,7 @@ private fun PhoneTableCard(
     accounts: Int,
     forgotten: Boolean,
     hasDraft: Boolean,
+    customName: String? = null,
     onClick: () -> Unit,
 ) {
     val sc = statusColor(t.status)
@@ -511,6 +564,12 @@ private fun PhoneTableCard(
                         style = MaterialTheme.typography.labelMedium)
                 }
                 Spacer(Modifier.height(3.dp))
+                // Meno hosťa (web .chip-customer) — nad sumou, nech je účet
+                // dohľadateľný na podlaží aj podľa mena.
+                if (!customName.isNullOrBlank()) {
+                    Text(customName, style = MaterialTheme.typography.labelSmall,
+                        color = Terra, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
                 when {
                     occupied && total > 0 -> {
                         AnimatedMoney(total, MaterialTheme.typography.titleMedium, Terra)
@@ -551,6 +610,7 @@ private fun TableChip(
     forgotten: Boolean,
     pulse: Boolean = true,        // pulz max 3 chipov naraz (animačný rozpočet)
     hasDraft: Boolean = false,
+    customName: String? = null,
     editMode: Boolean,
     onClick: () -> Unit,
     onMoved: (Int, Int) -> Unit,
@@ -637,6 +697,11 @@ private fun TableChip(
                     if (forgotten) { Spacer(Modifier.width(3.dp)); Text("⏰",
                         Modifier.semantics { contentDescription = "Čaká vyše 20 minút" },
                         style = MaterialTheme.typography.labelSmall) }
+                }
+                // Meno hosťa (web .chip-customer) — účet dohľadateľný podľa mena
+                if (!customName.isNullOrBlank()) {
+                    Text(customName, style = MaterialTheme.typography.labelSmall,
+                        color = Terra, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 when {
                     occupied && total > 0 -> {

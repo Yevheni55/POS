@@ -67,6 +67,15 @@ object AppPrefs {
         set(value) = sp.edit().putInt("send_undo_secs", value.coerceIn(0, 10)).apply()
 
     /**
+     * QR platba (Portos PayMe) — vypínateľná per zariadenie (web parita:
+     * pos_settings.sQrPaymentEnabled, default zapnutá). Kým banková
+     * notifikácia nefunguje spoľahlivo, prevádzka ju môže vypnúť.
+     */
+    var qrPaymentEnabled: Boolean
+        get() = sp.getBoolean("qr_payment_enabled", true)
+        set(value) = sp.edit().putBoolean("qr_payment_enabled", value).apply()
+
+    /**
      * Výkonový režim pre slabé tablety: "auto" (default — detekuje sa z RAM),
      * "on" (vždy vypnúť drahé efekty), "off" (vždy plný vizuál). Override sa
      * prejaví po reštarte appky (Perf.lowEnd sa číta raz v MainActivity).

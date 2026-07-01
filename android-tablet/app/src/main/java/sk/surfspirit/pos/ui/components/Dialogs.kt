@@ -2,6 +2,7 @@ package sk.surfspirit.pos.ui.components
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -21,6 +22,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -616,11 +618,13 @@ fun DiscountDialog(
     onApplyCustom: (Double) -> Unit,
     onRemove: () -> Unit,
     onDismiss: () -> Unit,
+    title: String = "Zľava",
+    removeLabel: String = "Odstrániť zľavu",
 ) {
     var custom by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
-        title = { Text("Zľava") },
+        title = { Text(title) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 discounts.forEach { d ->
@@ -651,9 +655,46 @@ fun DiscountDialog(
             }
         },
         confirmButton = {
-            if (hasDiscount) TextButton(onClick = onRemove, enabled = !busy) { Text("Odstrániť zľavu", color = Danger) }
+            if (hasDiscount) TextButton(onClick = onRemove, enabled = !busy) { Text(removeLabel, color = Danger) }
         },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("Zavrieť") } },
+    )
+}
+
+/* ============================ Pomenovanie účtu ============================ */
+
+/**
+ * Pomenovať účet menom hosťa (web renameCurrentOrder parita) — max 40 znakov,
+ * po zaplatení sa účet zatvorí a názov sa „vráti" sám (chip na podlaží).
+ */
+@Composable
+fun RenameOrderDialog(
+    initial: String,
+    busy: Boolean,
+    onSave: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var value by remember { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text("Pomenovať účet") },
+        text = {
+            OutlinedTextField(
+                value = value,
+                onValueChange = { value = it.take(40) },
+                placeholder = { Text("napr. Janko / pri okne") },
+                singleLine = true,
+                shape = RoundedCornerShape(Radius.md),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            Button(onClick = { onSave(value.trim()) }, enabled = !busy && value.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(containerColor = Terra, contentColor = Cream)) {
+                Text("Uložiť")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("Zrušiť") } },
     )
 }
 
@@ -1293,4 +1334,132 @@ fun classifyShiftSummaryFailure(e: Exception, onLogout: () -> Unit, onFailed: ()
         404, 401 -> onLogout()
         else -> onFailed()
     }
+}
+
+/* ============================ QR platba ============================ */
+
+/**
+ * Dialóg bežiacej QR platby (web parita _openQrModal). QR sa PRIMÁRNE tlačí
+ * na bonček (Portos render), obrazovkový QR je fallback pri nedostupnej
+ * tlačiarni. Čakanie beží na pozadí — „Na pozadí" dialóg zavrie, pooling
+ * pokračuje v QrPay registry a doklad sa po úhrade vystaví automaticky.
+ */
+@Composable
+fun QrPayDialog(
+    entry: sk.surfspirit.pos.core.QrPay.Entry,
+    onConfirmPaid: () -> Unit,
+    onBackground: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var reprintBusy by remember { mutableStateOf(false) }
+    var reprintMsg by remember { mutableStateOf<String?>(null) }
+
+    // Odpočet do expirácie — 1 s tick; null = bez odpočtu (chýba expiresAt).
+    val expiresMs = remember(entry.expiresAt) {
+        entry.expiresAt?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() }
+    }
+    var leftSec by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(expiresMs, entry.expired) {
+        if (expiresMs == null || entry.expired) { leftSec = null; return@LaunchedEffect }
+        while (true) {
+            val s = (expiresMs - System.currentTimeMillis()) / 1000
+            leftSec = s.coerceAtLeast(0)
+            if (s <= 0) break
+            kotlinx.coroutines.delay(1_000)
+        }
+    }
+
+    // Obrazovkový QR z data URL (base64 PNG) — dekóduj raz, mimo kompozície.
+    val qrBitmap = remember(entry.qrDataUrl) {
+        entry.qrDataUrl?.substringAfter("base64,", "")?.takeIf { it.isNotBlank() }?.let {
+            runCatching {
+                val bytes = android.util.Base64.decode(it, android.util.Base64.DEFAULT)
+                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            }.getOrNull()
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = { if (!entry.finalizing) onBackground() },
+        title = { Text("QR platba · ${entry.tableName}") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally) {
+                if (entry.printed) {
+                    Text("QR kód vytlačený na bonček", fontWeight = FontWeight.Bold)
+                    Text("Zákazník naskenuje QR z bončeka a zaplatí v mobilnej banke.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center)
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedButton(
+                        enabled = !reprintBusy && !entry.finalizing,
+                        onClick = {
+                            reprintBusy = true; reprintMsg = null
+                            scope.launch {
+                                val ok = sk.surfspirit.pos.core.QrPay.reprint(entry.transactionId)
+                                reprintMsg = if (ok) "QR kód znova vytlačený" else "Tlač QR zlyhala"
+                                reprintBusy = false
+                            }
+                        },
+                    ) { Text(if (reprintBusy) "Tlačím…" else "Vytlačiť znova") }
+                    reprintMsg?.let {
+                        Text(it, style = MaterialTheme.typography.labelMedium,
+                            color = if (it.startsWith("Tlač")) Danger else Sage)
+                    }
+                } else if (qrBitmap != null) {
+                    Image(
+                        bitmap = qrBitmap.asImageBitmap(),
+                        contentDescription = "QR kód platby",
+                        modifier = Modifier.size(220.dp)
+                            .background(Color.White, RoundedCornerShape(Radius.md))
+                            .padding(8.dp),
+                    )
+                    Text("Tlačiareň nedostupná — ukáž QR zákazníkovi na obrazovke.",
+                        style = MaterialTheme.typography.labelMedium, color = Amber,
+                        textAlign = TextAlign.Center)
+                }
+                Spacer(Modifier.height(10.dp))
+                Text(money(entry.amount), style = MaterialTheme.typography.displaySmall,
+                    fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(4.dp))
+                val status = when {
+                    entry.finalizing -> "✓ Zaplatené — vystavujem doklad…"
+                    entry.expired -> "⏱ QR vypršal. Ak zákazník zaplatil, klikni Zaplatené; inak Zrušiť."
+                    else -> buildString {
+                        append("Čaká na úhradu…")
+                        leftSec?.let { append(" %d:%02d".format(it / 60, it % 60)) }
+                    }
+                }
+                Text(status, style = MaterialTheme.typography.bodyMedium,
+                    color = when {
+                        entry.finalizing -> Sage
+                        entry.expired -> Amber
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    textAlign = TextAlign.Center)
+                if (!entry.expired && !entry.finalizing) {
+                    Spacer(Modifier.height(4.dp))
+                    Text("Po úhrade klikni Zaplatené. Alebo Na pozadí — doklad sa vystaví automaticky po úhrade.",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center)
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onConfirmPaid, enabled = !entry.finalizing,
+                colors = ButtonDefaults.buttonColors(containerColor = Sage, contentColor = Cream)) {
+                Text("Zaplatené")
+            }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = onCancel, enabled = !entry.finalizing) { Text("Zrušiť", color = Danger) }
+                Spacer(Modifier.width(4.dp))
+                TextButton(onClick = onBackground, enabled = !entry.finalizing) { Text("Na pozadí") }
+            }
+        },
+    )
 }

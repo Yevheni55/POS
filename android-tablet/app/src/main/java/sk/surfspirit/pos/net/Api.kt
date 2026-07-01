@@ -14,6 +14,7 @@ import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.Header
+import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.PUT
 import retrofit2.http.Path
@@ -97,6 +98,13 @@ import java.util.concurrent.TimeUnit
     val note: String = "",
     val sent: Boolean = false,
     val desc: String = "",
+    // Per-item zľava (web parita 2026-06-16): server ukladá PRAVIDLO
+    // (type+value), euro sumu ráta live — discountAmount príde spočítaný
+    // z order-queries (lineDiscountAmount), discountName z katalógu zliav.
+    val discountType: String? = null,     // percent | fixed | null
+    val discountValue: Double? = null,
+    val discountAmount: Double? = null,   // realizovaná € zľava riadku
+    val discountName: String? = null,
 )
 
 @Immutable
@@ -116,8 +124,10 @@ import java.util.concurrent.TimeUnit
     /** Subtotal počítaný z položiek (nezávislý od server total poľa). */
     val subtotal: Double get() = items.sumOf { it.price * it.qty }
     val discount: Double get() = discountAmount ?: 0.0
-    /** Celková suma po zľave. */
-    val grandTotal: Double get() = (subtotal - discount).coerceAtLeast(0.0)
+    /** Súčet per-item zliav (server ich ráta live cez lineDiscountAmount). */
+    val itemDiscountTotal: Double get() = items.sumOf { it.discountAmount ?: 0.0 }
+    /** Celková suma po zľave (účtová + per-item — zhoda so server totalAfterDiscount). */
+    val grandTotal: Double get() = (subtotal - discount - itemDiscountTotal).coerceAtLeast(0.0)
 }
 
 @Serializable data class DiscountDto(
@@ -276,6 +286,45 @@ import java.util.concurrent.TimeUnit
     val orderId: Int? = null,
 )
 
+/* ---- Pomenovanie účtu (orders.label) ---- */
+@Serializable data class RenameOrderReq(val label: String)
+@Serializable data class RenameOrderResp(val order: OrderDto? = null)
+
+/* ---- Odpis účtu mimo fiškál (admin only) ---- */
+@Serializable data class OdpisResp(val order: OrderDto? = null, val odpisAmount: Double = 0.0)
+
+/* ---- Per-item zľava ---- */
+@Serializable data class ItemDiscountReq(
+    val discountId: Int? = null,
+    val customPercent: Double? = null,
+    val version: Int? = null,
+)
+
+/* ---- QR platba (Portos PayMe okamžitý prevod) ---- */
+@Serializable data class QrCreateReq(val orderId: Int)
+@Serializable data class QrCreateResp(
+    val transactionId: String = "",
+    val orderId: Int = 0,
+    val amount: Double = 0.0,
+    val currencyCode: String = "EUR",
+    val status: String = "pending",
+    val expiresAt: String? = null,
+    val createdAt: String? = null,
+    val payUrl: String? = null,
+    val printed: Boolean = false,        // Portos vytlačil QR na bonček
+    val qrDataUrl: String? = null,       // data:image/png fallback na obrazovku
+)
+@Serializable data class QrStatusResp(
+    val transactionId: String = "",
+    val status: String = "",
+    val paid: Boolean = false,           // paid | overpaid
+    val final: Boolean = false,          // paid | overpaid | expired
+    val paidAmount: Double = 0.0,
+    val remainingAmount: Double = 0.0,
+    val overpaidAmount: Double = 0.0,
+    val expiresAt: String? = null,
+)
+
 /* ---- TTLock kód zámku ---- */
 @Serializable data class TtlockResp(val passcode: String = "", val endDate: String = "")
 @Serializable data class LockCodePrintReq(
@@ -395,6 +444,28 @@ interface ApiService {
     @POST("api/orders/{id}/close-as-staff-meal")
     suspend fun closeStaffMeal(@Path("id") orderId: Int, @Body body: StaffMealReq): StaffMealResp
 
+    // Pomenovanie účtu menom hosťa (max 40 znakov, len open) — web parita.
+    @PATCH("api/orders/{id}/label")
+    suspend fun renameOrder(@Path("id") orderId: Int, @Body body: RenameOrderReq): RenameOrderResp
+
+    // Odpis účtu mimo fiškál — server vyžaduje rolu admin (requireRole).
+    @POST("api/orders/{id}/close-as-odpis")
+    suspend fun closeAsOdpis(@Path("id") orderId: Int, @Body body: CloseReq): OdpisResp
+
+    // Per-item zľava — server vyžaduje manazer/admin, na Androide cez
+    // elevated token (rovnaký vzor ako applyDiscount na celý účet).
+    @retrofit2.http.Headers("X-Elevated: 1")
+    @POST("api/orders/{orderId}/items/{itemId}/discount")
+    suspend fun applyItemDiscount(
+        @Path("orderId") orderId: Int,
+        @Path("itemId") itemId: Long,
+        @Body body: ItemDiscountReq,
+    ): JsonElement
+
+    @retrofit2.http.Headers("X-Elevated: 1")
+    @DELETE("api/orders/{orderId}/items/{itemId}/discount")
+    suspend fun removeItemDiscount(@Path("orderId") orderId: Int, @Path("itemId") itemId: Long): JsonElement
+
     @DELETE("api/orders/{id}")
     suspend fun deleteOrder(@Path("id") orderId: Int): JsonElement
 
@@ -407,6 +478,17 @@ interface ApiService {
         @Body body: PayReq,
         @Header("X-Read-Timeout-Sec") readTimeoutSec: String = "60",
     ): PayResp
+
+    // QR platba — vytvorenie (server odvodí sumu z objednávky), stav (pooling),
+    // reprint QR bončeka. Finalizácia po úhrade ide štandardným pay(method='prevod').
+    @POST("api/payments/qr")
+    suspend fun qrCreate(@Body body: QrCreateReq): QrCreateResp
+
+    @GET("api/payments/qr/{tx}")
+    suspend fun qrStatus(@Path("tx") transactionId: String): QrStatusResp
+
+    @POST("api/payments/qr/{tx}/render")
+    suspend fun qrRender(@Path("tx") transactionId: String, @Body body: Empty = Empty()): retrofit2.Response<Unit>
 
     // Zmeny — pozn.: GET /shifts/current zámerne nevoláme (vracia top-level
     // `null` čo kotlinx-serialization nezvládne); auto-open rieši POST /open.
