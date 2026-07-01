@@ -22,6 +22,8 @@ object Mem {
     @Volatile var discounts: List<DiscountDto>? = null
     @Volatile var orders: List<OrderDto>? = null      // všetky otvorené (floor)
     @Volatile var revenueToday: Double? = null
+    /** Názov firmy z company profilu — hlavička kasy (web pos_settings.sName). */
+    @Volatile var companyName: String? = null
 
     const val MENU_TTL_MS = 5 * 60 * 1000L
 
@@ -31,5 +33,6 @@ object Mem {
     fun clear() {
         categories = null; categoriesAt = 0
         tables = null; zones = null; discounts = null; orders = null; revenueToday = null
+        companyName = null
     }
 }

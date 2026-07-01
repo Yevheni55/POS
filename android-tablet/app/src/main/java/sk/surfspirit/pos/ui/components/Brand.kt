@@ -49,7 +49,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import sk.surfspirit.pos.core.money
+import sk.surfspirit.pos.net.Api
 import sk.surfspirit.pos.ui.theme.*
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -184,6 +186,23 @@ fun PosHeader(
 ) {
     val now by rememberNow()
     val compact = isPhone()
+    // Názov firmy zo server company profilu (web pos_settings.sName parita) —
+    // fetch raz za proces, cache v prefs pre offline boot; fallback na default.
+    var companyName by remember { mutableStateOf(
+        sk.surfspirit.pos.core.Mem.companyName
+            ?: sk.surfspirit.pos.core.Store.cachedCompanyName()
+            ?: "SL Spirit s. r. o.") }
+    LaunchedEffect(Unit) {
+        if (sk.surfspirit.pos.core.Mem.companyName == null) {
+            runCatching {
+                withContext(kotlinx.coroutines.Dispatchers.IO) { Api.service.companyProfile() }
+            }.getOrNull()?.businessName?.takeIf { it.isNotBlank() }?.let {
+                sk.surfspirit.pos.core.Mem.companyName = it
+                sk.surfspirit.pos.core.Store.cacheCompanyName(it)
+            }
+        }
+        sk.surfspirit.pos.core.Mem.companyName?.let { companyName = it }
+    }
     // Paper-drop tieň namiesto tonal elevation — plán/menu „odpadne" pod header
     Surface(color = CreamElev, modifier = Modifier.paperShadow(Elev.float, RectangleShape)) {
         Row(
@@ -194,7 +213,7 @@ fun PosHeader(
             if (!compact) {
                 Spacer(Modifier.width(12.dp))
                 Column {
-                    Text("SL Spirit s. r. o.",
+                    Text(companyName,
                         style = MaterialTheme.typography.titleMedium.copy(fontFamily = Serif))
                     Text("Pokladničný systém", style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)

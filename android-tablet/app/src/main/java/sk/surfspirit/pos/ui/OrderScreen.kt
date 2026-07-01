@@ -147,6 +147,7 @@ fun OrderScreen(
     var noteServerItem by remember { mutableStateOf<OrderItemDto?>(null) }
     var qtyPopupFor by remember { mutableStateOf<MenuItemDto?>(null) }
     var confirmRemove by remember { mutableStateOf<OrderItemDto?>(null) }
+    var confirmCartRemoveUid by remember { mutableStateOf<Long?>(null) }
     var underpayConfirm by remember { mutableStateOf<Pair<String, Double>?>(null) }  // method to given
     var showAccountPicker by remember { mutableStateOf(false) }
     // Pomenovanie účtu (meno hosťa) — web renameCurrentOrder parita
@@ -351,7 +352,9 @@ fun OrderScreen(
                     showCloseShift || closeSummaryFailed || showMoveTablePicker || saucePending != null ||
                     qtyPopupFor != null || confirmRemove != null || underpayConfirm != null ||
                     paragonOffer != null || stornoPrompts.isNotEmpty() || noteCartUid != null ||
-                    noteServerItem != null || gateLabel != null || moveQtyPickFor != null
+                    noteServerItem != null || gateLabel != null || moveQtyPickFor != null ||
+                    confirmCartRemoveUid != null || showRename || itemDiscountFor != null ||
+                    qrDialogTx != null
                 if (!busy && !moveMode && !dialogOpen) reloadOrdersQuiet()
             }
         }
@@ -1524,7 +1527,17 @@ fun OrderScreen(
                         }
                     }
                     Spacer(Modifier.width(8.dp))
-                    LazyVerticalGrid(
+                    if (items.isEmpty() && search.isNotBlank()) {
+                        // Prázdny výsledok hľadania (web products-empty-state parita)
+                        Column(Modifier.weight(1f).padding(top = 90.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Žiadne výsledky", style = MaterialTheme.typography.titleMedium)
+                            Spacer(Modifier.height(4.dp))
+                            Text("Skús iný názov — hľadá sa aj v popise produktu.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    } else LazyVerticalGrid(
                         columns = GridCells.Adaptive(minSize = 118.dp),
                         horizontalArrangement = Arrangement.spacedBy(7.dp),
                         verticalArrangement = Arrangement.spacedBy(7.dp),
@@ -1680,7 +1693,10 @@ fun OrderScreen(
                                 onMinus = { cartDelta(line.uid, -1) },
                                 onPlus = { cartDelta(line.uid, +1) },
                                 onNote = { noteCartUid = line.uid },
-                                onRemove = { cartDelta(line.uid, -line.qty) })
+                                // qty>1 = confirm (web parita) — jeden mistap nesmie
+                                // zmazať 5× pivo; qty 1 letí bez otázky.
+                                onRemove = { if (line.qty > 1) confirmCartRemoveUid = line.uid
+                                             else cartDelta(line.uid, -line.qty) })
                         }
                         if (!hasItems) Text("Prázdna objednávka — vyber položky vľavo.",
                             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -2057,6 +2073,15 @@ fun OrderScreen(
             confirmLabel = "Odobrať", danger = true, busy = busy,
             onConfirm = { confirmRemove = null; removeServerItem(it2) },
             onDismiss = { confirmRemove = null })
+    }
+    confirmCartRemoveUid?.let { uid ->
+        val line = newItems.firstOrNull { it.uid == uid }
+        if (line == null) { confirmCartRemoveUid = null }
+        else ConfirmDialog("Odobrať položku?",
+            "${line.qty}× ${line.name} (${money(line.price * line.qty)})",
+            confirmLabel = "Odobrať", danger = true, busy = busy,
+            onConfirm = { confirmCartRemoveUid = null; cartDelta(uid, -line.qty) },
+            onDismiss = { confirmCartRemoveUid = null })
     }
     if (showMerge) {
         val others = accounts.filter { it.id != current?.id }

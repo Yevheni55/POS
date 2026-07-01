@@ -98,6 +98,10 @@ object Store {
     fun cacheTop(data: List<MenuItemDto>) = put(K_TOP, json.encodeToString(ListSerializer(MenuItemDto.serializer()), data))
     fun cachedTop(): List<MenuItemDto>? = getList(K_TOP, MenuItemDto.serializer())
 
+    /** Názov firmy pre hlavičku (company profile) — offline boot bez placeholdra. */
+    fun cacheCompanyName(name: String) = put("cache_company_name", name)
+    fun cachedCompanyName(): String? = AppPrefs.getRaw("cache_company_name")
+
     /* ---------- draft košíky per stôl ---------- */
 
     private val draftsSer = MapSerializer(String.serializer(), ListSerializer(CartLine.serializer()))

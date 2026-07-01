@@ -325,6 +325,12 @@ import java.util.concurrent.TimeUnit
     val expiresAt: String? = null,
 )
 
+/* ---- Company profile (identita firmy — hlavička kasy) ---- */
+@Serializable data class CompanyProfileDto(
+    val businessName: String = "",
+    val branchName: String = "",
+)
+
 /* ---- TTLock kód zámku ---- */
 @Serializable data class TtlockResp(val passcode: String = "", val endDate: String = "")
 @Serializable data class LockCodePrintReq(
@@ -532,6 +538,10 @@ interface ApiService {
     // Storno kôš — dôvod storna; sklad rieši admin zo Storno page.
     @POST("api/storno-basket")
     suspend fun stornoBasket(@Body body: StornoBasketReq): JsonElement
+
+    // Company profile — názov firmy pre hlavičku (GET je pre každého prihláseného)
+    @GET("api/company-profile")
+    suspend fun companyProfile(): CompanyProfileDto
 
     // TTLock — vygeneruj kód zámku (server rieši TTLock API)
     @POST("api/ttlock/passcode")
