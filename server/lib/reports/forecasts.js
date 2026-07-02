@@ -73,3 +73,60 @@ export async function forecastsHandler(req, res) {
 
   res.json({ forecasts: list, summary, summaryByMethod });
 }
+
+// GET /api/reports/forecasts/hourly-today
+// Predpoveď DNEŠNEJ tržby rozloženej po hodinách: prešlé hodiny = skutočnosť
+// (payments), budúce hodiny = zvyšok denného odhadu (v4-loglin) rozdelený
+// podľa historického hodinového profilu (podiel tržby v danej hodine,
+// história BEZ dneška). Aktuálna hodina = skutočnosť doteraz + dopočet.
+export async function forecastHourlyTodayHandler(req, res) {
+  const r = await db.execute(sql`
+    WITH prof AS (
+      SELECT extract(hour FROM (created_at AT TIME ZONE ${TZ}))::int AS h,
+             sum(amount::numeric)::float AS rev
+      FROM payments
+      WHERE (created_at AT TIME ZONE ${TZ})::date < (now() AT TIME ZONE ${TZ})::date
+      GROUP BY 1
+    ), today AS (
+      SELECT extract(hour FROM (created_at AT TIME ZONE ${TZ}))::int AS h,
+             sum(amount::numeric)::float AS rev
+      FROM payments
+      WHERE (created_at AT TIME ZONE ${TZ})::date = (now() AT TIME ZONE ${TZ})::date
+      GROUP BY 1
+    )
+    SELECT gs.h,
+           COALESCE(prof.rev, 0)  AS prof_rev,
+           COALESCE(today.rev, 0) AS today_rev,
+           extract(hour FROM (now() AT TIME ZONE ${TZ}))::int AS cur_hour,
+           (SELECT estimate_eur::float FROM revenue_forecasts
+             WHERE method = 'v4-loglin'
+               AND target_date = (now() AT TIME ZONE ${TZ})::date
+             LIMIT 1) AS estimate
+    FROM generate_series(0, 23) gs(h)
+    LEFT JOIN prof  ON prof.h  = gs.h
+    LEFT JOIN today ON today.h = gs.h
+    ORDER BY gs.h
+  `);
+  const rows = r.rows.map((x) => ({
+    h: Number(x.h), prof: Number(x.prof_rev) || 0, act: Number(x.today_rev) || 0,
+  }));
+  const curHour = Number(r.rows[0]?.cur_hour) || 0;
+  const estimate = r.rows[0]?.estimate == null ? null : Number(r.rows[0].estimate);
+  const banked = rows.reduce((s, x) => s + (x.h <= curHour ? x.act : 0), 0);
+
+  // Budúce hodiny: zvyšok odhadu rozdeľ podľa profilu budúcich hodín.
+  const futureProf = rows.reduce((s, x) => s + (x.h > curHour ? x.prof : 0), 0);
+  const remaining = Math.max(0, (estimate ?? banked) - banked);
+  const OPEN_LO = 9, OPEN_HI = 23;
+  const hours = [];
+  for (const x of rows) {
+    if (x.h < OPEN_LO || x.h > OPEN_HI) continue;
+    if (x.h < curHour) hours.push({ hour: x.h, actual: Math.round(x.act), predicted: null });
+    else if (x.h === curHour) hours.push({ hour: x.h, actual: Math.round(x.act), predicted: null, current: true });
+    else hours.push({
+      hour: x.h, actual: null,
+      predicted: futureProf > 0 ? Math.round(remaining * x.prof / futureProf) : 0,
+    });
+  }
+  res.json({ estimate, banked: Math.round(banked), curHour, hours });
+}

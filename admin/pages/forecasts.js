@@ -47,20 +47,33 @@ function todayIso() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Bratislava' }).format(new Date());
 }
 
+// Zobrazované rozpätie — max ±100 € okolo odhadu (požiadavka prevádzky:
+// tolerancia nanajvýš 200 €). Štatisticky poctivé 80 % pásmo je širšie
+// a ostáva v DB pre kalibráciu; tu sa len oreže displej.
+const MAX_BAND = 200;
+function clampBand(est, low, high) {
+  const half = MAX_BAND / 2;
+  return {
+    low: Math.max(0, Math.max(Number(low) || 0, est - half)),
+    high: Math.min(Number(high) || est + half, est + half),
+  };
+}
+
 export async function init(container) {
   _c = container;
   container.innerHTML = '<div class="loading-hint" style="padding:24px">Načítavam predpoveď…</div>';
-  let data;
+  let data, hourly = null;
   try {
     data = await api.get('/reports/forecasts');
   } catch (e) {
     container.innerHTML = '<div class="empty-hint" style="padding:24px;color:var(--color-danger)">Chyba načítania: ' + esc(e && e.message || e) + '</div>';
     return;
   }
-  render(data);
+  try { hourly = await api.get('/reports/forecasts/hourly-today'); } catch (e) { /* bez hodinovky */ }
+  render(data, hourly);
 }
 
-function render(data) {
+function render(data, hourly) {
   const all = (data && data.forecasts) || [];
   const today = todayIso();
   // Jedna cifra na deň = hlavný model; pri duplicite dňa ber posledný riadok.
@@ -81,11 +94,12 @@ function render(data) {
   html += '<div class="panel" style="margin-bottom:16px;padding:20px 24px">';
   if (todayRow) {
     const w = wx(todayRow.code);
+    const band = clampBand(todayRow.estimate, todayRow.low, todayRow.high);
     html += '<div class="stat-label">Dnešná tržba — odhad</div>';
     html += '<div style="font-family:var(--font-display);font-size:44px;font-weight:800;line-height:1.15;color:var(--color-accent)">'
           + fmtEur(todayRow.estimate) + '</div>';
     html += '<div class="text-muted" style="font-size:13px;margin-top:4px">'
-          + 'rozpätie ' + fmtEur(todayRow.low) + ' – ' + fmtEur(todayRow.high)
+          + 'rozpätie ' + fmtEur(band.low) + ' – ' + fmtEur(band.high)
           + ' · ' + w.e + ' ' + esc(w.l)
           + (todayRow.temp != null ? ' ' + Math.round(todayRow.temp) + '°C' : '')
           + (todayRow.actual != null ? ' · zatiaľ natržené ' + fmtEur(todayRow.actual) : '')
@@ -95,6 +109,35 @@ function render(data) {
           + '<div class="text-muted" style="padding:8px 0">Dnešný odhad ešte nie je uložený (počká na najbližší hodinový beh).</div>';
   }
   html += '</div>';
+
+  // ── Predpoveď tržieb podľa hodín (dnes) ──
+  if (hourly && hourly.hours && hourly.hours.length) {
+    const hh = hourly.hours;
+    const maxV = Math.max(1, ...hh.map((x) => Math.max(x.actual || 0, x.predicted || 0)));
+    html += '<div class="panel" style="margin-bottom:16px;padding:16px 20px">';
+    html += '<div class="stat-label" style="margin-bottom:10px">Predpoveď tržieb podľa hodín — dnes'
+          + (hourly.banked ? ' <span class="text-muted" style="font-weight:400">(zatiaľ ' + fmtEur(hourly.banked) + ')</span>' : '')
+          + '</div>';
+    hh.forEach(function (x) {
+      const isAct = x.actual != null;
+      const val = isAct ? x.actual : x.predicted;
+      const pct = Math.max(2, Math.round(100 * (val || 0) / maxV));
+      const bar = isAct
+        ? 'background:var(--color-accent)'
+        : 'background:var(--color-accent);opacity:.35';
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:2px 0">'
+        + '<span class="text-muted" style="width:44px;font-size:12px;text-align:right">'
+        + String(x.hour).padStart(2, '0') + ':00' + (x.current ? ' ▸' : '') + '</span>'
+        + '<div style="flex:1;height:16px;border-radius:4px;background:var(--color-bg-surface,rgba(128,128,128,.08));overflow:hidden">'
+        + '<div style="height:100%;width:' + pct + '%;border-radius:4px;' + bar + '"></div></div>'
+        + '<span style="width:64px;font-size:12px;text-align:right;'
+        + (isAct ? 'font-weight:700' : 'color:var(--color-text-sec,inherit)') + '">'
+        + (isAct ? fmtEur(val) : '~' + fmtEur(val)) + '</span>'
+        + '</div>';
+    });
+    html += '<div class="text-muted" style="font-size:11px;margin-top:6px">Plné = skutočnosť · bledé ~ = odhad zvyšku dňa podľa denného odhadu a historického hodinového profilu.</div>';
+    html += '</div>';
+  }
 
   // ── Najbližšie dni ──
   if (future.length) {
@@ -112,8 +155,9 @@ function render(data) {
       html += '<td class="data-td">' + w.e + ' ' + esc(w.l)
             + (r.temp != null ? ' · ' + Math.round(r.temp) + '°' : '')
             + (r.precip > 0.5 ? ' 💧' : '') + '</td>';
+      const b = clampBand(r.estimate, r.low, r.high);
       html += '<td class="data-td"><strong style="font-size:16px">' + fmtEur(r.estimate) + '</strong>'
-            + '<span class="text-muted" style="font-size:12px"> (' + fmtEur(r.low) + '–' + fmtEur(r.high) + ')</span></td>';
+            + '<span class="text-muted" style="font-size:12px"> (' + fmtEur(b.low) + '–' + fmtEur(b.high) + ')</span></td>';
       html += '</tr>';
     });
     html += '</tbody></table></div></div>';
