@@ -1,12 +1,16 @@
-// admin/pages/forecasts.js — Moja predpoveď vs realita.
-// Číta GET /api/reports/forecasts (uložené odhady + živá skutočná denná tržba)
-// a zobrazí súhrn presnosti + tabuľku. Vyhodnocujú sa len uzavreté dni.
-// Štýly = zdieľané admin triedy (.stat-grid/.stat-card/.panel/.data-table) →
-// automaticky správne aj v dark theme.
+// admin/pages/forecasts.js — Predpoveď tržieb (JEDNA cifra na deň).
+// Číta GET /api/reports/forecasts, ale zobrazuje LEN hlavný model v4-loglin:
+// hero „Dnes" + najbližšie dni + krátka história. Ostatné modely (v1/v2/v3,
+// *-am varianty) sa ďalej LOGUJÚ na pozadí pre vyhodnocovanie — len sa tu
+// neukazujú (požiadavka: jedna cifra, žiadne porovnávanie modelov).
+// Presnosť sa ráta z v4-loglin-am (ranný zmrazený odhad = poctivý forward).
+// Štýly = zdieľané admin triedy → automaticky správne aj v dark theme.
 
 let _c = null;
 
-function $(s) { return _c.querySelector(s); }
+const PRIMARY = 'v4-loglin';        // živý odhad (intraday nowcast + budúce dni)
+const HONEST = 'v4-loglin-am';      // ranný freeze — z neho je „presnosť"
+
 function esc(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -18,7 +22,8 @@ function fmtDate(iso) {
   const p = String(iso).split('-');
   return p.length === 3 ? (p[2] + '.' + p[1] + '.') : String(iso);
 }
-const DOW = ['', 'Po', 'Ut', 'St', 'Št', 'Pi', 'So', 'Ne'];
+const DOW = ['', 'Pondelok', 'Utorok', 'Streda', 'Štvrtok', 'Piatok', 'Sobota', 'Nedeľa'];
+const DOW_S = ['', 'Po', 'Ut', 'St', 'Št', 'Pi', 'So', 'Ne'];
 
 function wx(code) {
   const c = Number(code);
@@ -38,11 +43,13 @@ function errColor(p) {
   const a = Math.abs(Number(p) || 0);
   return a < 15 ? 'var(--color-success)' : a < 30 ? 'var(--color-warning)' : 'var(--color-danger)';
 }
-function methodLabel(m) { return String(m || '').split('-')[0] || '?'; }
+function todayIso() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Bratislava' }).format(new Date());
+}
 
 export async function init(container) {
   _c = container;
-  container.innerHTML = '<div class="loading-hint" style="padding:24px">Načítavam predpovede…</div>';
+  container.innerHTML = '<div class="loading-hint" style="padding:24px">Načítavam predpoveď…</div>';
   let data;
   try {
     data = await api.get('/reports/forecasts');
@@ -53,82 +60,97 @@ export async function init(container) {
   render(data);
 }
 
-function card(label, value, sub) {
-  return '<div class="stat-card"><div class="stat-info">'
-    + '<div class="stat-label">' + esc(label) + '</div>'
-    + '<div class="stat-value">' + value + '</div>'
-    + (sub ? '<div class="text-muted" style="font-size:12px">' + esc(sub) + '</div>' : '')
-    + '</div></div>';
-}
-
 function render(data) {
-  const f = (data && data.forecasts) || [];
-  const s = (data && data.summary) || {};
+  const all = (data && data.forecasts) || [];
+  const today = todayIso();
+  // Jedna cifra na deň = hlavný model; pri duplicite dňa ber posledný riadok.
+  const byDate = {};
+  all.filter((r) => r.method === PRIMARY).forEach((r) => { byDate[r.date] = r; });
+  const days = Object.values(byDate).sort((a, b) => a.date < b.date ? -1 : 1);
+  const todayRow = byDate[today] || null;
+  const future = days.filter((r) => r.date > today);
+  const past = days.filter((r) => r.date < today).slice(-7).reverse();
+  // Poctivá presnosť: ranné zmrazené odhady vs realita
+  const am = all.filter((r) => r.method === HONEST && r.evaluable);
+  const avgAbs = am.length ? Math.round(am.reduce((s, x) => s + Math.abs(x.errorPct), 0) / am.length) : null;
+  const inRange = am.length ? am.filter((x) => x.inRange).length : 0;
 
   let html = '';
-  html += '<p class="text-muted" style="margin:0 0 16px">Moje uložené odhady dennej tržby (model podľa počasia) oproti skutočnosti. '
-        + 'Odchýlka a kalibrácia sa rátajú len pre <strong>uzavreté dni</strong>; aktuálny a budúce dni sú „prebieha".</p>';
 
-  html += '<div class="stat-grid" style="margin-bottom:20px">';
-  html += card('Vyhodnotené dni', (s.evaluated || 0) + ' / ' + (s.total || 0));
-  html += card('Ø absolútna odchýlka', s.avgAbsErrorPct == null ? '—' : (s.avgAbsErrorPct + ' %'));
-  html += card('Systematický bias',
-    s.biasPct == null ? '—' : '<span style="color:' + errColor(s.biasPct) + '">' + (s.biasPct > 0 ? '+' : '') + s.biasPct + ' %</span>',
-    s.biasPct == null ? '' : (s.biasPct > 0 ? 'podceňujem tržby' : 'preceňujem tržby'));
-  html += card('Trafené do rozpätia', s.evaluated ? ((s.inRange || 0) + ' / ' + s.evaluated) : '—');
+  // ── Hero: dnešná tržba (jedna cifra) ──
+  html += '<div class="panel" style="margin-bottom:16px;padding:20px 24px">';
+  if (todayRow) {
+    const w = wx(todayRow.code);
+    html += '<div class="stat-label">Dnešná tržba — odhad</div>';
+    html += '<div style="font-family:var(--font-display);font-size:44px;font-weight:800;line-height:1.15;color:var(--color-accent)">'
+          + fmtEur(todayRow.estimate) + '</div>';
+    html += '<div class="text-muted" style="font-size:13px;margin-top:4px">'
+          + 'rozpätie ' + fmtEur(todayRow.low) + ' – ' + fmtEur(todayRow.high)
+          + ' · ' + w.e + ' ' + esc(w.l)
+          + (todayRow.temp != null ? ' ' + Math.round(todayRow.temp) + '°C' : '')
+          + (todayRow.actual != null ? ' · zatiaľ natržené ' + fmtEur(todayRow.actual) : '')
+          + '</div>';
+  } else {
+    html += '<div class="stat-label">Dnešná tržba — odhad</div>'
+          + '<div class="text-muted" style="padding:8px 0">Dnešný odhad ešte nie je uložený (počká na najbližší hodinový beh).</div>';
+  }
   html += '</div>';
 
-  const byMethod = (data && data.summaryByMethod) || [];
-  if (byMethod.length > 1) {
-    html += '<div class="panel" style="margin-bottom:16px;padding:12px 16px"><div class="stat-label" style="margin-bottom:8px">Presnosť podľa modelu</div>';
-    byMethod.forEach(function (m) {
-      html += '<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:13px;padding:3px 0">'
-        + '<strong style="min-width:130px">' + esc(m.method) + '</strong>'
-        + '<span class="text-muted">Ø odchýlka: <strong style="color:' + (m.avgAbsErrorPct == null ? 'inherit' : errColor(m.avgAbsErrorPct)) + '">' + (m.avgAbsErrorPct == null ? '—' : m.avgAbsErrorPct + ' %') + '</strong></span>'
-        + '<span class="text-muted">Bias: ' + (m.biasPct == null ? '—' : (m.biasPct > 0 ? '+' : '') + m.biasPct + ' %') + '</span>'
-        + '<span class="text-muted">V rozpätí: ' + (m.evaluated ? (m.inRange + '/' + m.evaluated) : '—') + '</span>'
-        + '</div>';
+  // ── Najbližšie dni ──
+  if (future.length) {
+    html += '<div class="panel" style="margin-bottom:16px"><div class="stat-label" style="padding:12px 16px 0">Najbližšie dni</div>';
+    html += '<div class="table-scroll-wrap"><table class="data-table"><thead><tr>';
+    ['Dátum', 'Deň', 'Počasie', 'Odhad tržby'].forEach(function (h) {
+      html += '<th class="data-th">' + h + '</th>';
     });
-    html += '</div>';
+    html += '</tr></thead><tbody>';
+    future.forEach(function (r) {
+      const w = wx(r.code);
+      html += '<tr class="data-row">';
+      html += '<td class="data-td"><strong>' + fmtDate(r.date) + '</strong></td>';
+      html += '<td class="data-td">' + (DOW[r.weekday] || '') + '</td>';
+      html += '<td class="data-td">' + w.e + ' ' + esc(w.l)
+            + (r.temp != null ? ' · ' + Math.round(r.temp) + '°' : '')
+            + (r.precip > 0.5 ? ' 💧' : '') + '</td>';
+      html += '<td class="data-td"><strong style="font-size:16px">' + fmtEur(r.estimate) + '</strong>'
+            + '<span class="text-muted" style="font-size:12px"> (' + fmtEur(r.low) + '–' + fmtEur(r.high) + ')</span></td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table></div></div>';
   }
 
-  html += '<div class="panel"><div class="table-scroll-wrap"><table class="data-table"><thead><tr>';
-  ['Dátum', 'Deň', 'Model', 'Počasie', 'Predpoveď', 'Realita', 'Odchýlka', 'Stav'].forEach(function (h) {
-    html += '<th class="data-th">' + h + '</th>';
-  });
-  html += '</tr></thead><tbody>';
+  // ── Ako presný som bol (krátko, bez modelov) ──
+  html += '<div class="panel" style="margin-bottom:16px;padding:12px 16px">';
+  html += '<div class="stat-label" style="margin-bottom:6px">Presnosť ranných odhadov</div>';
+  html += '<div class="text-muted" style="font-size:13px">'
+        + (avgAbs == null
+            ? 'Zatiaľ málo vyhodnotených dní.'
+            : 'Priemerná odchýlka <strong style="color:' + errColor(avgAbs) + '">' + avgAbs + ' %</strong>'
+              + ' · realita v rozpätí <strong>' + inRange + ' / ' + am.length + '</strong> dní')
+        + '</div></div>';
 
-  if (!f.length) {
-    html += '<tr><td class="data-td" colspan="8"><span class="text-muted">Zatiaľ žiadne uložené predpovede.</span></td></tr>';
+  // ── Posledné dni: odhad vs realita ──
+  if (past.length) {
+    html += '<div class="panel"><div class="stat-label" style="padding:12px 16px 0">Posledných ' + past.length + ' dní</div>';
+    html += '<div class="table-scroll-wrap"><table class="data-table"><thead><tr>';
+    ['Dátum', 'Deň', 'Odhad', 'Realita', 'Odchýlka'].forEach(function (h) {
+      html += '<th class="data-th">' + h + '</th>';
+    });
+    html += '</tr></thead><tbody>';
+    past.forEach(function (r) {
+      html += '<tr class="data-row">';
+      html += '<td class="data-td">' + fmtDate(r.date) + '</td>';
+      html += '<td class="data-td">' + (DOW_S[r.weekday] || '') + '</td>';
+      html += '<td class="data-td">' + fmtEur(r.estimate) + '</td>';
+      html += '<td class="data-td"><strong>' + (r.actual != null ? fmtEur(r.actual) : '—') + '</strong></td>';
+      html += '<td class="data-td">' + (r.evaluable
+            ? '<span style="font-weight:700;color:' + errColor(r.errorPct) + '">' + (r.errorPct > 0 ? '+' : '') + r.errorPct + ' %</span>'
+            : '<span class="text-muted">—</span>') + '</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table></div></div>';
   }
-  f.forEach(function (r) {
-    const w = wx(r.code);
-    html += '<tr class="data-row">';
-    html += '<td class="data-td"><strong>' + fmtDate(r.date) + '</strong></td>';
-    html += '<td class="data-td">' + (DOW[r.weekday] || '') + '</td>';
-    html += '<td class="data-td"><span class="text-muted" style="font-size:12px" title="' + esc(r.method) + '">' + esc(methodLabel(r.method)) + '</span></td>';
-    html += '<td class="data-td">' + w.e + ' ' + esc(w.l)
-          + (r.temp != null ? ' · ' + Math.round(r.temp) + '°' : '')
-          + (r.precip > 0 ? ' 💧' : '') + '</td>';
-    html += '<td class="data-td"><strong>' + fmtEur(r.estimate) + '</strong>'
-          + '<div class="text-muted" style="font-size:12px">' + fmtEur(r.low) + '–' + fmtEur(r.high) + '</div></td>';
-    html += '<td class="data-td">' + (r.actual != null
-          ? '<strong>' + fmtEur(r.actual) + '</strong>'
-          : '<span class="text-muted">—</span>') + '</td>';
-    if (r.evaluable) {
-      html += '<td class="data-td"><span style="font-weight:700;color:' + errColor(r.errorPct) + '">'
-            + (r.errorPct > 0 ? '+' : '') + r.errorPct + ' %</span></td>';
-      html += '<td class="data-td">' + (r.inRange
-            ? '<span style="color:var(--color-success);font-weight:600">✓ v rozpätí</span>'
-            : '<span style="color:var(--color-warning);font-weight:600">mimo</span>') + '</td>';
-    } else {
-      html += '<td class="data-td text-muted">—</td>';
-      html += '<td class="data-td"><span class="text-muted">' + (r.isPast ? 'bez dát' : 'prebieha') + '</span></td>';
-    }
-    html += '</tr>';
-  });
 
-  html += '</tbody></table></div></div>';
   _c.innerHTML = html;
 }
 
