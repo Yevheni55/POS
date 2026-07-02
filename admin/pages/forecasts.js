@@ -117,6 +117,7 @@ function render(data, hourly) {
     html += '<div class="panel" style="margin-bottom:16px;padding:16px 20px">';
     html += '<div class="stat-label" style="margin-bottom:10px">Predpoveď tržieb podľa hodín — dnes'
           + (hourly.banked ? ' <span class="text-muted" style="font-weight:400">(zatiaľ ' + fmtEur(hourly.banked) + ')</span>' : '')
+          + (hourly.hourlyTotal ? ' <span class="text-muted" style="font-weight:400">· hodinový model spolu ~' + fmtEur(hourly.hourlyTotal) + '</span>' : '')
           + '</div>';
     hh.forEach(function (x) {
       const isAct = x.actual != null;
@@ -135,7 +136,9 @@ function render(data, hourly) {
         + (isAct ? fmtEur(val) : '~' + fmtEur(val)) + '</span>'
         + '</div>';
     });
-    html += '<div class="text-muted" style="font-size:11px;margin-top:6px">Plné = skutočnosť · bledé ~ = odhad zvyšku dňa podľa denného odhadu a historického hodinového profilu.</div>';
+    html += '<div class="text-muted" style="font-size:11px;margin-top:6px">Plné = skutočnosť · bledé ~ = priemer PODOBNÝCH dní'
+          + (hourly.similarDays ? ' (' + hourly.similarDays + ' dní: ' + esc(hourly.similarNote || '') + ')' : '')
+          + ' — rovnaký typ dňa (pracovný/piatok/víkend), podobná teplota a mokrý/suchý charakter.</div>';
     html += '</div>';
   }
 
