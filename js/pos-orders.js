@@ -236,10 +236,15 @@ function _queueAddToast(emoji, name, qtyAdded) {
 function addToOrderN(name, emoji, price, n) {
   var count = parseInt(n, 10) || 1;
   if (count < 1) count = 1;
-  // Číslo pípadla rieš RAZ pred celou dávkou — loop cez addToOrder by pri
-  // jedle bez čísla otvoril modál n-krát (async modál vs synchrónny cyklus).
+  // Sauce položky idú cez plný addToOrder flow (omáčka → číslo per kus);
+  // pri ostatnom jedle rieš číslo RAZ pred celou dávkou — loop cez
+  // addToOrder by pri jedle bez čísla otvoril modál n-krát.
+  if (_needsSaucePicker(name)) {
+    for (var i = 0; i < count; i++) addToOrder(name, emoji, price);
+    return;
+  }
   _ensureNumberForFood(name, function () {
-    for (var i = 0; i < count; i++) _addToOrderAfterNumber(name, emoji, price);
+    for (var j = 0; j < count; j++) _addToOrderCore(name, emoji, price);
   });
 }
 
@@ -291,39 +296,38 @@ function _ensureNumberForFood(name, proceed) {
 function addToOrder(name, emoji, price) {
   var menuItemId = MENU_ID_MAP.get(name);
   if (!menuItemId) return;
-  _ensureNumberForFood(name, function () { _addToOrderAfterNumber(name, emoji, price); });
-}
 
-// Pôvodné telo addToOrder — beží až PO zaistení čísla pípadla.
-function _addToOrderAfterNumber(name, emoji, price) {
-  // Combos + Kuracie hranolky majú omáčku v cene → najprv sauce-picker,
-  // až potom pridáme položku + 0 EUR annotation row "Omáčka (combo)" s
-  // vybranou omáčkou v note (kuchyňa to vidí na bone).
+  // Combos + Kuracie hranolky majú omáčku v cene → NAJPRV sauce-picker,
+  // POTOM číslo pípadla (poradie podľa obsluhy: omáčka → číslo), až potom
+  // položka + 0 EUR annotation row "Omáčka (combo)" s vybranou omáčkou
+  // v note (kuchyňa to vidí na bone).
   if (_needsSaucePicker(name) && typeof showSauceSelector === 'function') {
     showSauceSelector(name, function (sauces) {
       if (sauces == null) return; // user cancelled
-      // Combos must NOT merge into an existing combo row of the same name —
-      // each tap can have a different sauce selection, and the kitchen needs
-      // one sauce annotation line per concrete combo. Force a brand-new row,
-      // and mark it _noMerge so _normalizeLocalOrder doesn't re-collapse it
-      // at sync time.
-      var combo = _addToOrderCore(name, emoji, price, true);
-      if (!combo) return;
-      combo._noMerge = true;
-      var sauceNote = sauces.length ? sauces.join(' + ') : 'bez omáčky';
-      // Combo má vlastný recept (= burger + male hranolky + boková omáčka
-      // skonsolidované) → odpis surovín ide cez recept comba pri sale.
-      // JS companion-logika (burger / fries / sauce s konkrétnym
-      // menu_item_id) je preto vypnutá — inak by sa tie isté suroviny
-      // odpísali dvakrát. Sauce annotation ostáva ako "Omáčka (combo)"
-      // placeholder s notou kvôli kuchyňa-tiketu (placeholder nemá
-      // recept → žiadna deduplikácia).
-      _addSauceAnnotationForCombo(combo, sauceNote);
+      _ensureNumberForFood(name, function () {
+        // Combos must NOT merge into an existing combo row of the same name —
+        // each tap can have a different sauce selection, and the kitchen needs
+        // one sauce annotation line per concrete combo. Force a brand-new row,
+        // and mark it _noMerge so _normalizeLocalOrder doesn't re-collapse it
+        // at sync time.
+        var combo = _addToOrderCore(name, emoji, price, true);
+        if (!combo) return;
+        combo._noMerge = true;
+        var sauceNote = sauces.length ? sauces.join(' + ') : 'bez omáčky';
+        // Combo má vlastný recept (= burger + male hranolky + boková omáčka
+        // skonsolidované) → odpis surovín ide cez recept comba pri sale.
+        // JS companion-logika (burger / fries / sauce s konkrétnym
+        // menu_item_id) je preto vypnutá — inak by sa tie isté suroviny
+        // odpísali dvakrát. Sauce annotation ostáva ako "Omáčka (combo)"
+        // placeholder s notou kvôli kuchyňa-tiketu (placeholder nemá
+        // recept → žiadna deduplikácia).
+        _addSauceAnnotationForCombo(combo, sauceNote);
+      });
     });
     return;
   }
 
-  _addToOrderCore(name, emoji, price);
+  _ensureNumberForFood(name, function () { _addToOrderCore(name, emoji, price); });
 }
 
 // For combos: push 0-price annotation row using the generic 'Omáčka
