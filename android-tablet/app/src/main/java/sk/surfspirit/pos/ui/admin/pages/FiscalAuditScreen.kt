@@ -1,6 +1,5 @@
 package sk.surfspirit.pos.ui.admin.pages
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,6 +12,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -281,6 +281,9 @@ private fun ColumnScope.FaFiscalTab(toast: PosToastState) {
     var results by remember { mutableStateOf<List<FaFiscalRow>>(emptyList()) }
     var selected by remember { mutableStateOf<FaFiscalRow?>(null) }
     var searching by remember { mutableStateOf(false) }
+    // Klientske triedenie nad načítanými výsledkami — default čas desc.
+    var sort by remember { mutableStateOf(TableSort("cas", desc = true)) }
+    val sortedResults = remember(results, sort) { faSortResults(results, sort) }
 
     var confirm by remember { mutableStateOf<FaConfirm?>(null) }
 
@@ -397,17 +400,17 @@ private fun ColumnScope.FaFiscalTab(toast: PosToastState) {
         when {
             results.isEmpty() ->
                 EmptyHint("Zatiaľ žiadne výsledky. Vyhľadaj doklad podľa údajov z bločku.")
+            // Telefón <720 dp — karty namiesto 6-stĺpcovej tabuľky (nezmestí sa).
+            LocalConfiguration.current.screenWidthDp < 720 ->
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    sortedResults.forEach { row ->
+                        FaResultCard(row, active = selected?.id == row.id) { loadDetail(row.id) }
+                    }
+                }
             else -> {
-                TableHeader(
-                    "Doklad" to 2.4f, "Typ" to 1f, "Objednávka" to 1.6f,
-                    "Stôl" to 1f, "Dátum" to 1.8f, "Stav" to 1.4f,
-                )
-                results.forEach { row ->
-                    val active = selected?.id == row.id
-                    val rowMod = if (active)
-                        Modifier.background(Navy.copy(alpha = 0.08f), RoundedCornerShape(Radius.sm))
-                    else Modifier
-                    FaResultRow(row, rowMod) { loadDetail(row.id) }
+                PosTableHeader(FA_RESULT_COLS, sort) { sort = it }
+                sortedResults.forEachIndexed { i, row ->
+                    FaResultRow(row, index = i, active = selected?.id == row.id) { loadDetail(row.id) }
                 }
             }
         }
@@ -524,39 +527,90 @@ private sealed class FaConfirm {
     data class ChangeMethod(val doc: FaFiscalRow) : FaConfirm()
 }
 
-@Composable
-private fun FaResultRow(row: FaFiscalRow, modifier: Modifier, onClick: () -> Unit) {
-    val docLabel = row.receiptId?.takeIf { it.isNotBlank() }
+/* ---------- Výsledky — jednotná tabuľka (Tables.kt) ---------- */
+
+private val FA_RESULT_COLS = listOf(
+    TableCol("Doklad", 2.4f, sortKey = "doklad"),
+    TableCol("Typ", 1f, sortKey = "typ"),
+    TableCol("Objednávka", 1.6f),
+    TableCol("Stôl", 1f, sortKey = "stol"),
+    TableCol("Dátum", 1.8f, sortKey = "cas"),
+    TableCol("Stav", 1.4f, sortKey = "stav"),
+)
+
+/** Hlavný identifikátor dokladu — receiptId → externalId → interné #id. */
+private fun faDocLabel(row: FaFiscalRow): String =
+    row.receiptId?.takeIf { it.isNotBlank() }
         ?: row.externalId.takeIf { it.isNotBlank() }
         ?: "#${row.id}"
+
+/** Klientske triedenie nad načítanými výsledkami (server sort neexistuje). */
+private fun faSortResults(rows: List<FaFiscalRow>, sort: TableSort): List<FaFiscalRow> {
+    val cmp: Comparator<FaFiscalRow> = when (sort.key) {
+        "doklad" -> compareBy { faDocLabel(it).lowercase() }
+        "typ" -> compareBy { it.sourceType }
+        "stol" -> compareBy { it.tableName ?: "" }
+        "stav" -> compareBy { it.resultMode }
+        // ISO timestamp — lexikografické porovnanie = chronologické.
+        else -> compareBy { it.processDate ?: "" }
+    }
+    return rows.sortedWith(if (sort.desc) cmp.reversed() else cmp)
+}
+
+@Composable
+private fun FaResultRow(row: FaFiscalRow, index: Int, active: Boolean, onClick: () -> Unit) {
     val orderCell = "#${row.orderId ?: "-"} / payment #${row.paymentId ?: "-"}"
-    Surface(color = Color.Transparent, onClick = onClick) {
-        Column(modifier.fillMaxWidth().padding(vertical = 8.dp, horizontal = 4.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(2.4f)) {
-                    Text(docLabel, style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    PosTableRow(
+        cols = FA_RESULT_COLS,
+        cells = listOf(
+            // Doklad — 2-riadková bunka (label + OKP); aktívny riadok Terra.
+            TableCell(content = {
+                Column {
+                    Text(faDocLabel(row), style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (active) Terra else MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (!row.okp.isNullOrBlank()) {
                         Text(row.okp, style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
-                FaCell(row.sourceType, 1f)
-                FaCell(orderCell, 1.6f)
-                FaCell(row.tableName?.takeIf { it.isNotBlank() } ?: "-", 1f)
-                FaCell(faDateTime(row.processDate), 1.8f)
-                FaCell(row.resultMode.takeIf { it.isNotBlank() } ?: "-", 1.4f)
-            }
-        }
-    }
-    HorizontalDivider(color = BorderSoft.copy(alpha = 0.5f))
+            }),
+            TableCell(row.sourceType),
+            TableCell(orderCell),
+            TableCell(row.tableName?.takeIf { it.isNotBlank() } ?: "-"),
+            TableCell(faDateTime(row.processDate)),
+            TableCell(row.resultMode.takeIf { it.isNotBlank() } ?: "-"),
+        ),
+        index = index,
+        onClick = onClick,
+    )
 }
 
+/** Telefón <720 dp — karta: typ badge + čas + hlavný identifikátor. */
 @Composable
-private fun RowScope.FaCell(text: String, weight: Float) {
-    Text(text, Modifier.weight(weight), style = MaterialTheme.typography.bodyMedium,
-        maxLines = 1, overflow = TextOverflow.Ellipsis)
+private fun FaResultCard(row: FaFiscalRow, active: Boolean, onClick: () -> Unit) {
+    val badgeColor = if (row.sourceType.contains("storno", ignoreCase = true)) Danger else Navy
+    Surface(
+        color = if (active) Navy.copy(alpha = 0.08f) else CreamSunken.copy(alpha = 0.45f),
+        shape = RoundedCornerShape(Radius.sm),
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                StatusBadge(row.sourceType.takeIf { it.isNotBlank() } ?: "?", badgeColor)
+                Spacer(Modifier.width(8.dp))
+                Text(faDateTime(row.processDate), style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(faDocLabel(row), style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
 }
 
 @Composable

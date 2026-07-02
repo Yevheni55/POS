@@ -432,7 +432,10 @@ fun DochadzkaScreen() {
                     item {
                         DochToolbar(
                             from = from, to = to,
-                            onFrom = { from = it }, onTo = { to = it },
+                            onRange = { f, t ->
+                                from = f; to = t; openOnly = false; expanded = null
+                                loadSummary()
+                            },
                             staffOptions = allRows,
                             staffFilter = staffFilter,
                             onStaff = { staffFilter = it; expanded = null; detailData = null },
@@ -615,7 +618,7 @@ fun DochadzkaScreen() {
 @Composable
 private fun DochToolbar(
     from: String, to: String,
-    onFrom: (String) -> Unit, onTo: (String) -> Unit,
+    onRange: (String, String) -> Unit,
     staffOptions: List<DochSummaryRow>,
     staffFilter: String, onStaff: (String) -> Unit,
     onPreset: (String) -> Unit,
@@ -623,10 +626,8 @@ private fun DochToolbar(
     onExport: () -> Unit,
 ) {
     AdminCard {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Bottom) {
-            FormField("Od", from, onFrom, Modifier.weight(1f), placeholder = "RRRR-MM-DD")
-            FormField("Do", to, onTo, Modifier.weight(1f), placeholder = "RRRR-MM-DD")
-        }
+        // Obdobie — zdieľaný DateRangeNav (‹ › posun, tap na label = DatePicker, presety)
+        DateRangeNav(fromIso = from, toIso = to, onRange = onRange)
         Spacer(Modifier.height(10.dp))
         // Zamestnanec filter
         Text("Zamestnanec", style = MaterialTheme.typography.labelMedium,

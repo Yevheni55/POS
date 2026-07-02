@@ -6,7 +6,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -16,7 +15,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -339,14 +337,12 @@ fun CashflowScreen() {
     AdminScreenBox {
         AdminSectionTitle("Cashflow")
 
-        // Toolbar: dátumy + typ + presety + add tlačidlá.
+        // Toolbar: rozsah dátumov + typ + add tlačidlá.
         CfToolbar(
             from = from, to = to, typeFilter = typeFilter,
             // Reload rieši debounced LaunchedEffect(from, to, typeFilter) vyššie.
-            onFrom = { from = it },
-            onTo = { to = it },
+            onRange = { f, t -> from = f; to = t },
             onType = { typeFilter = it },
-            onPreset = { n -> to = cfTodayIso(); from = cfTodayMinusDays(n) },
             onAddIncome = { modalEntry = null; modalPresetType = "income"; modalOpen = true },
             onAddExpense = { modalEntry = null; modalPresetType = "expense"; modalOpen = true },
         )
@@ -461,26 +457,15 @@ private fun CfToolbar(
     from: String,
     to: String,
     typeFilter: String,
-    onFrom: (String) -> Unit,
-    onTo: (String) -> Unit,
+    onRange: (String, String) -> Unit,
     onType: (String) -> Unit,
-    onPreset: (Int) -> Unit,
     onAddIncome: () -> Unit,
     onAddExpense: () -> Unit,
 ) {
     AdminCard {
-        // Dátumy + typ.
+        // Rozsah dátumov (zdieľaný DateRangeNav: ‹ › + DatePicker + presety) + typ.
         FlowRowCompat(spacing = 10.dp) {
-            FormField(
-                label = "Od", value = from, onChange = onFrom,
-                placeholder = "RRRR-MM-DD",
-                modifier = Modifier.width(150.dp),
-            )
-            FormField(
-                label = "Do", value = to, onChange = onTo,
-                placeholder = "RRRR-MM-DD",
-                modifier = Modifier.width(150.dp),
-            )
+            DateRangeNav(fromIso = from, toIso = to, onRange = onRange)
             Column {
                 Text(
                     "Typ", style = MaterialTheme.typography.labelMedium,
@@ -510,12 +495,8 @@ private fun CfToolbar(
 
         Spacer(Modifier.height(12.dp))
 
-        // Presety + add tlačidlá.
+        // Add tlačidlá (presety rieši DateRangeNav).
         FlowRowCompat(spacing = 8.dp) {
-            OutlinedButton(onClick = { onPreset(0) }) { Text("Dnes") }
-            OutlinedButton(onClick = { onPreset(7) }) { Text("7 dní") }
-            OutlinedButton(onClick = { onPreset(30) }) { Text("30 dní") }
-            Spacer(Modifier.width(4.dp))
             Button(
                 onClick = onAddIncome,
                 colors = ButtonDefaults.buttonColors(containerColor = Sage, contentColor = Cream),
@@ -769,6 +750,7 @@ private fun CfEntryModal(
     var amount by remember {
         mutableStateOf(if (isEdit) String.format("%.2f", cfAmount(existing!!.amount)) else "")
     }
+    var amountError by remember { mutableStateOf<String?>(null) }
     var occurredLocal by remember { mutableStateOf(cfIsoToModal(existing?.occurredAt)) }
     var method by remember { mutableStateOf(existing?.method ?: "cash") }
     var note by remember { mutableStateOf(existing?.note ?: "") }
@@ -818,13 +800,11 @@ private fun CfEntryModal(
                         onSelect = { supplierId = if (it == -1) null else it },
                     )
                 }
-                // Suma.
-                FormField(
+                // Suma — validácia až pri uložení, chyba sa čistí písaním.
+                MoneyField(
                     label = "Suma", value = amount,
-                    onChange = { amount = it.replace(',', '.') },
-                    placeholder = "0.00",
-                    keyboard = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    suffix = "€",
+                    onChange = { amount = it; amountError = null },
+                    error = amountError,
                 )
                 // Dátum (Bratislava lokálny čas).
                 FormField(
@@ -852,7 +832,7 @@ private fun CfEntryModal(
                 onClick = {
                     val amt = amount.replace(',', '.').toDoubleOrNull()
                     if (amt == null || !amt.isFinite() || amt <= 0) {
-                        onError("Suma musí byť väčšia ako 0")
+                        amountError = "Zadaj sumu"
                         return@Button
                     }
                     val iso = cfModalToIso(occurredLocal)

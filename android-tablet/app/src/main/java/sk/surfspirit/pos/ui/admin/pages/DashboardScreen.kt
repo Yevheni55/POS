@@ -487,7 +487,7 @@ private fun DbWeeklyChartCard(values: List<Double?>, loading: Boolean, onRetry: 
             loading -> LoadingBox()
             values.isEmpty() -> EmptyHint("Chyba pri načítaní")
             failed == 0 && known.sum() <= 0.0 -> {
-                BarChart(values = known, labels = labels, barColor = Sage, height = 120)
+                BarChart(values = known, labels = labels, barColor = Terra, height = 120)
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "Za tento týždeň zatiaľ žiadne tržby.",
@@ -515,7 +515,7 @@ private fun DbWeeklyChartCard(values: List<Double?>, loading: Boolean, onRetry: 
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-                BarChart(values = values, labels = labels, barColor = Sage, height = 120)
+                BarChart(values = values, labels = labels, barColor = Terra, height = 120)
                 if (failed > 0) {
                     Spacer(Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {

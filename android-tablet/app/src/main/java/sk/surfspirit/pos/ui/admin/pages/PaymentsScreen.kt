@@ -1,9 +1,11 @@
 package sk.surfspirit.pos.ui.admin.pages
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -11,6 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -40,7 +43,12 @@ import sk.surfspirit.pos.ui.admin.EmptyHint
 import sk.surfspirit.pos.ui.admin.ErrorBox
 import sk.surfspirit.pos.ui.admin.LoadingBox
 import sk.surfspirit.pos.ui.admin.PillTabs
+import sk.surfspirit.pos.ui.admin.PosTableHeader
+import sk.surfspirit.pos.ui.admin.PosTableRow
 import sk.surfspirit.pos.ui.admin.StatusBadge
+import sk.surfspirit.pos.ui.admin.TableCell
+import sk.surfspirit.pos.ui.admin.TableCol
+import sk.surfspirit.pos.ui.admin.TableSort
 import sk.surfspirit.pos.ui.components.LocalToast
 import sk.surfspirit.pos.ui.theme.Amber
 import sk.surfspirit.pos.ui.theme.BorderSoft
@@ -48,6 +56,7 @@ import sk.surfspirit.pos.ui.theme.Cream
 import sk.surfspirit.pos.ui.theme.Danger
 import sk.surfspirit.pos.ui.theme.EspressoDim
 import sk.surfspirit.pos.ui.theme.Navy
+import sk.surfspirit.pos.ui.theme.Radius
 import sk.surfspirit.pos.ui.theme.Sage
 
 /* =====================================================================
@@ -205,6 +214,23 @@ fun PaymentsScreen() {
 
     var confirm by remember { mutableStateOf<PmtConfirm?>(null) }
 
+    // Klientske triedenie nad načítanými riadkami (server sort neexistuje) —
+    // default čas desc; ISO createdAt reťazce sortujú chronologicky aj lexikograficky.
+    var sort by remember { mutableStateOf(TableSort("cas", desc = true)) }
+    val sorted = remember(items, sort) {
+        val cmp: Comparator<PmtItem> = when (sort.key) {
+            "suma" -> compareBy { it.amount ?: Double.NEGATIVE_INFINITY }
+            "metoda" -> compareBy { pmtMethodLabel(it.method) }
+            else -> compareBy { it.createdAt ?: "" }
+        }
+        items.sortedWith(if (sort.desc) cmp.reversed() else cmp)
+    }
+
+    // Karta layout pod 720 dp — tabuľka má min. šírku 1040 dp, na telefóne by
+    // horizontálny scroll dominoval (isPhone() je 600 dp prah — tu širší).
+    val phoneCards = LocalConfiguration.current.screenWidthDp < 720
+    var expandedId by remember { mutableStateOf<Int?>(null) }
+
     fun load() {
         scope.launch {
             loading = true
@@ -250,6 +276,22 @@ fun PaymentsScreen() {
                 busy = false
             }
         }
+    }
+
+    // Kópia dokladu (nevyžaduje manager rolu) — zdieľaná tabuľkou aj kartou.
+    fun copyReceipt(id: Int) {
+        runAction(
+            successMsg = { res ->
+                val printed = (res as? kotlinx.serialization.json.JsonObject)
+                    ?.get("printed")?.let {
+                        (it as? kotlinx.serialization.json.JsonPrimitive)?.content == "true"
+                    } ?: false
+                if (printed) "Kópia odoslaná na CHDU"
+                else "Požiadavka na kópiu prijatá"
+            },
+            fallbackErr = "Kópiu sa nepodarilo vytlačiť",
+            call = { pmtApi.receiptCopy(id) },
+        )
     }
 
     // Jediný keyed effect: mount + zmena filtra. Debounce 250 ms zladí
@@ -337,32 +379,42 @@ fun PaymentsScreen() {
                 loading -> item { LoadingBox() }
                 error != null -> item { ErrorBox(error!!) { load() } }
                 items.isEmpty() -> item { EmptyHint("Žiadne platby podľa filtra.") }
+                phoneCards -> {
+                    // Telefón: karty namiesto širokej tabuľky — tap rozbalí
+                    // fiškálny stav + rovnaké akcie ako v tabuľkovom riadku.
+                    items(sorted, key = { it.id }) { item ->
+                        PmtCard(
+                            item = item,
+                            expanded = expandedId == item.id,
+                            busy = busy,
+                            onToggle = {
+                                expandedId = if (expandedId == item.id) null else item.id
+                            },
+                            onCopy = { copyReceipt(item.id) },
+                            onRefiscalize = { confirm = PmtConfirm.Refiscalize(item.id) },
+                            onChangeMethod = { newMethod, newLabel ->
+                                confirm = PmtConfirm.ChangeMethod(item.id, newMethod, newLabel)
+                            },
+                            onStorno = { confirm = PmtConfirm.Storno(item.id) },
+                        )
+                    }
+                }
                 else -> {
                     item {
                         Box(Modifier.fillMaxWidth().horizontalScroll(tableScroll)) {
-                            Column(Modifier.width(TABLE_MIN_WIDTH.dp)) { PmtTableHeader() }
+                            Column(Modifier.width(TABLE_MIN_WIDTH.dp)) {
+                                PosTableHeader(pmtCols, sort) { sort = it }
+                            }
                         }
                     }
-                    items(items, key = { it.id }) { item ->
+                    itemsIndexed(sorted, key = { _, it -> it.id }) { index, item ->
                         Box(Modifier.fillMaxWidth().horizontalScroll(tableScroll)) {
                             Column(Modifier.width(TABLE_MIN_WIDTH.dp)) {
                                 PmtRow(
                                     item = item,
+                                    index = index,
                                     busy = busy,
-                                    onCopy = {
-                                        runAction(
-                                            successMsg = { res ->
-                                                val printed = (res as? kotlinx.serialization.json.JsonObject)
-                                                    ?.get("printed")?.let {
-                                                        (it as? kotlinx.serialization.json.JsonPrimitive)?.content == "true"
-                                                    } ?: false
-                                                if (printed) "Kópia odoslaná na CHDU"
-                                                else "Požiadavka na kópiu prijatá"
-                                            },
-                                            fallbackErr = "Kópiu sa nepodarilo vytlačiť",
-                                            call = { pmtApi.receiptCopy(item.id) },
-                                        )
-                                    },
+                                    onCopy = { copyReceipt(item.id) },
                                     onRefiscalize = { confirm = PmtConfirm.Refiscalize(item.id) },
                                     onChangeMethod = { newMethod, newLabel ->
                                         confirm = PmtConfirm.ChangeMethod(item.id, newMethod, newLabel)
@@ -462,41 +514,24 @@ fun PaymentsScreen() {
     }
 }
 
-/* ---- Tabuľka: hlavička + riadok (vlastná kvôli viacriadkovým bunkám + badge + akcie) ---- */
+/* ---- Tabuľka: zdieľané TableCol/PosTableHeader/PosTableRow (Tables.kt) ---- */
 
-// Šírky stĺpcov (váhy) — zdieľané hlavičkou aj riadkom.
-private const val W_ID = 1.4f
-private const val W_WHEN = 1.6f
-private const val W_TABLE = 1.8f
-private const val W_METHOD = 1.1f
-private const val W_SUM = 1.2f
-private const val W_FISCAL = 2.0f
-private const val W_ACTIONS = 3.2f
+// Stĺpce (váhy z pôvodnej tabuľky) — sortovateľné: Kedy (default desc) · Spôsob · Suma.
+private val pmtCols = listOf(
+    TableCol("ID", 1.4f),
+    TableCol("Kedy", 1.6f, sortKey = "cas"),
+    TableCol("Stôl / Účet", 1.8f),
+    TableCol("Spôsob", 1.1f, sortKey = "metoda"),
+    TableCol("Suma", 1.2f, numeric = true, sortKey = "suma"),
+    TableCol("Fiškalizácia", 2.0f),
+    TableCol("Akcie", 3.2f),
+)
 private const val TABLE_MIN_WIDTH = 1040
-
-@Composable
-private fun PmtTableHeader() {
-    // Šírku drží volajúci (Column s TABLE_MIN_WIDTH v zdieľanom horizontálnom scrolle).
-    Row(
-        Modifier.fillMaxWidth().padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        @Composable
-        fun th(label: String, w: Float) = Text(
-            label.uppercase(), Modifier.weight(w),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
-        )
-        th("ID", W_ID); th("Kedy", W_WHEN); th("Stôl / Účet", W_TABLE)
-        th("Spôsob", W_METHOD); th("Suma", W_SUM); th("Fiškalizácia", W_FISCAL)
-        th("Akcie", W_ACTIONS)
-    }
-    HorizontalDivider(color = BorderSoft)
-}
 
 @Composable
 private fun PmtRow(
     item: PmtItem,
+    index: Int,
     busy: Boolean,
     onCopy: () -> Unit,
     onRefiscalize: () -> Unit,
@@ -505,48 +540,49 @@ private fun PmtRow(
 ) {
     // Horizontálny scroll rieši volajúci (jeden zdieľaný stav pre celú tabuľku) —
     // riadok len vyplní šírku rodičovského Column(TABLE_MIN_WIDTH).
-    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically) {
-
-        // ID + obj. #
-        Column(Modifier.weight(W_ID)) {
-            Text("#${item.id}", style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold, maxLines = 1)
-            Text("obj. #${item.orderId ?: "—"}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-        }
-        // Kedy — Europe/Bratislava (web používal browser TZ; tu pinneme na bony).
-        Text(
-            pmtWhen(item.createdAt), Modifier.weight(W_WHEN),
-            style = MaterialTheme.typography.bodyMedium, maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        // Stôl / Účet
-        Column(Modifier.weight(W_TABLE)) {
-            Text(item.tableName ?: "—", style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (!item.orderLabel.isNullOrBlank()) {
-                Text(item.orderLabel, style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-        }
-        // Spôsob
-        Text(pmtMethodLabel(item.method), Modifier.weight(W_METHOD),
-            style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-        // Suma
-        Text(pmtEur(item.amount), Modifier.weight(W_SUM),
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.SemiBold, maxLines = 1)
-        // Fiškalizácia
-        Box(Modifier.weight(W_FISCAL)) { PmtFiscalCell(item) }
-        // Akcie
-        Box(Modifier.weight(W_ACTIONS)) {
-            PmtActionsCell(item, busy, onCopy, onRefiscalize, onChangeMethod, onStorno)
-        }
-    }
-    HorizontalDivider(color = BorderSoft.copy(alpha = 0.5f))
+    PosTableRow(
+        cols = pmtCols,
+        index = index,
+        cells = listOf(
+            // ID + obj. #
+            TableCell(content = {
+                Column {
+                    Text("#${item.id}", style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold, maxLines = 1)
+                    Text("obj. #${item.orderId ?: "—"}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                }
+            }),
+            // Kedy — Europe/Bratislava (web používal browser TZ; tu pinneme na bony).
+            TableCell(text = pmtWhen(item.createdAt)),
+            // Stôl / Účet
+            TableCell(content = {
+                Column {
+                    Text(item.tableName ?: "—", style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (!item.orderLabel.isNullOrBlank()) {
+                        Text(item.orderLabel, style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }),
+            // Spôsob
+            TableCell(text = pmtMethodLabel(item.method)),
+            // Suma — SemiBold; end-align rieši numeric stĺpec.
+            TableCell(content = {
+                Text(pmtEur(item.amount), style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold, maxLines = 1)
+            }),
+            // Fiškalizácia
+            TableCell(content = { PmtFiscalCell(item) }),
+            // Akcie
+            TableCell(content = {
+                PmtActionsCell(item, busy, onCopy, onRefiscalize, onChangeMethod, onStorno)
+            }),
+        ),
+    )
 }
 
 /** Kedy formátované dd.MM.yyyy HH:mm v Europe/Bratislava (pinned — match bony). */
@@ -651,6 +687,66 @@ private fun PmtMutedNote(text: String) {
     Text(text, style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(vertical = 10.dp), maxLines = 1)
+}
+
+/* ---- Telefónna karta (< 720 dp) — široká tabuľka sa nezmestí; karta nesie
+   sumu + metódu + čas/stôl, tap rozbalí fiškálny stav a rovnaké akcie
+   (kópia / re-fiškalizácia / zmena metódy / STORNO) ako tabuľkový riadok. ---- */
+
+@Composable
+private fun PmtCard(
+    item: PmtItem,
+    expanded: Boolean,
+    busy: Boolean,
+    onToggle: () -> Unit,
+    onCopy: () -> Unit,
+    onRefiscalize: () -> Unit,
+    onChangeMethod: (String, String) -> Unit,
+    onStorno: () -> Unit,
+) {
+    val methodTone = when (item.method) {
+        "hotovost" -> Sage
+        "karta" -> Navy
+        else -> EspressoDim
+    }
+    Surface(
+        onClick = onToggle,
+        shape = RoundedCornerShape(Radius.md),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, BorderSoft),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // titleMedium má tnum — sumy kariet pod sebou sa zarovnajú.
+                Text(pmtEur(item.amount), style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1)
+                Spacer(Modifier.weight(1f))
+                StatusBadge(pmtMethodLabel(item.method), methodTone)
+            }
+            Spacer(Modifier.height(4.dp))
+            val meta = buildList {
+                add(pmtWhen(item.createdAt))
+                add(item.tableName ?: "—")
+                if (!item.orderLabel.isNullOrBlank()) add(item.orderLabel)
+            }.joinToString(" · ")
+            Text(meta, style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("#${item.id} · obj. #${item.orderId ?: "—"}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            if (expanded) {
+                Spacer(Modifier.height(8.dp))
+                HorizontalDivider(color = BorderSoft)
+                Spacer(Modifier.height(8.dp))
+                PmtFiscalCell(item)
+                Spacer(Modifier.height(8.dp))
+                PmtActionsCell(item, busy, onCopy, onRefiscalize, onChangeMethod, onStorno)
+            }
+        }
+    }
+    Spacer(Modifier.height(8.dp))
 }
 
 /** Wrap riadok pre akčné tlačidlá bez závislosti na experimental FlowRow API. */

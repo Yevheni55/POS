@@ -2,6 +2,7 @@ package sk.surfspirit.pos.ui.admin
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -19,7 +20,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -29,6 +33,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import sk.surfspirit.pos.core.errorMessage
+import sk.surfspirit.pos.core.money
 import sk.surfspirit.pos.ui.components.PosToastState
 import sk.surfspirit.pos.ui.theme.*
 
@@ -235,8 +240,47 @@ fun BarChart(
 ) {
     val maxV = (values.filterNotNull().maxOrNull() ?: 0.0).coerceAtLeast(0.0001)
     val placeholderInk = EspressoDim.copy(alpha = 0.30f)   // hoist — Canvas lambda nie je composable
+    // Tap-tooltip: index tapnutého stĺpca (null = žiadny)
+    var tappedIdx by remember { mutableStateOf<Int?>(null) }
+    // Value labels — kolízna stratégia (plán bod 21): všetky pri n≤8,
+    // inak lokálne maximá + posledný stĺpec; nuly a null preskočiť.
+    val labelIdx: Set<Int> = remember(values) {
+        val n = values.size
+        if (n <= 8) values.indices.filter { (values[it] ?: 0.0) > 0.0 }.toSet()
+        else buildSet {
+            values.forEachIndexed { i, v ->
+                if (v != null && v > 0.0) {
+                    val prev = values.getOrNull(i - 1) ?: 0.0
+                    val next = values.getOrNull(i + 1) ?: 0.0
+                    if (v >= prev && v >= next) add(i)   // lokálne maximum
+                }
+            }
+            values.indexOfLast { it != null && it > 0.0 }.takeIf { it >= 0 }?.let { add(it) }
+        }
+    }
+    val labelInk = MaterialTheme.colorScheme.onSurfaceVariant
+    val labelStyle = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp) // token-exempt: velkost mimo skaly
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
     Column(modifier.fillMaxWidth()) {
-        Canvas(Modifier.fillMaxWidth().height(height.dp)) {
+        tappedIdx?.let { i ->
+            val v = values.getOrNull(i)
+            Surface(shape = RoundedCornerShape(Radius.sm), color = CreamSunken,
+                border = BorderStroke(1.dp, BorderMid)) {
+                Text("${labels.getOrNull(i) ?: ""} · ${if (v != null) money(v) else "—"}",
+                    Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    style = MaterialTheme.typography.labelMedium)
+            }
+            Spacer(Modifier.height(4.dp))
+        }
+        Canvas(Modifier.fillMaxWidth().height(height.dp)
+            .pointerInput(values) {
+                detectTapGestures { pos ->
+                    val n = values.size.coerceAtLeast(1)
+                    val slot = size.width.toFloat() / n
+                    val idx = (pos.x / slot).toInt().coerceIn(0, n - 1)
+                    tappedIdx = if (tappedIdx == idx) null else idx
+                }
+            }) {
             val n = values.size.coerceAtLeast(1)
             val slot = size.width / n
             val barW = slot * 0.62f
@@ -257,18 +301,30 @@ fun BarChart(
                         size = Size(barW, h.coerceAtLeast(2f)),
                         cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f, 4f),
                     )
+                    // Value label nad stĺpcom (kolízna stratégia hore)
+                    if (i in labelIdx) {
+                        val txt = measurer.measure(shortMoney(v), labelStyle)
+                        val x = (i * slot + slot / 2 - txt.size.width / 2)
+                            .coerceIn(0f, size.width - txt.size.width)
+                        val y = (size.height - h - txt.size.height - 2f).coerceAtLeast(0f)
+                        drawText(txt, labelInk, Offset(x, y))
+                    }
                 }
             }
         }
         Row(Modifier.fillMaxWidth()) {
             labels.forEach {
-                Text(it, Modifier.weight(1f), style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), // token-exempt: velkost mimo skaly
+                Text(it, Modifier.weight(1f), style = labelStyle,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1, overflow = TextOverflow.Clip)
             }
         }
     }
 }
+
+/** Kompaktný money label pre graf — celé eurá bez centov (46 → „46€"). */
+private fun shortMoney(v: Double): String =
+    if (v >= 100) "${v.toInt()}€" else String.format("%.0f€", v)
 
 /* ---------- Screen scaffold ---------- */
 
@@ -312,7 +368,9 @@ fun AdminConfirm(
     )
 }
 
-/** Form pole s labelom — jednotný vzhľad admin formulárov. */
+/** Form pole s labelom — jednotný vzhľad admin formulárov.
+ *  error != null → isError + supportingText; riadok pod polom je REZERVOVANÝ
+ *  (minLines výška cez prázdny supportingText), aby formulár neskákal. */
 @Composable
 fun FormField(
     label: String,
@@ -323,6 +381,8 @@ fun FormField(
     singleLine: Boolean = true,
     keyboard: androidx.compose.foundation.text.KeyboardOptions = androidx.compose.foundation.text.KeyboardOptions.Default,
     suffix: String? = null,
+    error: String? = null,
+    reserveErrorLine: Boolean = false,
 ) {
     Column(modifier) {
         Text(label, style = MaterialTheme.typography.labelMedium,
@@ -333,6 +393,12 @@ fun FormField(
             placeholder = { if (placeholder.isNotBlank()) Text(placeholder) },
             singleLine = singleLine, keyboardOptions = keyboard,
             suffix = suffix?.let { { Text(it) } },
+            isError = error != null,
+            supportingText = when {
+                error != null -> ({ Text(error, color = Danger) })
+                reserveErrorLine -> ({ Text(" ") })   // rezervovaný riadok — bez skákania
+                else -> null
+            },
             modifier = Modifier.fillMaxWidth(),
         )
     }

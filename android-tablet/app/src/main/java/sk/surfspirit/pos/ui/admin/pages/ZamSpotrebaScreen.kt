@@ -89,8 +89,6 @@ fun ZamSpotrebaScreen() {
     // Default rozsah = tento mesiac (prvý deň .. dnes); „dnes" v Europe/Bratislava.
     var from by remember { mutableStateOf(LocalDate.now(BRATISLAVA).withDayOfMonth(1).toString()) }
     var to by remember { mutableStateOf(LocalDate.now(BRATISLAVA).toString()) }
-    // 0 = Tento mesiac, 1 = 7 dní, 2 = 30 dní, 3 = 60 dní
-    var preset by remember { mutableStateOf(0) }
 
     fun load() {
         scope.launch {
@@ -108,59 +106,22 @@ fun ZamSpotrebaScreen() {
         }
     }
 
-    fun applyPreset(idx: Int) {
-        preset = idx
-        val today = LocalDate.now(BRATISLAVA)
-        when (idx) {
-            0 -> { from = today.withDayOfMonth(1).toString(); to = today.toString() }
-            1 -> { from = today.minusDays(7).toString(); to = today.toString() }
-            2 -> { from = today.minusDays(30).toString(); to = today.toString() }
-            3 -> { from = today.minusDays(60).toString(); to = today.toString() }
-        }
-        load()
-    }
-
-    // „Mesiac navigácia" — funguje len v móde Tento mesiac: posunie celý kalendárny mesiac.
-    fun shiftMonth(delta: Long) {
-        val anchor = (LocalDate.parse(from)).plusMonths(delta).withDayOfMonth(1)
-        from = anchor.toString()
-        val today = LocalDate.now(BRATISLAVA)
-        val monthEnd = anchor.plusMonths(1).minusDays(1)
-        // Aktuálny mesiac končí dnes; minulé mesiace celé.
-        to = if (monthEnd.isAfter(today)) today.toString() else monthEnd.toString()
-        load()
-    }
-
     LaunchedEffect(Unit) { load() }
 
     AdminScreenBox {
         AdminSectionTitle("Zamestnanecká spotreba")
 
-        // --- Top bar: rozsah + presety ---
+        // --- Top bar: rozsah — zdieľaný DateRangeNav (‹ › posun o dĺžku
+        // rozsahu, tap na label = DatePicker, presety Dnes/Včera/7 dní/Mesiac).
         AdminCard {
             Text("OBDOBIE", style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(6.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (preset == 0) {
-                    OutlinedButton(onClick = { shiftMonth(-1) },
-                        contentPadding = PaddingValues(horizontal = 12.dp)) { Text("‹") }
-                    Spacer(Modifier.width(8.dp))
-                }
-                Text("$from — $to", style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.weight(1f))
-                if (preset == 0) {
-                    val nextMonthStart = LocalDate.parse(from).plusMonths(1)
-                    val canForward = !nextMonthStart.isAfter(LocalDate.now(BRATISLAVA))
-                    if (canForward) {
-                        OutlinedButton(onClick = { shiftMonth(1) },
-                            contentPadding = PaddingValues(horizontal = 12.dp)) { Text("›") }
-                    }
-                }
-            }
-            Spacer(Modifier.height(10.dp))
-            val presets = listOf("Tento mesiac", "7 dní", "30 dní", "60 dní")
-            PillTabs(presets, preset) { applyPreset(it) }
+            DateRangeNav(
+                fromIso = from,
+                toIso = to,
+                onRange = { f, t -> from = f; to = t; load() },
+            )
         }
 
         Spacer(Modifier.height(16.dp))

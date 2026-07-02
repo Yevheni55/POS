@@ -384,7 +384,7 @@ private fun RtWeeklyContent(d: RtWeeklyResp, selectedDay: String?, onSelectDay: 
             BarChart(
                 values = hoursWithKitchen.map { it.kitchenRevenue / activeDays },
                 labels = hoursWithKitchen.map { it.hour.toString().padStart(2, '0') },
-                barColor = Sage,
+                barColor = Terra,
                 height = 140,
             )
         }

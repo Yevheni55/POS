@@ -30,6 +30,7 @@ import retrofit2.http.GET
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
+import sk.surfspirit.pos.core.BRATISLAVA
 import sk.surfspirit.pos.core.errorMessage
 import sk.surfspirit.pos.core.fmtBratislava
 import sk.surfspirit.pos.core.httpCode
@@ -39,6 +40,7 @@ import sk.surfspirit.pos.ui.admin.*
 import sk.surfspirit.pos.ui.components.LocalToast
 import sk.surfspirit.pos.ui.components.PosToastState
 import sk.surfspirit.pos.ui.theme.*
+import java.time.LocalDate
 
 /* =====================================================================
    PohybyScreen — Sklad: pohyby + odpisy (#sklad-pohyby)
@@ -283,11 +285,12 @@ private fun ColumnScope.PoMovementsTab(toast: PosToastState) {
     var menuNameById by remember { mutableStateOf<Map<Int, String>>(emptyMap()) }
     val ingredientById = remember(allIngredients) { allIngredients.associateBy { it.id } }
 
-    // Filtre (committed — aktívne pri loade).
+    // Filtre (committed — aktívne pri loade). Rozsah dátumov default =
+    // tento mesiac; DateRangeNav potrebuje platné ISO dátumy.
     var fType by remember { mutableStateOf("") }            // ''/purchase/sale/adjustment/waste/inventory
     var fIngredientId by remember { mutableStateOf<Int?>(null) }
-    var fFrom by remember { mutableStateOf("") }
-    var fTo by remember { mutableStateOf("") }
+    var fFrom by remember { mutableStateOf(LocalDate.now(BRATISLAVA).withDayOfMonth(1).toString()) }
+    var fTo by remember { mutableStateOf(LocalDate.now(BRATISLAVA).toString()) }
 
     var showAdjust by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
@@ -384,6 +387,14 @@ private fun ColumnScope.PoMovementsTab(toast: PosToastState) {
             "waste" to "Odpad",
             "inventory" to "Inventúra",
         )
+        // Rozsah dátumov — zdieľaný DateRangeNav (‹ › posun, tap na label =
+        // DatePicker, presety); zmena rozsahu filtruje hneď, bez Filtrovať.
+        DateRangeNav(
+            fromIso = fFrom,
+            toIso = fTo,
+            onRange = { f, t -> fFrom = f; fTo = t; applyFilters() },
+        )
+        Spacer(Modifier.height(10.dp))
         FlowRowFilters {
             // Fixné šírky — vo FlowRow by interný fillMaxWidth inak roztiahol
             // každý prvok na celý riadok; takto sa na tablete zmestia vedľa
@@ -405,20 +416,6 @@ private fun ColumnScope.PoMovementsTab(toast: PosToastState) {
                 options = ingOptions,
                 onSelect = { idx -> fIngredientId = if (idx == 0) null else ingredients[idx - 1].id },
                 modifier = Modifier.width(180.dp),
-            )
-            FormField(
-                label = "Od (YYYY-MM-DD)",
-                value = fFrom,
-                onChange = { fFrom = it },
-                placeholder = "2026-01-01",
-                modifier = Modifier.width(150.dp),
-            )
-            FormField(
-                label = "Do (YYYY-MM-DD)",
-                value = fTo,
-                onChange = { fTo = it },
-                placeholder = "2026-12-31",
-                modifier = Modifier.width(150.dp),
             )
             Column {
                 Spacer(Modifier.height(18.dp))   // zarovnaj k inputom (label výška)
@@ -469,13 +466,8 @@ private fun ColumnScope.PoMovementsTab(toast: PosToastState) {
             ingredients = ingredients,
             busy = busy,
             onDismiss = { if (!busy) showAdjust = false },
-            onSave = { ingId, qty, type, note ->
-                when {
-                    ingId == null -> toast.show("Vyberte surovinu", error = true)
-                    qty == null || qty == 0.0 -> toast.show("Zadajte nenulove mnozstvo", error = true)
-                    else -> submitAdjust(ingId, qty, type, note)
-                }
-            },
+            // Povinné polia validuje modal (chyby pod poľami).
+            onSave = { ingId, qty, type, note -> submitAdjust(ingId, qty, type, note) },
         )
     }
 }
@@ -590,13 +582,16 @@ private fun PoAdjustModal(
     ingredients: List<PoIngredientDto>,
     busy: Boolean,
     onDismiss: () -> Unit,
-    onSave: (ingredientId: Int?, quantity: Double?, type: String, note: String) -> Unit,
+    onSave: (ingredientId: Int, quantity: Double, type: String, note: String) -> Unit,
 ) {
     var ingredientId by remember { mutableStateOf<Int?>(null) }
     var quantity by remember { mutableStateOf("") }
     var direction by remember { mutableStateOf("add") }     // add | remove — znamienko ide programovo
     var type by remember { mutableStateOf("adjustment") }   // adjustment | waste
     var note by remember { mutableStateOf("") }
+    // Validácia na submit — chyby pod poľami namiesto toastov (v3.3 vzor).
+    var ingError by remember { mutableStateOf<String?>(null) }
+    var qtyError by remember { mutableStateOf<String?>(null) }
 
     val ingById = remember(ingredients) { ingredients.associateBy { it.id } }
 
@@ -610,9 +605,16 @@ private fun PoAdjustModal(
             value = ingredientId?.let { id -> ingById[id]?.let { it.name + " (" + it.unit + ")" } }
                 ?: "-- Vyberte surovinu --",
             options = ingOptions,
-            onSelect = { idx -> ingredientId = if (idx == 0) null else ingredients[idx - 1].id },
+            onSelect = { idx ->
+                ingredientId = if (idx == 0) null else ingredients[idx - 1].id
+                ingError = null
+            },
             modifier = Modifier.fillMaxWidth(),
         )
+        ingError?.let {
+            Spacer(Modifier.height(4.dp))
+            Text(it, style = MaterialTheme.typography.bodySmall, color = Danger)
+        }
         Spacer(Modifier.height(12.dp))
         // Smer úpravy — znamienko sa posiela programovo (numerická klávesnica
         // na mnohých IME nemá mínus), množstvo je vždy kladné číslo.
@@ -627,9 +629,14 @@ private fun PoAdjustModal(
         FormField(
             label = "Množstvo *",
             value = quantity,
-            onChange = { quantity = it.replace(',', '.').filter { c -> c.isDigit() || c == '.' } },
+            onChange = {
+                quantity = it.replace(',', '.').filter { c -> c.isDigit() || c == '.' }
+                qtyError = null
+            },
             placeholder = "napr. 5 alebo 2,5",
             keyboard = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            suffix = ingredientId?.let { id -> ingById[id]?.unit },
+            error = qtyError,
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(12.dp))
@@ -659,11 +666,14 @@ private fun PoAdjustModal(
             ) { Text("Zrušiť") }
             Button(
                 onClick = {
+                    val id = ingredientId
+                    val q = quantity.trim().toDoubleOrNull()
+                    ingError = if (id == null) "Vyberte surovinu" else null
+                    qtyError = if (q == null || q == 0.0) "Zadajte nenulové množstvo" else null
+                    if (id == null || q == null || q == 0.0) return@Button
                     // Znamienko podľa Pridať/Odobrať — vstup je vždy kladný.
-                    val q = quantity.trim().toDoubleOrNull()?.let { v ->
-                        if (direction == "remove") -kotlin.math.abs(v) else kotlin.math.abs(v)
-                    }
-                    onSave(ingredientId, q, type, note.trim())
+                    val signed = if (direction == "remove") -kotlin.math.abs(q) else kotlin.math.abs(q)
+                    onSave(id, signed, type, note.trim())
                 },
                 enabled = !busy,
                 modifier = Modifier.weight(1f).heightIn(min = 44.dp),
@@ -881,13 +891,8 @@ private fun ColumnScope.PoWriteOffsTab(toast: PosToastState) {
             ingredients = ingredients,
             busy = busy,
             onDismiss = { if (!busy) showNew = false },
-            onSave = { reason, note, items ->
-                when {
-                    reason.isBlank() -> toast.show("Vyberte dovod odpisu", error = true)
-                    items.isEmpty() -> toast.show("Pridajte aspon jednu polozku s platnym mnozstvom", error = true)
-                    else -> createWriteOff(reason, note, items)
-                }
-            },
+            // Povinné polia validuje modal (chyby pod poľami).
+            onSave = { reason, note, items -> createWriteOff(reason, note, items) },
         )
     }
 
@@ -1163,6 +1168,10 @@ private fun PoNewWriteOffModal(
     var note by remember { mutableStateOf("") }
     var counter by remember { mutableStateOf(1) }
     val rows = remember { mutableStateListOf(PoNewRow(0, null, "")) }
+    // Validácia na submit — chyby pod poľami namiesto toastov (v3.3 vzor).
+    var reasonError by remember { mutableStateOf<String?>(null) }
+    var itemsError by remember { mutableStateOf<String?>(null) }
+    val rowQtyErrors = remember { mutableStateMapOf<Int, String>() }   // key = PoNewRow.key
 
     val ingById = remember(ingredients) { ingredients.associateBy { it.id } }
 
@@ -1182,9 +1191,16 @@ private fun PoNewWriteOffModal(
             label = "Dôvod *",
             value = reasonLabels.firstOrNull { it.first == reason }?.second ?: "-- Vyberte dôvod --",
             options = reasonLabels.map { it.second },
-            onSelect = { idx -> reason = reasonLabels[idx].first },
+            onSelect = { idx ->
+                reason = reasonLabels[idx].first
+                if (reason.isNotBlank()) reasonError = null
+            },
             modifier = Modifier.fillMaxWidth(),
         )
+        reasonError?.let {
+            Spacer(Modifier.height(4.dp))
+            Text(it, style = MaterialTheme.typography.bodySmall, color = Danger)
+        }
         Spacer(Modifier.height(12.dp))
         FormField(
             label = "Poznámka",
@@ -1213,15 +1229,21 @@ private fun PoNewWriteOffModal(
                     options = ingOptions,
                     onSelect = { idx ->
                         rows[i] = row.copy(ingredientId = if (idx == 0) null else ingredients[idx - 1].id)
+                        itemsError = null
                     },
                     modifier = Modifier.weight(2f),
                 )
                 FormField(
                     label = "",
                     value = row.qty,
-                    onChange = { rows[i] = row.copy(qty = it.replace(',', '.')) },
+                    onChange = {
+                        rows[i] = row.copy(qty = it.replace(',', '.'))
+                        rowQtyErrors.remove(row.key)
+                        itemsError = null
+                    },
                     placeholder = "Množstvo",
                     keyboard = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    error = rowQtyErrors[row.key],
                     modifier = Modifier.weight(1f),
                 )
                 Text(
@@ -1231,7 +1253,9 @@ private fun PoNewWriteOffModal(
                     color = EspressoSoft, textAlign = TextAlign.End,
                 )
                 TextButton(
-                    onClick = { if (rows.size > 1) rows.removeAt(i) },
+                    onClick = {
+                        if (rows.size > 1) { rows.removeAt(i); rowQtyErrors.remove(row.key) }
+                    },
                     contentPadding = PaddingValues(horizontal = 6.dp),
                     modifier = Modifier.padding(bottom = 6.dp),
                 ) { Text("✕", color = Danger) }
@@ -1244,6 +1268,10 @@ private fun PoNewWriteOffModal(
             colors = ButtonDefaults.outlinedButtonColors(contentColor = Terra),
             modifier = Modifier.heightIn(min = 44.dp),
         ) { Text("+ Pridať položku") }
+        itemsError?.let {
+            Spacer(Modifier.height(6.dp))
+            Text(it, style = MaterialTheme.typography.bodySmall, color = Danger)
+        }
 
         Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -1260,12 +1288,22 @@ private fun PoNewWriteOffModal(
             ) { Text("Zrušiť") }
             Button(
                 onClick = {
+                    reasonError = if (reason.isBlank()) "Vyberte dôvod odpisu" else null
+                    rowQtyErrors.clear()
+                    rows.forEach { r ->
+                        val q = r.qty.replace(',', '.').toDoubleOrNull() ?: 0.0
+                        if (r.ingredientId != null && q <= 0.0)
+                            rowQtyErrors[r.key] = "Zadajte kladné množstvo"
+                    }
                     val items = rows.mapNotNull { r ->
                         val q = r.qty.replace(',', '.').toDoubleOrNull() ?: 0.0
                         val id = r.ingredientId
                         if (id != null && q > 0) PoNewWriteOffItem(id, q) else null
                     }
-                    onSave(reason, note.trim(), items)
+                    itemsError = if (items.isEmpty())
+                        "Pridajte aspoň jednu položku s platným množstvom" else null
+                    if (reasonError == null && itemsError == null && rowQtyErrors.isEmpty())
+                        onSave(reason, note.trim(), items)
                 },
                 enabled = !busy,
                 modifier = Modifier.weight(1f).heightIn(min = 44.dp),

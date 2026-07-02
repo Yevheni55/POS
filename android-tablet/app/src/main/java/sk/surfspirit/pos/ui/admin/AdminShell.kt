@@ -79,6 +79,10 @@ enum class AdminPage(
     APLIKACIA("Aplikácia", Icons.Outlined.Tune, "app-settings", "SYSTÉM"),
 }
 
+/** Stránky bežiace vo WebView fallbacku — v navigácii dostanú „web" badge
+ *  (obsluha vie, že sa načítava živý admin z kasy, nie natívna obrazovka). */
+val WEBVIEW_PAGES = setOf(AdminPage.OBJEDNAVKY, AdminPage.MAJETOK, AdminPage.NASTAVENIA)
+
 /** Saver pre AdminPage — ukladá názov enum-u, bezpečný fallback na DASHBOARD
  *  (keby konštanta medzi verziami zmizla). */
 private val AdminPageSaver = Saver<AdminPage, String>(
@@ -126,7 +130,7 @@ fun AdminShell(onBackToPos: () -> Unit, onOpenFloorEdit: () -> Unit) {
                                 DropdownMenuItem(
                                     leadingIcon = { Icon(p.icon, null, Modifier.size(IconSize.md),
                                         tint = if (p == page) Terra else MaterialTheme.colorScheme.onSurface) },
-                                    text = { Text(p.title,
+                                    text = { Text(p.title + if (p in WEBVIEW_PAGES) " · web" else "",
                                         color = if (p == page) Terra else MaterialTheme.colorScheme.onSurface) },
                                     onClick = { page = p; navOpen = false },
                                 )
@@ -213,6 +217,14 @@ private fun RailItem(p: AdminPage, active: Boolean, onClick: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(vertical = 11.dp).weight(1f))
+            if (p in WEBVIEW_PAGES) {
+                Surface(shape = RoundedCornerShape(Radius.full), color = Navy.copy(alpha = 0.10f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Navy.copy(alpha = 0.30f))) {
+                    Text("web", Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                        style = MaterialTheme.typography.labelSmall, color = Navy)
+                }
+                Spacer(Modifier.width(6.dp))
+            }
         }
     }
 }
