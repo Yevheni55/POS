@@ -871,3 +871,72 @@ document.addEventListener('click',function(e){
 
 // Safety net: persist local orders on tab close (setOrder already persists on each change)
 window.addEventListener('beforeunload',_persistTableOrdersNow);
+
+// ============================ ČÍSLO (pípadlo) PICKER =========================
+// Povinný výber čísla pípadla pri objednávke jedla (burgre/šaláty/prílohy).
+// Mriežka čísel z MENU['cisla']; tap = callback(item), Zrušiť/Escape/backdrop
+// = callback(null) → jedlo sa NEpridá (číslo je povinné).
+function showNumberPicker(callback) {
+  var existing = document.getElementById('numberPickerModal');
+  if (existing) existing.remove();
+
+  var data = (typeof MENU !== 'undefined' && MENU['cisla']) || null;
+  var items = (data && data.items) ? data.items.slice() : [];
+  if (!items.length) { callback(null); return; }
+  items.sort(function (a, b) {
+    var na = parseInt(a.name, 10), nb = parseInt(b.name, 10);
+    if (isFinite(na) && isFinite(nb)) return na - nb;
+    return String(a.name).localeCompare(String(b.name), 'sk');
+  });
+
+  if (typeof captureModalTrigger === 'function') captureModalTrigger();
+
+  var ov = document.createElement('div');
+  ov.className = 'u-overlay';
+  ov.id = 'numberPickerModal';
+
+  var btns = items.map(function (i) {
+    return '<button type="button" class="numpick-btn" data-name="' + escAttr(i.name) + '"'
+      + ' style="min-height:64px;font-size:24px;font-weight:800;font-family:var(--font-display);'
+      + 'border:1px solid var(--border-default);border-radius:var(--radius-sm);'
+      + 'background:var(--color-bg-surface);color:var(--color-text);cursor:pointer">'
+      + escHtml(i.name) + '</button>';
+  }).join('');
+
+  ov.innerHTML = ''
+    + '<div class="u-modal" role="dialog" aria-modal="true" aria-labelledby="numberPickerTitle" style="max-width:420px">'
+    +   '<div id="numberPickerTitle" style="font-size:22px;font-weight:700;color:var(--color-text);margin:0 0 4px">Číslo pípadla</div>'
+    +   '<div style="font-size:13px;color:var(--color-text-sec);margin:0 0 14px">Jedlo sa nedá objednať bez čísla — dajte hosťovi pípadlo a vyberte jeho číslo.</div>'
+    +   '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px">' + btns + '</div>'
+    +   '<div class="u-modal-btns">'
+    +     '<button type="button" class="u-btn u-btn-ghost" id="numberPickerCancel">Zrušiť</button>'
+    +   '</div>'
+    + '</div>';
+
+  document.body.appendChild(ov);
+  requestAnimationFrame(function () { ov.classList.add('show'); });
+
+  var done = false;
+  function finish(result) {
+    if (done) return;
+    done = true;
+    ov.classList.remove('show');
+    setTimeout(function () { ov.remove(); }, 150);
+    document.removeEventListener('keydown', onKey);
+    callback(result);
+  }
+  function onKey(e) { if (e.key === 'Escape') finish(null); }
+  document.addEventListener('keydown', onKey);
+
+  ov.addEventListener('click', function (e) {
+    if (e.target === ov) { finish(null); return; }
+    var btn = e.target.closest ? e.target.closest('.numpick-btn') : null;
+    if (btn) {
+      var name = btn.getAttribute('data-name');
+      var item = items.find(function (i) { return i.name === name; });
+      finish(item || null);
+    }
+  });
+  var cancel = ov.querySelector('#numberPickerCancel');
+  if (cancel) cancel.addEventListener('click', function () { finish(null); });
+}

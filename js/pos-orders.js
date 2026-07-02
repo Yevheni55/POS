@@ -236,7 +236,11 @@ function _queueAddToast(emoji, name, qtyAdded) {
 function addToOrderN(name, emoji, price, n) {
   var count = parseInt(n, 10) || 1;
   if (count < 1) count = 1;
-  for (var i = 0; i < count; i++) addToOrder(name, emoji, price);
+  // Číslo pípadla rieš RAZ pred celou dávkou — loop cez addToOrder by pri
+  // jedle bez čísla otvoril modál n-krát (async modál vs synchrónny cyklus).
+  _ensureNumberForFood(name, function () {
+    for (var i = 0; i < count; i++) _addToOrderAfterNumber(name, emoji, price);
+  });
 }
 
 // Items that include a side-sauce in their price → otvor sauce-picker.
@@ -248,10 +252,50 @@ function _needsSaucePicker(name) {
   return false;
 }
 
+// ---------- Povinné číslo pípadla pri jedle ----------
+// Objednávka jedla (burgre/šaláty/prílohy) VYŽADUJE číslo pípadla na účte:
+// bez čísla by kuchyňa nevedela, komu jedlo zavolať. Modál sa NEukazuje,
+// keď v NEODOSLANEJ časti objednávky už číslo je (každý kuchynský bon nesie
+// číslo — poslané číslo do nového bonu nejde, preto sa pýta znova).
+var _FOOD_NUMBER_CATS = ['burgre', 'salaty', 'prilohy'];
+
+function _isFoodRequiringNumber(name) {
+  if (typeof MENU === 'undefined') return false;
+  for (var i = 0; i < _FOOD_NUMBER_CATS.length; i++) {
+    var cat = MENU[_FOOD_NUMBER_CATS[i]];
+    if (cat && cat.items && cat.items.some(function (it) { return it.name === name; })) return true;
+  }
+  return false;
+}
+
+function _orderHasUnsentNumber() {
+  var order = getOrder() || [];
+  return order.some(function (o) { return o && !o.sent && isTicketNumberItem(o.name); });
+}
+
+// Gate: jedlo prejde ďalej až keď je na neodoslanej objednávke číslo.
+// Fail-open: keď kategória 'cisla' neexistuje/je prázdna alebo picker chýba,
+// jedlo sa pridá normálne (výpadok dát nesmie zablokovať predaj).
+function _ensureNumberForFood(name, proceed) {
+  if (!_isFoodRequiringNumber(name)) { proceed(); return; }
+  if (_orderHasUnsentNumber()) { proceed(); return; }
+  var cisla = (typeof MENU !== 'undefined' && MENU['cisla']) || null;
+  if (!cisla || !cisla.items || !cisla.items.length || typeof showNumberPicker !== 'function') { proceed(); return; }
+  showNumberPicker(function (numItem) {
+    if (!numItem) return; // zrušené → jedlo sa NEpridá (číslo je povinné)
+    _addToOrderCore(numItem.name, numItem.emoji, numItem.price);
+    proceed();
+  });
+}
+
 function addToOrder(name, emoji, price) {
   var menuItemId = MENU_ID_MAP.get(name);
   if (!menuItemId) return;
+  _ensureNumberForFood(name, function () { _addToOrderAfterNumber(name, emoji, price); });
+}
 
+// Pôvodné telo addToOrder — beží až PO zaistení čísla pípadla.
+function _addToOrderAfterNumber(name, emoji, price) {
   // Combos + Kuracie hranolky majú omáčku v cene → najprv sauce-picker,
   // až potom pridáme položku + 0 EUR annotation row "Omáčka (combo)" s
   // vybranou omáčkou v note (kuchyňa to vidí na bone).
@@ -1061,7 +1105,10 @@ function _activateLoadedOrder(orderId) {
       id: i.id, name: i.name, emoji: i.emoji, price: i.price,
       qty: i.qty, note: i.note, menuItemId: i.menuItemId,
       orderId: order.id, desc: i.desc || '', sent: !!i.sent,
-      _sentQty: i.sent ? i.qty : 0
+      _sentQty: i.sent ? i.qty : 0,
+      discountType: i.discountType || null,
+      discountValue: i.discountValue != null ? parseFloat(i.discountValue) : null,
+      discountName: i.discountName || null
     };
   });
   return true;
