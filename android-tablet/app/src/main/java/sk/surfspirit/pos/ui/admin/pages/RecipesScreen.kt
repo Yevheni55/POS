@@ -463,20 +463,10 @@ private fun RcLeftPanel(
     AdminCard(Modifier.fillMaxHeight()) {
         Text("Položky menu", style = MaterialTheme.typography.titleSmall)
         Spacer(Modifier.height(8.dp))
-        OutlinedTextField(
+        SearchField(
             value = search,
-            onValueChange = onSearch,
-            placeholder = { Text("Hľadať surovinu, jedlo, kategóriu…") },
-            singleLine = true,
-            leadingIcon = { Text("🔍") },
-            trailingIcon = {
-                if (search.isNotEmpty()) {
-                    TextButton(onClick = { onSearch("") }, contentPadding = PaddingValues(8.dp)) {
-                        Text("✕", color = EspressoSoft)
-                    }
-                }
-            },
-            modifier = Modifier.fillMaxWidth(),
+            onChange = onSearch,
+            placeholder = "Hľadať surovinu, jedlo, kategóriu…",
         )
         Spacer(Modifier.height(8.dp))
 

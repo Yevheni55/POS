@@ -207,7 +207,8 @@ fun FloorScreen(
     // (Pooling beží v QrPay registry nezávisle od navigácie.)
     val qrEntries by QrPay.entries.collectAsState()
     LaunchedEffect(Unit) {
-        QrPay.events.collect { ev ->
+        // collectEvents: najprv zmeškané udalosti (backlog — Admin/Dochádzka/reštart)
+        QrPay.collectEvents { ev ->
             when (ev) {
                 is QrPay.Event.Paid -> { toast = ev.message; load(quiet = true, fullRefresh = true) }
                 is QrPay.Event.Expired -> {
@@ -339,7 +340,7 @@ fun FloorScreen(
                     shape = RoundedCornerShape(Radius.full),
                     color = Terra,
                     modifier = Modifier.align(Alignment.BottomStart).padding(14.dp)
-                        .graphicsLayer { }.zIndex(2f)
+                        .zIndex(2f)
                         .paperShadow(Elev.float, RoundedCornerShape(Radius.full)),
                 ) {
                     Text("⏳ QR čaká: ${first.tableName}" + if (pendingQr.size > 1) " +${pendingQr.size - 1}" else "",
@@ -639,11 +640,13 @@ private fun TableChip(
             occupied -> sc.copy(alpha = 0.45f)
             else -> BorderSoft
         }, colorSpecOrSnap(), label = "edge")
-    // Forgotten pulz na ľavom prúžku (reduced-motion → statický)
-    val barAlpha = if (forgotten && pulse && !reducedMotion()) {
-        val tr = rememberInfiniteTransition(label = "forgot")
-        tr.animateFloat(0.55f, 1f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "fa").value
-    } else 1f
+    // Forgotten pulz na ľavom prúžku (reduced-motion / slabý tablet → statický).
+    // State sa číta až v graphicsLayer (draw fáza) — pulz NErekomponuje chip.
+    val barAlpha: androidx.compose.runtime.State<Float>? =
+        if (forgotten && pulse && !reducedMotion() && !Perf.lowEnd) {
+            val tr = rememberInfiniteTransition(label = "forgot")
+            tr.animateFloat(0.55f, 1f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "fa")
+        } else null
     val dragScale by animateFloatAsState(if (isDragging) 1.04f else 1f, Motion.pressSpec, label = "drag")
 
     Surface(
@@ -683,7 +686,7 @@ private fun TableChip(
             // Ľavý 4 dp status prúžok — čitateľný cez celú miestnosť
             if (t.status != "free") {
                 Box(Modifier.align(Alignment.CenterStart).fillMaxHeight().width(4.dp)
-                    .alpha(barAlpha)
+                    .graphicsLayer { alpha = barAlpha?.value ?: 1f }
                     .background(if (forgotten) Danger else sc))
             }
             Column(Modifier.fillMaxSize().padding(start = 10.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),

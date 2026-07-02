@@ -152,6 +152,10 @@ fun OrderScreen(
     var showAccountPicker by remember { mutableStateOf(false) }
     // Pomenovanie účtu (meno hosťa) — web renameCurrentOrder parita
     var showRename by remember { mutableStateOf(false) }
+    var renameError by remember { mutableStateOf<String?>(null) }
+    // Confirm pre „Zrušiť" QR (pri Tatra-NOP je manuálne Zaplatené hlavná cesta —
+    // mistap na Zrušiť by zahodil sledovanie už naskenovaného QR)
+    var qrCancelConfirmTx by remember { mutableStateOf<String?>(null) }
     // Per-item zľava — cieľová položka alebo null
     var itemDiscountFor by remember { mutableStateOf<OrderItemDto?>(null) }
     var itemDiscountError by remember { mutableStateOf<String?>(null) }
@@ -186,10 +190,8 @@ fun OrderScreen(
     }
 
     // Tick pre odpočet manažérskeho okna — chip sa má sám prekresľovať aj skryť
-    var elevationTick by remember { mutableStateOf(0L) }
-    LaunchedEffect(Unit) {
-        while (true) { elevationTick = Api.elevatedRemainingMs(); delay(1_000) }
-    }
+    // (odpočet manažérskeho okna žije v ElevationChip — sekundový tick
+    //  nesmie rekomponovať celý order pad)
 
     // Manažérske okno: PIN raz za ~110 s — verify-manager token už beží
     // (X-Elevated na gated volaniach), gate ho len rešpektuje. Čašník tak
@@ -221,7 +223,13 @@ fun OrderScreen(
     // úspešnej odpovedi (vrátane server-replay), takže ďalšia dávka dostane
     // nový. Server kľúč pri 4xx/5xx uvoľní, takže override-retry po 422
     // s rovnakým kľúčom prejde.
-    var sendNonce by remember(current?.id) { mutableStateOf(java.util.UUID.randomUUID().toString()) }
+    // Kľúč per ÚČET v mape — remember(current?.id) tu bol zradný: prechod
+    // null→id (prvý send na čerstvom stole) ticho vyrotoval kľúč a retry po
+    // timeoute šiel s iným X-Idempotency-Key → druhý bon + druhý odpis skladu.
+    val sendNonces = remember { mutableStateMapOf<Int, String>() }
+    fun sendNonceFor(oid: Int): String =
+        sendNonces.getOrPut(oid) { java.util.UUID.randomUUID().toString() }
+    fun rotateSendNonce(oid: Int) { sendNonces[oid] = java.util.UUID.randomUUID().toString() }
     // Idempotency nonce per dialóg/akcia — kľúč vzniká pri otvorení dialógu
     // (vstupe do módu); retry TEJ ISTEJ akcie po chybe (dialóg/mód ostáva
     // aktívny) drží rovnaký kľúč, nová inštancia dostane nový.
@@ -526,8 +534,8 @@ fun OrderScreen(
             try {
                 val ord = withContext(Dispatchers.IO) { syncToServer() }
                 if (ord == null) { busy = false; onDone?.invoke(); return@launch }
-                val resp = withContext(Dispatchers.IO) { Api.service.sendAndPrint(ord.id, SendReq(overrideLimit), "send-$sendNonce") }
-                sendNonce = java.util.UUID.randomUUID().toString()
+                val resp = withContext(Dispatchers.IO) { Api.service.sendAndPrint(ord.id, SendReq(overrideLimit), "send-${sendNonceFor(ord.id)}") }
+                rotateSendNonce(ord.id)
                 val printToast = withContext(Dispatchers.IO) { printItems(resp.items, ord.id, storno = false) }
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 toast = printToast ?: "Odoslané (${resp.items.sumOf { it.qty }} ks)"
@@ -717,6 +725,7 @@ fun OrderScreen(
                 paragonNonce = java.util.UUID.randomUUID().toString()
                 paragonOffer = null
                 showPay = false
+                ord?.id?.let { QrPay.cancelForOrder(it) }   // účet uzavretý paragónom
                 newItems.clear(); Store.saveDraft(tableId, emptyList())
                 Store.saveLastTable(null)
                 onBack()
@@ -748,8 +757,8 @@ fun OrderScreen(
                 val ord = withContext(Dispatchers.IO) { syncToServer() } ?: run { busy = false; return@launch }
                 // auto-send neodoslaných (kvôli odpočtu skladu) — s limit gate
                 try {
-                    val sresp = withContext(Dispatchers.IO) { Api.service.sendAndPrint(ord.id, SendReq(false), "send-$sendNonce") }
-                    sendNonce = java.util.UUID.randomUUID().toString()
+                    val sresp = withContext(Dispatchers.IO) { Api.service.sendAndPrint(ord.id, SendReq(false), "send-${sendNonceFor(ord.id)}") }
+                    rotateSendNonce(ord.id)
                     withContext(Dispatchers.IO) { printItems(sresp.items, ord.id, storno = false) }
                 } catch (se: Exception) {
                     if (se.httpCode() == 422) {
@@ -758,8 +767,8 @@ fun OrderScreen(
                             scope.launch {
                                 try {
                                     busy = true
-                                    val sr = withContext(Dispatchers.IO) { Api.service.sendAndPrint(ord.id, SendReq(true), "send-$sendNonce") }
-                                    sendNonce = java.util.UUID.randomUUID().toString()
+                                    val sr = withContext(Dispatchers.IO) { Api.service.sendAndPrint(ord.id, SendReq(true), "send-${sendNonceFor(ord.id)}") }
+                                    rotateSendNonce(ord.id)
                                     withContext(Dispatchers.IO) { printItems(sr.items, ord.id, storno = false) }
                                     busy = false
                                     doPay(method, given, underpayConfirmed = true)
@@ -860,6 +869,9 @@ fun OrderScreen(
                 when (outcome.kind) {
                     "success", "offline_accepted", "no_fiscal" -> {
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        // Účet zaplatený hotovosťou/kartou — visiaci QR pre ten istý
+                        // účet zhoď, inak by neskoršia QR úhrada spravila druhý príjem.
+                        QrPay.cancelForOrder(ord.id)
                         showPay = false
                         toast = if (outcome.kind == "success")
                             "Zaplatené ${money(amount)} (${if (method == "karta") "karta" else "hotovosť"})"
@@ -961,15 +973,23 @@ fun OrderScreen(
 
     // ---------- pomenovanie účtu (web renameCurrentOrder parita) ----------
     fun doRename(name: String) {
-        busy = true
+        busy = true; renameError = null
         scope.launch {
             try {
-                val ord = withContext(Dispatchers.IO) { syncToServer() } ?: run { busy = false; return@launch }
+                // Prázdny stôl: syncToServer() nemá čo vytvoriť → založ prázdny
+                // účet s labelom rovno (žiadny tichý no-op na „Uložiť").
+                val ord = withContext(Dispatchers.IO) { syncToServer() }
+                    ?: withContext(Dispatchers.IO) {
+                        Api.service.createOrder(null, CreateOrderReq(tableId, emptyList(), name.take(20)))
+                    }.also { reload(it.id, quiet = true) }
                 val res = withContext(Dispatchers.IO) { Api.service.renameOrder(ord.id, RenameOrderReq(name)) }
                 showRename = false
                 toast = "Účet pomenovaný: ${res.order?.label ?: name}"
                 reload(ord.id, quiet = true)
-            } catch (e: Exception) { toast = errorMessage(e).ifBlank { "Premenovanie zlyhalo" } }
+            } catch (e: Exception) {
+                // Chyba INLINE v dialógu — toast by sa vykreslil ZA modálom
+                renameError = errorMessage(e).ifBlank { "Premenovanie zlyhalo" }
+            }
             finally { busy = false }
         }
     }
@@ -986,14 +1006,34 @@ fun OrderScreen(
         scope.launch {
             try {
                 val ord = withContext(Dispatchers.IO) { syncToServer() } ?: run { busy = false; return@launch }
-                // Auto-send neodoslaných — sklad sa odpisuje cez /send (odpis sám skladom nehýbe)
+                // Auto-send neodoslaných — sklad sa odpisuje cez /send (odpis sám
+                // skladom nehýbe). 422 spend-limit sa NESMIE prehltnúť: odpis by
+                // sa zavrel s neodoslanými položkami bez odpisu skladu → gate.
                 try {
-                    val sresp = withContext(Dispatchers.IO) { Api.service.sendAndPrint(ord.id, SendReq(false), "send-$sendNonce") }
-                    sendNonce = java.util.UUID.randomUUID().toString()
+                    val sresp = withContext(Dispatchers.IO) { Api.service.sendAndPrint(ord.id, SendReq(false), "send-${sendNonceFor(ord.id)}") }
+                    rotateSendNonce(ord.id)
                     withContext(Dispatchers.IO) { printItems(sresp.items, ord.id, storno = false) }
-                } catch (se: Exception) { if (se.httpCode() != 422) throw se }
+                } catch (se: Exception) {
+                    if (se.httpCode() == 422) {
+                        busy = false
+                        gate(errorMessage(se) + " Pokračovať s odoslaním?") {
+                            scope.launch {
+                                try {
+                                    busy = true
+                                    val sr = withContext(Dispatchers.IO) { Api.service.sendAndPrint(ord.id, SendReq(true), "send-${sendNonceFor(ord.id)}") }
+                                    rotateSendNonce(ord.id)
+                                    withContext(Dispatchers.IO) { printItems(sr.items, ord.id, storno = false) }
+                                    busy = false
+                                    doOdpis()   // položky už odoslané → pokračuje rovno na close
+                                } catch (e2: Exception) { busy = false; error = errorMessage(e2) }
+                            }
+                        }
+                        return@launch
+                    } else throw se
+                }
                 val res = withContext(Dispatchers.IO) { Api.service.closeAsOdpis(ord.id, CloseReq()) }
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                QrPay.cancelForOrder(ord.id)   // visiaci QR už nemá čo finalizovať
                 toast = "Účet odpísaný — ${money(res.odpisAmount)}"
                 newItems.clear(); Store.saveDraft(tableId, emptyList())
                 Store.saveLastTable(null)
@@ -1017,11 +1057,29 @@ fun OrderScreen(
                 val ord = withContext(Dispatchers.IO) { syncToServer() } ?: run { busy = false; return@launch }
                 // Doriešiť neodoslané TERAZ (kým je účet aktívny) — finalizácia
                 // na pozadí potom potrebuje už len zaúčtovať platbu (web parita).
+                // 422 spend-limit → manager gate (nie tiché prehltnutie).
                 try {
-                    val sresp = withContext(Dispatchers.IO) { Api.service.sendAndPrint(ord.id, SendReq(false), "send-$sendNonce") }
-                    sendNonce = java.util.UUID.randomUUID().toString()
+                    val sresp = withContext(Dispatchers.IO) { Api.service.sendAndPrint(ord.id, SendReq(false), "send-${sendNonceFor(ord.id)}") }
+                    rotateSendNonce(ord.id)
                     withContext(Dispatchers.IO) { printItems(sresp.items, ord.id, storno = false) }
-                } catch (se: Exception) { if (se.httpCode() != 422) throw se }
+                } catch (se: Exception) {
+                    if (se.httpCode() == 422) {
+                        busy = false
+                        gate(errorMessage(se) + " Pokračovať s odoslaním?") {
+                            scope.launch {
+                                try {
+                                    busy = true
+                                    val sr = withContext(Dispatchers.IO) { Api.service.sendAndPrint(ord.id, SendReq(true), "send-${sendNonceFor(ord.id)}") }
+                                    rotateSendNonce(ord.id)
+                                    withContext(Dispatchers.IO) { printItems(sr.items, ord.id, storno = false) }
+                                    busy = false
+                                    doQrPay()
+                                } catch (e2: Exception) { busy = false; error = errorMessage(e2) }
+                            }
+                        }
+                        return@launch
+                    } else throw se
+                }
                 val info = withContext(Dispatchers.IO) { Api.service.qrCreate(QrCreateReq(ord.id)) }
                 if (info.transactionId.isBlank() || (!info.printed && info.qrDataUrl.isNullOrBlank())) {
                     error = "QR platba nie je dostupná"; busy = false; return@launch
@@ -1037,18 +1095,27 @@ fun OrderScreen(
     }
 
     // QR platby — registry beží na pozadí (application scope), UI len zobrazuje.
+    // collectEvents: najprv zmeškané udalosti (backlog z čias bez collectora —
+    // Admin/Dochádzka/reštart), potom živý stream.
     val qrEntries by QrPay.entries.collectAsState()
     LaunchedEffect(Unit) {
-        QrPay.events.collect { ev ->
+        QrPay.collectEvents { ev ->
             when (ev) {
                 is QrPay.Event.Paid -> {
                     if (qrDialogTx == ev.entry.transactionId) qrDialogTx = null
                     if (ev.entry.orderId == current?.id) {
-                        // Zaplatený PRÁVE otvorený účet — späť na podlažie (web parita)
-                        toast = "✓ Zaplatené cez QR — doklad vytlačený"
-                        newItems.clear(); Store.saveDraft(tableId, emptyList())
-                        Store.saveLastTable(null)
-                        onBack()
+                        // Zaplatený PRÁVE otvorený účet — späť na podlažie (web
+                        // parita). POZOR: košík čisti len keď je PRÁZDNY — položky
+                        // vbité počas čakania na QR nesmú ticho zmiznúť.
+                        if (newItems.isEmpty()) {
+                            toast = "✓ Zaplatené cez QR — doklad vytlačený"
+                            Store.saveDraft(tableId, emptyList())
+                            Store.saveLastTable(null)
+                            onBack()
+                        } else {
+                            toast = "✓ QR pokryl pôvodnú sumu — v košíku ostali NOVÉ položky (${newItems.sumOf { it.qty }} ks)."
+                            reload(null, quiet = true)   // zavretý účet → čerstvý zoznam účtov
+                        }
                     } else {
                         toast = ev.message
                         if (ev.entry.tableId == tableId) reload(current?.id, quiet = true)
@@ -1087,12 +1154,21 @@ fun OrderScreen(
                 val ord = withContext(Dispatchers.IO) { syncToServer() } ?: return@launch
                 // košík vyčistený v syncToServer
                 val label = "Ucet ${accounts.size + 1}"
+                // Vlastný idempotency kľúč (server skopuje kľúč per path) — retry
+                // po timeoute NEsplodí druhý prázdny „Ucet N" na stole.
                 val newOrder = withContext(Dispatchers.IO) {
-                    Api.service.createOrder(null, CreateOrderReq(tableId, emptyList(), label))
+                    Api.service.createOrder("split-items-create-$splitNonce", CreateOrderReq(tableId, emptyList(), label))
                 }
-                withContext(Dispatchers.IO) {
-                    Api.service.moveItems(ord.id, MoveReq(itemQtys = itemQtys,
-                        targetTableId = tableId, targetOrderId = newOrder.id), "split-items-$splitNonce")
+                try {
+                    withContext(Dispatchers.IO) {
+                        Api.service.moveItems(ord.id, MoveReq(itemQtys = itemQtys,
+                            targetTableId = tableId, targetOrderId = newOrder.id), "split-items-$splitNonce")
+                    }
+                } catch (me: Exception) {
+                    // Presun zlyhal → po sebe uprac prázdny nový účet (ghost by
+                    // držal stôl obsadený); mazanie je best-effort.
+                    withContext(Dispatchers.IO) { runCatching { Api.service.deleteOrder(newOrder.id) } }
+                    throw me
                 }
                 showSplit = false
                 val n = itemQtys.sumOf { it.qty ?: 0 }
@@ -1205,6 +1281,7 @@ fun OrderScreen(
                             withContext(Dispatchers.IO) { printItems(resp.items, ord.id, storno = true) }
                         }
                         withContext(Dispatchers.IO) { Api.service.deleteOrder(ord.id) }
+                        QrPay.cancelForOrder(ord.id)   // visiaci QR uz nema co finalizovat
                     }
                     newItems.clear(); persistDraft()
                     showCancel = false; toast = "Objednávka zrušená"
@@ -1234,11 +1311,12 @@ fun OrderScreen(
                 }
                 // auto-send (odpočet skladu) pred uzávierkou; položky, ktoré už
                 // boli odoslané, server preskočí → prázdny send je neškodný
-                val sresp = withContext(Dispatchers.IO) { Api.service.sendAndPrint(ord.id, SendReq(false), "send-$sendNonce") }
-                sendNonce = java.util.UUID.randomUUID().toString()
+                val sresp = withContext(Dispatchers.IO) { Api.service.sendAndPrint(ord.id, SendReq(false), "send-${sendNonceFor(ord.id)}") }
+                rotateSendNonce(ord.id)
                 withContext(Dispatchers.IO) { printItems(sresp.items, ord.id, storno = false) }
                 val resp = withContext(Dispatchers.IO) { Api.service.closeStaffMeal(ord.id, StaffMealReq(overrideLimit = overrideLimit)) }
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                QrPay.cancelForOrder(ord.id)   // ucet zavrety benefitom — QR zhod
                 showStaffMeal = false
                 val cogs = resp.totalCogs?.toDoubleOrNull()
                 toast = if (cogs != null) "Zamestnanecká spotreba zaznamenaná — náklad: ${money(cogs)}"
@@ -1499,11 +1577,17 @@ fun OrderScreen(
                            || it.desc.contains(search, ignoreCase = true) }
                     .sortedWith(menuLogicComparator)
             }
-            val catColorById = remember(categories) {
+            // Na tme statické CAT_COLORS zanikajú — zosvetli lerp-om k bielej
+            // (zonácia gridu ostáva čitateľná v Night Service).
+            val darkCats = LocalHearth.current.isDark
+            val catColorById = remember(categories, darkCats) {
                 buildMap {
                     categories.forEach { c ->
-                        val col = CAT_COLORS[c.slug]
-                        if (col != null) c.items.forEach { put(it.id, col) }
+                        val col0 = CAT_COLORS[c.slug]
+                        if (col0 != null) {
+                            val col = if (darkCats) androidx.compose.ui.graphics.lerp(col0, Color.White, 0.30f) else col0
+                            c.items.forEach { put(it.id, col) }
+                        }
                     }
                 }
             }
@@ -1573,6 +1657,14 @@ fun OrderScreen(
                         value = search, onValueChange = { search = it },
                         placeholder = { Text("Hľadať produkt alebo kategóriu…") },
                         leadingIcon = { Icon(Icons.Filled.Search, null, tint = MaterialTheme.colorScheme.outline) },
+                        // Clear (X) — jeden tap namiesto držania backspace v rushi
+                        trailingIcon = if (search.isNotEmpty()) {
+                            {
+                                IconButton(onClick = { search = "" }) {
+                                    Icon(Icons.Filled.Close, "Vymazať hľadanie", Modifier.size(IconSize.md))
+                                }
+                            }
+                        } else null,
                         singleLine = true, shape = RoundedCornerShape(Radius.full),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedContainerColor = Color.Transparent,
@@ -1625,20 +1717,8 @@ fun OrderScreen(
                         Spacer(Modifier.weight(1f))
                         // Manažérske okno — amber chip s odpočtom; tap = okamžité
                         // ukončenie elevácie (manažér odchádza od tabletu)
-                        if (!isManager && elevationTick > 0) {
-                            val secs = (elevationTick / 1000).toInt()
-                            Surface(
-                                onClick = { Api.clearElevated(); elevationTick = 0 },
-                                shape = RoundedCornerShape(Radius.full),
-                                color = Amber.copy(alpha = 0.14f),
-                                border = BorderStroke(1.dp, Amber.copy(alpha = 0.5f)),
-                            ) {
-                                Text("Manažérsky režim · ${secs / 60}:%02d".format(secs % 60),
-                                    Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                    style = MaterialTheme.typography.labelMedium, color = Amber)
-                            }
-                            Spacer(Modifier.width(8.dp))
-                        }
+                        // Sekundový odpočet žije v ElevationChip — nerekomponuje order pad
+                        if (!isManager) ElevationChip()
                         if (sentQty > 0) Text("$sentQty ks v kuchyni", style = MaterialTheme.typography.labelMedium, color = Sage)
                     }
                     // účty (taby s meta: počet pol. + suma — web parita)
@@ -1649,7 +1729,15 @@ fun OrderScreen(
                             AccountTab(acc.label.ifBlank { "Účet #${acc.id}" },
                                 if (cnt > 0) "$cnt pol. · ${money(acc.grandTotal)}" else "prázdny",
                                 acc.id == current?.id) {
-                                if (moveMode) moveSelectedTo(acc.id, tableId) else current = acc
+                                if (moveMode) moveSelectedTo(acc.id, tableId)
+                                else {
+                                    // Nesynchnutý koncept „precestuje" na iný účet ticho —
+                                    // upozorni (rush ochrana pred účtovaním na zlý účet).
+                                    if (acc.id != current?.id && newItems.isNotEmpty()) {
+                                        toast = "Rozpísané položky (${newItems.sumOf { it.qty }} ks) sa pošlú na ${acc.label.ifBlank { "Účet #${acc.id}" }}."
+                                    }
+                                    current = acc
+                                }
                             }
                         }
                         AccountTab("+", null, false) { if (!moveMode) newAccount() else moveSelectedToNewAccount() }
@@ -1668,8 +1756,13 @@ fun OrderScreen(
                     }
                     Spacer(Modifier.height(8.dp))
 
-                    // položky
-                    Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // položky — autoscroll na koniec pri pridaní (nové riadky padali
+                    // pod fold; priorita prevádzky „všetko vidno bez scrollu")
+                    val orderListScroll = rememberScrollState()
+                    LaunchedEffect(newItems.size) {
+                        if (newItems.isNotEmpty() && !moveMode) orderListScroll.animateScrollTo(orderListScroll.maxValue)
+                    }
+                    Column(Modifier.weight(1f).verticalScroll(orderListScroll), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         current?.items?.forEach { it2 ->
                             if (moveMode) {
                                 // Annotation riadky (Omáčka) sa nepresúvajú samostatne
@@ -1789,10 +1882,26 @@ fun OrderScreen(
                                 style = MaterialTheme.typography.labelLarge)
                         }
                         Spacer(Modifier.height(6.dp))
-                        OutlinedButton(onClick = { doPreBill() }, enabled = hasItems && !busy,
-                            modifier = Modifier.fillMaxWidth().height(46.dp),
-                            border = BorderStroke(1.dp, if (hasItems) Navy else BorderSoft)) {
-                            Text("Predúčet", color = if (hasItems) Navy else EspressoDim)
+                        // Predúčet + QR platba v JEDNOM riadku — stĺpec 7 full-width
+                        // tlačidiel bral zoznamu položiek ~100 dp (priorita „všetko vidno").
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            OutlinedButton(onClick = { doPreBill() }, enabled = hasItems && !busy,
+                                modifier = Modifier.weight(1f).height(46.dp),
+                                border = BorderStroke(1.dp, if (hasItems) Navy else BorderSoft)) {
+                                Text("Predúčet", color = if (hasItems) Navy else EspressoDim)
+                            }
+                            if (AppPrefs.qrPaymentEnabled) {
+                                val runningQr = qrEntries.firstOrNull { it.orderId == current?.id }
+                                OutlinedButton(onClick = { doQrPay() },
+                                    enabled = (hasItems || runningQr != null) && !busy,
+                                    modifier = Modifier.weight(1f).height(46.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Terra),
+                                    border = BorderStroke(1.dp, if (hasItems || runningQr != null) Terra.copy(alpha = 0.6f) else BorderSoft)) {
+                                    Icon(Icons.Outlined.QrCode2, null, Modifier.size(IconSize.md))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(if (runningQr != null) "QR čaká…" else "QR platba")
+                                }
+                            }
                         }
                         Spacer(Modifier.height(6.dp))
                         val payHeight by animateDpAsState(if (payPrimary) 52.dp else 48.dp,
@@ -1814,22 +1923,6 @@ fun OrderScreen(
                                     .pressScale(cardInt),
                                 colors = ButtonDefaults.buttonColors(containerColor = Terra, contentColor = Cream)) { Text("Karta") }
                         }
-                        // QR platba (Portos PayMe) — full-width pod hotovosť/karta (web parita);
-                        // vypínateľná v admin → Aplikácia. Bežiaca QR platba pre tento
-                        // účet mení tlačidlo na re-open indikátor.
-                        if (AppPrefs.qrPaymentEnabled) {
-                            Spacer(Modifier.height(6.dp))
-                            val runningQr = qrEntries.firstOrNull { it.orderId == current?.id }
-                            OutlinedButton(onClick = { doQrPay() },
-                                enabled = (hasItems || runningQr != null) && !busy,
-                                modifier = Modifier.fillMaxWidth().height(46.dp),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Terra),
-                                border = BorderStroke(1.dp, if (hasItems || runningQr != null) Terra.copy(alpha = 0.6f) else BorderSoft)) {
-                                Icon(Icons.Outlined.QrCode2, null, Modifier.size(IconSize.md))
-                                Spacer(Modifier.width(6.dp))
-                                Text(if (runningQr != null) "QR čaká na úhradu…" else "QR platba")
-                            }
-                        }
                         if (tables.firstOrNull { it.id == tableId }?.zone == "zamestanci") {
                             Spacer(Modifier.height(6.dp))
                             OutlinedButton(onClick = { showStaffMeal = true }, enabled = hasItems && !busy,
@@ -1837,20 +1930,17 @@ fun OrderScreen(
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = Amber),
                                 border = BorderStroke(1.dp, Amber.copy(alpha = 0.5f))) { Text("Zamestnanecká spotreba") }
                         }
-                        // Odpis (mimo fiškál) — LEN rola admin (server vynúti tiež);
-                        // web parita: one-click bez confirm (požiadavka prevádzky).
-                        if (AppPrefs.role == "admin") {
-                            Spacer(Modifier.height(6.dp))
-                            OutlinedButton(onClick = { doOdpis() }, enabled = hasItems && !busy,
-                                modifier = Modifier.fillMaxWidth().height(46.dp),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = EspressoDim),
-                                border = BorderStroke(1.dp, BorderMid)) { Text("Odpis (mimo fiškál)") }
-                        }
                         Spacer(Modifier.height(6.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             ExtraBtn("Presun účet", Sage, Modifier.weight(1f), hasItems && !busy) { showMovePicker = true }
                             ExtraBtn("Rozdeliť", Terra, Modifier.weight(1f), hasItems && !busy) { splitError = null; showSplit = true }
                             ExtraBtn("Zľava", Amber, Modifier.weight(1f), hasItems && !busy) { discountError = null; showDiscount = true }
+                            // Odpis (mimo fiškál) — LEN rola admin (server vynúti tiež);
+                            // web parita: one-click bez confirm. Zriedkavá akcia →
+                            // 4. slot v extra-riadku namiesto full-width tlačidla.
+                            if (AppPrefs.role == "admin") {
+                                ExtraBtn("Odpis", EspressoDim, Modifier.weight(1f), hasItems && !busy) { doOdpis() }
+                            }
                         }
                         Spacer(Modifier.height(6.dp))
                         TextButton(onClick = { showCancel = true }, enabled = (hasItems || current != null) && !busy,
@@ -1926,7 +2016,9 @@ fun OrderScreen(
     // Pomenovanie účtu — predvyplní vlastný label (nie default „Ucet N")
     if (showRename) {
         val curLabel = current?.label?.takeIf { it.isNotBlank() && !Regex("^ucet\\s*\\d+$", RegexOption.IGNORE_CASE).matches(it.trim()) } ?: ""
-        RenameOrderDialog(curLabel, busy, onSave = { doRename(it) }, onDismiss = { showRename = false })
+        RenameOrderDialog(curLabel, busy, error = renameError,
+            onSave = { doRename(it) },
+            onDismiss = { showRename = false; renameError = null })
     }
     // Per-item zľava — rovnaký dialóg ako zľava na účet, len s cieľom položky
     itemDiscountFor?.let { item ->
@@ -1954,7 +2046,16 @@ fun OrderScreen(
                 qrDialogTx = null
                 toast = "QR platba beží na pozadí — po úhrade sa doklad vytlačí automaticky."
             },
-            onCancel = { QrPay.cancel(tx); qrDialogTx = null })
+            // Deštruktívne Zrušiť je 4 dp od „Na pozadí" a pri Tatra-NOP je manuálne
+            // Zaplatené HLAVNÁ cesta — mistap nesmie zahodiť sledovanie bez otázky.
+            onCancel = { qrCancelConfirmTx = tx })
+    }
+    qrCancelConfirmTx?.let { tx ->
+        ConfirmDialog("Zrušiť QR platbu?",
+            "Zákazník mohol QR z bončeka už naskenovať. Zrušením sa prestane sledovať úhrada a doklad sa nevystaví automaticky.",
+            confirmLabel = "Zrušiť QR", danger = true, busy = false,
+            onConfirm = { QrPay.cancel(tx); qrCancelConfirmTx = null; qrDialogTx = null },
+            onDismiss = { qrCancelConfirmTx = null })
     }
     saucePending?.let { mi ->
         SauceDialog(mi.name, previous = lastSauceFor(mi.name),
@@ -1990,6 +2091,7 @@ fun OrderScreen(
             subtotal = serverSubtotal + cartSubtotal, discount = discount,
             busy = busy, error = payError, fiscalNote = payFiscal, initialMethod = payInitMethod,
             payPhase = payPhase, payPhaseStartedAt = payPhaseStartedAt,
+            pendingQrWarning = qrEntries.any { it.orderId == current?.id },
             onPay = { method, given -> doPay(method, given) },
             onDismiss = { if (!busy) showPay = false })
     }
@@ -2461,4 +2563,29 @@ private fun StepBtn(label: String, onClick: () -> Unit) {
             }
         }
     }
+}
+
+/**
+ * Amber chip manazerskeho okna s odpoctom — IZOLOVANY composable: sekundovy
+ * tick rekomponuje len tento chip, nie cely order pad (perf na slabom tablete).
+ */
+@Composable
+private fun ElevationChip() {
+    var remainMs by remember { mutableStateOf(Api.elevatedRemainingMs()) }
+    LaunchedEffect(Unit) {
+        while (true) { remainMs = Api.elevatedRemainingMs(); delay(1_000) }
+    }
+    if (remainMs <= 0) return
+    val secs = (remainMs / 1000).toInt()
+    Surface(
+        onClick = { Api.clearElevated(); remainMs = 0 },
+        shape = RoundedCornerShape(Radius.full),
+        color = Amber.copy(alpha = 0.14f),
+        border = BorderStroke(1.dp, Amber.copy(alpha = 0.5f)),
+    ) {
+        Text("Manažérsky režim · ${secs / 60}:%02d".format(secs % 60),
+            Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelMedium, color = Amber)
+    }
+    Spacer(Modifier.width(8.dp))
 }

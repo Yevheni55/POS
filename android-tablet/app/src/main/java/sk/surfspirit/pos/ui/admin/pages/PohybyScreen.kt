@@ -212,15 +212,13 @@ private fun poFmtDate(iso: String?): String = fmtBratislava(iso, "dd.MM.yyyy HH:
 
 /* ---------------- Badge mapy (web parita) ---------------- */
 
-private val PoPurple = Color(0xFF6B4FA0)   // sale / theft
-
 private data class PoBadge(val label: String, val color: Color)
 
 /** Typ pohybu → badge (zhoda s dashboard / inventory mapou). */
 @Composable
 private fun poMovementBadge(type: String): PoBadge = when (type) {
     "purchase"   -> PoBadge("Prijem", Sage)
-    "sale"       -> PoBadge("Predaj", PoPurple)
+    "sale"       -> PoBadge("Predaj", Purple)
     "adjustment" -> PoBadge("Uprava", Navy)
     "waste"      -> PoBadge("Odpad", Danger)
     "inventory"  -> PoBadge("Inventura", Amber)
@@ -231,7 +229,7 @@ private fun poMovementBadge(type: String): PoBadge = when (type) {
 private fun poReasonBadge(reason: String): PoBadge = when (reason) {
     "expiration" -> PoBadge("Expiracia", Amber)
     "damage"     -> PoBadge("Poskodenie", Danger)
-    "theft"      -> PoBadge("Kradez", PoPurple)
+    "theft"      -> PoBadge("Kradez", Purple)
     "staff_meal" -> PoBadge("Zamestnanecka spotreba", Amber)
     "other"      -> PoBadge("Ine", EspressoDim)
     else         -> PoBadge(if (reason.isBlank()) "—" else reason, EspressoDim)
@@ -985,7 +983,7 @@ private fun ColumnScope.PoSummaryView(
     }
     Spacer(Modifier.height(12.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        StatCard("Krádež", poFmtEur(byReason["theft"] ?: 0.0), accent = PoPurple, modifier = Modifier.weight(1f))
+        StatCard("Krádež", poFmtEur(byReason["theft"] ?: 0.0), accent = Purple, modifier = Modifier.weight(1f))
         StatCard("Iné (storno, spotreba)", poFmtEur(byReason["other"] ?: 0.0), accent = EspressoDim, modifier = Modifier.weight(1f))
         Spacer(Modifier.weight(1f))
     }

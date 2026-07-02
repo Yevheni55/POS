@@ -13,14 +13,19 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import org.json.JSONObject
 import sk.surfspirit.pos.core.AppPrefs
 import sk.surfspirit.pos.ui.theme.Cream
+import sk.surfspirit.pos.ui.theme.LocalHearth
+import sk.surfspirit.pos.ui.theme.Space
 
 /**
  * Celý Admin na tablete — natívny shell + WebView na ŽIVÝ admin z kasy
@@ -44,6 +49,11 @@ fun AdminScreen(onBack: () -> Unit, initialHash: String? = null) {
     var error by remember { mutableStateOf<String?>(null) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
 
+    // Paleta sa číta v composable scope (LocalHearth) — vo factory/inject
+    // lambdách sa už composable gettery volať nesmú.
+    val isDark = LocalHearth.current.isDark
+    val creamArgb = Cream.toArgb()
+
     val serverUrl = remember { AppPrefs.serverUrl.trimEnd('/') }
     val bootstrapUrl = remember { "$serverUrl/api/health" }
     val adminUrl = remember(initialHash) {
@@ -66,7 +76,8 @@ fun AdminScreen(onBack: () -> Unit, initialHash: String? = null) {
                     settings.databaseEnabled = true
                     settings.useWideViewPort = true
                     settings.loadWithOverviewMode = true
-                    setBackgroundColor(android.graphics.Color.rgb(245, 239, 227)) // Cream
+                    // Podklad z palety — žiadny biely záblesk pred paint-om
+                    setBackgroundColor(creamArgb)
 
                     addJavascriptInterface(object {
                         @JavascriptInterface
@@ -123,6 +134,8 @@ fun AdminScreen(onBack: () -> Unit, initialHash: String? = null) {
 
                         // Idempotentné — setItem dvakrát neuškodí; beží na
                         // bootstrap-finish (primárne) aj admin-start (poistka).
+                        // pos_theme: anti-FOUC bootstrap admin index.html číta
+                        // localStorage — zosúladíme web tému s paletou appky.
                         private fun injectAuth(view: WebView) {
                             val user = JSONObject()
                                 .put("id", AppPrefs.userId)
@@ -130,10 +143,12 @@ fun AdminScreen(onBack: () -> Unit, initialHash: String? = null) {
                                 .put("role", AppPrefs.role ?: "")
                                 .toString()
                             val token = AppPrefs.token ?: ""
+                            val theme = if (isDark) "dark" else "light"
                             view.evaluateJavascript(
                                 """
                                 sessionStorage.setItem('pos_token', ${JSONObject.quote(token)});
                                 sessionStorage.setItem('pos_user', ${JSONObject.quote(user)});
+                                localStorage.setItem('pos_theme', '$theme');
                                 """.trimIndent(), null)
                         }
                     }
@@ -163,7 +178,14 @@ fun AdminScreen(onBack: () -> Unit, initialHash: String? = null) {
                     ) {
                         Text(msg, style = MaterialTheme.typography.bodyLarge,
                             modifier = Modifier.padding(24.dp))
-                        Button(onClick = onBack) { Text("Späť na kasu") }
+                        Row(horizontalArrangement = Arrangement.spacedBy(Space.s3)) {
+                            OutlinedButton(onClick = onBack) { Text("Späť na kasu") }
+                            Button(onClick = {
+                                error = null
+                                loading = true
+                                webViewRef?.reload()
+                            }) { Text("Skúsiť znova") }
+                        }
                     }
                 }
             }

@@ -45,6 +45,7 @@ import sk.surfspirit.pos.ui.admin.LoadingBox
 import sk.surfspirit.pos.ui.admin.PillTabs
 import sk.surfspirit.pos.ui.admin.PosTableHeader
 import sk.surfspirit.pos.ui.admin.PosTableRow
+import sk.surfspirit.pos.ui.admin.SearchField
 import sk.surfspirit.pos.ui.admin.StatusBadge
 import sk.surfspirit.pos.ui.admin.TableCell
 import sk.surfspirit.pos.ui.admin.TableCol
@@ -341,13 +342,13 @@ fun PaymentsScreen() {
                         onSelect = { methodTab = it },
                     )
                     Spacer(Modifier.height(12.dp))
-                    OutlinedTextField(
+                    Text("Hľadať", style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(6.dp))
+                    SearchField(
                         value = query,
-                        onValueChange = { query = it },
-                        placeholder = { Text("ID platby, stôl, objednávka…") },
-                        singleLine = true,
-                        label = { Text("Hľadať") },
-                        modifier = Modifier.fillMaxWidth(),
+                        onChange = { query = it },
+                        placeholder = "ID platby, stôl, objednávka…",
                     )
                     Spacer(Modifier.height(10.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {

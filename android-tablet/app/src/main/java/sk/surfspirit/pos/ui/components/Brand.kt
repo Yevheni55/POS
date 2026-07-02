@@ -35,7 +35,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -288,11 +288,14 @@ fun ShiftStrip(openTables: Int, totalTables: Int, revenueToday: Double?) {
     val mins = (elapsedMs % 3_600_000) / 60_000
 
     // Live dot pulz — JEDINÁ slučka na floor view; len keď je niečo otvorené.
-    val dotAlpha = if (openTables > 0 && !reducedMotion()) {
-        val tr = rememberInfiniteTransition(label = "liveDot")
-        tr.animateFloat(0.45f, 1f,
-            infiniteRepeatable(tween(1100), RepeatMode.Reverse), label = "dotA").value
-    } else 1f
+    // State sa číta až v graphicsLayer (draw fáza) — pulz NErekomponuje strip;
+    // slabý tablet = statická bodka.
+    val dotAlpha: androidx.compose.runtime.State<Float>? =
+        if (openTables > 0 && !reducedMotion() && !Perf.lowEnd) {
+            val tr = rememberInfiniteTransition(label = "liveDot")
+            tr.animateFloat(0.45f, 1f,
+                infiniteRepeatable(tween(1100), RepeatMode.Reverse), label = "dotA")
+        } else null
 
     val borderInk = BorderSoft   // hoist — drawBehind lambda nie je composable
     Surface(color = MaterialTheme.colorScheme.surfaceVariant,
@@ -305,7 +308,7 @@ fun ShiftStrip(openTables: Int, totalTables: Int, revenueToday: Double?) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Surface(shape = CircleShape, color = if (openTables > 0) Terra else Sage,
-                modifier = Modifier.size(8.dp).alpha(dotAlpha)) {}
+                modifier = Modifier.size(8.dp).graphicsLayer { alpha = dotAlpha?.value ?: 1f }) {}
             Spacer(Modifier.width(8.dp))
             Text("Zmena: ${hrs}h ${mins.toString().padStart(2, '0')}m",
                 style = MaterialTheme.typography.labelMedium,

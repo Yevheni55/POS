@@ -101,15 +101,12 @@ private fun invFmtQty(n: Double, unit: String? = null): String {
 /** Celé číslo v sk-SK (stat karty, Number.toLocaleString). */
 private fun invFmtInt(n: Int): String = n.toString()
 
-/* ---- Lokálne sémantické farby badge-ov (web parita) ---- */
-private val InvPurple = Color(0xFF6B4FA0)   // sale → badge-purple
-
 private data class InvBadge(val label: String, val color: Color)
 
 @Composable
 private fun invMovementBadge(type: String): InvBadge = when (type) {
     "purchase"   -> InvBadge("Prijem", Sage)
-    "sale"       -> InvBadge("Predaj", InvPurple)
+    "sale"       -> InvBadge("Predaj", Purple)
     "adjustment" -> InvBadge("Uprava", Navy)
     "waste"      -> InvBadge("Odpad", Danger)
     "inventory"  -> InvBadge("Inventura", Amber)

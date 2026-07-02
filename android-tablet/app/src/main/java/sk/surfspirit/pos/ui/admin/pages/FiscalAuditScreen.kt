@@ -228,11 +228,6 @@ private fun faDescribePayload(type: String, payload: JsonElement?): String {
 private fun JsonPrimitive.contentOrNullSafe(): String? =
     try { if (this.content == "null" && !this.isString) null else this.content } catch (_: Exception) { null }
 
-// „Dnes" v Europe/Bratislava (zdieľané core helpery) — device TZ by po
-// UTC polnoci posunul denné filtre na včerajšok.
-private fun faTodayMinusIso(n: Int): String =
-    LocalDate.now(BRATISLAVA).minusDays(n.toLong()).toString()
-
 /* ===================================================================== */
 
 @Composable
@@ -678,9 +673,6 @@ private fun ColumnScope.FaAuditTab() {
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    var staffMenu by remember { mutableStateOf(false) }
-    var typeMenu by remember { mutableStateOf(false) }
-
     fun load() {
         loading = true
         scope.launch {
@@ -748,72 +740,40 @@ private fun ColumnScope.FaAuditTab() {
                 }
                 Spacer(Modifier.height(12.dp))
 
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    FormField("Od", from, { from = it }, modifier = Modifier.weight(1f),
-                        placeholder = "RRRR-MM-DD")
-                    FormField("Do", to, { to = it }, modifier = Modifier.weight(1f),
-                        placeholder = "RRRR-MM-DD")
-                }
+                // Rozsah dátumov — zdieľaný DateRangeNav (‹ › posun, tap na
+                // label = DatePicker, vlastné presety); zmena reloadne hneď.
+                DateRangeNav(
+                    fromIso = from,
+                    toIso = to,
+                    onRange = { f, t -> from = f; to = t; load() },
+                )
                 Spacer(Modifier.height(10.dp))
 
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    // Čašník
-                    Column(Modifier.weight(1f)) {
-                        Text("Čašník", style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.height(4.dp))
-                        Box {
-                            OutlinedButton(onClick = { staffMenu = true }, modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(Radius.sm)) {
-                                val name = staffList.firstOrNull { it.id == staffId }?.name ?: "Všetci čašníci"
-                                Text(name, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text("▾")
-                            }
-                            DropdownMenu(expanded = staffMenu, onDismissRequest = { staffMenu = false }) {
-                                DropdownMenuItem(text = { Text("Všetci čašníci") },
-                                    onClick = { staffId = null; staffMenu = false; load() })
-                                staffList.forEach { s ->
-                                    DropdownMenuItem(text = { Text(s.name) },
-                                        onClick = { staffId = s.id; staffMenu = false; load() })
-                                }
-                            }
-                        }
+                    // Čašník — index 0 = „Všetci čašníci" (bez filtra)
+                    val staffOptions = remember(staffList) {
+                        listOf("Všetci čašníci") + staffList.map { it.name }
                     }
-                    // Typ akcie
-                    Column(Modifier.weight(1f)) {
-                        Text("Typ akcie", style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.height(4.dp))
-                        Box {
-                            OutlinedButton(onClick = { typeMenu = true }, modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(Radius.sm)) {
-                                val lbl = typeFilter?.let { faTypeLabel(it) } ?: "Všetky akcie"
-                                Text(lbl, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text("▾")
-                            }
-                            DropdownMenu(expanded = typeMenu, onDismissRequest = { typeMenu = false }) {
-                                DropdownMenuItem(text = { Text("Všetky akcie") },
-                                    onClick = { typeFilter = null; typeMenu = false; load() })
-                                typeList.forEach { t ->
-                                    DropdownMenuItem(text = { Text(faTypeLabel(t)) },
-                                        onClick = { typeFilter = t; typeMenu = false; load() })
-                                }
-                            }
-                        }
+                    val staffSel = staffId?.let { id -> staffList.indexOfFirst { it.id == id } }
+                        ?.takeIf { it >= 0 }?.plus(1) ?: 0
+                    FilterDropdown("Čašník", staffOptions, staffSel, onSelect = { i ->
+                        staffId = if (i == 0) null else staffList[i - 1].id
+                        load()
+                    }, modifier = Modifier.weight(1f))
+                    // Typ akcie — index 0 = „Všetky akcie" (bez filtra)
+                    val typeOptions = remember(typeList) {
+                        listOf("Všetky akcie") + typeList.map(::faTypeLabel)
                     }
+                    val typeSel = typeFilter?.let { typeList.indexOf(it) }
+                        ?.takeIf { it >= 0 }?.plus(1) ?: 0
+                    FilterDropdown("Typ akcie", typeOptions, typeSel, onSelect = { i ->
+                        typeFilter = if (i == 0) null else typeList[i - 1]
+                        load()
+                    }, modifier = Modifier.weight(1f))
                     // Č. objednávky
                     FormField("Č. objednávky", orderFilter, { orderFilter = it.filter(Char::isDigit) },
                         modifier = Modifier.weight(1f), placeholder = "napr. 123",
                         keyboard = KeyboardOptions(keyboardType = KeyboardType.Number))
-                }
-                Spacer(Modifier.height(12.dp))
-
-                // Presety
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FaPreset("Dnes") { to = todayIso(); from = faTodayMinusIso(0); load() }
-                    FaPreset("Včera") { to = todayIso(); from = faTodayMinusIso(1); load() }
-                    FaPreset("7 dní") { to = todayIso(); from = faTodayMinusIso(7); load() }
-                    FaPreset("30 dní") { to = todayIso(); from = faTodayMinusIso(30); load() }
                 }
             }
             Spacer(Modifier.height(14.dp))
@@ -836,14 +796,6 @@ private fun ColumnScope.FaAuditTab() {
             events.isEmpty() -> item { EmptyHint("Žiadne záznamy pre toto obdobie.") }
             else -> items(events, key = { it.id }) { ev -> FaEventRow(ev) }
         }
-    }
-}
-
-@Composable
-private fun FaPreset(label: String, onClick: () -> Unit) {
-    OutlinedButton(onClick = onClick, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-        shape = RoundedCornerShape(Radius.full)) {
-        Text(label, style = MaterialTheme.typography.labelMedium)
     }
 }
 

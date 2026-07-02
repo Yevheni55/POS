@@ -671,6 +671,7 @@ fun DiscountDialog(
 fun RenameOrderDialog(
     initial: String,
     busy: Boolean,
+    error: String? = null,
     onSave: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -679,14 +680,22 @@ fun RenameOrderDialog(
         onDismissRequest = { if (!busy) onDismiss() },
         title = { Text("Pomenovať účet") },
         text = {
-            OutlinedTextField(
-                value = value,
-                onValueChange = { value = it.take(40) },
-                placeholder = { Text("napr. Janko / pri okne") },
-                singleLine = true,
-                shape = RoundedCornerShape(Radius.md),
-                modifier = Modifier.fillMaxWidth(),
-            )
+            Column {
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = { value = it.take(40) },
+                    placeholder = { Text("napr. Janko / pri okne") },
+                    singleLine = true,
+                    isError = error != null,
+                    shape = RoundedCornerShape(Radius.md),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                // Chyba INLINE — toast by sa vykreslil ZA modálom
+                error?.let {
+                    Spacer(Modifier.height(6.dp))
+                    Text(it, color = Danger, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
         },
         confirmButton = {
             Button(onClick = { onSave(value.trim()) }, enabled = !busy && value.isNotBlank(),
@@ -963,6 +972,7 @@ fun PaymentDialog(
     initialMethod: String = "hotovost",
     payPhase: Int? = null,           // 1=odosielam 2=fiškalizujem 3=čakám na server
     payPhaseStartedAt: Long = 0L,
+    pendingQrWarning: Boolean = false,   // na účet čaká QR platba — dvojité inkaso riziko
     onPay: (method: String, given: Double?) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -980,6 +990,18 @@ fun PaymentDialog(
         title = { Text("Platba") },
         text = {
             Column(Modifier.widthIn(min = 320.dp, max = 460.dp).verticalScroll(rememberScrollState())) {
+                // Na účet čaká QR platba — hotovosť/karta by mohla skončiť dvojitým
+                // inkasom (zákazník už mohol QR naskenovať). Amber varovanie hore.
+                if (pendingQrWarning) {
+                    Surface(shape = RoundedCornerShape(Radius.sm), color = Amber.copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, Amber.copy(alpha = 0.45f)),
+                        modifier = Modifier.fillMaxWidth()) {
+                        Text("⚠ Na tento účet čaká QR platba. Ak zákazník QR už naskenoval, hotovosť/karta = dvojité inkaso — QR sa po zaplatení zruší.",
+                            Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            style = MaterialTheme.typography.labelMedium, color = Amber)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
                 // Hero „K ÚHRADE" — rovnaký money-anchor jazyk ako CELKOM karta
                 Surface(shape = RoundedCornerShape(Radius.md), color = Terra.copy(alpha = 0.08f),
                     border = BorderStroke(1.dp, Terra.copy(alpha = 0.26f)),
@@ -1136,19 +1158,24 @@ private fun ReceiptPreview(
     val timeStr = remember(now) {
         now.format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy · HH:mm"))
     }
-    Surface(shape = RoundedCornerShape(Radius.sm), color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, BorderMid)) {
+    // Bonček reprezentuje PAPIER — v Night Service ostáva krémový (LightHearth),
+    // rovnako ako QR bitmap; contentColor explicitne, inak by dark theme dala
+    // svetlý text na svetlú „bumagu".
+    val paper = sk.surfspirit.pos.ui.theme.LightHearth
+    Surface(shape = RoundedCornerShape(Radius.sm), color = paper.cream,
+        contentColor = paper.espresso,
+        border = BorderStroke(1.dp, paper.borderMid)) {
         Column(Modifier.fillMaxWidth().padding(10.dp)) {
             Row { Text(tableName, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
                 Text(timeStr, style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    color = paper.espressoSoft) }
             if (staffName.isNotBlank()) {
                 Row { Text("Obsluha", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    color = paper.espressoSoft)
                     Text(staffName, style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        color = paper.espressoSoft) }
             }
-            HorizontalDivider(Modifier.padding(vertical = 6.dp))
+            HorizontalDivider(Modifier.padding(vertical = 6.dp), color = paper.borderSoft)
             Column(Modifier.heightIn(max = 180.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 items.forEach { it2 ->
@@ -1158,32 +1185,32 @@ private fun ReceiptPreview(
                                 overflow = TextOverflow.Ellipsis)
                             Text(if (it2.qty > 1) "${it2.qty}× ${money(it2.price)}" else money(it2.price),
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                color = paper.espressoSoft)
                             if (it2.note.isNotBlank())
                                 Text("+ ${it2.note}", style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    color = paper.espressoSoft)
                         }
                         Text(money(it2.price * it2.qty), style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
             if (discount > 0.005) {
-                HorizontalDivider(Modifier.padding(vertical = 6.dp))
+                HorizontalDivider(Modifier.padding(vertical = 6.dp), color = paper.borderSoft)
                 Row { Text("Medzisúčet", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    color = paper.espressoSoft)
                     Text(money(subtotal), style = MaterialTheme.typography.labelSmall) }
-                Row { Text("Zľava", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, color = Sage)
-                    Text("−${money(discount)}", style = MaterialTheme.typography.labelSmall, color = Sage) }
+                Row { Text("Zľava", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, color = paper.sage)
+                    Text("−${money(discount)}", style = MaterialTheme.typography.labelSmall, color = paper.sage) }
             }
-            HorizontalDivider(Modifier.padding(vertical = 6.dp))
+            HorizontalDivider(Modifier.padding(vertical = 6.dp), color = paper.borderSoft)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("SPOLU", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-                Text(money(total), style = MaterialTheme.typography.titleMedium, color = Terra)
+                Text(money(total), style = MaterialTheme.typography.titleMedium, color = paper.terra)
             }
             val cnt = items.size
             Text("${if (method == "karta") "Karta" else "Hotovosť"} · $cnt ${if (cnt == 1) "položka" else if (cnt < 5) "položky" else "položiek"}",
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                color = paper.espressoSoft)
         }
     }
 }

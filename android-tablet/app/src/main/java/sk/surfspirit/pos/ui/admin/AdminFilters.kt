@@ -83,13 +83,23 @@ fun DateRangeNav(
     val fmt = remember { DateTimeFormatter.ofPattern("d.M.yyyy") }
     val spanDays = if (from != null && to != null)
         ChronoUnit.DAYS.between(from, to).coerceAtLeast(0) + 1 else 1L
+    // Celý kalendárny mesiac (1. deň → koniec mesiaca, príp. → dnes pri preset
+    // „Mesiac") sa posúva po mesiacoch — posun o spanDays by z mája spravil 2.5.–1.6.
+    // Guard to != from: 1. deň mesiaca s presetom „Dnes" ostáva denný krok.
+    val fullMonth = from != null && to != null &&
+        from.dayOfMonth == 1 && from.year == to.year && from.month == to.month &&
+        (to.dayOfMonth == to.lengthOfMonth() || (to == today && to != from))
 
     Column(modifier) {
         Row(verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             OutlinedButton(onClick = {
-                if (from != null && to != null)
-                    onRange(from.minusDays(spanDays).toString(), to.minusDays(spanDays).toString())
+                if (from != null && to != null) {
+                    if (fullMonth)
+                        onRange(from.minusMonths(1).toString(), from.minusDays(1).toString())
+                    else
+                        onRange(from.minusDays(spanDays).toString(), to.minusDays(spanDays).toString())
+                }
             }, contentPadding = PaddingValues(horizontal = 10.dp)) {
                 Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Predchádzajúce obdobie", Modifier.size(IconSize.lg))
             }
@@ -105,8 +115,18 @@ fun DateRangeNav(
                 )
             }
             OutlinedButton(onClick = {
-                if (from != null && to != null)
-                    onRange(from.plusDays(spanDays).toString(), to.plusDays(spanDays).toString())
+                if (from != null && to != null) {
+                    if (fullMonth) {
+                        val nf = from.plusMonths(1)
+                        val eom = nf.withDayOfMonth(nf.lengthOfMonth())
+                        // V aktuálnom mesiaci koniec = dnes (parita s preset „Mesiac").
+                        val nt = if (nf.year == today.year && nf.month == today.month &&
+                            today.isBefore(eom)) today else eom
+                        onRange(nf.toString(), nt.toString())
+                    } else {
+                        onRange(from.plusDays(spanDays).toString(), to.plusDays(spanDays).toString())
+                    }
+                }
             }, contentPadding = PaddingValues(horizontal = 10.dp)) {
                 Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Nasledujúce obdobie", Modifier.size(IconSize.lg))
             }

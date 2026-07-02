@@ -822,11 +822,10 @@ private fun MtSearchBar(
                 modifier = Modifier.heightIn(min = 44.dp),
             ) { Text("+  $addLabel") }
         }
-        OutlinedTextField(
+        SearchField(
             value = search,
-            onValueChange = onSearch,
-            placeholder = { Text(searchPlaceholder) },
-            singleLine = true,
+            onChange = onSearch,
+            placeholder = searchPlaceholder,
             modifier = Modifier.weight(1f),
         )
     }

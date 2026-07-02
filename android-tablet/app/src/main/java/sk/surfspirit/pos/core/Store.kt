@@ -102,6 +102,15 @@ object Store {
     fun cacheCompanyName(name: String) = put("cache_company_name", name)
     fun cachedCompanyName(): String? = AppPrefs.getRaw("cache_company_name")
 
+    /* ---------- bežiace QR platby (preživú reštart procesu) ---------- */
+    // Vytlačený QR bonček ostáva zaplatiteľný aj po páde appky — registry sa
+    // zrkadlí sem a QrPay.restore() po štarte obnoví pooling/finalizáciu.
+    private const val K_QR_PENDING = "qr_pending"
+    fun saveQrPending(list: List<QrPay.Entry>) =
+        put(K_QR_PENDING, json.encodeToString(ListSerializer(QrPay.Entry.serializer()), list))
+    fun loadQrPending(): List<QrPay.Entry> =
+        getList(K_QR_PENDING, QrPay.Entry.serializer()) ?: emptyList()
+
     /* ---------- draft košíky per stôl ---------- */
 
     private val draftsSer = MapSerializer(String.serializer(), ListSerializer(CartLine.serializer()))

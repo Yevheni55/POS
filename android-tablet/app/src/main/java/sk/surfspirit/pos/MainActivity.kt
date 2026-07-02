@@ -28,6 +28,23 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         AppPrefs.init(applicationContext, getString(R.string.default_server_url))
         Perf.lowEnd = detectLowEnd()
+        // Obnov pooling bežiacich QR platieb — vytlačený QR bonček ostáva
+        // zaplatiteľný aj po páde/reštarte appky; bez restore by vznikli
+        // peniaze na účte bez fiškálneho dokladu.
+        sk.surfspirit.pos.core.QrPay.restore()
+        // Anti-FOUC pre Night Service: windowBackground z themes.xml je svetlý
+        // krém — po 19:00 (auto) alebo v dark režime by cold start bľskol.
+        // Rovnaká logika ako SurfSpiritTheme (bez minútového tickera — stačí
+        // stav pri štarte, Compose plochu hneď prekryje).
+        val darkNow = when (AppPrefs.themeMode) {
+            "dark" -> true
+            "light" -> false
+            else -> java.time.LocalTime.now().hour.let { it >= 19 || it < 6 }
+        }
+        if (darkNow) {
+            window.setBackgroundDrawable(
+                android.graphics.drawable.ColorDrawable(0xFF1E140F.toInt()))   // NightHearth.cream
+        }
         // Tablet (sw ≥ 600 dp) = kiosk landscape ako doteraz; telefón = voľná
         // rotácia (čašník drží mobil na výšku).
         requestedOrientation = if (resources.configuration.smallestScreenWidthDp >= 600)

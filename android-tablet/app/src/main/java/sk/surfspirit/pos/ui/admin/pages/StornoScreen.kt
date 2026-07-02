@@ -9,7 +9,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -42,6 +41,7 @@ import sk.surfspirit.pos.ui.theme.BorderSoft
 import sk.surfspirit.pos.ui.theme.Cream
 import sk.surfspirit.pos.ui.theme.Danger
 import sk.surfspirit.pos.ui.theme.IconSize
+import sk.surfspirit.pos.ui.theme.Indigo
 import sk.surfspirit.pos.ui.theme.Navy
 import sk.surfspirit.pos.ui.theme.Sage
 
@@ -322,14 +322,14 @@ private fun StStornoRow(
                 Icon(
                     if (item.wasPrepared) Icons.Outlined.LocalFireDepartment else Icons.Outlined.Autorenew,
                     contentDescription = null,
-                    tint = if (item.wasPrepared) Amber else INDIGO,
+                    tint = if (item.wasPrepared) Amber else Indigo,
                     modifier = Modifier.size(IconSize.sm),
                 )
                 Spacer(Modifier.width(4.dp))
                 Text(
                     if (item.wasPrepared) "Čašník: pripravené" else "Čašník: nepripravené",
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (item.wasPrepared) Amber else INDIGO,
+                    color = if (item.wasPrepared) Amber else Indigo,
                 )
             }
             Spacer(Modifier.height(6.dp))
@@ -402,6 +402,3 @@ private fun StMeta(label: String, value: String) {
         )
     }
 }
-
-// Indigo pre "nepripravené" úsudok čašníka — web #4338ca (mimo palety, lokálne).
-private val INDIGO = Color(0xFF4338CA)

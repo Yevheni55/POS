@@ -42,6 +42,9 @@ data class HearthPalette(
     val amber: Color,
     val navy: Color,
     val danger: Color,
+    // Admin badge akcenty — na tme AA prepočítané (svetlé pastely na #1E140F)
+    val indigo: Color,
+    val purple: Color,
     // Espresso text trio
     val espresso: Color,
     val espressoSoft: Color,
@@ -73,6 +76,8 @@ val LightHearth = HearthPalette(
     amber = Color(0xFFB87C1A),
     navy = Color(0xFF1F3A5C),
     danger = Color(0xFFBA1A1A),
+    indigo = Color(0xFF4338CA),
+    purple = Color(0xFF6B4FA0),
     espresso = Color(0xFF281811),
     espressoSoft = Color(0xFF55433D),
     // Pôvodné #88726C malo na Cream len 4,29:1 (pod AA); #6E5A53 = 6,55:1.
@@ -100,6 +105,8 @@ val NightHearth = HearthPalette(
     amber = Color(0xFFE0A84F),
     navy = Color(0xFF8FB4DC),
     danger = Color(0xFFFF8A7A),
+    indigo = Color(0xFF9DA8F0),
+    purple = Color(0xFFB39DDB),
     espresso = Color(0xFFF4E7DF),
     espressoSoft = Color(0xFFD3BFB4),
     espressoDim = Color(0xFFA78B7F),
@@ -130,6 +137,8 @@ val Sage: Color @Composable get() = LocalHearth.current.sage
 val Amber: Color @Composable get() = LocalHearth.current.amber
 val Navy: Color @Composable get() = LocalHearth.current.navy
 val Danger: Color @Composable get() = LocalHearth.current.danger
+val Indigo: Color @Composable get() = LocalHearth.current.indigo
+val Purple: Color @Composable get() = LocalHearth.current.purple
 val Espresso: Color @Composable get() = LocalHearth.current.espresso
 val EspressoSoft: Color @Composable get() = LocalHearth.current.espressoSoft
 val EspressoDim: Color @Composable get() = LocalHearth.current.espressoDim
