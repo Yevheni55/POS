@@ -16,6 +16,8 @@ const SEASON_START = Date.UTC(2026, 3, 25) / 86400000;
 const METHOD = 'v3-gbt-hourly';
 const OPEN_START = 9;
 const OPEN_END = 23;
+// Pre-open okno: zamrazenie poctivého ranného odhadu (pozri engine.js).
+const MORNING_LO = 5, MORNING_HI = 8;
 
 function num(arr, i) { const v = arr && arr[i]; return v == null || Number.isNaN(v) ? null : Number(v); }
 function isoWeekday(dayStr) {
@@ -57,7 +59,7 @@ async function loadHourlyGrid() {
       SELECT (created_at AT TIME ZONE ${TZ})::date AS d,
              extract(hour FROM (created_at AT TIME ZONE ${TZ}))::int AS h,
              sum(amount::numeric)::float AS rev
-      FROM payments GROUP BY 1, 2
+      FROM payments WHERE NOT EXISTS (SELECT 1 FROM fiscal_documents fd WHERE fd.payment_id = payments.id AND fd.source_type = 'storno' AND fd.result_mode IN ('online_success','offline_accepted','reconciled_online_success','reconciled_offline_accepted')) GROUP BY 1, 2
     )
     SELECT to_char(grid.d, 'YYYY-MM-DD') AS day, grid.h,
            COALESCE(rev.rev, 0)::float AS rev,
@@ -91,6 +93,7 @@ async function loadTodayHourly() {
   const rr = await db.execute(sql`
     SELECT extract(hour FROM (created_at AT TIME ZONE ${TZ}))::int AS h, sum(amount::numeric)::float AS rev
     FROM payments WHERE (created_at AT TIME ZONE ${TZ})::date = (now() AT TIME ZONE ${TZ})::date
+      AND NOT EXISTS (SELECT 1 FROM fiscal_documents fd WHERE fd.payment_id = payments.id AND fd.source_type = 'storno' AND fd.result_mode IN ('online_success','offline_accepted','reconciled_online_success','reconciled_offline_accepted'))
     GROUP BY 1
   `);
   const byHour = {};
@@ -175,6 +178,8 @@ export async function runForecastHourly() {
   }
 
   await upsert(out);
+  // Poctivý eval: zamrazni ranný (pred-open) odhad dneška do 'v3-gbt-hourly-am'.
+  await freezeMorning(out.find((o) => o.day === today), curHour);
   return {
     ok: true, days: out.length, r2: Math.round(stat.r2 * 100) / 100,
     residHourEur: Math.round(stat.resid), trainRows: grid.length, trainDays: days.size,
@@ -188,6 +193,21 @@ function noteFor(day, today, tmax, code, precip, byHour) {
   if (precip > 0.5) s += ` (${Math.round(precip * 10) / 10} mm)`;
   if (day === today) s += ` · intraday (zatiaľ ${Math.round(Object.values(byHour).reduce((a, b) => a + b, 0))} €)`;
   return 'v3-gbt: ' + s;
+}
+
+// Zamrazí ranný odhad dneška (raz denne, pred-open okno). DO NOTHING → neprepíše sa.
+async function freezeMorning(todayRow, curHour) {
+  if (!todayRow || curHour < MORNING_LO || curHour > MORNING_HI) return;
+  const r = todayRow;
+  await db.execute(sql`
+    INSERT INTO revenue_forecasts
+      (target_date, made_at, horizon_days, estimate_eur, low_eur, high_eur,
+       fc_temp_max_c, fc_precip_mm, fc_weather_code, weekday, method, note)
+    VALUES (${r.day}, now(), 0, ${r.estimate}, ${r.low}, ${r.high},
+            ${r.tmax}, ${r.precip}, ${r.code}, ${r.weekday}, ${METHOD + '-am'},
+            ${'pred-open snapshot · ' + r.note})
+    ON CONFLICT (target_date, method) DO NOTHING
+  `);
 }
 
 async function upsert(rows) {

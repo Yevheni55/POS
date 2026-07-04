@@ -4,6 +4,7 @@ import { and, desc, eq, gte, lte, sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { cashflowEntries, payments, shishaSales, suppliers } from '../db/schema.js';
 import { requireRole } from '../middleware/requireRole.js';
+import { notStornoedSql } from '../lib/reports/shared.js';
 import { validate } from '../middleware/validate.js';
 import { asyncRoute } from '../lib/async-route.js';
 import { createCashflowSchema, updateCashflowSchema } from '../schemas/cashflow.js';
@@ -156,7 +157,7 @@ router.get('/summary', mgr, asyncRoute(async (req, res) => {
   const [posAgg] = await db.select({
     total: sql`COALESCE(SUM(${payments.amount}::numeric), 0)`,
   }).from(payments).where(
-    sql`${payments.createdAt} >= ${fromBoundary} AND ${payments.createdAt} <= ${toBoundary}`,
+    sql`${payments.createdAt} >= ${fromBoundary} AND ${payments.createdAt} <= ${toBoundary} AND ${sql.raw(notStornoedSql('payments'))}`,
   );
 
   const [shishaAgg] = await db.select({

@@ -14,12 +14,16 @@ import { db } from '../../db/index.js';
 import { sql } from 'drizzle-orm';
 import { fitRidge, predictOne, buildStandardizer, pickLambda } from './ridge.js';
 import { runForecastHourly } from './engine-hourly.js';
+import { runForecastLogLin } from './engine-loglin.js';
 
 const TZ = 'Europe/Bratislava';
 const LAT = 48.1014;
 const LON = 17.1136;
 const SEASON_START = Date.UTC(2026, 3, 25) / 86400000; // 2026-04-25 v dňoch
 const METHOD = 'v2-ridge';
+// Pre-open okno (bar otvára ~9–10): v tomto čase je todayRev≈0, takže odhad
+// dneška je čistá predikcia (počasie+kalendár), nie dopočítaná realita.
+const MORNING_LO = 5, MORNING_HI = 8;
 
 let _timer = null;
 
@@ -28,7 +32,7 @@ async function loadDailyHistory() {
   const r = await db.execute(sql`
     WITH rev AS (
       SELECT (created_at AT TIME ZONE ${TZ})::date AS d, sum(amount::numeric)::float AS rev
-      FROM payments GROUP BY 1
+      FROM payments WHERE NOT EXISTS (SELECT 1 FROM fiscal_documents fd WHERE fd.payment_id = payments.id AND fd.source_type = 'storno' AND fd.result_mode IN ('online_success','offline_accepted','reconciled_online_success','reconciled_offline_accepted')) GROUP BY 1
     ), wx AS (
       SELECT (observed_at AT TIME ZONE ${TZ})::date AS d,
              max(temperature_c)::float AS tmax,
@@ -64,7 +68,7 @@ async function loadHourlyCumShare() {
   const r = await db.execute(sql`
     SELECT extract(hour FROM (created_at AT TIME ZONE ${TZ}))::int AS h,
            sum(amount::numeric)::float AS rev
-    FROM payments GROUP BY 1
+    FROM payments WHERE NOT EXISTS (SELECT 1 FROM fiscal_documents fd WHERE fd.payment_id = payments.id AND fd.source_type = 'storno' AND fd.result_mode IN ('online_success','offline_accepted','reconciled_online_success','reconciled_offline_accepted')) GROUP BY 1
   `);
   const byHour = new Array(24).fill(0);
   for (const x of r.rows) byHour[Number(x.h)] = Number(x.rev) || 0;
@@ -81,7 +85,8 @@ async function loadTodayActual() {
     SELECT to_char((now() AT TIME ZONE ${TZ})::date, 'YYYY-MM-DD') AS today,
            extract(hour FROM (now() AT TIME ZONE ${TZ}))::int AS cur_hour,
            COALESCE((SELECT sum(amount::numeric) FROM payments
-                     WHERE (created_at AT TIME ZONE ${TZ})::date = (now() AT TIME ZONE ${TZ})::date), 0)::float AS today_rev
+                     WHERE (created_at AT TIME ZONE ${TZ})::date = (now() AT TIME ZONE ${TZ})::date
+                       AND NOT EXISTS (SELECT 1 FROM fiscal_documents fd WHERE fd.payment_id = payments.id AND fd.source_type = 'storno' AND fd.result_mode IN ('online_success','offline_accepted','reconciled_online_success','reconciled_offline_accepted'))), 0)::float AS today_rev
   `);
   const row = r.rows[0] || {};
   return { today: row.today, curHour: Number(row.cur_hour) || 0, todayRev: Number(row.today_rev) || 0 };
@@ -282,6 +287,10 @@ export async function runForecast() {
   }
 
   await upsertForecasts(out);
+  // Poctivý eval: zamrazni RANNÝ (pred-open) odhad dneška do method 'v2-ridge-am'.
+  // Píše sa raz denne (DO NOTHING) → hodinový upsert ho už neprepíše, takže
+  // chyba sa počíta voči naozaj doprednému odhadu, nie voči dopočítanej realite.
+  await freezeMorning(out.find((o) => o.day === today), curHour);
   return {
     ok: true, days: out.length, lambda, r2: Math.round(r2 * 100) / 100,
     residEur: Math.round(resid), features: names.length, trainDays: hist.length,
@@ -314,6 +323,22 @@ async function upsertForecasts(rows) {
   }
 }
 
+// Zamrazí ranný odhad dneška (raz denne, v pred-open okne). ON CONFLICT DO NOTHING
+// → prvý tick v okne ostane, ďalšie ho neprepíšu. method = '<base>-am'.
+async function freezeMorning(todayRow, curHour) {
+  if (!todayRow || curHour < MORNING_LO || curHour > MORNING_HI) return;
+  const r = todayRow;
+  await db.execute(sql`
+    INSERT INTO revenue_forecasts
+      (target_date, made_at, horizon_days, estimate_eur, low_eur, high_eur,
+       fc_temp_max_c, fc_precip_mm, fc_weather_code, weekday, method, note)
+    VALUES (${r.day}, now(), 0, ${r.estimate}, ${r.low}, ${r.high},
+            ${r.tmax}, ${r.precip}, ${r.code}, ${r.weekday}, ${METHOD + '-am'},
+            ${'pred-open snapshot · ' + r.note})
+    ON CONFLICT (target_date, method) DO NOTHING
+  `);
+}
+
 export function startForecastCron() {
   if (_timer) return;
   const tick = async () => {
@@ -327,6 +352,11 @@ export function startForecastCron() {
       console.log('[forecast v3] ' + (r3.ok
         ? `OK ${r3.days}d R²=${r3.r2} ±${r3.residHourEur}€/h ${r3.trainRows}r ${r3.trainDays}d` : 'skip: ' + r3.reason));
     } catch (e) { console.warn('[forecast v3] zlyhal:', e.message); }
+    try {
+      const r4 = await runForecastLogLin();
+      console.log('[forecast v4] ' + (r4.ok
+        ? `OK ${r4.days}d cvWAPE≈${r4.cvWape}% smear=${r4.smear} ${r4.oofResid}oof ${r4.trainDays}d` : 'skip: ' + r4.reason));
+    } catch (e) { console.warn('[forecast v4] zlyhal:', e.message); }
   };
   setTimeout(tick, 12000);                  // krátko po boote (po weather fetchi)
   _timer = setInterval(tick, 60 * 60 * 1000); // každú hodinu

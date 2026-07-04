@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { db } from '../db/index.js';
 import { shifts, payments, orders } from '../db/schema.js';
 import { eq, and, desc, sql } from 'drizzle-orm';
+import { notStornoedSql } from '../lib/reports/shared.js';
 
 const router = Router();
 
@@ -15,7 +16,7 @@ async function shiftMethodBreakdown(shiftId) {
   })
     .from(payments)
     .innerJoin(orders, eq(payments.orderId, orders.id))
-    .where(eq(orders.shiftId, shiftId))
+    .where(and(eq(orders.shiftId, shiftId), sql.raw(notStornoedSql('payments'))))
     .groupBy(payments.method);
   const methods = rows.map((r) => ({
     method: r.method, count: Number(r.cnt), total: parseFloat(r.total || '0'),
@@ -52,7 +53,8 @@ router.get('/current/summary', async (req, res) => {
     .innerJoin(orders, eq(payments.orderId, orders.id))
     .where(and(
       eq(orders.shiftId, shift.id),
-      eq(payments.method, 'hotovost')
+      eq(payments.method, 'hotovost'),
+      sql.raw(notStornoedSql('payments'))   // stornované platby nie sú tržba
     ));
 
   const cashPayments = parseFloat(cashResult[0]?.total || '0');
@@ -113,7 +115,8 @@ router.post('/close', async (req, res) => {
     .innerJoin(orders, eq(payments.orderId, orders.id))
     .where(and(
       eq(orders.shiftId, shift.id),
-      eq(payments.method, 'hotovost')
+      eq(payments.method, 'hotovost'),
+      sql.raw(notStornoedSql('payments'))   // stornované platby nie sú tržba
     ));
 
   const cashPayments = parseFloat(cashResult[0]?.total || '0');

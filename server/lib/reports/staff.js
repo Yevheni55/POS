@@ -2,6 +2,7 @@ import { and, desc, eq, gte, sql } from 'drizzle-orm';
 
 import { db } from '../../db/index.js';
 import { orders, orderItems, payments, staff } from '../../db/schema.js';
+import { notStornoedSql } from './shared.js';
 
 // GET /api/reports/staff?from=&to=
 export async function staffHandler(req, res) {
@@ -46,7 +47,8 @@ export async function staffHandler(req, res) {
     .where(
       and(
         gte(payments.createdAt, fromDate),
-        sql`${payments.createdAt} <= ${toDate}`
+        sql`${payments.createdAt} <= ${toDate}`,
+        sql.raw(notStornoedSql('payments'))   // stornované platby nie sú tržba
       )
     )
     .groupBy(staff.id, payments.method);

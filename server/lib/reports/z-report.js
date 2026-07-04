@@ -2,6 +2,7 @@ import { and, desc, eq, gte, sql } from 'drizzle-orm';
 
 import { db } from '../../db/index.js';
 import { orders, orderItems, payments, menuItems, menuCategories, shishaSales } from '../../db/schema.js';
+import { notStornoedSql } from './shared.js';
 
 // GET /api/reports/z-report?date=2026-03-26
 export async function zReportHandler(req, res) {
@@ -15,7 +16,8 @@ export async function zReportHandler(req, res) {
       total: sql`COALESCE(SUM(${payments.amount}::numeric), 0)`,
       count: sql`COUNT(*)`,
     }).from(payments).where(
-      and(gte(payments.createdAt, fromDate), sql`${payments.createdAt} <= ${toDate}`)
+      and(gte(payments.createdAt, fromDate), sql`${payments.createdAt} <= ${toDate}`,
+        sql.raw(notStornoedSql('payments')))   // stornované platby nie sú tržba
     );
 
     // Orders count
@@ -46,7 +48,8 @@ export async function zReportHandler(req, res) {
       total: sql`SUM(${payments.amount}::numeric)`,
       count: sql`COUNT(*)`,
     }).from(payments).where(
-      and(gte(payments.createdAt, fromDate), sql`${payments.createdAt} <= ${toDate}`)
+      and(gte(payments.createdAt, fromDate), sql`${payments.createdAt} <= ${toDate}`,
+        sql.raw(notStornoedSql('payments')))
     ).groupBy(payments.method);
 
     // Fiskálna hotovosť z payments (potrebné samostatne pre Portos withdraw paragón —
@@ -128,6 +131,26 @@ export async function zReportHandler(req, res) {
     const shishaCount = parseInt(shisha.count) || 0;
     const shishaRevenue = parseFloat(shisha.revenue) || 0;
 
+    // ODPIS — predajna (cennikova) hodnota uctov uzavretych ako manazersky
+    // odpis "na ucet podniku" (closure_type='odpis', cez /close-as-odpis).
+    // Ziadna platba ani fiskal → nie je v platobnych metodach ani v zasuvke
+    // (cashFiscal). Per rozhodnutie prevadzky sa vsak rata ako BEZNY PREDAJ:
+    // item-statistiky (kategorie, top, pocet) ho UZ zahrnaju a folduje sa aj
+    // do totalRevenue. Tu ho zratame samostatne, aby sme ho vedeli ukazat ako
+    // informativny podiel "z toho odpis".
+    const odpisRes = await db.execute(sql`
+      SELECT
+        COALESCE(SUM(oi.qty * mi.price::numeric), 0)::float AS total,
+        COUNT(DISTINCT o.id)::int AS count
+      FROM orders o
+      INNER JOIN order_items oi ON oi.order_id = o.id
+      INNER JOIN menu_items mi ON mi.id = oi.menu_item_id
+      WHERE o.created_at >= ${fromDate} AND o.created_at <= ${toDate}
+        AND COALESCE(o.closure_type, 'paid') = 'odpis'
+    `);
+    const odpisTotal = Number(odpisRes.rows[0] && odpisRes.rows[0].total) || 0;
+    const odpisCount = Number(odpisRes.rows[0] && odpisRes.rows[0].count) || 0;
+
     // Zamestnanecká spotreba podľa mena (= meno stola v zóne zamestnancov).
     // Konvencia: stoly v staff zóne sa volajú menami zamestnancov (Yevhen,
     // Tania, Oleh…), takže name stola = identita konzumenta. Split na
@@ -186,7 +209,10 @@ export async function zReportHandler(req, res) {
     }));
 
     const fiscalRevenue = parseFloat(revenue.total);
-    const totalRevenue = fiscalRevenue + shishaRevenue;
+    // Trzba = fiskalne platby + shisha + odpis (predaj na ucet podniku).
+    // Odpis sa rata ako bezny predaj (rovnako ako v reports/summary). cashFiscal
+    // ostava CISTO fiskalna (odpis nie je platba → nepatri do zasuvky).
+    const totalRevenue = fiscalRevenue + shishaRevenue + odpisTotal;
     const totalOrders = parseInt(orderStats.totalOrders);
     const totalItems = parseInt(itemStats.totalItems);
     const averageOrder = totalOrders > 0 ? Math.round((totalRevenue / totalOrders) * 100) / 100 : 0;
@@ -220,6 +246,8 @@ export async function zReportHandler(req, res) {
       shisha: { count: shishaCount, revenue: shishaRevenue },
       cancelledItems: parseInt(cancelledStats.cancelledItems),
       cancelledTotal: parseFloat(cancelledStats.cancelledTotal),
+      odpisTotal,
+      odpisCount,
       averageOrder,
       staffMealByPerson,
     });

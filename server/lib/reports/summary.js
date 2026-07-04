@@ -2,7 +2,7 @@ import { desc, eq, sql } from 'drizzle-orm';
 
 import { db } from '../../db/index.js';
 import { orders, orderItems, payments, menuItems, menuCategories, shishaSales } from '../../db/schema.js';
-import { TZ, roundMoney } from './shared.js';
+import { TZ, roundMoney, notStornoedSql } from './shared.js';
 
 // GET /api/reports/summary?from=2024-01-01&to=2024-12-31
 // Default: single calendar day (today, Bratislava) so "dashboard today" is
@@ -26,7 +26,7 @@ export async function summaryHandler(req, res) {
     total: sql`COALESCE(SUM(${payments.amount}::numeric), 0)`,
     count: sql`COUNT(*)`,
   }).from(payments).where(
-    sql`${payments.createdAt} >= ${fromBoundary} AND ${payments.createdAt} <= ${toBoundary}`
+    sql`${payments.createdAt} >= ${fromBoundary} AND ${payments.createdAt} <= ${toBoundary} AND ${sql.raw(notStornoedSql('payments'))}`
   );
 
   // Orders count
@@ -44,7 +44,7 @@ export async function summaryHandler(req, res) {
     total: sql`SUM(${payments.amount}::numeric)`,
     count: sql`COUNT(*)`,
   }).from(payments).where(
-    sql`${payments.createdAt} >= ${fromBoundary} AND ${payments.createdAt} <= ${toBoundary}`
+    sql`${payments.createdAt} >= ${fromBoundary} AND ${payments.createdAt} <= ${toBoundary} AND ${sql.raw(notStornoedSql('payments'))}`
   ).groupBy(payments.method);
 
   // All items sold in the period — used by the Reports/Produkty tab which
@@ -143,7 +143,7 @@ export async function summaryHandler(req, res) {
       COUNT(DISTINCT p.order_id)::int AS orders,
       COALESCE(SUM(p.amount::numeric), 0)::float AS revenue
     FROM payments p
-    WHERE p.created_at >= ${fromBoundary} AND p.created_at <= ${toBoundary}
+    WHERE p.created_at >= ${fromBoundary} AND p.created_at <= ${toBoundary} AND NOT EXISTS (SELECT 1 FROM fiscal_documents fd WHERE fd.payment_id = p.id AND fd.source_type = 'storno' AND fd.result_mode IN ('online_success','offline_accepted','reconciled_online_success','reconciled_offline_accepted'))
     GROUP BY 1
     ORDER BY 1
   `);
@@ -184,6 +184,64 @@ export async function summaryHandler(req, res) {
     GROUP BY 1
     ORDER BY 1
   `);
+
+  // Per-day ODPIS — predajna (cennikova) hodnota uctov uzavretych ako
+  // manazersky odpis (closure_type='odpis', cez /close-as-odpis). Ziadna
+  // platba ani fiskal → nie je v `payments`, takze sa do trzby (dailyRows,
+  // hourlyRows, staffRows — vsetko payment-based) musi PRIRATAT manualne.
+  // Tu zratame SUM(qty × menu price) gross, bucketovane po order.created_at
+  // LOCAL Bratislava (rovnako ako cogsRows). Per rozhodnutie prevadzky sa
+  // odpis sprava ako BEZNY PREDAJ — rata sa do trzby aj do zisku (jeho cogs
+  // uz pokryva cogsRows, ktory odpis zahrna). KPI "Odpisy (predaj)" ostava
+  // ako informativny podiel "z toho odpis".
+  const odpisRows = await db.execute(sql`
+    SELECT
+      to_char((o.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ})::date, 'YYYY-MM-DD') AS date,
+      COALESCE(SUM(oi.qty * mi.price::numeric), 0)::float AS odpis,
+      COUNT(DISTINCT o.id)::int AS orders
+    FROM order_items oi
+    INNER JOIN orders o ON o.id = oi.order_id
+    INNER JOIN menu_items mi ON mi.id = oi.menu_item_id
+    WHERE o.created_at >= ${fromBoundary} AND o.created_at <= ${toBoundary}
+      AND COALESCE(o.closure_type, 'paid') = 'odpis'
+    GROUP BY 1
+    ORDER BY 1
+  `);
+
+  // Per-hodina ODPIS — aby hodinovy rozpad trzby (hourlyRows je payment-based)
+  // zahrnal aj odpis. Bucketujeme po order.created_at LOCAL Bratislava hodine,
+  // rovnako ako hourlyDestRows.
+  const odpisHourlyRows = await db.execute(sql`
+    SELECT
+      EXTRACT(HOUR FROM (o.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ}))::int AS hour,
+      COALESCE(SUM(oi.qty * mi.price::numeric), 0)::float AS odpis
+    FROM order_items oi
+    INNER JOIN orders o ON o.id = oi.order_id
+    INNER JOIN menu_items mi ON mi.id = oi.menu_item_id
+    WHERE o.created_at >= ${fromBoundary} AND o.created_at <= ${toBoundary}
+      AND COALESCE(o.closure_type, 'paid') = 'odpis'
+    GROUP BY 1
+  `);
+  const odpisHourMap = {};
+  for (const r of odpisHourlyRows.rows) odpisHourMap[Number(r.hour) || 0] = Number(r.odpis) || 0;
+
+  // Per-zamestnanec ODPIS — aby trzba per cisnik (staffRows je payment-based)
+  // zahrnala aj odpis. Atribuujeme cez orders.staff_id (kto ucet zalozil).
+  const odpisStaffRows = await db.execute(sql`
+    SELECT
+      s.name AS name,
+      COUNT(DISTINCT o.id)::int AS orders,
+      COALESCE(SUM(oi.qty * mi.price::numeric), 0)::float AS revenue
+    FROM orders o
+    INNER JOIN order_items oi ON oi.order_id = o.id
+    INNER JOIN menu_items mi ON mi.id = oi.menu_item_id
+    INNER JOIN staff s ON s.id = o.staff_id
+    WHERE o.created_at >= ${fromBoundary} AND o.created_at <= ${toBoundary}
+      AND COALESCE(o.closure_type, 'paid') = 'odpis'
+    GROUP BY s.id, s.name
+  `);
+  const odpisStaffMap = {};
+  for (const r of odpisStaffRows.rows) odpisStaffMap[r.name] = { orders: Number(r.orders) || 0, revenue: Number(r.revenue) || 0 };
 
   // Zamestnanecká spotreba podľa mena (= meno stola v zóne 'zamestanci').
   // Konvencia: stoly v staff zóne sa volajú menami zamestnancov (Alex,
@@ -279,8 +337,8 @@ export async function summaryHandler(req, res) {
         ae.staff_id,
         ae.type,
         ae.at,
-        LEAD(ae.at)   OVER (PARTITION BY ae.staff_id ORDER BY ae.at) AS next_at,
-        LEAD(ae.type) OVER (PARTITION BY ae.staff_id ORDER BY ae.at) AS next_type
+        LEAD(ae.at)   OVER (PARTITION BY ae.staff_id ORDER BY ae.at, ae.id) AS next_at,
+        LEAD(ae.type) OVER (PARTITION BY ae.staff_id ORDER BY ae.at, ae.id) AS next_type
       FROM attendance_events ae
     )
     SELECT
@@ -307,8 +365,8 @@ export async function summaryHandler(req, res) {
         ae.staff_id,
         ae.type,
         ae.at,
-        LEAD(ae.at)   OVER (PARTITION BY ae.staff_id ORDER BY ae.at) AS next_at,
-        LEAD(ae.type) OVER (PARTITION BY ae.staff_id ORDER BY ae.at) AS next_type
+        LEAD(ae.at)   OVER (PARTITION BY ae.staff_id ORDER BY ae.at, ae.id) AS next_at,
+        LEAD(ae.type) OVER (PARTITION BY ae.staff_id ORDER BY ae.at, ae.id) AS next_type
       FROM attendance_events ae
     )
     SELECT
@@ -339,7 +397,7 @@ export async function summaryHandler(req, res) {
       COUNT(DISTINCT p.order_id)::int AS orders,
       COALESCE(SUM(p.amount::numeric), 0)::float AS revenue
     FROM payments p
-    WHERE p.created_at >= ${fromBoundary} AND p.created_at <= ${toBoundary}
+    WHERE p.created_at >= ${fromBoundary} AND p.created_at <= ${toBoundary} AND NOT EXISTS (SELECT 1 FROM fiscal_documents fd WHERE fd.payment_id = p.id AND fd.source_type = 'storno' AND fd.result_mode IN ('online_success','offline_accepted','reconciled_online_success','reconciled_offline_accepted'))
     GROUP BY 1
     ORDER BY 1
   `);
@@ -360,6 +418,7 @@ export async function summaryHandler(req, res) {
     INNER JOIN menu_categories c ON c.id = mi.category_id
     WHERE o.created_at >= ${fromBoundary} AND o.created_at <= ${toBoundary}
       AND o.status != 'cancelled'
+      AND COALESCE(o.closure_type, 'paid') != 'staff_meal'
     GROUP BY 1, COALESCE(mi.dest_override, c.dest)
   `);
   const hourlyDestMap = {};
@@ -382,7 +441,7 @@ export async function summaryHandler(req, res) {
     FROM payments p
     INNER JOIN orders o ON o.id = p.order_id
     INNER JOIN staff s ON s.id = o.staff_id
-    WHERE p.created_at >= ${fromBoundary} AND p.created_at <= ${toBoundary}
+    WHERE p.created_at >= ${fromBoundary} AND p.created_at <= ${toBoundary} AND NOT EXISTS (SELECT 1 FROM fiscal_documents fd WHERE fd.payment_id = p.id AND fd.source_type = 'storno' AND fd.result_mode IN ('online_success','offline_accepted','reconciled_online_success','reconciled_offline_accepted'))
     GROUP BY s.id, s.name
     ORDER BY revenue DESC
   `);
@@ -403,6 +462,7 @@ export async function summaryHandler(req, res) {
     INNER JOIN menu_categories c ON c.id = mi.category_id
     WHERE o.created_at >= ${fromBoundary} AND o.created_at <= ${toBoundary}
       AND o.status != 'cancelled'
+      AND COALESCE(o.closure_type, 'paid') != 'staff_meal'
     GROUP BY COALESCE(mi.dest_override, c.dest)
   `);
   const destAcc = { bar: { revenue: 0, items: 0 }, kuchyna: { revenue: 0, items: 0 } };
@@ -428,6 +488,15 @@ export async function summaryHandler(req, res) {
   for (const r of laborRows.rows) laborByDate[r.date] = Number(r.labor) || 0;
   const staffMealByDate = {};
   for (const r of staffMealRows.rows) staffMealByDate[r.date] = Number(r.cost) || 0;
+  const odpisByDate = {};
+  const odpisOrdersByDate = {};
+  for (const r of odpisRows.rows) {
+    odpisByDate[r.date] = Number(r.odpis) || 0;
+    odpisOrdersByDate[r.date] = Number(r.orders) || 0;
+  }
+  // Suma odpisov za obdobie (predajna hodnota) — folduje sa do totalRevenue
+  // (odpis = bezny predaj) a zaroven sa vykazuje samostatne ako "z toho odpis".
+  const totalOdpis = roundMoney(Object.values(odpisByDate).reduce((s, v) => s + v, 0));
   // A day might exist in cogs/labor but not in dailyArr (sales-less day
   // that still had a paid shift, or recipe write-off). Union all keys so
   // such days still surface with revenue=0.
@@ -436,6 +505,7 @@ export async function summaryHandler(req, res) {
     ...Object.keys(cogsByDate),
     ...Object.keys(laborByDate),
     ...Object.keys(staffMealByDate),
+    ...Object.keys(odpisByDate),
   ]);
   const revenueByDate = {};
   const ordersByDate = {};
@@ -444,8 +514,11 @@ export async function summaryHandler(req, res) {
     ordersByDate[r.date] = Number(r.orders) || 0;
   }
   const dailyArr = Array.from(dailyDateSet).sort().map((date) => {
-    const orders = ordersByDate[date] || 0;
-    const revenue = revenueByDate[date] || 0;
+    const odpis = roundMoney(odpisByDate[date] || 0);
+    // Odpis sa rata ako bezny predaj → pripocitavame ho do trzby aj do poctu
+    // uctov (kvoli avgCheck). Fiskalna trzba (platby) + odpis.
+    const orders = (ordersByDate[date] || 0) + (odpisOrdersByDate[date] || 0);
+    const revenue = roundMoney((revenueByDate[date] || 0) + odpis);
     const cogs = roundMoney(cogsByDate[date] || 0);
     const labor = roundMoney(laborByDate[date] || 0);
     const staffMeal = roundMoney(staffMealByDate[date] || 0);
@@ -458,9 +531,13 @@ export async function summaryHandler(req, res) {
       cogs,
       labor,
       staffMeal,
-      // Zisk = tržby − suroviny predaného − mzdy − suroviny zamestnaneckej spotreby.
-      // staff_meal nie je odčítaný z tržieb (žiadna platba), ale je nákladom
-      // na suroviny, takže ide do mínusu pri výpočte zisku.
+      // Odpis = predajna hodnota uctov uzavretych ako manazersky odpis. Uz je
+      // ZAHRNUTY vo `revenue` vyssie (rata sa ako bezny predaj); tu ho vraciame
+      // samostatne len ako informativny podiel "z toho odpis".
+      odpis,
+      // Zisk = trzby (vratane odpisu) − suroviny predaneho (cogs zahrna odpis)
+      // − mzdy − suroviny zamestnaneckej spotreby. staff_meal nie je v trzbe,
+      // ale je nakladom na suroviny, takze ide do minusu.
       profit: roundMoney(revenue - cogs - labor - staffMeal),
     };
   });
@@ -475,31 +552,47 @@ export async function summaryHandler(req, res) {
     paymentHourMap[h] = { orders: Number(r.orders) || 0, revenue: Number(r.revenue) || 0 };
   }
   for (const k of Object.keys(hourlyDestMap)) hourSet.add(Number(k));
+  for (const k of Object.keys(odpisHourMap)) hourSet.add(Number(k));
   const hourlyArr = Array.from(hourSet).sort((a, b) => a - b).map((h) => {
     const p = paymentHourMap[h] || { orders: 0, revenue: 0 };
     const d = hourlyDestMap[h] || { bar: 0, kuchyna: 0 };
+    // Odpis (item-based) sa pripocita do hodinovej trzby; bar/kuchyna rozpad
+    // uz odpis obsahuje (hourlyDestRows zahrna odpis).
     return {
       hour: String(h).padStart(2, '0') + ':00',
       orders: p.orders,
-      revenue: p.revenue,
+      revenue: roundMoney(p.revenue + (odpisHourMap[h] || 0)),
       barRevenue: roundMoney(d.bar),
       kuchynaRevenue: roundMoney(d.kuchyna),
     };
   });
-  const staffArr = staffRows.rows.map((r) => {
-    const orders = Number(r.orders) || 0;
-    const revenue = Number(r.revenue) || 0;
-    return {
+  // Trzba per cisnik = fiskalne platby + odpis (predaj na ucet podniku),
+  // atribuovany cez orders.staff_id. Odpis-only cisnik (bez fiskalnej platby)
+  // sa tiez objavi.
+  const staffByName = {};
+  for (const r of staffRows.rows) {
+    staffByName[r.name] = { name: r.name, orders: Number(r.orders) || 0, revenue: Number(r.revenue) || 0 };
+  }
+  for (const name of Object.keys(odpisStaffMap)) {
+    const o = odpisStaffMap[name];
+    if (!staffByName[name]) staffByName[name] = { name, orders: 0, revenue: 0 };
+    staffByName[name].orders += o.orders;
+    staffByName[name].revenue += o.revenue;
+  }
+  const staffArr = Object.values(staffByName)
+    .sort((a, b) => b.revenue - a.revenue)
+    .map((r) => ({
       name: r.name,
       shifts: 0,
-      orders,
-      revenue,
-      avgCheck: orders > 0 ? roundMoney(revenue / orders) : 0,
+      orders: r.orders,
+      revenue: roundMoney(r.revenue),
+      avgCheck: r.orders > 0 ? roundMoney(r.revenue / r.orders) : 0,
       rating: 0,
-    };
-  });
+    }));
 
-  const totalRevenue = fiscalTotal + shishaRevenue;
+  // Trzba = fiskalne platby + shisha + odpis (predaj na ucet podniku).
+  // Odpis sa per rozhodnutie prevadzky rata ako bezny predaj.
+  const totalRevenue = roundMoney(fiscalTotal + shishaRevenue + totalOdpis);
   const totalOrders = parseInt(orderStats.total) || 0;
   const avgCheck = totalOrders > 0 ? roundMoney(totalRevenue / totalOrders) : 0;
   const topRevenue = staffArr.length ? staffArr[0].revenue : 0;
@@ -514,6 +607,9 @@ export async function summaryHandler(req, res) {
   const totalCogs = roundMoney(dailyArr.reduce((s, d) => s + (d.cogs || 0), 0));
   const totalLabor = roundMoney(dailyArr.reduce((s, d) => s + (d.labor || 0), 0));
   const totalStaffMeal = roundMoney(dailyArr.reduce((s, d) => s + (d.staffMeal || 0), 0));
+  // Zisk = trzby (vratane odpisu) − suroviny predaneho (totalCogs uz zahrna
+  // odpis) − mzdy − suroviny zamestnaneckej spotreby. totalOdpis je uz
+  // zahrnuty v totalRevenue; vykazuje sa samostatne len ako podiel "z toho".
   const totalProfit = roundMoney(totalRevenue - totalCogs - totalLabor - totalStaffMeal);
 
   res.json({
@@ -533,6 +629,7 @@ export async function summaryHandler(req, res) {
     totalCogs,
     totalLabor,
     totalStaffMeal,
+    totalOdpis,
     totalProfit,
     burgersSold,
     staffMealByPerson: staffMealByPersonRows.rows.map(r => ({

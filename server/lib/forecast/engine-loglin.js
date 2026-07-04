@@ -39,7 +39,7 @@ async function loadDailyHistory() {
   const r = await db.execute(sql`
     WITH rev AS (
       SELECT (created_at AT TIME ZONE ${TZ})::date AS d, sum(amount::numeric)::float AS rev, count(*) AS n_pay
-      FROM payments GROUP BY 1
+      FROM payments WHERE NOT EXISTS (SELECT 1 FROM fiscal_documents fd WHERE fd.payment_id = payments.id AND fd.source_type = 'storno' AND fd.result_mode IN ('online_success','offline_accepted','reconciled_online_success','reconciled_offline_accepted')) GROUP BY 1
     ), wx AS (
       SELECT (observed_at AT TIME ZONE ${TZ})::date AS d,
              max(temperature_c)::float AS tmax, min(temperature_c)::float AS tmin,
@@ -77,7 +77,7 @@ function normRec(day, w) {
 async function loadHourlyCumShare() {
   const r = await db.execute(sql`
     SELECT extract(hour FROM (created_at AT TIME ZONE ${TZ}))::int AS h, sum(amount::numeric)::float AS rev
-    FROM payments GROUP BY 1`);
+    FROM payments WHERE NOT EXISTS (SELECT 1 FROM fiscal_documents fd WHERE fd.payment_id = payments.id AND fd.source_type = 'storno' AND fd.result_mode IN ('online_success','offline_accepted','reconciled_online_success','reconciled_offline_accepted')) GROUP BY 1`);
   const byHour = new Array(24).fill(0);
   for (const x of r.rows) byHour[Number(x.h)] = Number(x.rev) || 0;
   const total = byHour.reduce((s, v) => s + v, 0) || 1;
@@ -89,7 +89,8 @@ async function loadTodayActual() {
   const r = await db.execute(sql`
     SELECT to_char((now() AT TIME ZONE ${TZ})::date,'YYYY-MM-DD') AS today,
            extract(hour FROM (now() AT TIME ZONE ${TZ}))::int AS cur_hour,
-           COALESCE((SELECT sum(amount::numeric) FROM payments WHERE (created_at AT TIME ZONE ${TZ})::date = (now() AT TIME ZONE ${TZ})::date),0)::float AS today_rev`);
+           COALESCE((SELECT sum(amount::numeric) FROM payments WHERE (created_at AT TIME ZONE ${TZ})::date = (now() AT TIME ZONE ${TZ})::date
+             AND NOT EXISTS (SELECT 1 FROM fiscal_documents fd WHERE fd.payment_id = payments.id AND fd.source_type = 'storno' AND fd.result_mode IN ('online_success','offline_accepted','reconciled_online_success','reconciled_offline_accepted'))),0)::float AS today_rev`);
   const row = r.rows[0] || {};
   return { today: row.today, curHour: Number(row.cur_hour) || 0, todayRev: Number(row.today_rev) || 0 };
 }
