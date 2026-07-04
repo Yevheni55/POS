@@ -59,6 +59,18 @@ function togglePosTheme() {
 // Zladenie ikon/meta pri štarte (atribút už nastavil anti-FOUC skript v head).
 try { applyPosTheme(localStorage.getItem('pos_theme') === 'dark' ? 'dark' : 'light'); } catch (e) {}
 
+// QR platba — vypinatelna cez admin Nastavenia (localStorage 'pos_settings'.
+// sQrPaymentEnabled). Chyba/parse error alebo chybajuci kluc = zapnute
+// (default), aby existujuce kasy bez ulozenych nastaveni nestratili QR.
+function isQrPaymentEnabled() {
+  try {
+    var raw = localStorage.getItem('pos_settings');
+    if (!raw) return true;
+    var s = JSON.parse(raw);
+    return s.sQrPaymentEnabled !== false;
+  } catch (e) { return true; }
+}
+
 // Apply settings from admin panel (localStorage)
 function applyPosSettings() {
   try {
@@ -78,6 +90,12 @@ function applyPosSettings() {
       var initials = name.split(/\s+/).map(function(w) { return w[0]; }).join('').slice(0, 3).toUpperCase();
       logoEl.textContent = initials;
     }
+    // QR platba tlacidlo — skry ak je v nastaveniach vypnute.
+    var qrEnabled = s.sQrPaymentEnabled !== false;
+    var qrBtn = document.getElementById('btnQr');
+    var mobQrBtn = document.getElementById('mobBtnQr');
+    if (qrBtn) qrBtn.hidden = !qrEnabled;
+    if (mobQrBtn) mobQrBtn.hidden = !qrEnabled;
   } catch (e) { /* ignore parse errors */ }
 }
 
@@ -417,6 +435,22 @@ async function showCloseShiftModal(){
     document.getElementById('closeShiftCashSales').textContent = summary.cashPayments.toFixed(2);
     document.getElementById('closeShiftExpected').textContent = summary.expectedCash.toFixed(2);
     document.getElementById('closeShiftActualInput').value = summary.expectedCash.toFixed(2);
+    // Vytlačené bločky per spôsob platby (každá platba = jeden fiškálny doklad)
+    var mEl = document.getElementById('closeShiftMethods');
+    if (mEl) {
+      var mLabels = { hotovost: 'Hotovosť', karta: 'Karta', prevod: 'QR platba' };
+      var ms = summary.methods || [];
+      if (!ms.length) {
+        mEl.textContent = 'Žiadne platby v zmene';
+      } else {
+        mEl.innerHTML = ms.map(function (m) {
+          var lbl = mLabels[m.method] || escHtml(m.method);
+          return lbl + ': <strong>' + m.count + ' bločkov</strong> · ' + Number(m.total).toFixed(2) + ' €';
+        }).join('<br>')
+        + '<br><span style="color:var(--color-text-sec)">Spolu platieb:</span> <strong>'
+        + (summary.paymentsCount || 0) + '</strong>';
+      }
+    }
     updateCloseShiftDiff();
     document.getElementById('closeShiftModal').classList.add('show');
   } catch(e){
@@ -490,7 +524,17 @@ window.addEventListener('message',function(e){
   if(e.data==='closePosAdmin'){
     var ov=document.getElementById('adminOverlay');
     if(ov){ov.style.display='none';document.getElementById('adminFrame').src='about:blank'}
+    // Admin (Nastavenia) beží v iframe rovnakej stránky bez reloadu — settings
+    // ulozene tam sa inak prejavia az po F5. Re-aplikuj hned pri zatvoreni.
+    applyPosSettings();
   }
+});
+// Admin iframe je same-origin, takze zmena localStorage vo vnutri neho
+// (Ulozit v Nastaveniach) vyvola 'storage' event na PARENT okne — vdaka
+// tomu sa napr. skrytie QR platby prejavi na pokladni OKAMZITE, aj ked
+// admin overlay este zostava otvoreny (nie len pri jeho zatvoreni vyssie).
+window.addEventListener('storage', function (e) {
+  if (e.key === 'pos_settings') applyPosSettings();
 });
 function showLogoutModal(){document.getElementById('logoutModal').classList.add('show')}
 function closeLogoutModal(){document.getElementById('logoutModal').classList.remove('show')}
@@ -518,6 +562,12 @@ init();
 setupLongPress();
 // Hide edit button for cisnik
 if(getUserRole()==='cisnik'){var eb=document.getElementById('editToggle');if(eb)eb.classList.add('pos-hidden');}
+// Odpis (manazersky odpis uctu mimo fiskal) — odkry LEN pre rolu admin.
+// Server to ovri tiez (requireRole('admin') na /close-as-odpis).
+if(getUserRole()==='admin'){
+  var _ob=document.getElementById('btnOdpis');if(_ob)_ob.removeAttribute('hidden');
+  var _mob=document.getElementById('mobBtnOdpis');if(_mob)_mob.removeAttribute('hidden');
+}
 document.getElementById('paymentModal').addEventListener('click',function(e){if(e.target===this)closeModal()});
 document.getElementById('noteModal').addEventListener('click',function(e){if(e.target===this)closeNoteModal()});
 /* moveModal + moveAccountModal removed — replaced by inline move mode + table picker */
