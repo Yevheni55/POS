@@ -1534,9 +1534,9 @@ function _splitItemRowHtml(it){
   var fullLineTotal = (Number(it.price) || 0) * (Number(it.qty) || 0);
   // Vizual: ked vybrate, ramcek + check, suma vpravo je za selectedQty.
   // Ked nevybrate, suma vpravo = celkova suma riadku.
-  var bg = isSelected ? 'rgba(139,124,246,.12)' : 'var(--color-bg-surface)';
-  var border = isSelected ? 'var(--color-accent,#8b7cf6)' : 'var(--color-border)';
-  var checkBg = isSelected ? 'var(--color-accent,#8b7cf6)' : 'transparent';
+  var bg = isSelected ? 'var(--color-accent-bg)' : 'var(--color-bg-surface)';
+  var border = isSelected ? 'var(--color-accent)' : 'var(--color-border)';
+  var checkBg = isSelected ? 'var(--color-accent)' : 'transparent';
   var checkContent = isSelected
     ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="svg-icon"><polyline points="20 6 9 17 4 12"/></svg>'
     : '';
@@ -1544,7 +1544,7 @@ function _splitItemRowHtml(it){
   var qtyBadge = '';
   if (it.qty > 1) {
     if (isSelected && selectedQty < it.qty){
-      qtyBadge = '<span style="font-size:12px;font-weight:700;color:var(--color-accent);background:rgba(139,124,246,.18);padding:2px 8px;border-radius:10px">' + selectedQty + '/' + it.qty + '</span>';
+      qtyBadge = '<span style="font-size:12px;font-weight:700;color:var(--color-accent);background:var(--color-accent-bg-hover);padding:2px 8px;border-radius:10px">' + selectedQty + '/' + it.qty + '</span>';
     } else {
       qtyBadge = '<span style="font-size:12px;color:var(--color-text-sec)">' + it.qty + '×</span>';
     }

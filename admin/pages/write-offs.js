@@ -208,7 +208,7 @@ function renderSummary() {
   var html = '<div class="stat-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">'
 
     + '<div class="stat-card">'
-    + '<div class="stat-icon" style="background:rgba(139,124,246,.12);color:var(--color-accent)">'
+    + '<div class="stat-icon" style="background:var(--color-accent-bg-hover);color:var(--color-accent)">'
     + '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>'
     + '</div>'
     + '<div class="stat-info">'

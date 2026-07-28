@@ -1245,7 +1245,7 @@ function buildScanItemCard(item, idx) {
   h += '</div>';
 
   // Row 3: conversion factor (e.g. 1 ks = 500g)
-  h += '<div style="display:flex;gap:8px;align-items:center;margin-top:8px;padding-top:8px;border-top:1px dashed rgba(139,124,246,.1)">';
+  h += '<div style="display:flex;gap:8px;align-items:center;margin-top:8px;padding-top:8px;border-top:1px dashed var(--color-border)">';
   var aiConv = parseFloat(item.conversionFactor) || 1;
   h += '<span style="font-size:var(--text-xs);color:var(--color-text-sec);white-space:nowrap">Konverzia: 1 ' + escapeHtml(item.unit || 'ks') + ' =</span>';
   h += '<input type="number" class="form-input form-input-sm scan-conv" data-idx="' + idx + '" value="' + aiConv + '" step="0.01" min="0.01" style="width:80px;text-align:right">';

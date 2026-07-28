@@ -337,7 +337,7 @@ function renderLaborByStaff(data) {
     <td class="num text-right">${totalShifts}</td>
     <td class="num text-right">${fmtHours(totalHours)}</td>
     <td class="num text-right" style="color:var(--color-text-sec)">—</td>
-    <td class="num text-right" style="font-weight:var(--weight-bold);color:var(--color-accent, #8b7cf6)">${fmtEur(totalLabor)}</td>
+    <td class="num text-right" style="font-weight:var(--weight-bold);color:var(--color-accent)">${fmtEur(totalLabor)}</td>
   </tr>`;
 }
 

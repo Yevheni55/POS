@@ -87,8 +87,16 @@
   button, a, input { touch-action: manipulation; -webkit-touch-callout: none; }
 
   html, body {
-    height: 100%;
-    overflow: hidden;
+    /* min-height, NIE height:100% + overflow:hidden.
+       Karta rastie s počtom zamestnancov: pri 11 profiloch má 872 px, takže
+       pri okne 800 px sa 72 px odrezalo a nedalo sa k tomu dostať vôbec.
+       Na telefóne (375×667 — DESIGN-CODE ho uvádza ako cieľ) má karta 923 px
+       a zmizne hlavička AJ SPODNÝ RAD NUMPADU: nedá sa zadať PIN s nulou ani
+       opraviť preklep, teda sa na telefóne nedá prihlásiť.
+       `height:100%` drží dokument presne vo výške okna, takže scroll nevznikne
+       ani s overflow:auto — musí to byť min-height. */
+    min-height: 100%;
+    overflow-x: hidden;
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
     font-family: var(--font-body);
     /* Daylight foundation — dual radial (warm/cool axis) + cream linear */
@@ -117,8 +125,16 @@
     display: flex;
     flex-direction: column;
     align-items: center;
+    /* `safe center`: kým sa obsah zmestí, centruje presne ako doteraz; keď sa
+       nezmestí, prepne sa na začiatok, takže sa nič neodreže a zvyšok sa dá
+       odscrollovať. Obyčajné `center` pri pretečení odreže OBA konce a vrch
+       sa nedá dosiahnuť ani scrollom.
+       Prvý riadok je fallback pre prehliadače, ktoré `safe` nepoznajú. */
     justify-content: center;
-    height: 100%;
+    justify-content: safe center;
+    /* dvh kvôli adresnému riadku na mobile; vh je fallback pre staršie WebView */
+    min-height: 100vh;
+    min-height: 100dvh;
     position: relative;
     z-index: 1;
     padding: 20px;

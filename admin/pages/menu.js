@@ -348,7 +348,7 @@ function openCategoryModal(mode, initial) {
     + '<button class="u-btn u-btn-ghost" id="catCancel">Zrusit</button>'
     + '<button class="u-btn u-btn-ice" id="catSave">' + (mode === 'edit' ? 'Ulozit' : 'Pridat') + '</button>'
     + '</div>'
-    + '<style>.emoji-pick{font-size:22px;line-height:1;padding:6px;border:1px solid transparent;background:transparent;border-radius:var(--radius-xs);cursor:pointer;transition:all .1s ease}.emoji-pick:hover{background:rgba(139,124,246,.1);border-color:var(--color-accent)}.emoji-pick.active{background:rgba(139,124,246,.2);border-color:var(--color-accent);transform:scale(1.1)}</style>'
+    + '<style>.emoji-pick{font-size:22px;line-height:1;padding:6px;border:1px solid transparent;background:transparent;border-radius:var(--radius-xs);cursor:pointer;transition:all .1s ease}.emoji-pick:hover{background:var(--color-accent-bg);border-color:var(--color-accent)}.emoji-pick.active{background:var(--color-accent-bg-hover);border-color:var(--color-accent);transform:scale(1.1)}</style>'
     + '</div>';
 
   document.body.appendChild(ov);

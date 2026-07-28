@@ -711,10 +711,11 @@ const PAGE_CSS = `
   }
   .legend-dot.kitchen{ background: var(--color-success) }
   .legend-dot.bar    { background: var(--color-accent) }
-  .legend-dot.tier-1 { background: rgba(139,124,246,.18) }
-  .legend-dot.tier-2 { background: rgba(139,124,246,.40) }
-  .legend-dot.tier-3 { background: rgba(139,124,246,.65) }
-  .legend-dot.tier-4 { background: var(--color-accent) }
+  /* Legenda musí kopírovať škálu buniek 1:1, inak nemá čo vysvetľovať. */
+  .legend-dot.tier-1 { background: rgba(var(--heat-rgb), .14) }
+  .legend-dot.tier-2 { background: rgba(var(--heat-rgb), .32) }
+  .legend-dot.tier-3 { background: rgba(var(--heat-rgb), .55) }
+  .legend-dot.tier-4 { background: var(--heat-top-bg) }
 
   /* Heatmap — 7 rows (Po-Ne) × N hours */
   .weekly-heatmap{ overflow-x: auto; -webkit-overflow-scrolling: touch }
@@ -755,11 +756,19 @@ const PAGE_CSS = `
     transition: transform var(--transition-fast);
   }
   .weekly-hm-table td.hm-cell:hover{ transform: scale(1.08) }
-  .hm-cell.tier-0{ background: rgba(255,255,255,.03); color: var(--color-text-dim) }
-  .hm-cell.tier-1{ background: rgba(139,124,246,.18); color: var(--color-text) }
-  .hm-cell.tier-2{ background: rgba(139,124,246,.40); color: var(--color-text) }
-  .hm-cell.tier-3{ background: rgba(139,124,246,.65); color: #fff; font-weight: var(--weight-bold) }
-  .hm-cell.tier-4{ background: var(--color-accent); color: #fff; font-weight: var(--weight-bold) }
+  /* Sekvenčná škála — jeden odtieň, rastúca intenzita (--heat-* v admin.css).
+     tier-0 bolo rgba(255,255,255,.03), čo je na krémovom podklade neviditeľné.
+     Selektor musí ísť cez td.hm-cell.tier-N: samotné .hm-cell.tier-N má nižšiu
+     špecificitu než .weekly-hm-table td.hm-cell vyššie, takže by farbu textu
+     neprebilo a čísla by na sýtych stupňoch splynuli s pozadím (namerané
+     1,3 : 1 na najvyššom stupni).
+     POZN: v tomto bloku sa NESMÚ použiť spätné apostrofy — celé CSS je vnútri
+     JS template literalu a ukončili by ho. */
+  .weekly-hm-table td.hm-cell.tier-0{ background: var(--color-bg-surface); color: var(--color-text-dim) }
+  .weekly-hm-table td.hm-cell.tier-1{ background: rgba(var(--heat-rgb), .14); color: var(--color-text) }
+  .weekly-hm-table td.hm-cell.tier-2{ background: rgba(var(--heat-rgb), .32); color: var(--color-text) }
+  .weekly-hm-table td.hm-cell.tier-3{ background: rgba(var(--heat-rgb), .55); color: var(--color-text); font-weight: var(--weight-bold) }
+  .weekly-hm-table td.hm-cell.tier-4{ background: var(--heat-top-bg); color: var(--heat-top-fg); font-weight: var(--weight-bold) }
 
   /* Day tabs — kliknuteľné chips per deň v týždni */
   .weekly-day-tabs{

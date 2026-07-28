@@ -34,6 +34,17 @@
   --color-accent-border:    rgba(184, 84, 42, .26);
   --color-accent-glow:      rgba(184, 84, 42, .22);
 
+  /* ── Škála tepelných máp (weekly.js, season.js) ──────────────────────────
+     JEDEN odtieň s rastúcou intenzitou. Predtým šla škála
+     fialová .18 → fialová .40 → fialová .65 → terrakota, teda dva rôzne
+     odtiene v jednej sekvenčnej škále: z takej sa intenzita prečítať nedá
+     a fialová je navyše z vyradenej palety.
+     Kontrast overený: stupne 1–3 nesú --color-text (11,8 / 9,4 / 6,9 : 1),
+     vrchný stupeň má vlastnú dvojicu (6,1 : 1 svetlá, 5,7 : 1 tmavá). */
+  --heat-rgb: 184, 84, 42;
+  --heat-top-bg: var(--color-accent-dim);
+  --heat-top-fg: #f5efe3;
+
   --color-success:        #4a7a3a;
   --color-success-bg:     rgba(74, 122, 58, .10);
   --color-success-border: rgba(74, 122, 58, .28);
@@ -249,7 +260,15 @@ body{font-family:var(--font-body);color:var(--color-text);background:var(--color
 .dashboard-page .bar-label{color:var(--color-text-sec)}
 .dashboard-page .bar-amount{opacity:1}
 
-/* Dashboard: week chart empty hint */
+/* Nezvýraznený stĺpec týždňového grafu. Nahrádza inline
+   rgba(139,124,246,.3) (fialová z vyradenej palety) — teraz sa drží
+   terra akcentu a v tmavom režime sa mení spolu s témou. */
+.bar.bar-muted{background:var(--color-accent-bg-hover)}
+
+/* Dashboard: week chart empty hint.
+   `flex-wrap:wrap` tu ostáva len kvôli starším vykresleniam; hláška o prázdnom
+   týždni sa už vkladá POD graf (viď dashboard.js), takže sa nemá čo zalamovať
+   a pretekať cez titulok panela. */
 .dashboard-page .bar-chart{flex-wrap:wrap;align-content:flex-end}
 .dashboard-page .bar-wrapper{border-bottom:1px solid rgba(30, 24, 18, .07);padding-bottom:2px;min-height:4px}
 .dashboard-chart-hint{

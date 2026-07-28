@@ -517,9 +517,11 @@ const PAGE_CSS = `
   }
   .season-hm-cell:hover{ transform: translateY(-2px); background: var(--color-bg-hover) }
   .season-hm-cell.tier-0{ opacity: .55 }
-  .season-hm-cell.tier-1{ background: rgba(139,124,246,.06); border-color: rgba(139,124,246,.18) }
-  .season-hm-cell.tier-2{ background: rgba(139,124,246,.14); border-color: rgba(139,124,246,.30) }
-  .season-hm-cell.tier-3{ background: rgba(139,124,246,.24); border-color: var(--color-accent) }
+  /* Rovnaká sekvenčná škála ako v týždennom reporte (--heat-* v admin.css) —
+     jeden odtieň, rastúca intenzita. Predtým fialová z vyradenej palety. */
+  .season-hm-cell.tier-1{ background: rgba(var(--heat-rgb), .10); border-color: rgba(var(--heat-rgb), .22) }
+  .season-hm-cell.tier-2{ background: rgba(var(--heat-rgb), .22); border-color: rgba(var(--heat-rgb), .38) }
+  .season-hm-cell.tier-3{ background: rgba(var(--heat-rgb), .38); border-color: var(--color-accent) }
   .season-hm-day{
     font-size: var(--text-sm);
     font-weight: var(--weight-bold);

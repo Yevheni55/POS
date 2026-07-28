@@ -1654,6 +1654,27 @@ body::after{
 }
 .sw-update-dismiss:hover{color:var(--color-text)}
 
+/* === STAV STOLA V HLAVIČKE ÚČTU ===
+   Predtým to js/pos-render.js maľoval inline hodnotami #5CC49E / #8B7CF6 /
+   #E0A830 — farbami z VYRADENEJ fialovej palety. Na krémovom Daylight
+   podklade mali kontrast ~1,5–2,4:1, čiže prakticky nečitateľné, a v tmavom
+   režime sa nemenili vôbec (inline štýl tému nepozná). */
+.table-status-badge{
+  display:inline-block;
+  margin-left:var(--space-3);
+  padding:3px var(--space-2);
+  border-radius:var(--radius-xs);
+  font-size:var(--text-base);
+  font-weight:var(--weight-semibold);
+  letter-spacing:.3px;
+  vertical-align:middle;
+  white-space:nowrap;
+}
+.table-status-badge[hidden]{display:none !important}
+.table-status-badge.tsb-free{ background:var(--color-success-bg); color:var(--color-success); }
+.table-status-badge.tsb-sent{ background:var(--color-accent-secondary-soft); color:var(--color-accent-secondary); }
+.table-status-badge.tsb-open{ background:rgba(184,124,26,.14); color:var(--accent-amber-text); }
+
 /* === UNIFIED MODAL SYSTEM === */
 .u-overlay{
   position:fixed;inset:0;z-index:200;

@@ -141,7 +141,7 @@ export function init(container) {
       <!-- Big +1 button -->
       <div style="background:var(--surface-card);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:32px;text-align:center">
         <div style="font-size:14px;color:var(--color-text-sec);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Predaná shisha</div>
-        <button id="shishaAddBtn" class="u-btn u-btn-mint" style="font-size:24px;padding:24px 48px;min-height:80px;width:100%;max-width:420px;margin-top:8px;display:inline-flex;align-items:center;justify-content:center;gap:12px;background:linear-gradient(135deg,rgba(139,124,246,.18),rgba(139,124,246,.30));border:1px solid var(--color-accent-glow);color:var(--color-accent)">
+        <button id="shishaAddBtn" class="u-btn u-btn-mint" style="font-size:24px;padding:24px 48px;min-height:80px;width:100%;max-width:420px;margin-top:8px;display:inline-flex;align-items:center;justify-content:center;gap:12px;background:linear-gradient(135deg,var(--color-accent-bg),var(--color-accent-bg-hover));border:1px solid var(--color-accent-glow);color:var(--color-accent)">
           <span style="font-size:32px">+1</span>
           <span>Predaná shisha (17 €)</span>
         </button>

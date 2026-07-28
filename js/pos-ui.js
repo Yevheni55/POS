@@ -306,7 +306,7 @@ function showSauceSelector(comboName, callback) {
   var sauceBoxes = sauces.map(function (s, i) {
     var id = 'sauce-' + i;
     var preChecked = hasPrevious && previous.indexOf(s) >= 0;
-    return '<label for="' + id + '" class="sauce-row' + (preChecked ? ' is-prechecked' : '') + '" style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:' + (preChecked ? 'rgba(139,124,246,.10)' : 'rgba(255,255,255,.04)') + ';border:1px solid ' + (preChecked ? 'rgba(139,124,246,.40)' : 'var(--color-border)') + ';border-radius:var(--radius-sm);cursor:pointer;font-size:var(--text-base)">'
+    return '<label for="' + id + '" class="sauce-row' + (preChecked ? ' is-prechecked' : '') + '" style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:' + (preChecked ? 'var(--color-accent-bg)' : 'rgba(255,255,255,.04)') + ';border:1px solid ' + (preChecked ? 'var(--color-accent-border)' : 'var(--color-border)') + ';border-radius:var(--radius-sm);cursor:pointer;font-size:var(--text-base)">'
       + '<input type="checkbox" id="' + id + '" data-sauce="' + s + '"' + (preChecked ? ' checked' : '') + ' style="width:18px;height:18px;cursor:pointer">'
       + '<span>' + s + '</span></label>';
   }).join('');

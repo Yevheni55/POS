@@ -51,6 +51,12 @@
      #8a5d14 zo svetlého :root a text by zmizol. */
   --accent-amber-text: var(--accent-amber);
 
+  /* Tepelné mapy — v tmavom režime je akcent svetlejší, takže vrchný stupeň
+     nesie TMAVÝ text (5,7 : 1); biely by na ňom mal len 3,1 : 1. */
+  --heat-rgb: 201, 99, 56;
+  --heat-top-bg: var(--color-accent);
+  --heat-top-fg: #1e1812;
+
   /* Warning (amber) — admin semantic, brightened pre dark */
   --color-warning:        #e0a83c;
   --color-warning-bg:     rgba(224, 168, 60, .14);

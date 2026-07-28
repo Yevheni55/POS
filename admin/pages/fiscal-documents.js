@@ -108,7 +108,7 @@ function renderResults() {
   html += '</tr></thead><tbody>';
 
   searchResults.forEach((item) => {
-    const active = selectedDocument && selectedDocument.id === item.id ? ' style="background:rgba(139,124,246,.08)"' : '';
+    const active = selectedDocument && selectedDocument.id === item.id ? ' style="background:var(--color-accent-bg)"' : '';
     html += `<tr class="data-row" data-fiscal-row="${item.id}"${active}>`;
     html += `<td class="data-td"><strong>${escapeHtml(item.receiptId || item.externalId || ('#' + item.id))}</strong><div class="text-muted" style="font-size:12px">${escapeHtml(item.okp || '')}</div></td>`;
     html += `<td class="data-td">${escapeHtml(item.sourceType)}</td>`;

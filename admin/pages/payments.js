@@ -102,7 +102,7 @@ function actionsCell(item) {
   if (item.stornoEligible) {
     var swapTo = item.method === 'hotovost' ? 'karta' : 'hotovost';
     var swapLabel = item.method === 'hotovost' ? 'Karta' : 'Hotovost';
-    html += '<button class="btn-save btn-sm" data-payment-change-method="' + item.id + '" data-new-method="' + swapTo + '" style="background:var(--color-accent,#8b7cf6)" title="Storno povodneho dokladu + novy doklad s novym sposobom">→ ' + swapLabel + '</button>';
+    html += '<button class="btn-save btn-sm" data-payment-change-method="' + item.id + '" data-new-method="' + swapTo + '" style="background:var(--color-accent)" title="Storno povodneho dokladu + novy doklad s novym sposobom">→ ' + swapLabel + '</button>';
   }
   if (item.stornoEligible) {
     html += '<button class="btn-save btn-sm" data-payment-storno="' + item.id + '" style="background:var(--color-danger,#c44)">STORNO</button>';

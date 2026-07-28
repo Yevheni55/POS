@@ -430,8 +430,10 @@ function renderRecipeForm(item) {
   if (currentRecipe.length) {
     html += '<div class="recipe-cards" style="display:flex;flex-direction:column;gap:6px;margin-bottom:20px">';
     currentRecipe.forEach(function(line, idx) {
-      var unitColors = { ks:'139,124,246', kg:'92,196,158', g:'92,196,158', l:'125,211,252', ml:'125,211,252' };
-      var uc = unitColors[line.ingredientUnit] || '139,124,246';
+      // RGB trojice pre rgba(...) badge jednotiek. 'ks' malo fialovú z vyradenej
+      // palety; teraz drží terra akcent rovnako ako zvyšok admina.
+      var unitColors = { ks:'184,84,42', kg:'74,122,58', g:'74,122,58', l:'31,58,92', ml:'31,58,92' };
+      var uc = unitColors[line.ingredientUnit] || '184,84,42';
       html += '<div class="recipe-card" style="'
         + 'display:flex;align-items:center;gap:12px;padding:12px 14px;'
         + 'background:rgba(' + uc + ',.04);border:1px solid rgba(' + uc + ',.12);'
@@ -475,7 +477,7 @@ function renderRecipeForm(item) {
     });
     html += '</div>';
   } else {
-    html += '<div style="padding:32px 16px;text-align:center;border:1.5px dashed rgba(139,124,246,.12);border-radius:var(--radius-md);margin-bottom:20px">'
+    html += '<div style="padding:32px 16px;text-align:center;border:1.5px dashed var(--color-accent-border);border-radius:var(--radius-md);margin-bottom:20px">'
       + '<div style="font-size:20px;margin-bottom:6px;opacity:.4">\uD83E\uDDEA</div>'
       + '<div style="font-size:var(--text-md);font-weight:var(--weight-semibold);color:var(--color-text-sec);margin-bottom:2px">Prazdny recept</div>'
       + '<div style="font-size:var(--text-sm);color:var(--color-text-dim)">Pridajte suroviny nizsie</div>'
@@ -625,7 +627,7 @@ function bindEditorEvents(item) {
       }
       dropdown.innerHTML = visibleList.map(function(ing, i) {
         var hi = i === highlighted;
-        var bg = hi ? 'background:rgba(139,124,246,.18)' : 'background:transparent';
+        var bg = hi ? 'background:var(--color-accent-bg-hover)' : 'background:transparent';
         return '<div class="ing-row" data-ing-id="' + ing.id + '" data-idx="' + i + '" style="'
           + 'padding:10px 14px;cursor:pointer;font-size:14px;border-bottom:1px solid rgba(255,255,255,.04);'
           + bg + '">'

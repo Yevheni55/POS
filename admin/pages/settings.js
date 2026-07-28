@@ -25,8 +25,8 @@ const DEFAULTS = {
   sReceiptFormat: '80mm',
   sAutoPrint: true,
   sShowVat: true,
-  sPrimaryColor: '#8B7CF6',
-  sSecondaryColor: '#8B7CF6',
+  sPrimaryColor: '#b8542a',
+  sSecondaryColor: '#1f3a5c',
   hours: [
     { day: 'Pondelok', open: true, from: '08:00', to: '22:00' },
     { day: 'Utorok',   open: true, from: '08:00', to: '22:00' },
@@ -280,7 +280,7 @@ function getTemplate() {
       <div id="companyProfileCompare" class="mt-3"></div>
       <div class="flex-row gap-2 mt-3">
         <button class="btn-save btn-sm" id="btnRefreshPortos">Obnovit stav</button>
-        <button class="btn-save btn-sm" id="btnSyncProfileFromPortos" style="background:var(--color-accent, #8B7CF6)">Obnovit udaje z Portos</button>
+        <button class="btn-save btn-sm" id="btnSyncProfileFromPortos" style="background:var(--color-accent)">Obnovit udaje z Portos</button>
       </div>
       <div id="fiscalStornoPanel" class="mt-3" style="padding-top:12px;border-top:1px solid var(--color-border, #2a2638)">
         <div class="form-group" style="max-width:420px">
@@ -307,7 +307,7 @@ function getTemplate() {
             <div class="color-swatch">
               <input type="color" id="sPrimaryColor">
             </div>
-            <span class="color-hex" id="primaryHex">#8B7CF6</span>
+            <span class="color-hex" id="primaryHex">#b8542a</span>
           </div>
         </div>
         <div class="form-group">
@@ -316,7 +316,7 @@ function getTemplate() {
             <div class="color-swatch">
               <input type="color" id="sSecondaryColor">
             </div>
-            <span class="color-hex" id="secondaryHex">#8B7CF6</span>
+            <span class="color-hex" id="secondaryHex">#1f3a5c</span>
           </div>
         </div>
       </div>

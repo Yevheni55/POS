@@ -1025,7 +1025,7 @@ function _showQtyPopup(ev, name, emoji, price) {
     var b = document.createElement('button');
     b.type = 'button';
     b.textContent = '+' + q;
-    b.style.cssText = 'min-width:54px;min-height:54px;padding:0;background:var(--color-accent,#8B7CF6);color:#fff;border:none;border-radius:10px;font-size:18px;font-weight:700;cursor:pointer;touch-action:manipulation';
+    b.style.cssText = 'min-width:54px;min-height:54px;padding:0;background:var(--color-accent);color:#fff;border:none;border-radius:10px;font-size:18px;font-weight:700;cursor:pointer;touch-action:manipulation';
     b.addEventListener('click', function (e) {
       e.stopPropagation();
       if (typeof addToOrderN === 'function') addToOrderN(name, emoji, price, q);
@@ -1084,7 +1084,9 @@ function _renderTableStatus() {
   if (!el) {
     el = document.createElement('span');
     el.id = 'tableStatusBadge';
-    el.style.cssText = 'display:inline-block;margin-left:10px;font-size:12px;font-weight:600;padding:3px 8px;border-radius:8px;letter-spacing:.3px;vertical-align:middle;white-space:nowrap';
+    // Rozmery aj farby su v css/pos.css (.table-status-badge) — inline styl
+    // sa nedal preladit temou ani zosuladit s tokenmi.
+    el.className = 'table-status-badge';
     label.parentNode.insertBefore(el, label.nextSibling);
   }
 
@@ -1093,8 +1095,8 @@ function _renderTableStatus() {
     : null;
 
   // No table selected → hide the badge.
-  if (!t) { el.style.display = 'none'; el.textContent = ''; return; }
-  el.style.display = 'inline-block';
+  if (!t) { el.hidden = true; el.textContent = ''; return; }
+  el.hidden = false;
 
   var status = t.status;
 
@@ -1123,24 +1125,50 @@ function _renderTableStatus() {
     }
   }
 
-  var text, bg, fg;
+  var text, cls;
+  var since = formatOpenDuration(minutesOpen);
   if (status === 'free' || (!ord && !localItems.length)) {
-    text = '🟢 voľný'; // 🟢
-    bg = 'rgba(92,196,158,.18)';
-    fg = '#5CC49E';
+    text = '🟢 voľný';
+    cls = 'tsb-free';
   } else if (sentQty > 0) {
-    text = '📤 ' + sentQty + ' ks v kuchyni' + (minutesOpen != null ? ' · ' + minutesOpen + ' min' : ''); // 📤
-    bg = 'rgba(139,124,246,.18)';
-    fg = '#8B7CF6';
+    text = '📤 ' + sentQty + ' ks v kuchyni' + (since ? ' · ' + since : '');
+    cls = 'tsb-sent';
   } else {
-    text = '🟠 otvorený' + (minutesOpen != null ? ' ' + minutesOpen + ' min' : ''); // 🟠
-    bg = 'rgba(224,168,48,.18)';
-    fg = '#E0A830';
+    text = '🟠 otvorený' + (since ? ' ' + since : '');
+    cls = 'tsb-open';
   }
   el.textContent = text;
-  el.style.background = bg;
-  el.style.color = fg;
+  // Farby cez triedy v css/pos.css, nie inline hex.
+  // Predtým tu boli natvrdo #5CC49E / #8B7CF6 / #E0A830 — hodnoty z VYRADENEJ
+  // fialovej palety. Na krémovom podklade mali kontrast ~1,5–2,4:1 (teda text
+  // sa prakticky nedal prečítať) a v tmavom režime sa nemenili vôbec.
+  el.className = 'table-status-badge ' + cls;
+  el.style.background = '';
+  el.style.color = '';
 }
+
+/**
+ * Ľudsky čitateľné trvanie otvoreného účtu.
+ * Predtým sa vypisovali surové minúty, takže účet otvorený pred tromi mesiacmi
+ * hlásil „147560 min" — číslo, ktoré obsluhe nič nehovorí a v paneli zaberá
+ * pol riadku.
+ * @param {number|null} minutes
+ * @returns {string} '' keď nie je čo zobraziť
+ */
+function formatOpenDuration(minutes) {
+  if (minutes == null || !isFinite(minutes) || minutes < 0) return '';
+  if (minutes < 60) return minutes + ' min';
+  var hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    var rem = minutes % 60;
+    return rem ? (hours + ' h ' + rem + ' m') : (hours + ' h');
+  }
+  var days = Math.floor(hours / 24);
+  if (days === 1) return '1 deň';
+  if (days < 5) return days + ' dni';
+  return days + ' dní';
+}
+if (typeof window !== 'undefined') window.formatOpenDuration = formatOpenDuration;
 
 /**
  * Group order rows for DISPLAY by (menuItemId, note) — zlučuje sent +

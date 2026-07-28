@@ -332,18 +332,31 @@ async function loadBarChart() {
       var rev = dailyRevenues[j];
       var pct = Math.round((rev / max) * 100);
       var isMax = rev === max && rev > 0;
-      var barStyle = isMax ? 'height:' + pct + '%' : 'height:' + pct + '%;background:rgba(139,124,246,.3)';
-      var barClass = isMax ? 'bar highlight' : 'bar';
+      // Farba nezvýrazneného stĺpca ide cez triedu, nie inline.
+      // Predtým tu bolo natvrdo rgba(139,124,246,.3) — fialová z VYRADENEJ
+      // palety, ktorá na krémovom Daylight dashboarde nesedela s ničím
+      // a v tmavom režime sa nemenila.
+      var barStyle = 'height:' + pct + '%';
+      var barClass = isMax ? 'bar highlight' : 'bar bar-muted';
       html += '<div class="bar-col">' +
         '<div class="bar-amount">' + fmtEur(rev) + '</div>' +
         '<div class="bar-wrapper"><div class="' + barClass + '" style="' + barStyle + '"></div></div>' +
         '<div class="bar-label">' + dayLabels[j] + '</div>' +
         '</div>';
     }
-    if (weekTotal === 0) {
-      html += '<div class="dashboard-chart-hint">Za tento týždeň zatiaľ žiadne tržby.</div>';
-    }
     chartEl.innerHTML = html;
+
+    // Hláška „žiadne tržby" ide POD graf, nie dovnútra neho.
+    // .bar-chart má pevnú výšku 180 px a `flex-wrap:wrap` s
+    // `align-content:flex-end`; hláška s `flex:1 1 100%` si vynútila druhý
+    // riadok, obsah prerástol kontajner a pretiekol SMEROM HORE — teda presne
+    // cez titulok panela („Tržby za týždeň" sa prekrývalo s „0,00 €").
+    var oldHint = chartEl.parentNode.querySelector('.dashboard-chart-hint');
+    if (oldHint) oldHint.remove();
+    if (weekTotal === 0) {
+      chartEl.insertAdjacentHTML('afterend',
+        '<div class="dashboard-chart-hint">Za tento týždeň zatiaľ žiadne tržby.</div>');
+    }
   } catch (err) {
     hideLoading(chartEl);
     chartEl.innerHTML = '<div class="loading-placeholder" style="width:100%">Chyba pri načítaní</div>';
@@ -390,7 +403,9 @@ function renderPaymentMethods(methods) {
     return;
   }
 
-  var colors = ['#8b7cf6', '#5cc49e', '#60a5fa', '#d4a853'];
+  // Kategoriálna paleta grafu — terra / zelená / navy / jantár, teda tie isté
+  // odtiene, aké používa zvyšok Daylight témy. Prvá bola fialová z vyradenej.
+  var colors = ['#b8542a', '#4a7a3a', '#1f3a5c', '#b87c1a'];
   var html = '';
   var useDonut = methods.length <= 4;
 
