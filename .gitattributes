@@ -1,0 +1,9 @@
+# Paths excluded from `git archive` — i.e. from the deploy bundle built by
+# scripts/deploy-tailscale-pos.sh. These are development-only trees that the
+# kasa never executes; shipping them just makes the tarball bigger.
+.claude/            export-ignore
+.cursor/            export-ignore
+tmp/                export-ignore
+android-tablet/     export-ignore
+windows-app/        export-ignore
+.gitattributes      export-ignore

@@ -98,7 +98,62 @@ export async function runDailyBackupOnce(date = todayBratislavaISO()) {
   // whole pipeline finishes cleanly.
   await fs.rename(tmpName, filename);
   const stat = await fs.stat(filename);
-  return { path: filename, bytes: stat.size, durationMs: Date.now() - startedAt };
+
+  // Voliteľná druhá kópia mimo pôvodného disku.
+  //
+  // Zálohy inak ležia na tom istom fyzickom disku ako živá databáza (named
+  // volume `pos_backups` na kase). Zlyhanie disku teda vezme naraz DB aj
+  // všetkých 14 dní záloh — čo je presne ten scenár, kvôli ktorému zálohy
+  // vôbec robíme. Nastav BACKUP_MIRROR_DIR na iný disk alebo na priečinok
+  // zdieľaný cez Tailscale a kópia sa spraví hneď po dumpe.
+  // Zlyhanie kópie NESMIE zhodiť samotnú zálohu — len sa hlasno zaloguje.
+  const mirrorDir = process.env.BACKUP_MIRROR_DIR;
+  let mirrored = null;
+  if (mirrorDir) {
+    try {
+      await fs.mkdir(mirrorDir, { recursive: true });
+      const mirrorPath = path.join(mirrorDir, path.basename(filename));
+      await fs.copyFile(filename, mirrorPath);
+      mirrored = mirrorPath;
+    } catch (e) {
+      console.error('[backup] mirror copy failed (primárna záloha je OK):', e?.message || e);
+    }
+  }
+
+  return { path: filename, bytes: stat.size, durationMs: Date.now() - startedAt, mirrored };
+}
+
+// Stav poslednej zálohy — pre /api/health a admin dashboard.
+// Bez tohto sa dalo zistiť len SSH-čkom na kasu, takže tichý výpadok záloh
+// (plný disk, chýbajúci pg_dump v image po rebuilde) mohol trvať týždne.
+export async function getLastBackupInfo() {
+  try {
+    const entries = await fs.readdir(BACKUP_DIR);
+    const dumps = entries.filter((n) => n.startsWith(FILE_PREFIX) && n.endsWith(FILE_SUFFIX));
+    if (!dumps.length) return { ok: false, lastDate: null, ageHours: null, bytes: 0, count: 0 };
+
+    let newest = null;
+    for (const name of dumps) {
+      try {
+        const st = await fs.stat(path.join(BACKUP_DIR, name));
+        if (!newest || st.mtimeMs > newest.mtimeMs) newest = { name, mtimeMs: st.mtimeMs, size: st.size };
+      } catch { /* preskoč */ }
+    }
+    if (!newest) return { ok: false, lastDate: null, ageHours: null, bytes: 0, count: dumps.length };
+
+    const ageHours = Math.round((Date.now() - newest.mtimeMs) / 3600000);
+    return {
+      // Denná záloha beží o 04:00; nad 36 h je niečo pokazené.
+      ok: ageHours <= 36 && newest.size > 0,
+      lastDate: newest.name.slice(FILE_PREFIX.length, newest.name.length - FILE_SUFFIX.length),
+      ageHours,
+      bytes: newest.size,
+      count: dumps.length,
+      mirrorConfigured: !!process.env.BACKUP_MIRROR_DIR,
+    };
+  } catch (e) {
+    return { ok: false, lastDate: null, ageHours: null, bytes: 0, count: 0, error: String(e?.message || e) };
+  }
 }
 
 // Delete dump files older than RETENTION_DAYS. Errors are swallowed per-file

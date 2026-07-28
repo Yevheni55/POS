@@ -79,6 +79,12 @@ async function loadPosState() {
       return 1;
     },
     clearTimeout() {},
+    // Browser timer/frame globals the module uses for background refresh.
+    // Registered as no-ops so nothing keeps running after the test.
+    setInterval() { return 1; },
+    clearInterval() {},
+    requestAnimationFrame(fn) { fn(); return 1; },
+    cancelAnimationFrame() {},
   });
 
   context.window = context;

@@ -31,6 +31,33 @@ describe('POST /api/orders/:id/send-storno-and-print', () => {
     fixtures = await seed();
   });
 
+  // Storno uz odoslanych poloziek je manager-level akcia — 4bb7972
+  // ("feat(pos): storno odoslanych poloziek len manazer/admin") pridal
+  // requireRole('manazer','admin') ako hard backend gate k frontend PIN promptu.
+  it('rejects a storno send from cisnik with 403', async () => {
+    const orderRes = await createOrder({
+      tableId: fixtures.table1.id,
+      items: [{ menuItemId: fixtures.itemPivo.id, qty: 1 }],
+    });
+    const orderId = orderRes.body.id;
+
+    const res = await request
+      .post(`/api/orders/${orderId}/send-storno-and-print`)
+      .set('Authorization', `Bearer ${tokens.cisnik()}`)
+      .send({ items: [{ menuItemId: fixtures.itemPivo.id, qty: 1 }] });
+
+    assert.equal(res.status, 403);
+
+    const events = await testDb
+      .select()
+      .from(schema.orderEvents)
+      .where(eq(schema.orderEvents.orderId, orderId));
+    assert.ok(
+      !events.some((event) => event.type === 'order_storno_sent'),
+      'blocked storno must not be logged'
+    );
+  });
+
   it('returns storno items enriched from menu data and logs a storno send event', async () => {
     const orderRes = await createOrder({
       tableId: fixtures.table1.id,
@@ -46,7 +73,7 @@ describe('POST /api/orders/:id/send-storno-and-print', () => {
 
     res = await request
       .post(`/api/orders/${orderId}/send-storno-and-print`)
-      .set('Authorization', `Bearer ${tokens.cisnik()}`)
+      .set('Authorization', `Bearer ${tokens.manazer()}`)
       .send({
         items: [
           { menuItemId: fixtures.itemPivo.id, qty: 1, note: 'bez peny' },

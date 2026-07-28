@@ -1,14 +1,30 @@
-import { and, desc, eq, gte, sql } from 'drizzle-orm';
+import { desc, eq, sql } from 'drizzle-orm';
 
 import { db } from '../../db/index.js';
 import { orders, orderItems, payments, menuItems, menuCategories, shishaSales } from '../../db/schema.js';
-import { notStornoedSql } from './shared.js';
+import { localYmd } from '../print/format.js';
+
+import { TZ, notStornoedSql } from './shared.js';
 
 // GET /api/reports/z-report?date=2026-03-26
 export async function zReportHandler(req, res) {
-  const date = req.query.date || new Date().toISOString().split('T')[0];
-  const fromDate = new Date(date + 'T00:00:00');
-  const toDate = new Date(date + 'T23:59:59.999');
+  // Default = DNESNY lokalny den (nie UTC den — ten sa po polnoci lisi).
+  const date = req.query.date || localYmd();
+
+  // Denne okno sa MUSI pocitat v Europe/Bratislava, nie v UTC. Server bezi
+  // v Dockeri v UTC a created_at je `timestamp` BEZ zony (UTC nastenne hodiny),
+  // takze `new Date(date+'T00:00:00')` pokryval 02:00–01:59 lokalneho casu →
+  // uzavierka tahana tesne po polnoci bola takmer prazdna. Rovnaky pristup ako
+  // server/lib/reports/summary.js, ale stlpec explicitne interpretujeme ako UTC
+  // (`AT TIME ZONE 'UTC'`), aby vysledok NEZAVISEL od session TimeZone databazy.
+  const fromBoundary = sql`(${date + ' 00:00:00'})::timestamp AT TIME ZONE ${TZ}`;
+  const toBoundary   = sql`(${date + ' 23:59:59.999'})::timestamp AT TIME ZONE ${TZ}`;
+  // inDay = stlpce typu `timestamp` BEZ zony (payments/orders/write_offs).
+  // inDayTz = stlpce `timestamptz` (shisha_sales.sold_at) — tie uz zonu nesu,
+  // takze sa porovnavaju priamo (pridanie AT TIME ZONE 'UTC' by ich naopak
+  // rozbilo).
+  const inDay   = (col) => sql`(${col} AT TIME ZONE 'UTC') >= ${fromBoundary} AND (${col} AT TIME ZONE 'UTC') <= ${toBoundary}`;
+  const inDayTz = (col) => sql`${col} >= ${fromBoundary} AND ${col} <= ${toBoundary}`;
 
   try {
     // Total revenue from payments
@@ -16,8 +32,7 @@ export async function zReportHandler(req, res) {
       total: sql`COALESCE(SUM(${payments.amount}::numeric), 0)`,
       count: sql`COUNT(*)`,
     }).from(payments).where(
-      and(gte(payments.createdAt, fromDate), sql`${payments.createdAt} <= ${toDate}`,
-        sql.raw(notStornoedSql('payments')))   // stornované platby nie sú tržba
+      sql`${inDay(payments.createdAt)} AND ${sql.raw(notStornoedSql('payments'))}`   // stornované platby nie sú tržba
     );
 
     // Orders count
@@ -25,7 +40,7 @@ export async function zReportHandler(req, res) {
       totalOrders: sql`COUNT(*)`,
       cancelled: sql`COUNT(*) FILTER (WHERE ${orders.status} = 'cancelled')`,
     }).from(orders).where(
-      and(gte(orders.createdAt, fromDate), sql`${orders.createdAt} <= ${toDate}`)
+      inDay(orders.createdAt)
     );
 
     // Total items sold
@@ -35,11 +50,7 @@ export async function zReportHandler(req, res) {
     .from(orderItems)
     .innerJoin(orders, eq(orderItems.orderId, orders.id))
     .where(
-      and(
-        gte(orders.createdAt, fromDate),
-        sql`${orders.createdAt} <= ${toDate}`,
-        sql`${orders.status} != 'cancelled'`
-      )
+      sql`${inDay(orders.createdAt)} AND ${orders.status} != 'cancelled'`
     );
 
     // Payment methods breakdown
@@ -48,8 +59,7 @@ export async function zReportHandler(req, res) {
       total: sql`SUM(${payments.amount}::numeric)`,
       count: sql`COUNT(*)`,
     }).from(payments).where(
-      and(gte(payments.createdAt, fromDate), sql`${payments.createdAt} <= ${toDate}`,
-        sql.raw(notStornoedSql('payments')))
+      sql`${inDay(payments.createdAt)} AND ${sql.raw(notStornoedSql('payments'))}`
     ).groupBy(payments.method);
 
     // Fiskálna hotovosť z payments (potrebné samostatne pre Portos withdraw paragón —
@@ -75,11 +85,7 @@ export async function zReportHandler(req, res) {
     .innerJoin(menuItems, eq(orderItems.menuItemId, menuItems.id))
     .innerJoin(menuCategories, eq(menuItems.categoryId, menuCategories.id))
     .where(
-      and(
-        gte(orders.createdAt, fromDate),
-        sql`${orders.createdAt} <= ${toDate}`,
-        sql`${orders.status} != 'cancelled'`
-      )
+      sql`${inDay(orders.createdAt)} AND ${orders.status} != 'cancelled'`
     )
     .groupBy(menuCategories.label)
     .orderBy(desc(sql`SUM(${orderItems.qty} * ${menuItems.price}::numeric)`));
@@ -95,11 +101,7 @@ export async function zReportHandler(req, res) {
     .innerJoin(orders, eq(orderItems.orderId, orders.id))
     .innerJoin(menuItems, eq(orderItems.menuItemId, menuItems.id))
     .where(
-      and(
-        gte(orders.createdAt, fromDate),
-        sql`${orders.createdAt} <= ${toDate}`,
-        sql`${orders.status} != 'cancelled'`
-      )
+      sql`${inDay(orders.createdAt)} AND ${orders.status} != 'cancelled'`
     )
     .groupBy(menuItems.name, menuItems.emoji)
     .orderBy(desc(sql`SUM(${orderItems.qty})`))
@@ -114,11 +116,7 @@ export async function zReportHandler(req, res) {
     .innerJoin(orders, eq(orderItems.orderId, orders.id))
     .innerJoin(menuItems, eq(orderItems.menuItemId, menuItems.id))
     .where(
-      and(
-        gte(orders.createdAt, fromDate),
-        sql`${orders.createdAt} <= ${toDate}`,
-        sql`${orders.status} = 'cancelled'`
-      )
+      sql`${inDay(orders.createdAt)} AND ${orders.status} = 'cancelled'`
     );
 
     // Shisha — internal off-fiscal counter for the same calendar day.
@@ -126,7 +124,7 @@ export async function zReportHandler(req, res) {
       count: sql`COUNT(*)`,
       revenue: sql`COALESCE(SUM(${shishaSales.price}::numeric), 0)`,
     }).from(shishaSales).where(
-      and(gte(shishaSales.soldAt, fromDate), sql`${shishaSales.soldAt} <= ${toDate}`)
+      inDayTz(shishaSales.soldAt)
     );
     const shishaCount = parseInt(shisha.count) || 0;
     const shishaRevenue = parseFloat(shisha.revenue) || 0;
@@ -145,7 +143,7 @@ export async function zReportHandler(req, res) {
       FROM orders o
       INNER JOIN order_items oi ON oi.order_id = o.id
       INNER JOIN menu_items mi ON mi.id = oi.menu_item_id
-      WHERE o.created_at >= ${fromDate} AND o.created_at <= ${toDate}
+      WHERE ${inDay(sql`o.created_at`)}
         AND COALESCE(o.closure_type, 'paid') = 'odpis'
     `);
     const odpisTotal = Number(odpisRes.rows[0] && odpisRes.rows[0].total) || 0;
@@ -175,7 +173,7 @@ export async function zReportHandler(req, res) {
         LEFT JOIN menu_items mi ON mi.id = oi.menu_item_id
         LEFT JOIN menu_categories mc ON mc.id = mi.category_id
         WHERE wo.reason = 'staff_meal'
-          AND wo.created_at >= ${fromDate} AND wo.created_at <= ${toDate}
+          AND ${inDay(sql`wo.created_at`)}
       ),
       per_oi_cogs AS (
         SELECT

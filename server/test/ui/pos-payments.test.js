@@ -8,6 +8,14 @@ import vm from 'node:vm';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
 
+// Request payloads are built inside the vm realm, so their prototypes come
+// from that realm and assert.deepStrictEqual would reject them as "not
+// reference-equal" even when every value matches. structuredClone re-creates
+// the value with this realm's intrinsics without touching any of the data.
+function plain(value) {
+  return structuredClone(value);
+}
+
 function createElementStub() {
   return {
     textContent: '',
@@ -66,6 +74,10 @@ function loadPosPayments(overrides = {}) {
     tableOrders: {},
     getOrder() { return []; },
     getItemDest(name) { return name === 'Burger' ? 'kuchyna' : 'bar'; },
+    // Lives in pos-state.js; only pos-payments.js is evaluated in this
+    // sandbox. No 'cisla' category is configured here, so nothing is a
+    // ticket-number marker.
+    isTicketNumberItem() { return false; },
     syncOrderToServer: async () => {},
     loadTableOrder: async () => {},
     renderOrder() {},
@@ -132,8 +144,8 @@ test('sendToKitchen flushes pending storno through the order endpoint before cle
   await Promise.resolve();
 
   assert.deepEqual(
-    sandbox._pendingStorno,
-    pendingBefore,
+    plain(sandbox._pendingStorno),
+    plain(pendingBefore),
     'pending storno should stay queued until the server flow completes',
   );
 
@@ -141,13 +153,35 @@ test('sendToKitchen flushes pending storno through the order endpoint before cle
   await sendPromise;
 
   assert.equal(calls[0].url, '/orders/55/send-storno-and-print');
-  assert.deepEqual(calls[0].body, {
+  assert.deepEqual(plain(calls[0].body), {
     items: [{ menuItemId: 10, qty: 2, note: 'bez peny' }],
   });
   assert.deepEqual(
-    sandbox._pendingStorno,
+    plain(sandbox._pendingStorno),
     [],
     'pending storno should clear only after storno send succeeds',
   );
   assert.equal(calls.filter((call) => call.url === '/print/kitchen').length, 1);
+});
+
+test('initiateQrPayment refuses to start when QR payment is disabled in settings', async () => {
+  const calls = [];
+  const { sandbox, toastCalls } = loadPosPayments({
+    getOrder() { return [{ id: 1, name: 'Pivo', price: 3, qty: 1 }]; },
+    getOrderTotal() { return 3; },
+    isQrPaymentEnabled: () => false,
+    api: {
+      getUser() { return { id: 7, name: 'Tester' }; },
+      post: async (url, body) => {
+        calls.push({ url, body });
+        return {};
+      },
+    },
+  });
+
+  await sandbox.initiateQrPayment();
+
+  assert.deepEqual(calls, [], 'no request should be made when QR payment is disabled');
+  assert.equal(toastCalls.length, 1);
+  assert.equal(toastCalls[0].tone, 'warning');
 });

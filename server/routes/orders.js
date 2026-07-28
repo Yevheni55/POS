@@ -1,8 +1,9 @@
 import { Router } from 'express';
+import jwt from 'jsonwebtoken';
 import { db } from '../db/index.js';
 import {
   orders, orderItems, menuItems, tables, shifts, discounts, orderEvents,
-  payments, fiscalDocuments,
+  events, payments, fiscalDocuments,
   writeOffs, writeOffItems, ingredients, recipes,
 } from '../db/schema.js';
 import { eq, desc, and, inArray, sql, or } from 'drizzle-orm';
@@ -11,11 +12,13 @@ import { emitEvent } from '../lib/emit.js';
 import { enrichOrders } from '../lib/order-queries.js';
 import { validate } from '../middleware/validate.js';
 import { requireRole } from '../middleware/requireRole.js';
-import { createOrderSchema, addItemsSchema, updateItemSchema, batchSchema, splitSchema, moveItemsSchema, discountSchema, stornoSendSchema, stornoWriteOffSchema } from '../schemas/orders.js';
+import { createOrderSchema, renameOrderSchema, addItemsSchema, updateItemSchema, batchSchema, splitSchema, moveItemsSchema, discountSchema, itemDiscountSchema, stornoSendSchema, stornoWriteOffSchema } from '../schemas/orders.js';
 import { deductStockForSentItems, applyWriteOff } from '../lib/stock.js';
 import { applyStornoStockResolution } from '../lib/storno-stock.js';
 import { asyncRoute } from '../lib/async-route.js';
 import { needsSaucePicker, isSauceAnnotationRow } from '../lib/menu-helpers.js';
+import { createPaymentHandler } from '../lib/payments/create.js';
+import { loadOrderPaymentContext } from '../lib/payments/context.js';
 
 const router = Router();
 
@@ -38,6 +41,50 @@ async function bumpVersion(txOrDb, orderId, version) {
 
 class VersionConflictError extends Error {
   constructor() { super(VERSION_CONFLICT_MSG); this.name = 'VersionConflictError'; }
+}
+
+// ---------------------------------------------------------------------------
+// Manažérska elevácia pre storno UŽ ODOSLANEJ položky
+// ---------------------------------------------------------------------------
+// PIN prompt v POS klientovi (js/pos-orders.js → showManagerPin) je LEN UI gate:
+// po zadaní PINu klient volá to isté API s NEZMENENÝM čašníckym JWT, takže
+// čašník vedel odoslanú položku zmazať aj priamym API volaním (curl / devtools)
+// úplne bez PINu. /api/auth/verify-manager razí do už autentifikovanej session
+// krátkodobý (120 s) elevačný token s rolou manažéra — akceptujeme ho tu ako
+// druhý kredenciál, aby legitímny „PIN → storno" tok fungoval aj z čašníckej
+// session. Token sa posiela v hlavičke `X-Manager-Token` alebo v tele ako
+// `managerToken`.
+function managerElevation(req) {
+  if (req.user && (req.user.role === 'manazer' || req.user.role === 'admin')) return req.user;
+  const raw = req.headers['x-manager-token'] || (req.body && req.body.managerToken);
+  if (!raw) return null;
+  try {
+    const claims = jwt.verify(String(raw), process.env.JWT_SECRET, { algorithms: ['HS256'] });
+    if (claims && (claims.role === 'manazer' || claims.role === 'admin')) return claims;
+  } catch {
+    // neplatný / expirovaný token → žiadna elevácia
+  }
+  return null;
+}
+
+const SENT_STORNO_DENIED = 'Storno uz odoslanej polozky moze potvrdit len manazer alebo admin';
+
+/** Načítaj položku účtu scopovanú na order (nikdy nie len podľa itemId — IDOR). */
+async function loadOrderItem(txOrDb, orderId, itemId) {
+  const [row] = await txOrDb.select({ id: orderItems.id, qty: orderItems.qty, sent: orderItems.sent })
+    .from(orderItems)
+    .where(and(eq(orderItems.id, itemId), eq(orderItems.orderId, orderId)));
+  return row || null;
+}
+
+/**
+ * Je to storno odoslanej položky? = položka už bola v kuchyni/bare a množstvo
+ * sa znižuje alebo riadok mizne. Zvýšenie qty ani zmena poznámky storno nie je.
+ */
+function isSentStorno(item, nextQty) {
+  if (!item || !item.sent) return false;
+  if (nextQty === undefined || nextQty === null) return false; // len note
+  return nextQty < item.qty;
 }
 
 async function consolidateSentOrderItems(tx, orderId) {
@@ -148,6 +195,25 @@ router.post('/', validate(createOrderSchema), asyncRoute(async (req, res) => {
   res.status(201).json(order);
 }));
 
+// PATCH /api/orders/:orderId/label — pomenovať otvorený účet (napr. menom hosťa),
+// aby sa dal ľahko nájsť na podlaží. Po zaplatení sa účet zatvorí, takže názov
+// sa sám „vráti" na pôvodný (stôl zobrazí svoj názov z adminu).
+router.patch('/:orderId/label', validate(renameOrderSchema), asyncRoute(async (req, res) => {
+  const orderId = +req.params.orderId;
+  if (!Number.isFinite(orderId)) return res.status(400).json({ error: 'Neplatne orderId' });
+  const label = String(req.body.label || '').trim().slice(0, 40);
+  if (!label) return res.status(400).json({ error: 'Nazov je prazdny' });
+
+  const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
+  if (!order) return res.status(404).json({ error: 'Objednavka nenajdena' });
+  if (order.status !== 'open') return res.status(400).json({ error: 'Objednavka uz nie je otvorena' });
+
+  const [updated] = await db.update(orders).set({ label }).where(eq(orders.id, orderId)).returning();
+  logEvent(db, { orderId, type: 'order_renamed', payload: { label }, staffId: req.user.id }).catch(e => console.error('Audit log error:', e));
+  emitEvent(req, 'order:updated', { orderId });
+  res.json({ order: updated });
+}));
+
 // POST /api/orders/:id/items — add items to existing order
 router.post('/:id/items', validate(addItemsSchema), asyncRoute(async (req, res) => {
   const { items, version } = req.body;
@@ -177,6 +243,14 @@ router.put('/:orderId/items/:itemId', validate(updateItemSchema), asyncRoute(asy
   const orderId = +req.params.orderId;
   const itemId = +req.params.itemId;
   const { qty, note, version } = req.body;
+
+  // Znižovanie množstva / vynulovanie UŽ ODOSLANEJ položky je storno — vyžaduje
+  // manažérsku eleváciu (frontend PIN sám o sebe server nechráni). Kontrola je
+  // PRED transakciou, aby odmietnutý pokus nebumpol version účtu.
+  const existingItem = await loadOrderItem(db, orderId, itemId);
+  if (isSentStorno(existingItem, qty) && !managerElevation(req)) {
+    return res.status(403).json({ error: SENT_STORNO_DENIED });
+  }
 
   try {
     const result = await db.transaction(async (tx) => {
@@ -215,6 +289,13 @@ router.delete('/:orderId/items/:itemId', asyncRoute(async (req, res) => {
   const itemId = +req.params.itemId;
   const { version } = req.body || {};
 
+  // Zmazanie UŽ ODOSLANEJ položky = storno → manažérska elevácia (viď
+  // managerElevation). Neodoslaný riadok môže čašník zmazať ako doteraz.
+  const existingItem = await loadOrderItem(db, orderId, itemId);
+  if (isSentStorno(existingItem, 0) && !managerElevation(req)) {
+    return res.status(403).json({ error: SENT_STORNO_DENIED });
+  }
+
   try {
     const newVersion = await db.transaction(async (tx) => {
       const bumped = await bumpVersion(tx, orderId, version);
@@ -237,6 +318,27 @@ router.post('/:id/batch', validate(batchSchema), asyncRoute(async (req, res) => 
   const orderId = +req.params.id;
   const { operations, version } = req.body;
 
+  // Storno odoslanej položky cez batch podlieha tej istej elevácii ako
+  // PUT/DELETE /items/:itemId — inak by bol batch tichý obchvat gate-u.
+  const touchedIds = operations
+    .filter((op) => op.action === 'update' || op.action === 'remove')
+    .map((op) => op.itemId)
+    .filter((id) => Number.isFinite(id));
+  if (touchedIds.length) {
+    const rows = await db.select({ id: orderItems.id, qty: orderItems.qty, sent: orderItems.sent })
+      .from(orderItems)
+      .where(and(inArray(orderItems.id, touchedIds), eq(orderItems.orderId, orderId)));
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const needsElevation = operations.some((op) => {
+      if (op.action === 'remove') return isSentStorno(byId.get(op.itemId), 0);
+      if (op.action === 'update') return isSentStorno(byId.get(op.itemId), op.qty);
+      return false;
+    });
+    if (needsElevation && !managerElevation(req)) {
+      return res.status(403).json({ error: SENT_STORNO_DENIED });
+    }
+  }
+
   try {
     const results = await db.transaction(async (tx) => {
       const bumped = await bumpVersion(tx, orderId, version);
@@ -248,18 +350,21 @@ router.post('/:id/batch', validate(batchSchema), asyncRoute(async (req, res) => 
           const [item] = await tx.insert(orderItems).values({ orderId, menuItemId: op.menuItemId, qty: op.qty || 1, note: op.note || '' }).returning();
           results.push(item);
         } else if (op.action === 'update') {
+          // POZOR: filter musí byť scopovaný na orderId — bez neho vedel
+          // ktokoľvek prepísať/zmazať položku CUDZIEHO účtu (IDOR), stačilo
+          // uhádnuť itemId. Rovnaký idiom ako v PUT/DELETE /items/:itemId.
           if (op.qty <= 0) {
-            await tx.delete(orderItems).where(eq(orderItems.id, op.itemId));
+            await tx.delete(orderItems).where(and(eq(orderItems.id, op.itemId), eq(orderItems.orderId, orderId)));
             results.push({ deleted: true, id: op.itemId });
           } else {
             const updates = {};
             if (op.qty !== undefined) updates.qty = op.qty;
             if (op.note !== undefined) updates.note = op.note;
-            const [item] = await tx.update(orderItems).set(updates).where(eq(orderItems.id, op.itemId)).returning();
+            const [item] = await tx.update(orderItems).set(updates).where(and(eq(orderItems.id, op.itemId), eq(orderItems.orderId, orderId))).returning();
             results.push(item);
           }
         } else if (op.action === 'remove') {
-          await tx.delete(orderItems).where(eq(orderItems.id, op.itemId));
+          await tx.delete(orderItems).where(and(eq(orderItems.id, op.itemId), eq(orderItems.orderId, orderId)));
           results.push({ deleted: true, id: op.itemId });
         }
       }
@@ -276,9 +381,31 @@ router.post('/:id/batch', validate(batchSchema), asyncRoute(async (req, res) => 
 }));
 
 // POST /api/orders/:id/close — close order (after payment)
-router.post('/:id/close', asyncRoute(async (req, res) => {
+//
+// BEZPEČNOSŤ: bežný predaj tento endpoint NEPOUŽÍVA — účet zatvára samotná
+// platba (lib/payments/context.js nastavuje status='closed' v tej istej
+// transakcii ako payment + fiškál). Bez gate-u tu vedel ktorýkoľvek prihlásený
+// terminál zavrieť účet so `closure_type='paid'` BEZ payment riadku a BEZ
+// fiškálneho dokladu — tržba by sa stratila z reportov aj z eKasy.
+// Preto: len manazer/admin, len otvorený účet a len ak platba naozaj existuje.
+// Uzavretie bez platby má vlastné, auditované cesty:
+// /close-as-staff-meal (zamestnanecká spotreba) a /close-as-odpis (admin).
+router.post('/:id/close', requireRole('manazer', 'admin'), asyncRoute(async (req, res) => {
   const orderId = +req.params.id;
   const { version } = req.body || {};
+
+  const [existingOrder] = await db.select().from(orders).where(eq(orders.id, orderId));
+  if (!existingOrder) return res.status(404).json({ error: 'Objednavka nenajdena' });
+  if (existingOrder.status !== 'open') {
+    return res.status(409).json({ error: 'Objednavka uz nie je otvorena' });
+  }
+  const [existingPayment] = await db.select({ id: payments.id })
+    .from(payments).where(eq(payments.orderId, orderId)).limit(1);
+  if (!existingPayment) {
+    return res.status(409).json({
+      error: 'Ucet bez platby sa takto zavriet neda — pouzi platbu, staff meal alebo odpis',
+    });
+  }
 
   try {
     const order = await db.transaction(async (tx) => {
@@ -556,6 +683,268 @@ router.post('/:id/close-as-staff-meal', asyncRoute(async (req, res) => {
     }
     throw e;
   }
+}));
+
+// POST /api/orders/:id/close-as-odpis
+//
+// ODPIS (manazersky odpis uctu — "na ucet podniku"): admin uzavrie CELY
+// ucet BEZ platby a BEZ fiskalu. Ziadny payment row, ziadny fiskalny doklad
+// — presne ako close-as-staff-meal, ale bez staff-zony a bez dennych limitov.
+//
+// Reporty: odpis-sumu pocitaju ako PREDAJNU hodnotu = SUM(qty × menu price)
+// objednavok s closure_type='odpis' (rovnaka live-cena filozofia ako zvysok
+// reportu — order_items nemaju price snapshot). Zobrazuje sa v samostatnej
+// polozke "Odpisy (predaj)" — MIMO fiskalnej trzby aj MIMO vypoctu zisku.
+//
+// Pristup: LEN rola 'admin' (poziadavka prevadzky — akcia obchadza fiskal).
+// Sklad: polozky sa pred odpisom auto-poslu na strane klienta (rovnako ako
+// pri platbe / staff_meal) → stock_movements vznikne cez /send; tu sklad
+// nehybeme, inak by sa odpisal dvojmo.
+router.post('/:id/close-as-odpis', requireRole('admin'), asyncRoute(async (req, res) => {
+  const orderId = +req.params.id;
+  const { version } = req.body || {};
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      const bumped = await bumpVersion(tx, orderId, version);
+      if (version !== undefined && !bumped) throw new VersionConflictError();
+
+      const [orderRow] = await tx
+        .select({ id: orders.id, tableId: orders.tableId, status: orders.status })
+        .from(orders)
+        .where(eq(orders.id, orderId));
+
+      if (!orderRow) {
+        const err = new Error('Order not found');
+        err.statusCode = 404;
+        throw err;
+      }
+      if (orderRow.status !== 'open') {
+        const err = new Error('Order is not open');
+        err.statusCode = 400;
+        throw err;
+      }
+
+      // Predajna hodnota uctu = SUM(qty × menu price), gross (pred zlavami).
+      // Zlava je pri odpise irelevantna — "predajna suma" = cennikova hodnota
+      // toho co by sa predalo. Konzistentne s `menu_value` v staff_meal reportoch.
+      const amtRow = await tx.execute(sql`
+        SELECT COALESCE(SUM(oi.qty * mi.price::numeric), 0)::numeric(12,2) AS amount
+        FROM order_items oi
+        INNER JOIN menu_items mi ON mi.id = oi.menu_item_id
+        WHERE oi.order_id = ${orderId}
+      `);
+      // node-postgres vracia numeric ako string → prevedieme na cislo, aby
+      // JSON odpoved niesla number (klient aj tak robi Number(), ale API ma
+      // byt cisto typovane).
+      const odpisAmount = Number(amtRow.rows[0]?.amount ?? 0);
+
+      const [closedOrder] = await tx.update(orders)
+        .set({ status: 'closed', closureType: 'odpis', closedAt: new Date() })
+        .where(and(eq(orders.id, orderId), eq(orders.status, 'open')))
+        .returning();
+
+      if (!closedOrder) {
+        // Race s inou paralelnou platbou — order sa medzitym uzavrel.
+        const err = new Error('Order is not open');
+        err.statusCode = 409;
+        throw err;
+      }
+
+      // Uvolni stol ak ziadne ine open orders
+      const remaining = await tx.select().from(orders)
+        .where(and(eq(orders.tableId, closedOrder.tableId), eq(orders.status, 'open')));
+      if (!remaining.length) {
+        await tx.update(tables).set({ status: 'free' }).where(eq(tables.id, closedOrder.tableId));
+      }
+
+      return { order: closedOrder, odpisAmount };
+    });
+
+    logEvent(db, {
+      orderId,
+      type: 'order_closed_odpis',
+      payload: { odpisAmount: result.odpisAmount },
+      staffId: req.user.id,
+    }).catch(e => console.error('Audit log error:', e));
+    emitEvent(req, 'order:closed', { tableId: result.order.tableId, orderId });
+
+    res.json({ order: result.order, odpisAmount: result.odpisAmount });
+  } catch (e) {
+    if (e instanceof VersionConflictError) return res.status(409).json({ error: VERSION_CONFLICT_MSG });
+    if (e.statusCode) return res.status(e.statusCode).json({ error: e.message });
+    throw e;
+  }
+}));
+
+// GET /api/orders/odpis
+//
+// Zoznam uctov uzavretych ako manazersky odpis (closure_type='odpis') — pre
+// admin Historia -> Odpisy. Tieto ucty nemaju payment ani fiskalny doklad,
+// takze su neviditelne v Platby / Fiskalne doklady. Tu ich vypiseme so
+// suctom predajnej (cennikovej) hodnoty, aby admin vedel omylom odpisany ucet
+// preklopit na fiskal. Po preklopeni (closure_type='paid') zmizne zo zoznamu.
+// MUSI byt pred pripadnymi GET /:id routami (ziadna taka tu zatial nie je).
+router.get('/odpis', requireRole('manazer', 'admin'), asyncRoute(async (req, res) => {
+  const rows = await db.execute(sql`
+    SELECT
+      o.id,
+      o.label,
+      o.closed_at AS "closedAt",
+      o.version,
+      o.table_id AS "tableId",
+      t.name AS "tableName",
+      COALESCE(SUM(oi.qty), 0)::int AS "itemCount",
+      COALESCE(SUM(oi.qty * mi.price::numeric), 0)::float AS amount
+    FROM orders o
+    INNER JOIN tables t ON t.id = o.table_id
+    LEFT JOIN order_items oi ON oi.order_id = o.id
+    LEFT JOIN menu_items mi ON mi.id = oi.menu_item_id
+    WHERE o.status = 'closed' AND COALESCE(o.closure_type, 'paid') = 'odpis'
+    GROUP BY o.id, o.label, o.closed_at, o.version, o.table_id, t.name
+    ORDER BY o.closed_at DESC NULLS LAST
+    LIMIT 200
+  `);
+  res.json({ items: rows.rows });
+}));
+
+// POST /api/orders/:id/convert-odpis-to-fiscal
+//
+// Oprava OMYLOM odpisaneho uctu: preklopi odpis na realny FISKALNY predaj.
+// Stratégia = MAXIMALNE znovupouzitie overeneho platobneho pipeline-u:
+//   1) odpisany (closed, closure_type='odpis') ucet sa znova OTVORI
+//      (status='open', closure_type='paid'), aby s nim vedel pracovat
+//      standardny createPaymentHandler (Portos, fiskalny doklad, idempotencia).
+//   2) zavolame createPaymentHandler so zvolenym sposobom platby — vystavi
+//      eKasa doklad + payment row presne ako bezna platba.
+//   3) ak fiskalizacia ZLYHA (Portos down / odmietnutie), ucet VRATIME spat
+//      do odpisu (zaden limbo stav) — admin moze skusit znova.
+// Admin-only (akcia obchadza standardny tok a tyka sa fiskalu).
+router.post('/:id/convert-odpis-to-fiscal', requireRole('admin'), asyncRoute(async (req, res) => {
+  const orderId = +req.params.id;
+  const method = req.body && req.body.method;
+  if (method !== 'hotovost' && method !== 'karta') {
+    return res.status(400).json({ error: 'Neplatny sposob platby (hotovost alebo karta)' });
+  }
+
+  // --- Krok 1: znovu-otvorenie odpisaneho uctu (revert-able) ---
+  let origClosedAt = null;
+  let tableId = null;
+  try {
+    await db.transaction(async (tx) => {
+      const [order] = await tx.select().from(orders).where(eq(orders.id, orderId));
+      if (!order) { const e = new Error('Objednavka nenajdena'); e.statusCode = 404; throw e; }
+      if (order.status !== 'closed' || order.closureType !== 'odpis') {
+        const e = new Error('Iba odpisany ucet sa da preklopit na fiskal'); e.statusCode = 409; throw e;
+      }
+      const [pay] = await tx.select().from(payments).where(eq(payments.orderId, orderId));
+      if (pay) { const e = new Error('Ucet uz ma platbu'); e.statusCode = 409; throw e; }
+      origClosedAt = order.closedAt;
+      tableId = order.tableId;
+      const [up] = await tx.update(orders)
+        .set({ status: 'open', closureType: 'paid', closedAt: null, version: sql`${orders.version} + 1` })
+        .where(and(eq(orders.id, orderId), eq(orders.status, 'closed'), eq(orders.closureType, 'odpis')))
+        .returning();
+      if (!up) { const e = new Error('Ucet sa medzitym zmenil'); e.statusCode = 409; throw e; }
+      await tx.update(tables).set({ status: 'occupied' }).where(eq(tables.id, order.tableId));
+    });
+  } catch (e) {
+    return res.status(e.statusCode || 500).json({ error: e.message || 'Znovu-otvorenie zlyhalo' });
+  }
+
+  // --- Krok 2: standardna fiskalna platba cez createPaymentHandler ---
+  // Suma = expectedTotal (netto po zlavach) — zhodne s beznou platbou.
+  const ctx = await loadOrderPaymentContext(orderId);
+  const amount = ctx ? ctx.expectedTotal : 0;
+
+  const savedBody = req.body;
+  req.body = { orderId, method, amount };
+  const cap = {
+    statusCode: 200,
+    payload: null,
+    status(code) { this.statusCode = code; return this; },
+    json(obj) { this.payload = obj; return this; },
+  };
+  let handlerThrew = false;
+  try {
+    await createPaymentHandler(req, cap);
+  } catch (err) {
+    handlerThrew = true;
+    console.error('convert-odpis-to-fiscal payment error:', err);
+  } finally {
+    req.body = savedBody;
+  }
+
+  const success = !handlerThrew && cap.statusCode < 400 && cap.payload && cap.payload.payment;
+
+  if (success) {
+    logEvent(db, {
+      orderId,
+      type: 'order_odpis_to_fiscal',
+      payload: {
+        method,
+        amount,
+        paymentId: cap.payload.payment.id,
+        fiscalStatus: (cap.payload.fiscal && cap.payload.fiscal.status) || null,
+      },
+      staffId: req.user.id,
+    }).catch(e => console.error('Audit log error:', e));
+    emitEvent(req, 'order:closed', { tableId, orderId });
+    return res.status(cap.statusCode).json({ ...cap.payload, convertedFromOdpis: true });
+  }
+
+  // --- Krok 3: fiskalizacia zlyhala → vrat ucet spat do odpisu ---
+  // revertStatus honest reportuje, ci sa naozaj obnovil odpis. Guard-vetvy
+  // (medzitym vznikla platba / ucet uz nie je 'open') su zriedkave race-y —
+  // vtedy NEklameme klientovi 'odpis obnoveny', ale vratime presny stav.
+  let revertStatus = 'reverted';
+  try {
+    revertStatus = await db.transaction(async (tx) => {
+      const [pay] = await tx.select().from(payments).where(eq(payments.orderId, orderId));
+      if (pay) return 'has_payment'; // platba predsa vznikla (race s pokladnou) — NEvraciame
+      const [cur] = await tx.select().from(orders).where(eq(orders.id, orderId));
+      if (!cur) return 'missing';
+      if (cur.status !== 'open') return 'state_changed'; // niekto medzitym zmenil stav
+      await tx.update(orders)
+        .set({ status: 'closed', closureType: 'odpis', closedAt: origClosedAt, version: sql`${orders.version} + 1` })
+        .where(and(eq(orders.id, orderId), eq(orders.status, 'open')));
+      const remaining = await tx.select().from(orders)
+        .where(and(eq(orders.tableId, tableId), eq(orders.status, 'open')));
+      if (!remaining.length) {
+        await tx.update(tables).set({ status: 'free' }).where(eq(tables.id, tableId));
+      }
+      return 'reverted';
+    });
+  } catch (e) {
+    console.error('convert-odpis-to-fiscal revert error:', e);
+    revertStatus = 'error';
+  }
+
+  const body = (cap.payload && typeof cap.payload === 'object') ? cap.payload : {};
+
+  // Race: ucet sa medzitym fakticky zaplatil inym sposobom (napr. na pokladni).
+  if (revertStatus === 'has_payment') {
+    return res.status(409).json({
+      error: 'Ucet bol medzitym zaplateny inym sposobom — skontroluj Historia -> Platby.',
+      reverted: false,
+    });
+  }
+  // Odpis sa nepodarilo obnovit (stav sa medzitym zmenil / chyba) — ucet NIE je
+  // v povodnom odpise. Honest hláška, nech to admin skontroluje.
+  if (revertStatus !== 'reverted') {
+    console.error(`[odpis->fiskal] order=${orderId} fiskalizacia zlyhala A odpis sa NEobnovil (revertStatus=${revertStatus}) — ucet treba skontrolovat manualne.`);
+    return res.status(500).json({
+      error: `Fiskalizacia zlyhala a odpis sa nepodarilo obnovit — skontroluj stav uctu #${orderId}.`,
+      fiscal: body.fiscal || null,
+      reverted: false,
+    });
+  }
+  // Bezna cesta: fiskalizacia zlyhala (napr. Portos offline), odpis obnoveny.
+  return res.status(cap.statusCode >= 400 ? cap.statusCode : 502).json({
+    error: body.error || 'Fiskalizacia zlyhala — odpis bol obnoveny, skus znova.',
+    fiscal: body.fiscal || null,
+    reverted: true,
+  });
 }));
 
 // POST /api/orders/:id/send — mark all unsent items as sent + deduct stock
@@ -851,6 +1240,10 @@ router.post('/:id/move-items', validate(moveItemsSchema), asyncRoute(async (req,
           qty: requestedQty,
           note: src.note,
           sent: src.sent,
+          // Per-item zľava cestuje s presúvanou časťou položky.
+          discountId: src.discountId,
+          discountType: src.discountType,
+          discountValue: src.discountValue,
         }).returning();
         movedItemIds.push(newRow.id);
       }
@@ -996,6 +1389,94 @@ router.delete('/:id/discount', requireRole('manazer', 'admin'), asyncRoute(async
   }
 }));
 
+// POST /api/orders/:orderId/items/:itemId/discount — zľava na JEDNU položku.
+// Ukladá PRAVIDLO (discountType + discountValue) na order_items, nie euro sumu
+// — tá sa ráta live z menu ceny (viď lineDiscountAmount). Manazer/admin only,
+// rovnako ako zľava na účet.
+router.post('/:orderId/items/:itemId/discount', requireRole('manazer', 'admin'), validate(itemDiscountSchema), asyncRoute(async (req, res) => {
+  const orderId = +req.params.orderId;
+  const itemId = +req.params.itemId;
+  const { discountId, customPercent, version } = req.body;
+
+  if (!discountId && customPercent === undefined) {
+    return res.status(400).json({ error: 'discountId alebo customPercent je povinny' });
+  }
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      const bumped = await bumpVersion(tx, orderId, version);
+      if (version !== undefined && !bumped) throw new VersionConflictError();
+
+      // Položka musí patriť do tejto objednávky.
+      const [line] = await tx.select().from(orderItems)
+        .where(and(eq(orderItems.id, itemId), eq(orderItems.orderId, orderId)));
+      if (!line) return { error: 'Polozka nenajdena', status: 404 };
+
+      let appliedDiscountId = null;
+      let discountType;
+      let discountValue;
+
+      if (discountId) {
+        const [disc] = await tx.select().from(discounts).where(eq(discounts.id, discountId));
+        if (!disc) return { error: 'Zlava nenajdena', status: 404 };
+        appliedDiscountId = disc.id;
+        discountType = disc.type;
+        discountValue = String(disc.value);
+      } else {
+        const pct = Math.max(0, Math.min(100, parseFloat(customPercent) || 0));
+        discountType = 'percent';
+        discountValue = String(pct);
+      }
+
+      const [updated] = await tx.update(orderItems).set({
+        discountId: appliedDiscountId,
+        discountType,
+        discountValue,
+      }).where(and(eq(orderItems.id, itemId), eq(orderItems.orderId, orderId))).returning();
+      return { updated, appliedDiscountId, discountType, discountValue };
+    });
+
+    if (result.error) return res.status(result.status).json({ error: result.error });
+
+    const { updated, appliedDiscountId, discountType, discountValue } = result;
+    logEvent(db, { orderId, type: 'item_discount_applied', payload: { itemId, discountId: appliedDiscountId, type: discountType, value: parseFloat(discountValue), customPercent }, staffId: req.user.id }).catch(e => console.error('Audit log error:', e));
+    emitEvent(req, 'order:updated', { orderId });
+    res.json({ ...updated, discountValue: updated.discountValue == null ? null : parseFloat(updated.discountValue) });
+  } catch (e) {
+    if (e instanceof VersionConflictError) return res.status(409).json({ error: VERSION_CONFLICT_MSG });
+    throw e;
+  }
+}));
+
+// DELETE /api/orders/:orderId/items/:itemId/discount — odstráň zľavu z položky.
+router.delete('/:orderId/items/:itemId/discount', requireRole('manazer', 'admin'), asyncRoute(async (req, res) => {
+  const orderId = +req.params.orderId;
+  const itemId = +req.params.itemId;
+  const { version } = req.body || {};
+
+  try {
+    const updated = await db.transaction(async (tx) => {
+      const bumped = await bumpVersion(tx, orderId, version);
+      if (version !== undefined && !bumped) throw new VersionConflictError();
+
+      const [row] = await tx.update(orderItems).set({
+        discountId: null,
+        discountType: null,
+        discountValue: null,
+      }).where(and(eq(orderItems.id, itemId), eq(orderItems.orderId, orderId))).returning();
+      return row;
+    });
+
+    if (!updated) return res.status(404).json({ error: 'Polozka nenajdena' });
+    logEvent(db, { orderId, type: 'item_discount_removed', payload: { itemId }, staffId: req.user.id }).catch(e => console.error('Audit log error:', e));
+    emitEvent(req, 'order:updated', { orderId });
+    res.json({ ...updated, discountValue: null });
+  } catch (e) {
+    if (e instanceof VersionConflictError) return res.status(409).json({ error: VERSION_CONFLICT_MSG });
+    throw e;
+  }
+}));
+
 // DELETE /api/orders/:id — cancel order (celá objednávka zo stola)
 // Čašník: iba ak ešte neexistuje platba (inak len manazer/admin — uhradené treba riešiť cez storno platby).
 router.delete('/:id', asyncRoute(async (req, res) => {
@@ -1019,16 +1500,50 @@ router.delete('/:id', asyncRoute(async (req, res) => {
 
       const payRows = await tx.select({ id: payments.id }).from(payments).where(eq(payments.orderId, orderId));
       const paymentIds = payRows.map((r) => r.id);
-      if (paymentIds.length) {
-        await tx.delete(fiscalDocuments).where(
-          or(eq(fiscalDocuments.orderId, orderId), inArray(fiscalDocuments.paymentId, paymentIds)),
-        );
-        await tx.delete(payments).where(eq(payments.orderId, orderId));
-      } else {
-        await tx.delete(fiscalDocuments).where(eq(fiscalDocuments.orderId, orderId));
+      const fiscalScope = paymentIds.length
+        ? or(eq(fiscalDocuments.orderId, orderId), inArray(fiscalDocuments.paymentId, paymentIds))
+        : eq(fiscalDocuments.orderId, orderId);
+
+      // Doklad, ktorý eKasa PRIJALA, sa lokálne mazať nesmie: na finančnej
+      // správe ostane naveky, u nás by po hard-delete nezostala ani stopa
+      // (order_events padnú s cascade zo schema.js). Uzavretý fiškálny účet
+      // treba riešiť storno dokladom v administrácii, nie zmazaním objednávky.
+      const [successFiscal] = await tx.select({ id: fiscalDocuments.id })
+        .from(fiscalDocuments)
+        .where(and(fiscalScope, eq(fiscalDocuments.isSuccessful, true)))
+        .limit(1);
+      if (successFiscal) {
+        const err = new Error('FISCAL_BLOCKS_DELETE');
+        err.status = 409;
+        throw err;
       }
 
-      // Log audit BEFORE delete (cascade would remove audit records)
+      if (paymentIds.length) {
+        await tx.delete(fiscalDocuments).where(fiscalScope);
+        await tx.delete(payments).where(eq(payments.orderId, orderId));
+      } else {
+        await tx.delete(fiscalDocuments).where(fiscalScope);
+      }
+
+      // Audit ide do `events` — order_events má ON DELETE CASCADE na orders,
+      // takže záznam o zrušení by zmizol spolu s objednávkou a po zrušenom
+      // účte by nezostala žiadna stopa. `events` nekaskáduje (schema.js:237).
+      await tx.insert(events).values({
+        type: 'order_cancelled',
+        payload: JSON.stringify({
+          orderId,
+          tableId: order.tableId,
+          label: order.label,
+          status: order.status,
+          closureType: order.closureType,
+          deletedPaymentIds: paymentIds,
+          staffId: req.user.id,
+          staffName: req.user.name || null,
+          staffRole: req.user.role || null,
+        }),
+      });
+      // Ponechané aj v order_events kvôli existujúcemu admin audit view
+      // (padne s cascade — preto je `events` vyššie tá trvalá stopa).
       await logEvent(tx, { orderId, type: 'order_cancelled', payload: { tableId: order.tableId }, staffId: req.user.id });
 
       await tx.delete(orderItems).where(eq(orderItems.orderId, orderId));
@@ -1051,6 +1566,11 @@ router.delete('/:id', asyncRoute(async (req, res) => {
     if (e && e.status === 403) {
       return res.status(403).json({
         error: 'Objednavku s platbou moze zrusit len manazer alebo admin (najprv storno platby v administracii, ak treba).',
+      });
+    }
+    if (e && e.status === 409 && e.message === 'FISCAL_BLOCKS_DELETE') {
+      return res.status(409).json({
+        error: 'Objednavka ma vystaveny fiskalny doklad — zmazat sa neda. Pouzi storno dokladu v administracii.',
       });
     }
     throw e;

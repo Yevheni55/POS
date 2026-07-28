@@ -10,6 +10,13 @@ export const createOrderSchema = z.object({
   label: z.string().max(20).optional(),
 });
 
+// PATCH /orders/:orderId/label — pomenovať otvorený účet (napr. menom hosťa),
+// aby sa dal ľahko nájsť na podlaží. Po zaplatení sa účet zatvorí, takže názov
+// „zmizne" sám a stôl zobrazí pôvodný názov z adminu.
+export const renameOrderSchema = z.object({
+  label: z.string().trim().min(1).max(40),
+});
+
 export const addItemsSchema = z.object({
   items: z.array(z.object({
     menuItemId: z.coerce.number().int().positive(),
@@ -19,10 +26,17 @@ export const addItemsSchema = z.object({
   version: z.coerce.number().int().optional(),
 });
 
+// managerToken = krátkodobý elevačný JWT z /api/auth/verify-manager. Musí byť
+// v schéme, inak ho validate() (zod .parse strieda unknown keys) zahodí ešte
+// pred handlerom a manažérom schválené storno odoslanej položky by skončilo 403.
+// Hlavička `X-Manager-Token` funguje aj bez toho.
+const managerTokenField = z.string().max(1000).optional();
+
 export const updateItemSchema = z.object({
   qty: z.coerce.number().int().min(0).optional(),
   note: z.string().max(200).optional(),
   version: z.coerce.number().int().optional(),
+  managerToken: managerTokenField,
 });
 
 export const batchSchema = z.object({
@@ -34,6 +48,7 @@ export const batchSchema = z.object({
     note: z.string().max(200).optional(),
   })).min(1),
   version: z.coerce.number().int().optional(),
+  managerToken: managerTokenField,
 });
 
 export const splitSchema = z.object({
@@ -57,6 +72,14 @@ export const moveItemsSchema = z.object({
 });
 
 export const discountSchema = z.object({
+  discountId: z.coerce.number().int().optional(),
+  customPercent: z.coerce.number().min(0).max(100).optional(),
+  version: z.coerce.number().int().optional(),
+});
+
+// Per-item zľava — rovnaký tvar ako discountSchema (discountId z katalógu
+// alebo vlastné percento), ale aplikuje sa na jednu položku (itemId v URL).
+export const itemDiscountSchema = z.object({
   discountId: z.coerce.number().int().optional(),
   customPercent: z.coerce.number().min(0).max(100).optional(),
   version: z.coerce.number().int().optional(),

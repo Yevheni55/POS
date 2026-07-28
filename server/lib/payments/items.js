@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 
 import { db } from '../../db/index.js';
 import { menuItems, orderItems, orders, payments, tables } from '../../db/schema.js';
+import { lineDiscountAmount, roundMoney } from './shared.js';
 
 /**
  * GET /api/payments/:id/items — položky dokladu pre admin Históriu platieb.
@@ -43,6 +44,8 @@ export async function paymentItemsHandler(req, res) {
         menuItemId: orderItems.menuItemId,
         qty: orderItems.qty,
         note: orderItems.note,
+        discountType: orderItems.discountType,
+        discountValue: orderItems.discountValue,
         name: menuItems.name,
         emoji: menuItems.emoji,
         price: menuItems.price,
@@ -57,7 +60,14 @@ export async function paymentItemsHandler(req, res) {
   let priceMissing = false;
   const items = rows.map((r) => {
     const price = r.price == null ? null : Number(r.price);
-    const lineTotal = price == null ? null : Math.round(price * r.qty * 100) / 100;
+    const gross = price == null ? null : roundMoney(price * r.qty);
+    const discValue = r.discountValue == null ? null : Number(r.discountValue);
+    const itemDiscount = price != null && r.discountType && discValue
+      ? lineDiscountAmount(price, r.qty, r.discountType, discValue)
+      : 0;
+    // lineTotal is NET of the per-item discount so itemsTotal − billDiscount
+    // reconciles against payments.amount in the admin history drawer.
+    const lineTotal = gross == null ? null : roundMoney(gross - itemDiscount);
     if (lineTotal == null) priceMissing = true;
     else itemsTotal += lineTotal;
     return {
@@ -67,6 +77,7 @@ export async function paymentItemsHandler(req, res) {
       qty: r.qty,
       note: r.note || '',
       price,
+      itemDiscount: itemDiscount || 0,
       lineTotal,
     };
   });

@@ -82,12 +82,31 @@
   function validateForm(container) {
     var inputs = container.querySelectorAll('[data-validate]');
     var valid = true;
+    var firstBad = null;
     inputs.forEach(function(input) {
       var rules = input.getAttribute('data-validate').split('|');
       rules.forEach(function(rule) {
-        if (!validateField(input, rule)) valid = false;
+        if (!validateField(input, rule)) {
+          valid = false;
+          if (!firstBad) firstBad = input;
+        }
       });
     });
+    // Bez tohoto sa na dlhom formulári (napr. produkt v admine) po kliknutí
+    // na „Uložiť" navonok nestalo NIČ: hláška sa vykreslila pri poli, ktoré
+    // je odrolované mimo viewport modálu, takže to vyzeralo ako nefunkčné
+    // tlačidlo. Netýka sa to len čítačiek obrazovky — postihnutý je aj
+    // bežný vidiaci používateľ.
+    if (firstBad) {
+      try {
+        firstBad.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      } catch (e) {
+        firstBad.scrollIntoView();
+      }
+      // preventScroll — scrollIntoView vyššie už polohu vyriešil plynulo,
+      // focus() by ju skokom prepísal.
+      try { firstBad.focus({ preventScroll: true }); } catch (e) { firstBad.focus(); }
+    }
     return valid;
   }
 

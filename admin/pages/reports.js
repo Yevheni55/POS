@@ -14,6 +14,13 @@ let _lastProductsData = null;
 // tabulka, viac scroll, ale viac videnia).
 let _productDestFilter = 'all';
 let _productByDayLimit = 20;
+// Per-day pivot "Predaj za deň" — prepínateľná metrika a zoskupenie.
+// metric: 'qty' (ks) | 'revenue' (tržba €); group: 'item' | 'category'.
+// Default = pôvodné správanie (ks po položkách), aby sa nič vizuálne nezmenilo
+// kým používateľ neprepne. Nová možnosť: 'revenue' + 'category' = tržba podľa
+// kategórií po dňoch.
+let _productByDayMetric = 'qty';
+let _productByDayGroup = 'item';
 
 function $(sel) {
   return _container.querySelector(sel);
@@ -27,19 +34,22 @@ function fmtEur(n) {
   return Number(n).toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' \u20AC';
 }
 
+// Vsetky tri kotvene na bratislavsky den (bratislavaDayIso / isoAddDays /
+// bratislavaMonthStartIso su zdielane globaly z /api.js).
+// Predtym isli cez `toISOString()` nad lokalnym Date, co znamenalo:
+//   - todayStr()     medzi 00:00 a 02:00 miestneho casu vratil VCERAJSOK,
+//   - monthStartStr() cely letny cas vratil POSLEDNY DEN PREDOSLEHO MESIACA,
+//     takze report "tento mesiac" tahal do sumy jeden cudzi den.
 function todayStr() {
-  return new Date().toISOString().split('T')[0];
+  return bratislavaDayIso(new Date());
 }
 
 function weekAgoStr() {
-  const d = new Date();
-  d.setDate(d.getDate() - 6);
-  return d.toISOString().split('T')[0];
+  return isoAddDays(bratislavaDayIso(new Date()), -6);
 }
 
 function monthStartStr() {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+  return bratislavaMonthStartIso(new Date());
 }
 
 // ===== LOAD REPORTS FROM API =====
@@ -71,7 +81,7 @@ async function loadReports() {
 }
 
 function showEmptyReports() {
-  const emptyHtml = '<tr><td colspan="7" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
+  const emptyHtml = '<tr><td colspan="8" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
   const trzbyBody = $('#table-trzby tbody');
   if (trzbyBody) trzbyBody.innerHTML = emptyHtml;
   const payBody = $('#table-payments tbody');
@@ -131,6 +141,12 @@ function renderStats(data) {
   // Predané burgery — počet kusov (4 burgery + 4 combá dokopy) za obdobie.
   if (data.burgersSold !== undefined && statValues[8]) {
     statValues[8].textContent = data.burgersSold;
+  }
+  // Odpisy (predaj) — predajná hodnota účtov uzavretých ako manažérsky odpis
+  // "na účet podniku" (mimo fiškál). Informatívne: nie je v tržbách ani vo
+  // Výsledku. Index 9 = posledná karta v hlavnom KPI gride.
+  if (data.totalOdpis !== undefined && statValues[9]) {
+    statValues[9].innerHTML = fmtEur(data.totalOdpis);
   }
 }
 
@@ -229,7 +245,7 @@ function renderTrzby(data) {
   const tbody = $('#table-trzby tbody');
   if (!tbody) return;
   if (!data.daily || !data.daily.length) {
-    tbody.innerHTML = '<tr><td colspan="7" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
     return;
   }
   if (!tbody) return;
@@ -246,6 +262,7 @@ function renderTrzby(data) {
       <td>${d.date}</td>
       <td class="num">${d.orders}</td>
       <td class="num highlight-cell">${fmtEur(d.revenue)}</td>
+      <td class="num">${fmtEur(d.odpis || 0)}</td>
       <td class="num">${fmtEur(d.cogs || 0)}</td>
       <td class="num">${fmtEur(d.labor || 0)}</td>
       <td class="num" style="font-weight:700;color:${profitColor}">${fmtEur(profit)}</td>
@@ -263,6 +280,7 @@ function renderTrzby(data) {
       <td>Spolu</td>
       <td class="num text-right">${data.totalOrders || ''}</td>
       <td class="num text-right color-accent">${fmtEur(data.totalRevenue)}</td>
+      <td class="num text-right">${data.totalOdpis !== undefined ? fmtEur(data.totalOdpis) : ''}</td>
       <td class="num text-right">${data.totalCogs !== undefined ? fmtEur(data.totalCogs) : ''}</td>
       <td class="num text-right">${data.totalLabor !== undefined ? fmtEur(data.totalLabor) : ''}</td>
       <td class="num text-right" style="font-weight:700;color:${tProfitColor}">${data.totalProfit !== undefined ? fmtEur(tProfit) : ''}</td>
@@ -482,13 +500,16 @@ function updateProductFilterStats() {
   });
 }
 
-// Per-day pivot — items v riadkoch, dni v stlpcoch. Cellka = qty pre (item,
-// day). Pomaha managerovi vidiet "ako sa burgery hybali za tyzden". Top-N
-// items podla total qty (po filtri kuchyna/bar/vsetko). Prazdne dni stale
-// zobrazujeme aby trend bol vizualne kontinuálny.
+// Per-day pivot — riadky = položky ALEBO kategórie, stĺpce = dni. Cellka =
+// predané ks alebo tržba € (podľa _productByDayMetric). Pomaha managerovi
+// vidiet "ako sa burgery / kategórie hybali za tyzden". Top-N riadkov podla
+// total (po filtri kuchyna/bar/vsetko). Prazdne dni stale zobrazujeme aby
+// trend bol vizualne kontinuálny.
 function renderProductsByDay(data) {
   const host = $('#productsByDayHost');
   if (!host) return;
+  updateProductByDayToggles();
+  updateProductByDaySubtitle();
   const rows = (data && Array.isArray(data.productsByDay)) ? data.productsByDay : [];
   if (!rows.length) {
     host.innerHTML = '<div class="empty-hint" style="padding:14px">Žiadne predaje za toto obdobie.</div>';
@@ -503,13 +524,24 @@ function renderProductsByDay(data) {
     host.innerHTML = '<div class="empty-hint" style="padding:14px">Žiadne predaje pre tento filter.</div>';
     return;
   }
-  // Build pivot: pivotMap[name] = { dest, total, days: {date: qty} }
+
+  const isRev = _productByDayMetric === 'revenue';
+  const byCat = _productByDayGroup === 'category';
+  // Bunky: ks = celé kusy, tržba = zaokrúhlené euro bez desatín (aby sa do
+  // širokej per-day matice zmestilo viac stĺpcov). Presné € s desatinami
+  // ukazujeme v Σ stĺpci a v riadku Spolu, kde je priestor.
+  const cellVal = (r) => isRev ? (Number(r.revenue) || 0) : (Number(r.qty) || 0);
+  const fmtCellNum = (v) => isRev ? Math.round(v).toLocaleString('sk-SK') : String(v);
+  const fmtTotal = (v) => isRev ? fmtEur(v) : String(v);
+
+  // Build pivot: pivotMap[key] = { name, dest, total, days: {date: value} }
   const pivotMap = {};
   const dateSet = new Set();
   for (const r of filtered) {
-    if (!pivotMap[r.name]) pivotMap[r.name] = { name: r.name, dest: r.dest || 'bar', total: 0, days: {} };
-    pivotMap[r.name].days[r.date] = (pivotMap[r.name].days[r.date] || 0) + (Number(r.qty) || 0);
-    pivotMap[r.name].total += Number(r.qty) || 0;
+    const key = byCat ? (r.category || 'Bez kategórie') : r.name;
+    if (!pivotMap[key]) pivotMap[key] = { name: key, dest: r.dest || 'bar', total: 0, days: {} };
+    pivotMap[key].days[r.date] = (pivotMap[key].days[r.date] || 0) + cellVal(r);
+    pivotMap[key].total += cellVal(r);
     dateSet.add(r.date);
   }
   const dates = Array.from(dateSet).sort();
@@ -523,14 +555,14 @@ function renderProductsByDay(data) {
 
   let html = '<div class="table-scroll-wrap"><table class="data-table" style="font-size:13px">';
   html += '<thead><tr>';
-  html += '<th>Položka</th>';
+  html += '<th>' + (byCat ? 'Kategória' : 'Položka') + '</th>';
   for (const d of dates) {
     html += '<th class="text-right" title="' + d + '">' + shortDate(d) + '</th>';
   }
-  html += '<th class="text-right" style="background:rgba(184,84,42,.05)">Σ</th>';
+  html += '<th class="text-right" style="background:rgba(184,84,42,.05)">Σ' + (isRev ? ' €' : '') + '</th>';
   html += '</tr></thead>';
 
-  // Find max qty across all cells for color intensity
+  // Find max cell value across all cells for color intensity
   let maxCell = 0;
   for (const it of items) {
     for (const d of dates) {
@@ -541,24 +573,26 @@ function renderProductsByDay(data) {
 
   html += '<tbody>';
   for (const it of items) {
+    // Pri zoskupení podľa kategórie nedáva dest pill zmysel per riadok
+    // (kategória má vlastnú zónu) — pill necháme len pri jednotlivých položkách.
     const destPill = it.dest === 'kuchyna'
       ? '<span style="display:inline-block;font-size:9px;font-weight:600;padding:1px 5px;border-radius:5px;background:rgba(217,119,6,.12);color:#92400e;margin-right:5px;vertical-align:middle">🍳</span>'
       : '<span style="display:inline-block;font-size:9px;font-weight:600;padding:1px 5px;border-radius:5px;background:rgba(99,102,241,.12);color:#4338ca;margin-right:5px;vertical-align:middle">🍹</span>';
     html += '<tr>';
-    html += '<td class="td-name">' + destPill + escapeHtml(it.name) + '</td>';
+    html += '<td class="td-name">' + (byCat ? '' : destPill) + escapeHtml(it.name) + '</td>';
     for (const d of dates) {
       const q = it.days[d] || 0;
       if (q === 0) {
         html += '<td class="num text-right" style="color:var(--color-text-dim)">·</td>';
       } else {
-        // Heat color: viac qty = intenzivnejsie pozadie
+        // Heat color: vyššia hodnota = intenzivnejsie pozadie
         const intensity = maxCell > 0 ? (q / maxCell) : 0;
         const bg = 'rgba(184,84,42,' + (0.06 + intensity * 0.22).toFixed(3) + ')';
         const fw = intensity > 0.7 ? '700' : intensity > 0.4 ? '600' : '500';
-        html += '<td class="num text-right" style="background:' + bg + ';font-weight:' + fw + '">' + q + '</td>';
+        html += '<td class="num text-right" style="background:' + bg + ';font-weight:' + fw + '">' + fmtCellNum(q) + '</td>';
       }
     }
-    html += '<td class="num text-right" style="background:rgba(184,84,42,.05);font-weight:700">' + it.total + '</td>';
+    html += '<td class="num text-right" style="background:rgba(184,84,42,.05);font-weight:700">' + fmtTotal(it.total) + '</td>';
     html += '</tr>';
   }
   // Sum row na konci — vertikalny total per den
@@ -569,20 +603,45 @@ function renderProductsByDay(data) {
     let colSum = 0;
     for (const it of items) colSum += (it.days[d] || 0);
     grandTotal += colSum;
-    html += '<td class="num text-right"><strong>' + colSum + '</strong></td>';
+    html += '<td class="num text-right"><strong>' + fmtCellNum(colSum) + '</strong></td>';
   }
-  html += '<td class="num text-right" style="background:rgba(184,84,42,.08)"><strong>' + grandTotal + '</strong></td>';
+  html += '<td class="num text-right" style="background:rgba(184,84,42,.08)"><strong>' + fmtTotal(grandTotal) + '</strong></td>';
   html += '</tr></tfoot></table></div>';
 
   // Hint pod tabulkou
   const totalItems = Object.keys(pivotMap).length;
   if (totalItems > _productByDayLimit) {
     html += '<div style="margin-top:8px;font-size:12px;color:var(--color-text-sec);text-align:right">'
-      + 'Zobrazený top ' + _productByDayLimit + ' z ' + totalItems + ' položiek. '
-      + 'Klik "Všetko" zobrazí kompletný zoznam.</div>';
+      + 'Zobrazený top ' + _productByDayLimit + ' z ' + totalItems + ' '
+      + (byCat ? 'kategórií' : 'položiek') + '.</div>';
   }
 
   host.innerHTML = html;
+}
+
+// Zvýrazní aktívny prepínač metriky/zoskupenia v paneli "Predaj za deň".
+function updateProductByDayToggles() {
+  if (!_container) return;
+  const state = {
+    pbdMetricQty: _productByDayMetric === 'qty',
+    pbdMetricRev: _productByDayMetric === 'revenue',
+    pbdGroupItem: _productByDayGroup === 'item',
+    pbdGroupCat: _productByDayGroup === 'category',
+  };
+  Object.keys(state).forEach((id) => {
+    const el = _container.querySelector('#' + id);
+    if (el) el.classList.toggle('chip-active', state[id]);
+  });
+}
+
+// Aktualizuje podnadpis panelu "Predaj za deň" podľa zvolenej metriky/zoskupenia.
+function updateProductByDaySubtitle() {
+  if (!_container) return;
+  const el = _container.querySelector('#pbdSubtitle');
+  if (!el) return;
+  const metric = _productByDayMetric === 'revenue' ? 'tržba (€)' : 'počet kusov';
+  const group = _productByDayGroup === 'category' ? 'podľa kategórie' : 'podľa položky';
+  el.textContent = metric + ' ' + group + ' každý deň';
 }
 
 // Build a stable comparator from the current sort state. Numeric columns
@@ -663,7 +722,7 @@ function renderZamestnanci(data) {
     const starCount = Math.min(5, Math.max(0, Math.round(s.rating || 0)));
     const stars = '\u2605'.repeat(starCount) + '\u2606'.repeat(5 - starCount);
     return `<tr>
-      <td class="td-name">${s.name}</td>
+      <td class="td-name">${escapeHtml(s.name)}</td>
       <td class="num">${s.shifts || ''}</td>
       <td class="num">${s.orders || ''}</td>
       <td class="num highlight-cell">${fmtEur(s.revenue)}</td>
@@ -739,7 +798,7 @@ async function loadStaffReport() {
     $('#staffBars').innerHTML = data.map(s => {
       const pct = maxRevenue > 0 ? Math.round((s.revenue / maxRevenue) * 100) : 0;
       return `<div class="staff-bar-row">
-        <div class="staff-bar-name">${s.name}</div>
+        <div class="staff-bar-name">${escapeHtml(s.name)}</div>
         <div class="staff-bar" style="width:${pct}%"><span class="staff-bar-value">${fmtEur(s.revenue)}</span></div>
       </div>`;
     }).join('');
@@ -747,7 +806,7 @@ async function loadStaffReport() {
     // Table
     $('#staffTableBody').innerHTML = data.map(s =>
       `<tr>
-        <td class="td-name">${s.name}</td>
+        <td class="td-name">${escapeHtml(s.name)}</td>
         <td>${s.role}</td>
         <td class="num">${s.ordersCount}</td>
         <td class="num">${s.itemsCount}</td>
@@ -798,6 +857,14 @@ async function generateZReport() {
       `<div class="uzavierka-value color-danger" style="margin-bottom:4px">${data.cancelledItems}</div>` +
       `<div class="loading-placeholder">${data.cancelledTotal > 0 ? 'Strata: ' + fmtEur(data.cancelledTotal) : 'Ziadne storna'}</div>`;
 
+    // Odpisy (predaj) — predajná hodnota účtov uzavretých ako manažérsky odpis
+    // (mimo fiškál). Mimo tržby aj mimo platobných metód.
+    const zOdEl = $('#zOdpis');
+    if (zOdEl) {
+      zOdEl.innerHTML = fmtEur(data.odpisTotal || 0)
+        + (data.odpisCount ? ` <span class="color-dim" style="font-size:12px">(${data.odpisCount}×)</span>` : '');
+    }
+
     // Category table
     _container.querySelector('#zCategoryTable tbody').innerHTML = data.categoryBreakdown.map(c =>
       `<tr><td class="td-name">${c.category}</td><td class="num highlight-cell">${fmtEur(c.total)}</td><td class="num">${c.count}x</td></tr>`
@@ -806,7 +873,7 @@ async function generateZReport() {
     // Top items table
     _container.querySelector('#zTopItemsTable tbody').innerHTML = data.topItems.map((item, i) => {
       const rankStyle = i === 0 ? 'color:var(--color-accent);font-weight:700' : (i < 3 ? 'color:var(--color-text-sec);font-weight:700' : '');
-      return `<tr><td class="num" style="${rankStyle}">${i + 1}</td><td class="td-name">${item.emoji || ''} ${item.name}</td><td class="num">${item.qty}x</td><td class="num highlight-cell">${fmtEur(item.revenue)}</td></tr>`;
+      return `<tr><td class="num" style="${rankStyle}">${i + 1}</td><td class="td-name">${escapeHtml(item.emoji || '')} ${escapeHtml(item.name)}</td><td class="num">${item.qty}x</td><td class="num highlight-cell">${fmtEur(item.revenue)}</td></tr>`;
     }).join('');
 
   } catch (err) {
@@ -1061,6 +1128,23 @@ function bindEvents() {
       if (_lastProductsData) renderProdukty(_lastProductsData);
     });
   });
+
+  // Per-day pivot prepínače — metrika (ks/tržba) + zoskupenie (položka/kategória).
+  // Prepínajú lokálne nad cache-om (_lastProductsData), bez API requestu.
+  const pbdMap = {
+    pbdMetricQty: () => { _productByDayMetric = 'qty'; },
+    pbdMetricRev: () => { _productByDayMetric = 'revenue'; },
+    pbdGroupItem: () => { _productByDayGroup = 'item'; },
+    pbdGroupCat: () => { _productByDayGroup = 'category'; },
+  };
+  Object.keys(pbdMap).forEach(id => {
+    const el = $('#' + id);
+    if (!el) return;
+    el.addEventListener('click', () => {
+      pbdMap[id]();
+      if (_lastProductsData) renderProductsByDay(_lastProductsData);
+    });
+  });
 }
 
 // ===== TEMPLATE =====
@@ -1192,6 +1276,18 @@ const TEMPLATE = `
         <div class="stat-value">--</div>
       </div>
     </div>
+    <!-- Odpisy (predaj) — predajná hodnota účtov uzavretých ako manažérsky
+         odpis "na účet podniku" (closure_type='odpis', mimo fiškál). MUSÍ
+         ostať poslednou kartou v gride — renderStats() ju plní cez index 9. -->
+    <div class="stat-card">
+      <div class="stat-icon" style="background:var(--color-danger-bg,rgba(176,56,48,.12));color:var(--color-danger,#b03830)">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+      </div>
+      <div class="stat-info">
+        <div class="stat-label">Odpisy (predaj)</div>
+        <div class="stat-value">-- &euro;</div>
+      </div>
+    </div>
   </div>
 
   <!-- TABS -->
@@ -1235,6 +1331,7 @@ const TEMPLATE = `
             <th>Dátum</th>
             <th class="text-right">Obj.</th>
             <th class="text-right">Tržby</th>
+            <th class="text-right">Odpis</th>
             <th class="text-right">Výroba</th>
             <th class="text-right">Mzdy</th>
             <th class="text-right">Výsledok</th>
@@ -1242,7 +1339,7 @@ const TEMPLATE = `
           </tr>
         </thead>
         <tbody>
-          <tr><td colspan="7" class="td-empty">Načítavam…</td></tr>
+          <tr><td colspan="8" class="td-empty">Načítavam…</td></tr>
         </tbody>
         <tfoot></tfoot>
       </table>
@@ -1355,7 +1452,22 @@ const TEMPLATE = `
       <div class="panel-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <svg viewBox="0 0 24 24" aria-hidden="true" style="width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 3v18"/></svg>
         <span>Predaj za deň</span>
-        <span style="font-size:12px;font-weight:400;color:var(--color-text-sec);margin-left:6px">koľko kusov sa predalo každý deň · top ${_productByDayLimit}</span>
+        <span id="pbdSubtitle" style="font-size:12px;font-weight:400;color:var(--color-text-sec);margin-left:6px">počet kusov podľa položky každý deň</span>
+      </div>
+      <!-- Prepínače pivotu: metrika (Ks / Tržba €) + zoskupenie (Položka /
+           Kategória). Umožňujú vidieť napr. "tržba podľa kategórie po dňoch".
+           Reuse .filter-chip / .chip-active (injektované v init) — žiaden nový CSS. -->
+      <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin:2px 0 14px">
+        <div style="display:flex;gap:6px;align-items:center">
+          <span style="font-size:12px;color:var(--color-text-sec);font-weight:600">Zobraziť:</span>
+          <button type="button" id="pbdMetricQty" class="filter-chip chip-active" style="cursor:pointer;padding:5px 12px;border-radius:999px;border:1px solid var(--color-border);background:transparent;font-size:12px;font-weight:600;transition:all .15s">Ks</button>
+          <button type="button" id="pbdMetricRev" class="filter-chip" style="cursor:pointer;padding:5px 12px;border-radius:999px;border:1px solid var(--color-border);background:transparent;font-size:12px;font-weight:600;transition:all .15s">Tržba €</button>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <span style="font-size:12px;color:var(--color-text-sec);font-weight:600">Zoskupenie:</span>
+          <button type="button" id="pbdGroupItem" class="filter-chip chip-active" style="cursor:pointer;padding:5px 12px;border-radius:999px;border:1px solid var(--color-border);background:transparent;font-size:12px;font-weight:600;transition:all .15s">Položka</button>
+          <button type="button" id="pbdGroupCat" class="filter-chip" style="cursor:pointer;padding:5px 12px;border-radius:999px;border:1px solid var(--color-border);background:transparent;font-size:12px;font-weight:600;transition:all .15s">Kategória</button>
+        </div>
       </div>
       <div id="productsByDayHost"></div>
     </div>
@@ -1458,7 +1570,7 @@ const TEMPLATE = `
     </div>
 
     <div id="zReportContent" style="display:none">
-      <div class="stat-grid grid-3col">
+      <div class="stat-grid">
         <div class="stat-card">
           <div class="stat-icon ice">
             <svg aria-hidden="true" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
@@ -1484,6 +1596,17 @@ const TEMPLATE = `
           <div class="stat-info">
             <div class="stat-label">Priemerna objednavka</div>
             <div class="stat-value" id="zAvgOrder">--</div>
+          </div>
+        </div>
+        <!-- Odpisy (predaj) — manažérsky odpis "na účet podniku" (mimo fiškál).
+             Predajná hodnota účtov s closure_type='odpis' za daný deň. -->
+        <div class="stat-card">
+          <div class="stat-icon" style="background:var(--color-danger-bg,rgba(176,56,48,.12));color:var(--color-danger,#b03830)">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+          </div>
+          <div class="stat-info">
+            <div class="stat-label">Odpisy (predaj)</div>
+            <div class="stat-value" id="zOdpis">--</div>
           </div>
         </div>
       </div>
@@ -1567,4 +1690,6 @@ export function destroy() {
   _lastProductsData = null;
   _productSort = { col: 'qty', dir: 'desc' };
   _productDestFilter = 'all';
+  _productByDayMetric = 'qty';
+  _productByDayGroup = 'item';
 }

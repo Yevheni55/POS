@@ -12,6 +12,14 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+// Request payloads are built inside the vm realm, so their prototypes come
+// from that realm and assert.deepStrictEqual would reject them as "not
+// reference-equal" even when every value matches. structuredClone re-creates
+// the value with this realm's intrinsics without touching any of the data.
+function plain(value) {
+  return structuredClone(value);
+}
+
 function createElementStub() {
   const classNames = new Set();
   return {
@@ -73,6 +81,11 @@ function loadPosOrders(initialOrder, overrides = {}) {
     querySelectorAll() {
       return [];
     },
+    addEventListener() {},
+    removeEventListener() {},
+    createElement() { return createElementStub(); },
+    body: createElementStub(),
+    documentElement: createElementStub(),
   };
 
   const sandbox = {
@@ -106,6 +119,12 @@ function loadPosOrders(initialOrder, overrides = {}) {
     renderMobTables() {},
     isMobile() { return false; },
     fmt(n) { return String(n); },
+    escHtml(value) { return String(value == null ? '' : value); },
+    escAttr(value) { return String(value == null ? '' : value); },
+    // Lives in pos-payments.js; only pos-orders.js is evaluated here.
+    getOrderTotal() {
+      return sandbox.getOrder().reduce((sum, item) => sum + item.price * item.qty, 0);
+    },
     getItemDest() { return 'bar'; },
     MENU_ID_MAP: new Map([['Pivo', 10]]),
     TABLES: [{ id: 1, status: 'occupied', name: 'Stol 1' }],
@@ -120,12 +139,15 @@ function loadPosOrders(initialOrder, overrides = {}) {
       del: async () => ({}),
       put: async () => ({}),
     },
+    // These are invoked from inside the vm as bare globals, so `this` is
+    // undefined (the test module is ESM/strict). Read the current table id
+    // off the sandbox instead.
     getOrder() {
-      return tableOrders[this.selectedTableId] || [];
+      return tableOrders[sandbox.selectedTableId] || [];
     },
     setOrder(nextOrder) {
       orderState = nextOrder;
-      tableOrders[this.selectedTableId] = nextOrder;
+      tableOrders[sandbox.selectedTableId] = nextOrder;
     },
     tableOrders,
     ...overrides,
@@ -141,8 +163,11 @@ function loadPosOrders(initialOrder, overrides = {}) {
   return {
     sandbox,
     elements,
+    // tableOrders[selectedTableId] is the real source of truth in the app —
+    // some code paths (e.g. _activateLoadedOrder) write it directly instead
+    // of going through setOrder(), so read it back from there.
     getOrderState() {
-      return orderState;
+      return tableOrders[sandbox.selectedTableId] || orderState;
     },
   };
 }
@@ -229,7 +254,7 @@ test('splitBill syncs a local draft order before opening the split modal', async
       post: async (url, body) => {
         if (url === '/orders') {
           createCalls += 1;
-          assert.deepEqual(body, {
+          assert.deepEqual(plain(body), {
             tableId: 1,
             items: [{ menuItemId: 10, qty: 2, note: '' }],
           });
@@ -240,8 +265,25 @@ test('splitBill syncs a local draft order before opening the split modal', async
       del: async () => ({}),
       put: async () => ({}),
     },
-    loadTableOrder: async () => {},
   });
+
+  // syncOrderToServer drops the local-only draft rows it just POSTed and then
+  // re-reads the account from the server, so the stub has to hand back the
+  // persisted row — otherwise the order looks empty to everything downstream.
+  sandbox.loadTableOrder = async () => {
+    sandbox.tableOrders[sandbox.selectedTableId] = [{
+      id: 501,
+      name: 'Pivo',
+      emoji: 'beer',
+      price: 2.5,
+      qty: 2,
+      note: '',
+      menuItemId: 10,
+      orderId: 222,
+      sent: false,
+      _sentQty: 0,
+    }];
+  };
 
   sandbox._orderDirty = true;
 
@@ -299,7 +341,9 @@ test('moveToTab activates the target account items immediately after reload', as
     },
   });
 
-  sandbox.moveSelectedItems = [11];
+  // Since f1eb164 ("partial moves") a selection entry is { id, qty } where
+  // qty === null means "move the whole line".
+  sandbox.moveSelectedItems = [{ id: 11, qty: null }];
   sandbox.moveSourceOrderId = 100;
   sandbox.moveSourceTableId = 1;
   sandbox.moveMode = true;
@@ -313,9 +357,13 @@ test('moveToTab activates the target account items immediately after reload', as
 
   await sandbox.moveToTab(200);
 
-  assert.deepEqual(movePayload, {
+  assert.deepEqual(plain(movePayload), {
     url: '/orders/100/move-items',
-    body: { itemIds: [11], targetTableId: 1, targetOrderId: 200 },
+    body: {
+      itemQtys: [{ itemId: 11, qty: null }],
+      targetTableId: 1,
+      targetOrderId: 200,
+    },
   });
   assert.equal(sandbox.currentOrderId, 200);
   assert.equal(sandbox.currentOrderVersion, 2);

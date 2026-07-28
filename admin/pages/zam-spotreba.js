@@ -21,10 +21,19 @@ function $(sel) { return _container && _container.querySelector(sel); }
 
 function fmtEur(n) { return fmtCost(n) + ' €'; }
 
+// Jediná implementácia escapovania v projekte je /js/pos-escape.js
+// (escHtml pre textový obsah, escAttr pre atribút, escJsAttr pre inline
+// handler). Predtým mala takmer každá admin stránka vlastnú kópiu a boli
+// medzi nimi ŠTYRI rôzne správania — časť neescapovala apostrof ani
+// úvodzovku, čo je práve to, na čom záleží pri interpolácii do atribútu.
+// Lokálne meno ostáva, nech sa neprepisujú stovky volaní.
 function escapeHtml(v) {
-  const d = document.createElement('div');
-  d.textContent = String(v == null ? '' : v);
-  return d.innerHTML;
+  // window.* zamerne: v moduloch, kde sa lokalna funkcia vola tiez escHtml,
+  // by holy identifikator ukazoval sam na seba (nekonecna rekurzia).
+  if (typeof window !== 'undefined' && typeof window.escHtml === 'function') return window.escHtml(v);
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 // bratislavaDayIso je zdielany global z /api.js (preco nie UTC — viz tam).

@@ -11,9 +11,19 @@ let _c = null;
 const PRIMARY = 'v4-loglin';        // živý odhad (intraday nowcast + budúce dni)
 const HONEST = 'v4-loglin-am';      // ranný freeze — z neho je „presnosť"
 
-function esc(s) {
-  return String(s == null ? '' : s)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+// Jediná implementácia escapovania v projekte je /js/pos-escape.js
+// (escHtml pre textový obsah, escAttr pre atribút, escJsAttr pre inline
+// handler). Predtým mala takmer každá admin stránka vlastnú kópiu a boli
+// medzi nimi ŠTYRI rôzne správania — časť neescapovala apostrof ani
+// úvodzovku, čo je práve to, na čom záleží pri interpolácii do atribútu.
+// Lokálne meno ostáva, nech sa neprepisujú stovky volaní.
+function esc(v) {
+  // window.* zamerne: v moduloch, kde sa lokalna funkcia vola tiez escHtml,
+  // by holy identifikator ukazoval sam na seba (nekonecna rekurzia).
+  if (typeof window !== 'undefined' && typeof window.escHtml === 'function') return window.escHtml(v);
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 function fmtEur(n) {
   return (Number(n) || 0).toLocaleString('sk-SK', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' €';

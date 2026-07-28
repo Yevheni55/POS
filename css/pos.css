@@ -51,13 +51,18 @@
   /* Text — dark espresso, all AA ≥ 4.5:1 on cream */
   --color-text:     #1e1812;
   --color-text-sec: #5a4f3c;
-  --color-text-dim: #8a7d65;
+  --color-text-dim: #706552;
 
   /* Focus — terra ring */
   --color-focus: #b8542a;
 
   /* Accent amber (warning) — darker for light mode */
   --accent-amber: #b87c1a;
+  /* Text-safe varianta jantárovej. Brand --accent-amber ma na kremovom
+     podklade len 3,09:1 (na elevated 2,80:1), co je pod AA aj pre velky
+     text — a nesie pritom cas obsadenia stola a cistu cenu po zlave.
+     Vyplne, bodky a ramiky zostavaju na brandovej; text ide na tuto. */
+  --accent-amber-text: #8a5d14;
 
   /* Shadows — 3-tier paper drop stack (Phase 1 stronger floats) */
   --shadow-sm:    0 1px 2px rgba(30, 24, 18, .06),
@@ -541,6 +546,20 @@ body::after{
   min-width:0;
   color:var(--text-primary);
 }
+/* Vlastný názov účtu (meno hosťa) na chipe — pod názvom stola, accent farba,
+   aby ho obsluha rýchlo našla pri platbe. */
+.table-chip .chip-customer{
+  font-family:var(--font-body);
+  font-size:clamp(10px, 13cqi, 13px);
+  font-weight:var(--weight-bold);
+  line-height:1.1;
+  color:var(--color-accent);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  max-width:100%;
+  margin-top:2px;
+}
 .table-chip .chip-glyph{
   font-family:var(--font-mono),'JetBrains Mono Variable',ui-monospace,monospace;
   font-size:13px;
@@ -554,7 +573,7 @@ body::after{
 }
 .table-chip .chip-glyph.s-free{color:var(--color-success)}
 .table-chip .chip-glyph.s-occupied{color:var(--color-accent)}
-.table-chip .chip-glyph.s-reserved{color:var(--accent-amber)}
+.table-chip .chip-glyph.s-reserved{color:var(--accent-amber-text)}
 .table-chip .chip-glyph.s-dirty{color:var(--color-danger)}
 .table-chip .chip-status-dot{
   width:7px;height:7px;
@@ -584,7 +603,7 @@ body::after{
   font-family:var(--font-mono);
   font-size:clamp(10px, 13cqi, 16px);
   font-weight:var(--weight-bold);
-  color:var(--accent-amber);
+  color:var(--accent-amber-text);
   font-variant-numeric:tabular-nums;
   letter-spacing:-0.01em;
   line-height:1;
@@ -602,7 +621,7 @@ body::after{
   text-overflow:ellipsis;
 }
 .table-chip.s-dirty .chip-state-label{color:var(--color-danger)}
-.table-chip.s-free .chip-state-label{color:var(--text-dim)}
+.table-chip.s-free .chip-state-label{color:var(--text-muted)}
 
 .table-chip .chip-guests{
   display:flex;align-items:center;gap:3px;
@@ -623,7 +642,7 @@ body::after{
   min-height:300px;
   gap:14px;
 }
-.floor-empty svg{color:var(--text-dim);opacity:.8}
+.floor-empty svg{color:var(--text-muted);opacity:.8}
 .floor-empty-title{
   font-family:var(--font-display);
   font-size:22px;
@@ -915,6 +934,11 @@ body::after{
 .tab-meta{font-size:10px;opacity:.7;font-weight:500;line-height:1.2}
 .order-tab-new{background:transparent;color:var(--text-muted);border-style:dashed;font-size:var(--text-lg);padding:6px 10px;align-items:center;justify-content:center}
 .order-title{font-family:var(--font-display);font-size:var(--text-xl);font-weight:var(--weight-bold)}
+.order-id-row{display:flex;align-items:center;gap:var(--space-2)}
+/* Pomenovať účet — ceruzka pri názve stola v hlavičke objednávky. */
+.order-rename-btn{background:none;border:1px solid var(--color-border);color:var(--color-text-sec);cursor:pointer;padding:3px 5px;display:inline-flex;align-items:center;border-radius:var(--radius-sm);transition:color var(--transition-fast),border-color var(--transition-fast);min-height:auto}
+.order-rename-btn:hover{color:var(--action-primary);border-color:var(--action-primary)}
+.order-rename-btn:focus-visible{outline:none;box-shadow:0 0 0 2px var(--action-primary)}
 .order-table-label{font-size:var(--text-sm);color:var(--action-primary);font-weight:600;display:inline-flex;align-items:center;gap:var(--space-1)}
 /* PERF: liveDot infinite pulse odstranena — nezavisia od interakcie a
    bezala neustale aj ked nebola ziadna ucet aktivita. Dot je staticky;
@@ -1349,8 +1373,18 @@ body::after{
 /* Spec 1.4 — Hotovost + Karta rovnaké, rozdiel iba ikona/text. */
 .actions{display:flex;flex-direction:column;gap:6px}
 .pay-row{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+/* QR platba — full-width tlačidlo pod hotovosť/karta (span oboch stĺpcov). */
+.pay-row .btn-qr{grid-column:1 / -1}
 .btn{flex:1;padding:var(--space-4);border:none;border-radius:var(--radius-sm);font-family:var(--font-body);font-weight:var(--weight-bold);font-size:var(--text-xl);cursor:pointer;transition:all var(--transition-fast);display:flex;align-items:center;justify-content:center;gap:6px;min-height:var(--btn-h-md)}
-.btn-cash,.btn-card{
+/* [hidden] override — sankcionovaná výnimka z „žiadne !important" (DESIGN-CODE
+   § [hidden]). .btn má display:flex, čo prebije natívny [hidden], takže každé
+   <button class="btn" hidden> ostalo VIDITEĽNÉ. Doplácal na to hlavne
+   #btnOdpis („Odpis (mimo fiškál)", pos-enterprise.html:157) — admin-only
+   akcia, ktorú videl každý čašník. Blanket pravidlo na .btn rieši aj všetky
+   budúce tlačidlá; .btn-qr[hidden] a .btn-staff-meal[hidden] nižšie sú tým
+   pádom redundantné, ale nechávam ich (nezaškodia). */
+.btn[hidden]{display:none !important}
+.btn-cash,.btn-card,.btn-qr{
   display:flex;align-items:center;justify-content:center;gap:6px;
   background:var(--color-accent);
   color:#fff;border:1px solid var(--color-accent-dim);
@@ -1362,17 +1396,21 @@ body::after{
   cursor:pointer;-webkit-tap-highlight-color:transparent;
   transition:transform var(--transition-fast),box-shadow var(--transition-fast),opacity var(--transition-fast);
 }
-.btn-cash:hover:not(:disabled),.btn-card:hover:not(:disabled){
+.btn-cash:hover:not(:disabled),.btn-card:hover:not(:disabled),.btn-qr:hover:not(:disabled){
   transform:translateY(-1px);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.26),0 3px 10px -1px rgba(184,84,42,.32);
 }
-.btn-cash:active:not(:disabled),.btn-card:active:not(:disabled){
+.btn-cash:active:not(:disabled),.btn-card:active:not(:disabled),.btn-qr:active:not(:disabled){
   transform:translateY(0);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.16),0 1px 3px rgba(184,84,42,.20);
 }
-.btn-cash:disabled,.btn-card:disabled{
+.btn-cash:disabled,.btn-card:disabled,.btn-qr:disabled{
   opacity:.4;cursor:not-allowed;transform:none;box-shadow:none;
 }
+/* [hidden] override lebo .btn-qr ma display:flex co prebije nativny [hidden]
+   (rovnaky dovod ako .btn-staff-meal nizsie) — QR platba sa da vypnut v
+   admin Nastaveniach a tlacidlo sa skryva cez atribut hidden. */
+.btn-qr[hidden]{display:none !important}
 /* Spec 2.3 — primary akcia podla stavu objednavky.
    Visual cue: subtle outer glow on hover and rest.
    .is-primary signaluje "to klikni teraz". */
@@ -1397,7 +1435,7 @@ body::after{
 .btn-staff-meal{
   width:100%;
   background:rgba(184,124,26,.10);
-  color:var(--accent-amber);
+  color:var(--accent-amber-text);
   border:1px solid rgba(184,124,26,.30);
   font-size:var(--text-md);
   padding:var(--space-3) var(--space-4);
@@ -1438,7 +1476,7 @@ body::after{
 /* Zlava (discount) — amber/sun identity, signaluje "promócia / akcia" */
 .btn-discount{
   background:rgba(184,124,26,.12);
-  color:var(--accent-amber);
+  color:var(--accent-amber-text);
   border:1px solid rgba(184,124,26,.4);
   font-size:var(--text-xs);
   font-weight:var(--weight-semibold);
@@ -1452,6 +1490,24 @@ body::after{
   transform:translateY(-1px);
 }
 .btn-discount:active{transform:translateY(1px)}
+
+/* Odpis (manazersky odpis uctu mimo fiskal) — danger identity (cervena),
+   signalizuje serioznu akciu co obchadza fiskal. Plnosirkove tlacidlo v
+   .actions (rovnako ako btn-staff-meal), viditelne len pre admina. */
+.btn-odpis{
+  background:var(--color-danger-bg);
+  color:var(--color-danger);
+  border:1px solid var(--color-danger-border);
+  font-weight:var(--weight-semibold);
+  transition:background var(--transition-fast),border-color var(--transition-fast),transform var(--transition-fast);
+}
+.btn-odpis:hover{
+  background:var(--color-danger);
+  color:var(--color-bg-elevated);
+  border-color:var(--color-danger);
+  transform:translateY(-1px);
+}
+.btn-odpis:active{transform:translateY(1px)}
 .discount-line{display:flex;justify-content:space-between;align-items:baseline;padding:2px 0;font-size:12px;color:var(--color-accent);font-weight:600}
 .discount-line .discount-label{display:flex;align-items:center;gap:6px}
 .discount-line .discount-remove{background:none;border:none;color:var(--color-danger);font-size:14px;cursor:pointer;padding:0 4px;opacity:.6;transition:opacity .2s}
@@ -1478,7 +1534,7 @@ body::after{
 }
 
 /* Focus-visible rings on all action buttons (DESIGN-CODE.md §6). */
-.btn-cash:focus-visible,.btn-card:focus-visible,.btn-send:focus-visible,.btn-prebill:focus-visible,.btn-cancel:focus-visible{
+.btn-cash:focus-visible,.btn-card:focus-visible,.btn-qr:focus-visible,.btn-send:focus-visible,.btn-prebill:focus-visible,.btn-cancel:focus-visible{
   outline:none;
   box-shadow:inset 0 1px 0 rgba(255,255,255,.22),0 0 0 3px rgba(184,84,42,.28);
 }
@@ -1562,6 +1618,42 @@ body::after{
 .offline-banner.show{transform:translateY(0)}
 .offline-queue{margin-left:8px;padding:2px 8px;border-radius:10px;background:rgba(0,0,0,.2);font-size:11px}
 
+/* === UPOZORNENIE NA NOVÚ VERZIU (js/pos-sw-update.js) ===
+   Zámerne nenápadný pruh dole, nie modal: obsluha si reload spustí sama, keď
+   má chvíľu. Automatický reload by zhodil rozrobenú QR platbu alebo účet. */
+.sw-update-banner{
+  position:fixed;
+  left:50%;
+  bottom:calc(var(--space-4) + env(safe-area-inset-bottom));
+  transform:translateX(-50%);
+  z-index:320;
+  display:flex;align-items:center;gap:var(--space-3);
+  max-width:calc(100vw - 2 * var(--space-4));
+  padding:var(--space-3) var(--space-4);
+  border-radius:var(--radius-md);
+  background:var(--color-bg-elevated);
+  border:1px solid var(--color-border-strong);
+  box-shadow:var(--shadow-lg);
+  color:var(--color-text);
+  font-size:var(--text-md);
+}
+.sw-update-text{font-weight:var(--weight-semibold)}
+.sw-update-btn{
+  min-height:var(--btn-h-sm,44px);
+  padding:var(--space-2) var(--space-4);
+  border:none;border-radius:var(--radius-sm);
+  background:var(--color-accent);color:#f5efe3;
+  font-family:var(--font-body);font-weight:var(--weight-bold);font-size:var(--text-md);
+  cursor:pointer;
+}
+.sw-update-btn:hover{background:var(--color-accent-dim)}
+.sw-update-dismiss{
+  min-width:44px;min-height:44px;
+  border:none;background:transparent;color:var(--color-text-sec);
+  font-size:var(--text-4xl);line-height:1;cursor:pointer;
+}
+.sw-update-dismiss:hover{color:var(--color-text)}
+
 /* === UNIFIED MODAL SYSTEM === */
 .u-overlay{
   position:fixed;inset:0;z-index:200;
@@ -1571,14 +1663,30 @@ body::after{
   backdrop-filter:blur(0px) saturate(100%);-webkit-backdrop-filter:blur(0px) saturate(100%);
   display:flex;align-items:center;justify-content:center;
   opacity:0;pointer-events:none;
+  /* visibility:hidden — NIE len opacity:0.
+     Bez tohoto zostávajú všetky zatvorené modály v tab-poradí: opacity:0
+     prvok je pre klávesnicu stále normálny prvok. Na POS je ~10 statických
+     overlayov v DOM, takže Tab z mriežky produktov prešiel cez ~30
+     neviditeľných zastávok (numpad, PIN pady, Potvrdiť/Zrušiť) skôr, než
+     sa dostal na panel účtu. Klávesnicu tu pritom zámerne podporujeme
+     (F2, Enter = platba).
+     Prechod 0s s oneskorením var(--t-paper) = pri zatváraní sa viditeľnosť
+     preklopí až PO dobehnutí fade-outu, takže animácia zostáva plynulá. */
+  visibility:hidden;
   transition:opacity var(--t-paper) var(--ease-soft),
              backdrop-filter var(--t-paper) var(--ease-soft),
-             -webkit-backdrop-filter var(--t-paper) var(--ease-soft);
+             -webkit-backdrop-filter var(--t-paper) var(--ease-soft),
+             visibility 0s linear var(--t-paper);
 }
 .u-overlay.show{
   opacity:1;pointer-events:all;
+  visibility:visible;
   backdrop-filter:blur(4px) saturate(110%);
   -webkit-backdrop-filter:blur(4px) saturate(110%);
+  transition:opacity var(--t-paper) var(--ease-soft),
+             backdrop-filter var(--t-paper) var(--ease-soft),
+             -webkit-backdrop-filter var(--t-paper) var(--ease-soft),
+             visibility 0s linear 0s;
 }
 
 .u-modal{
@@ -2160,7 +2268,7 @@ body::after{
 .cash-numpad-btn:active{background:rgba(30,24,18,.12);transform:scale(.96)}
 .cash-numpad-btn.is-special{
   background:rgba(245,158,11,.10);border-color:rgba(245,158,11,.30);
-  color:var(--accent-amber,#f59e0b);
+  color:var(--accent-amber-text);
 }
 .cash-numpad-btn.is-special:active{background:rgba(245,158,11,.20)}
 /* Tablet bump — 14/8 padding → 18/12, 20px font → 26px, gap 6 → 10. */
@@ -2264,6 +2372,20 @@ body::after{
 .help-keys-table td{padding:6px var(--space-2);vertical-align:middle}
 .help-keys-table kbd{background:var(--surface-card);border:1px solid var(--border-default);border-radius:var(--radius-xs);padding:2px var(--space-2);font-family:inherit;font-size:var(--text-base);font-weight:var(--weight-semibold)}
 /* .u-btn-new-account removed — old move account modal */
+/* Kontext manažérskeho PINu — JEDINÉ miesto, kde je napísané, ČO manažér
+   svojím PINom schvaľuje (titulok modálu je generický „Manazersky PIN").
+   Predtým to js/pos-ui.js vypisoval inline štýlom
+   `color:var(--color-text-muted, rgba(255,255,255,.7))` — premenná
+   --color-text-muted v projekte NEEXISTUJE, takže vyhral biely fallback na
+   krémovom podklade (~1,1:1) a text bol neviditeľný. Manažér tak schvaľoval
+   storno/zľavu naslepo, na slovo čašníka — protipodvodová kontrola, ktorá
+   nekontrolovala nič. */
+.manager-pin-context{
+  font-size:var(--text-lg);
+  color:var(--color-text-sec);
+  margin-bottom:var(--space-3);
+  text-align:center;
+}
 .manager-pin-input{text-align:center;font-size:var(--text-5xl);letter-spacing:6px;font-variant-numeric:tabular-nums}
 .manager-pin-error{color:var(--action-danger);font-size:var(--text-base);text-align:center;margin-top:var(--space-2)}
 .u-modal-loading{text-align:center;color:var(--text-muted);padding:var(--space-3)}
@@ -2792,6 +2914,17 @@ body::after{
     -webkit-tap-highlight-color:transparent;
   }
   .mob-oi-move:active{background:rgba(184,84,42,.2);transform:scale(.95)}
+  .mob-oi-disc{
+    min-width:44px;min-height:44px;width:44px;height:44px;flex-shrink:0;
+    border-radius:10px;border:1px solid rgba(184,124,26,.25);
+    background:rgba(184,124,26,.08);color:var(--accent-amber-text);
+    font-size:15px;font-weight:800;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .mob-oi-disc.has-disc{background:rgba(184,124,26,.2);border-color:var(--accent-amber)}
+  .mob-oi-disc:active{background:rgba(184,124,26,.28);transform:scale(.95)}
+  .mob-oi-gross{font-size:12px;font-weight:600;color:var(--color-text-dim);text-decoration:line-through;font-variant-numeric:tabular-nums}
   .mob-order-item-pick{
     width:100%;
     appearance:none;
@@ -2887,7 +3020,13 @@ body::after{
   }
   .mob-btn-pay.cash{background:linear-gradient(135deg,#4a7a3a,#42C490);color:#041a10}
   .mob-btn-pay.card{background:linear-gradient(135deg, var(--color-accent-secondary), var(--color-accent-secondary-strong));color:#f5efe3}
+  .mob-btn-pay.qr{background:linear-gradient(135deg, var(--color-accent), var(--color-accent-dim));color:#fff}
+  .mob-btn-pay.qr[hidden]{display:none !important}
   .mob-btn-pay:active{transform:scale(.97)}
+  /* [hidden] override — zľava sa čašníkovi skrýva (pos-init.js), a keby
+     .mob-btn-secondary niekedy dostalo display:flex, natívny [hidden] by
+     prestal platiť rovnako ako pri .btn. */
+  .mob-btn-secondary[hidden]{display:none !important}
   .mob-btn-secondary{
     width:100%;
     padding:var(--space-3) var(--space-4);
@@ -3066,11 +3205,36 @@ body::after{
    3px terra glow ring matches the project-wide focus pattern. */
 .order-item-info:focus-visible,
 .order-item-note-btn:focus-visible,
+.order-item-disc-btn:focus-visible,
 .qty-btn:focus-visible,
 .order-item-remove:focus-visible{
   outline:none;
   box-shadow:0 0 0 3px rgba(184, 84, 42, .28);
 }
+
+/* Per-item zľava (discount on a single line). The % chip mirrors the note
+   chip; amber identity matches .btn-discount. Manager/admin only. */
+.order-item-disc-btn{
+  appearance:none;background:transparent;border:1px solid var(--color-border);
+  width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;font-weight:700;font-size:14px;
+  color:var(--color-text-sec);cursor:pointer;-webkit-tap-highlight-color:transparent;
+  transition:background var(--transition-fast),border-color var(--transition-fast),color var(--transition-fast);
+}
+.order-item-disc-btn:hover{background:rgba(184,124,26,.16);border-color:var(--accent-amber);color:var(--accent-amber-text)}
+.order-item-disc-btn.has-disc{background:rgba(184,124,26,.2);border-color:var(--accent-amber);color:var(--accent-amber-text)}
+/* Small amber badge after the item name showing the applied rule (-20% / name). */
+.oi-disc-badge{
+  display:inline-block;margin-left:6px;padding:1px 6px;border-radius:6px;
+  background:rgba(184,124,26,.16);color:var(--accent-amber-text);
+  font-size:11px;font-weight:700;line-height:1.5;white-space:nowrap;vertical-align:middle;
+}
+/* Discounted total: struck-through gross above the net price. */
+.order-item-total .oi-gross{
+  display:block;font-size:11px;font-weight:600;color:var(--color-text-dim);
+  text-decoration:line-through;line-height:1.1;
+}
+.order-item-total .oi-net{display:block;color:var(--accent-amber-text);line-height:1.1}
 
 /* === TABLET ORDER LIST OVERRIDES ===
    Canonical compact 56px row (see ORDER ROW block ~line 2625) now serves
@@ -3295,7 +3459,34 @@ body.edit-mode #editToggle { background: var(--color-warning, #E0A830); color: #
    adds a global defensive default that strips animation + transition
    timing across the whole UI. `!important` is the agreed exception for
    reduced-motion overrides — same logical exception as [hidden]. */
+/* QR platba — úspešný stav: zelená fajka s animovaným ťahom.
+   Kreslí kruh + odškrtnutie cez stroke-dasharray. Globálny
+   reduced-motion blok nižšie nuluje trvanie → fajka sa zobrazí
+   okamžite (žiadny špeciálny override netreba). */
+.qr-success-check { display:flex; justify-content:center; margin:6px 0 2px; }
+.qr-success-check svg { display:block; }
+.qr-success-circle {
+  stroke: var(--color-success, #4a7a3a);
+  stroke-width: 3;
+  stroke-dasharray: 151;
+  stroke-dashoffset: 151;
+  animation: qrSuccessCircle 420ms ease-out forwards;
+}
+.qr-success-tick {
+  stroke: var(--color-success, #4a7a3a);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 40;
+  stroke-dashoffset: 40;
+  animation: qrSuccessTick 320ms 360ms ease-out forwards;
+}
+@keyframes qrSuccessCircle { to { stroke-dashoffset: 0; } }
+@keyframes qrSuccessTick { to { stroke-dashoffset: 0; } }
+
 @media (prefers-reduced-motion: reduce) {
+  /* fajka sa nakreslí staticky (bez ťahu) */
+  .qr-success-circle, .qr-success-tick { stroke-dashoffset: 0 !important; }
   *,
   *::before,
   *::after {

@@ -284,6 +284,23 @@ async function loadAllOrders() {
     // is still typing in, and "Pay" then says "Nie je co platit" because
     // tableOrders[id] is suddenly [].
     TABLES.forEach(function(t) {
+      // NEPÍŠ do práve otvoreného stola.
+      //
+      // Do tableOrders[id] písali DVAJA: táto funkcia sem dávala SÚČET VŠETKÝCH
+      // otvorených účtov stola (nižšie „Sum all items across all open orders"),
+      // kým loadTableOrder() sem dáva LEN aktuálny účet. Na stole s dvoma
+      // účtami tak stačil tichý 30-sekundový poll (alebo hocijaký socket
+      // event) a do otvoreného účtu sa primiešali položky toho druhého —
+      // getOrder() ich vzal do getOrderTotal() a hosť zaplatil aj cudzí účet.
+      // Server to neodchytí: server/lib/payments/create.js kontroluje len
+      // PODtečenie sumy, nie nadhodnotenie.
+      //
+      // Vybraný stôl je odteraz vo výhradnej správe loadTableOrder() /
+      // selectTableAndLoadOrder(). Súčet za celý stôl pre chip na mape sa
+      // počíta až pri renderi z allOrdersCache (_tableNetTotal v pos-render.js),
+      // takže mapa stále ukazuje celý stôl.
+      if (typeof selectedTableId !== 'undefined' && t.id === selectedTableId) return;
+
       var tOrders = newCache[t.id] || [];
       var prev = tableOrders[t.id] || [];
       if (tOrders.length) {
@@ -292,7 +309,7 @@ async function loadAllOrders() {
         tOrders.forEach(function(o) {
           if (o.items) {
             o.items.forEach(function(i) {
-              allItems.push({ id: i.id, name: i.name, emoji: i.emoji, price: parseFloat(i.price), qty: i.qty, note: i.note || '', menuItemId: i.menuItemId, orderId: o.id, desc: i.desc || '', sent: !!i.sent, _sentQty: i.sent ? i.qty : 0 });
+              allItems.push({ id: i.id, name: i.name, emoji: i.emoji, price: parseFloat(i.price), qty: i.qty, note: i.note || '', menuItemId: i.menuItemId, orderId: o.id, desc: i.desc || '', sent: !!i.sent, _sentQty: i.sent ? i.qty : 0, discountType: i.discountType || null, discountValue: i.discountValue != null ? parseFloat(i.discountValue) : null, discountName: i.discountName || null });
             });
           }
         });
@@ -364,6 +381,9 @@ function _mapServerOrderItem(i, orderId) {
     qty: i.qty, note: i.note, menuItemId: i.menuItemId,
     orderId: orderId, desc: i.desc || '', sent: !!i.sent,
     _sentQty: i.sent ? i.qty : 0,
+    discountType: i.discountType || null,
+    discountValue: i.discountValue != null ? parseFloat(i.discountValue) : null,
+    discountName: i.discountName || null,
   };
 }
 

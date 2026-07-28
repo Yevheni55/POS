@@ -55,6 +55,30 @@ export function predictOne(w, x) {
   return s;
 }
 
+/**
+ * Vážený ridge (WLS): rieši (XᵀWX + λI)·β = XᵀWy, W = diag(weights).
+ * Použité na recency-vážený denný forecast (novšie dni vážia viac). Intercept
+ * (stĺpec 0) sa NEregularizuje. weights musí mať dĺžku n; default = jednotky.
+ */
+export function fitRidgeWeighted(X, y, lambda, weights) {
+  const n = X.length;
+  if (!n) return null;
+  const d = X[0].length;
+  const w = weights || new Array(n).fill(1);
+  const A = Array.from({ length: d }, () => new Array(d).fill(0));
+  const b = new Array(d).fill(0);
+  for (let i = 0; i < n; i++) {
+    const xi = X[i], yi = y[i], wi = w[i];
+    for (let j = 0; j < d; j++) {
+      b[j] += wi * xi[j] * yi;
+      const aj = A[j];
+      for (let k = 0; k < d; k++) aj[k] += wi * xi[j] * xi[k];
+    }
+  }
+  for (let j = 1; j < d; j++) A[j][j] += lambda; // skip intercept
+  return solveLinear(A, b);
+}
+
 // Štandardizér: z-score per stĺpec (okrem intercept + binárnych one-hotov,
 // ktoré necháme tak — ridge na 0/1 funguje fajn). Vracia {mean,std,apply}.
 export function buildStandardizer(rows, skipMask) {

@@ -232,7 +232,15 @@ describe('deductStockForSentItems', () => {
       assert.equal(lowAlerts[0].currentQty, 1);
     });
 
-    it('sets active=false and emits a depleted alert when stock reaches 0', async () => {
+    // NOTE: pôvodne tieto dva testy očakávali, že položka sa pri nule sama
+    // deaktivuje (active=false). Commit 0723ca3 "fix(stock): stop
+    // auto-deactivating menu items at zero stock" to zámerne odstránil —
+    // simple-track stock_qty sa v bare reálne neudržiava, takže Cola/Fanta/
+    // Voda ticho mizli z Nealko tabu na kase. Kontrakt dnes: emituj
+    // 'menuItem-depleted' alert, ale položku NEchaj aktívnu — skryje ju
+    // manažér ručne v /admin/#menu. Testy to teraz strážia v tomto smere.
+
+    it('emits a depleted alert but keeps the item active when stock reaches 0', async () => {
       const result = await testDb.transaction(async (tx) =>
         deductStockForSentItems(
           tx,
@@ -247,11 +255,11 @@ describe('deductStockForSentItems', () => {
       assert.equal(depletedAlerts[0].id, simpleItem.id);
 
       const updated = await fetchMenuItem(simpleItem.id);
-      assert.equal(updated.active, false, 'item must be deactivated when qty reaches 0');
+      assert.equal(updated.active, true, 'item must stay sellable when qty reaches 0 (0723ca3)');
       assert.equal(parseFloat(updated.stockQty), 0);
     });
 
-    it('sets active=false and emits depleted alert when stock goes negative', async () => {
+    it('emits a depleted alert but keeps the item active when stock goes negative', async () => {
       // deduct 12 from stock of 10 → -2
       const result = await testDb.transaction(async (tx) =>
         deductStockForSentItems(
@@ -266,7 +274,7 @@ describe('deductStockForSentItems', () => {
       assert.equal(depletedAlerts.length, 1);
 
       const updated = await fetchMenuItem(simpleItem.id);
-      assert.equal(updated.active, false);
+      assert.equal(updated.active, true, 'negative stock must not hide the item (0723ca3)');
       assert.equal(parseFloat(updated.stockQty), -2);
     });
 
@@ -672,7 +680,7 @@ describe('getLowStockAlerts', () => {
   });
 
   it('returns empty arrays when nothing is below threshold', async () => {
-    const result = await getLowStockAlerts();
+    const result = await getLowStockAlerts(testDb);
 
     assert.ok(Array.isArray(result.ingredients));
     assert.ok(Array.isArray(result.menuItems));
@@ -694,7 +702,7 @@ describe('getLowStockAlerts', () => {
       })
       .returning();
 
-    const result = await getLowStockAlerts();
+    const result = await getLowStockAlerts(testDb);
 
     const found = result.menuItems.find(m => m.id === low.id);
     assert.ok(found, 'low stock menu item must appear in alerts');
@@ -716,7 +724,7 @@ describe('getLowStockAlerts', () => {
       })
       .returning();
 
-    const result = await getLowStockAlerts();
+    const result = await getLowStockAlerts(testDb);
 
     const found = result.menuItems.find(m => m.id === atMin.id);
     assert.ok(found, 'item at exactly minStockQty must appear in alerts');
@@ -736,7 +744,7 @@ describe('getLowStockAlerts', () => {
       })
       .returning();
 
-    const result = await getLowStockAlerts();
+    const result = await getLowStockAlerts(testDb);
 
     const found = result.menuItems.find(m => m.name === 'Untracked Zero');
     assert.equal(found, undefined, 'untracked items must not appear in menuItems alerts');
@@ -754,7 +762,7 @@ describe('getLowStockAlerts', () => {
       })
       .returning();
 
-    const result = await getLowStockAlerts();
+    const result = await getLowStockAlerts(testDb);
 
     const found = result.ingredients.find(i => i.id === lowIng.id);
     assert.ok(found, 'low ingredient must appear in alerts');
@@ -775,7 +783,7 @@ describe('getLowStockAlerts', () => {
       })
       .returning();
 
-    const result = await getLowStockAlerts();
+    const result = await getLowStockAlerts(testDb);
 
     const found = result.ingredients.find(i => i.id === atMinIng.id);
     assert.ok(found, 'ingredient at exactly minQty must appear in alerts');
@@ -794,7 +802,7 @@ describe('getLowStockAlerts', () => {
       })
       .returning();
 
-    const result = await getLowStockAlerts();
+    const result = await getLowStockAlerts(testDb);
 
     const found = result.ingredients.find(i => i.name === 'Inactive Low');
     assert.equal(found, undefined, 'inactive ingredients must not appear in alerts');
@@ -812,7 +820,7 @@ describe('getLowStockAlerts', () => {
       })
       .returning();
 
-    const result = await getLowStockAlerts();
+    const result = await getLowStockAlerts(testDb);
 
     const found = result.ingredients.find(i => i.id === numIng.id);
     assert.ok(found, 'numeric ingredient must appear in result');
@@ -834,7 +842,7 @@ describe('getLowStockAlerts', () => {
       })
       .returning();
 
-    const result = await getLowStockAlerts();
+    const result = await getLowStockAlerts(testDb);
 
     const found = result.menuItems.find(m => m.id === numMi.id);
     assert.ok(found, 'numeric menu item must appear in result');
@@ -843,7 +851,7 @@ describe('getLowStockAlerts', () => {
   });
 
   it('includes id and name fields on all returned records', async () => {
-    const result = await getLowStockAlerts();
+    const result = await getLowStockAlerts(testDb);
 
     for (const ing of result.ingredients) {
       assert.equal(typeof ing.id, 'number');

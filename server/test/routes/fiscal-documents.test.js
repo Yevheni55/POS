@@ -1,4 +1,6 @@
-if (!process.env.DATABASE_URL?.endsWith('/pos_test')) {
+// Prod safety: DATABASE_URL musí ukazovať na pos_test (alebo pos_test_<sandbox>
+// pri paralelných behoch), nikdy nie na ostrú `pos` DB.
+if (!/\/pos_test(_[A-Za-z0-9]+)?$/.test(process.env.DATABASE_URL ?? '')) {
   throw new Error(
     'Tests must run with DATABASE_URL pointing to pos_test.\n' +
     'Use: npm test\n' +
@@ -220,5 +222,84 @@ describe('fiscal documents routes', () => {
     const docs = await testDb.select().from(schema.fiscalDocuments)
       .where(eq(schema.fiscalDocuments.paymentId, payment.id));
     assert.equal(docs.length, 2);
+  });
+
+  // Regresia: pri reconciled_* ostáva v outcome.httpStatus PÔVODNÝ chybový kód
+  // prvého pokusu (500 pri -502 „print failed"), hoci doklad sa cez externalId
+  // dohľadal a storno PREŠLO. `httpStatus || 200` teda vracalo 500 s telom
+  // `ok: true` — manažér videl „storno zlyhalo", zopakoval ho a narazil na
+  // dedup 409. Status musí byť 2xx, keď je telo úspešné.
+  it('returns 2xx (not the original 500) for a storno reconciled after a -502 print error', async () => {
+    const { doc, payment, order } = await createPaidOrder(fixtures, {
+      receiptId: 'RID-STORNO-502',
+      externalId: 'order-600-payment',
+    });
+
+    let call = 0;
+    global.fetch = async () => {
+      call += 1;
+      // 1. POST /receipts/cash_register → Portos doklad zaevidoval, ale tlač
+      //    zlyhala (-502) a vrátil 500.
+      if (call === 1) {
+        return mockJsonResponse(500, { code: -502, detail: 'Print failed' });
+      }
+      // 2. GET /receipts/receipt → doklad sa NAŠIEL podľa externalId.
+      return mockJsonResponse(200, {
+        request: {
+          data: {
+            receiptType: 'CashRegister',
+            receiptNumber: 601,
+            okp: 'OKP-STORNO-502',
+            cashRegisterCode: '88812345678900001',
+          },
+          id: '11111111-1111-1111-1111-111111111333',
+          externalId: `order-${order.id}-payment-storno`,
+          date: '2026-04-12T10:30:00+02:00',
+        },
+        response: {
+          data: { id: 'RID-STORNO-502-NEW' },
+          processDate: '2026-04-12T10:30:01+02:00',
+        },
+        isSuccessful: true,
+        error: null,
+      });
+    };
+
+    const res = await request
+      .post(`/api/fiscal-documents/${doc.id}/storno`)
+      .set('Authorization', `Bearer ${tokens.manazer()}`)
+      .send({});
+
+    assert.ok(res.status >= 200 && res.status < 300, `expected 2xx, got ${res.status}`);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.fiscal.status, 'reconciled_online_success');
+
+    const docs = await testDb.select().from(schema.fiscalDocuments)
+      .where(eq(schema.fiscalDocuments.paymentId, payment.id));
+    assert.equal(docs.length, 2);
+  });
+
+  // Zrkadlový prípad: keď storno NEPREJDE, odpoveď s `error` telom nesmie
+  // niesť 2xx status — klient by ju vyhodnotil ako úspech.
+  it('never answers a failed storno with a 2xx status', async () => {
+    const { doc } = await createPaidOrder(fixtures, {
+      receiptId: 'RID-STORNO-FAIL',
+      externalId: 'order-601-payment',
+    });
+
+    // Portos odmietne (400) a následný lookup nič nenájde → ambiguous.
+    global.fetch = async (url, options) => {
+      if (options?.method === 'POST') return mockJsonResponse(400, { detail: 'Validation failed' });
+      return mockJsonResponse(404, {});
+    };
+
+    const res = await request
+      .post(`/api/fiscal-documents/${doc.id}/storno`)
+      .set('Authorization', `Bearer ${tokens.manazer()}`)
+      .send({});
+
+    assert.ok(res.status >= 400, `failed storno must not be 2xx, got ${res.status}`);
+    assert.ok(res.body.error);
+    assert.notEqual(res.body.ok, true);
   });
 });

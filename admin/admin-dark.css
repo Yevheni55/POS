@@ -46,11 +46,25 @@
 
   --color-focus: #e0764a;
   --accent-amber: #e0a83c;
+  /* V tmavej téme je brandová jantárová na #1c1710 už 8,34:1, takže
+     text-safe varianta nemusí byť iná — inak by sa do tmy dostala tmavá
+     #8a5d14 zo svetlého :root a text by zmizol. */
+  --accent-amber-text: var(--accent-amber);
 
   /* Warning (amber) — admin semantic, brightened pre dark */
   --color-warning:        #e0a83c;
   --color-warning-bg:     rgba(224, 168, 60, .14);
   --color-warning-border: rgba(224, 168, 60, .30);
+
+  /* Text-on-tint -strong varianty: v dark je base už svetlý a čitateľný na
+     tmavom tinte, takže -strong = base (netreba tmaviť ako v light). */
+  --color-warning-strong: #e0a83c;
+  --color-success-strong: #6fb35a;
+
+  /* Navy secondary (Záloha pill, badge-info) — base #1f3a5c je na dark
+     neviditeľný; zosvetlíme na nebovú (zhodné s css/pos-dark.css). */
+  --color-accent-secondary:      #7da7d9;
+  --color-accent-secondary-soft: rgba(125, 167, 217, .12);
 
   /* Shadows — tmavé drop stacks */
   --shadow-sm:    0 1px 2px rgba(0, 0, 0, .40),
@@ -163,6 +177,8 @@
 :root[data-theme="dark"] .doch-input,
 :root[data-theme="dark"] .doch-detail-summary,
 :root[data-theme="dark"] .doch-manual-form,
+:root[data-theme="dark"] .doch-time-edit,
+:root[data-theme="dark"] .doch-nudge-btn,
 :root[data-theme="dark"] .cmdk-input-kbd kbd,
 :root[data-theme="dark"] .cmdk-footer kbd,
 :root[data-theme="dark"] .cmdk-row-icon,

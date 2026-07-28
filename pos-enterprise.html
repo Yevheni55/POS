@@ -10,12 +10,12 @@
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icons/icon-192.svg">
 <title>POS System — Enterprise</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="preload" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300..800&display=swap" as="style">
-<link rel="preload" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap" as="style">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300..800&display=swap">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap">
+<!-- Fonty su self-hosted v /fonts/fonts.css (Outfit + JetBrains Mono).
+     Predtym tu boli styri render-blokujuce requesty na fonts.googleapis.com:
+     kasa je v podniku, ktory nema garantovany internet, a offline sa cakalo
+     na timeout tretej strany pri kazdom boote. Navyse to nesla precachovat
+     do sw.js. -->
+<link rel="preload" href="/fonts/outfit-latin.woff2" as="font" type="font/woff2" crossorigin>
 <script>/* Anti-FOUC: nastav tému na <html> PRED načítaním CSS, nech tmavý režim nebliká */try{document.documentElement.setAttribute('data-theme',localStorage.getItem('pos_theme')==='dark'?'dark':'light');}catch(e){}</script>
 <link rel="stylesheet" href="/tokens.css">
 <link rel="stylesheet" href="/a11y.css">
@@ -433,9 +433,10 @@
 </div>
 
 <script src="api.js"></script>
-<script src="/socket.io/socket.io.js"></script>
+<!-- .min varianta: 47 kB namiesto 156 kB, rovnaka funkcionalita. -->
+<script src="/socket.io/socket.io.min.js"></script>
 <script src="/js/pos-state.js"></script>
-<script src="/js/pos-product-icons.js"></script>
+<script src="/js/pos-product-icons.js?v=20260727emoji"></script>
 <script src="/js/pos-render.js?v=20260629name"></script>
 <script src="/js/pos-orders.js?v=20260703cislo2"></script>
 <script src="/js/pos-payments.js?v=20260701qrtoggle"></script>
@@ -551,7 +552,7 @@
     <div class="u-modal-title u-modal-title--center" id="helpTitle">Klavesove skratky</div>
     <div class="u-modal-body u-modal-body--flush">
       <table class="help-keys-table">
-        <tr><td><kbd>/</kbd></td><td>Hladat produkt</td></tr>
+        <tr><td><kbd>/</kbd></td><td>Hladat produkt (v objednavke) / skocit na stol (na mape)</td></tr>
         <tr><td><kbd>1-9</kbd></td><td>Vybrat kategoriu</td></tr>
         <tr><td><kbd>F2</kbd></td><td>Prepnut stoly / produkty</td></tr>
         <tr><td><kbd>&#8592;&#8593;&#8594;&#8595;</kbd></td><td>Navigacia v produktovej mriezke</td></tr>
@@ -564,6 +565,6 @@
     </div>
   </div>
 </div>
-<script>if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js')}</script>
+<script src="/js/pos-sw-update.js"></script>
 </body>
 </html>

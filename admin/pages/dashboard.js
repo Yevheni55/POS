@@ -155,7 +155,7 @@ export function init(container) {
   // Print Z-report button
   var btnZ = container.querySelector('#btnQuickPrintZ');
   if (btnZ) {
-    btnZ.addEventListener('click', async function() {
+    var doPrintZ = async function() {
       btnLoading(btnZ);
       try {
         var today = ymdLocal(new Date());
@@ -166,6 +166,23 @@ export function init(container) {
         showToast('Chyba tlače: ' + err.message, 'error');
       } finally {
         btnReset(btnZ);
+      }
+    };
+
+    btnZ.addEventListener('click', function() {
+      // Uzávierka NIE je len tlač papiera: backend zároveň volá Portos
+      // /receipts/withdraw, čiže vystaví REÁLNY fiškálny paragón výberu
+      // hotovosti a zapíše cashflow. Nedá sa vziať späť, preto potvrdenie
+      // (rovnako ako v admin/pages/reports.js).
+      if (typeof showConfirm === 'function') {
+        showConfirm(
+          'Vytlačiť dnešnú uzávierku?',
+          'Vystaví sa REÁLNY fiškálny paragón výberu hotovosti v Portose a zapíše sa cashflow. Túto operáciu NEJDE vrátiť späť. Pokračovať?',
+          doPrintZ,
+          { type: 'danger', confirmText: 'Áno, vytlačiť uzávierku' }
+        );
+      } else {
+        doPrintZ();
       }
     });
   }

@@ -130,24 +130,6 @@ async function initPOS() {
     }
     await loadMenu(md);
     await loadTables(td);
-    try {
-      if (api.getCompanyProfile && api.getToken()) {
-        var PROFILE_MS = 12000;
-        var serverProfile = await Promise.race([
-          api.getCompanyProfile({ refresh: true }),
-          new Promise(function(_, reject) {
-            setTimeout(function() {
-              reject(new Error('company-profile timeout'));
-            }, PROFILE_MS);
-          }),
-        ]);
-        if (serverProfile && typeof api.mergeCompanyProfileIntoPosSettingsCache === 'function') {
-          api.mergeCompanyProfileIntoPosSettingsCache(serverProfile);
-        }
-      }
-    } catch (profileErr) {
-      console.warn('Company profile from server:', profileErr);
-    }
     await loadAllOrders(); // Preload all open orders for instant table switching
     if (typeof loadStornoBasket === 'function') loadStornoBasket();
     updateTableStatuses(); // Derive table statuses from orders cache
@@ -193,6 +175,28 @@ async function initPOS() {
     }
     renderProducts();
     applyPosSettings();
+
+    // Company profile (nazov prevadzky v hlavicke) — FIRE-AND-FORGET, az PO
+    // prvom renderi. Predtym to stalo PRED nim ako
+    // `await Promise.race([api.getCompanyProfile({refresh:true}), 12s])`,
+    // pricom server v tomto volani robi Portos sync s vlastnym 8 s stropom.
+    // Kasa teda mohla pri kazdom boote stat az 12 sekund na bielej obrazovke
+    // — kvoli textu v hlavicke. Ked odpoved dorazi, len znova aplikujeme
+    // nastavenia.
+    if (api.getCompanyProfile && api.getToken()) {
+      api.getCompanyProfile({ refresh: true }).then(function (serverProfile) {
+        if (serverProfile && typeof api.mergeCompanyProfileIntoPosSettingsCache === 'function') {
+          api.mergeCompanyProfileIntoPosSettingsCache(serverProfile);
+          applyPosSettings();
+        }
+      }).catch(function (profileErr) {
+        console.warn('Company profile from server:', profileErr);
+      });
+    }
+
+    // Obnov rozrobene QR platby z localStorage (registry bol predtym len
+    // v pamati tabu — reload medzi vytlacenim QR a uhradou platbu stratil).
+    if (typeof restoreQrPayments === 'function') restoreQrPayments();
 
     // Po inicializacii TABLES + ZONES + selectTable → ak persisted bol v
     // 'products' view (otvorena objednavka), prepneme na nu. Bez tohto by
@@ -257,100 +261,148 @@ async function initPOS() {
 
 // WebSocket connection for real-time sync
 var socket = null;
+var _wsWasDisconnected = false;   // aby sa resync spustil len po reálnom výpadku
+var _wsAuthWarned = false;        // hláška o vypršanom tokene len raz
+
+// ── Zlučovanie socket refreshov ─────────────────────────────────────────────
+// Sedem z desiatich handlerov robí plný `loadAllOrders()` + prekreslenie.
+// Server pritom emituje broadcast aj pisateľovi, takže jeden `syncOrderToServer`
+// s N zápismi vyvolá N udalostí → N kompletných refetchov. A deje sa to presne
+// vtedy, keď to najmenej treba: pri potvrdzovaní platby, keď obsluha čaká.
+//
+// Zlúčime ich do jedného behu v okne 150 ms. Príznaky sa cez okno kumulujú
+// (OR), takže sa nič nestratí — len sa to spraví raz.
+var _refreshTimer = null;
+var _refreshFlags = { tables: false, order: false, forceOrder: false };
+var _refreshRunning = false;
+
+function scheduleOrdersRefresh(flags) {
+  if (flags.tables) _refreshFlags.tables = true;
+  if (flags.order) _refreshFlags.order = true;
+  if (flags.forceOrder) _refreshFlags.forceOrder = true;
+  if (_refreshTimer) return;
+  _refreshTimer = setTimeout(function () {
+    _refreshTimer = null;
+    runOrdersRefresh();
+  }, 150);
+}
+
+async function runOrdersRefresh() {
+  // Prekrývajúce sa behy by si navzájom prepisovali stav — necháme dobehnúť
+  // ten prvý a naplánujeme ďalší až po ňom.
+  if (_refreshRunning) { scheduleOrdersRefresh({}); return; }
+  var flags = _refreshFlags;
+  _refreshFlags = { tables: false, order: false, forceOrder: false };
+  _refreshRunning = true;
+  try {
+    await loadAllOrders();
+    if (flags.tables) {
+      updateTableStatuses();
+      if (currentView === 'tables') renderFloor();
+      if (isMobile()) renderMobTables();
+    }
+    if ((flags.order || flags.forceOrder) && selectedTableId) {
+      await loadTableOrder(selectedTableId, !!flags.forceOrder);
+      renderOrder();
+      if (isMobile()) renderMobOrder();
+    }
+  } catch (e) {
+    console.warn('orders refresh failed:', e);
+  } finally {
+    _refreshRunning = false;
+  }
+}
 function connectWS() {
   var token = api.getToken();
   if (!token || typeof io === 'undefined') return;
 
-  socket = io({ auth: { token: token } });
+  // Explicitné reconnect nastavenia ako v KDS (js/kitchen.js:459) — bez nich
+  // sa POS spoliehal na defaulty a nemal ako zistiť, že realtime umrel.
+  socket = io({
+    auth: { token: token },
+    reconnection: true,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
+  });
 
   socket.on('connect', function() {
     console.log('WS connected');
-  });
-
-  socket.on('order:created', async function(data) {
-    await loadAllOrders();
-    updateTableStatuses();
-    if (data.tableId === selectedTableId) {
-      await loadTableOrder(selectedTableId);
-      renderOrder();
-      if (isMobile()) renderMobOrder();
-    }
-    renderFloor();
-    if (isMobile()) renderMobTables();
-  });
-
-  socket.on('order:updated', async function(data) {
-    await loadAllOrders();
-    if (data.orderId === currentOrderId) {
-      await loadTableOrder(selectedTableId, true);
-      renderOrder();
-      if (isMobile()) renderMobOrder();
+    // RESYNC po reconnecte. Kým bol socket dole, prišli udalosti, ktoré nikto
+    // nezachytil — bez tohto POS jazdil ďalej na starých dátach až do
+    // najbližšieho 30 s pollu (alebo navždy, ak sa poll medzitým zasekol).
+    if (_wsWasDisconnected) {
+      _wsWasDisconnected = false;
+      Promise.resolve()
+        .then(function () { return loadAllOrders(); })
+        .then(function () {
+          updateTableStatuses();
+          if (currentView === 'tables') renderFloor();
+          if (isMobile()) renderMobTables();
+          if (selectedTableId) return loadTableOrder(selectedTableId, true);
+        })
+        .then(function () {
+          renderOrder();
+          if (isMobile()) renderMobOrder();
+        })
+        .catch(function (e) { console.warn('WS resync failed:', e); });
     }
   });
 
-  socket.on('order:closed', async function(data) {
-    await loadAllOrders();
-    updateTableStatuses();
-    if (data.tableId === selectedTableId) {
-      await loadTableOrder(selectedTableId);
-      renderOrder();
-      if (isMobile()) renderMobOrder();
-    }
-    renderFloor();
-    if (isMobile()) renderMobTables();
+  socket.on('disconnect', function (reason) {
+    _wsWasDisconnected = true;
+    console.warn('WS disconnected:', reason);
   });
 
-  socket.on('order:cancelled', async function(data) {
-    await loadAllOrders();
-    updateTableStatuses();
-    if (data.tableId === selectedTableId) {
-      await loadTableOrder(selectedTableId);
-      renderOrder();
-      if (isMobile()) renderMobOrder();
-    }
-    renderFloor();
-    if (isMobile()) renderMobTables();
-  });
-
-  socket.on('order:sent', async function(data) {
-    if (data.orderId === currentOrderId) {
-      await loadTableOrder(selectedTableId, true);
-      renderOrder();
-      if (isMobile()) renderMobOrder();
+  // connect_error dostaneme napr. keď 12-hodinový JWT vyprší cez noc: socket
+  // sa ticho prestane pripájať a kasa jazdí len na 30 s polle, bez akéhokoľvek
+  // signálu pre obsluhu. Predtým sa tento event vôbec nepočúval.
+  socket.on('connect_error', function (err) {
+    _wsWasDisconnected = true;
+    var msg = (err && err.message) ? err.message : 'neznáma chyba';
+    console.warn('WS connect_error:', msg);
+    if (/auth|token|jwt|unauthor/i.test(msg)) {
+      if (!_wsAuthWarned) {
+        _wsAuthWarned = true;
+        if (typeof showToast === 'function') {
+          showToast('Realtime spojenie vypadlo (prihlásenie vypršalo). Prihlás sa znova.', 'warning');
+        }
+      }
     }
   });
 
-  socket.on('order:split', async function(data) {
-    await loadAllOrders();
-    if (data.tableId === selectedTableId) {
-      await loadTableOrder(selectedTableId);
-      renderOrder();
-      if (isMobile()) renderMobOrder();
-    }
+  socket.on('order:created', function(data) {
+    scheduleOrdersRefresh({ tables: true, order: data.tableId === selectedTableId });
   });
 
-  socket.on('items:moved', async function(data) {
-    await loadAllOrders();
-    updateTableStatuses();
-    if (data.sourceTableId === selectedTableId || data.targetTableId === selectedTableId) {
-      await loadTableOrder(selectedTableId);
-      renderOrder();
-      if (isMobile()) renderMobOrder();
-    }
-    renderFloor();
-    if (isMobile()) renderMobTables();
+  socket.on('order:updated', function(data) {
+    scheduleOrdersRefresh({ forceOrder: data.orderId === currentOrderId });
   });
 
-  socket.on('payment:created', async function(data) {
-    await loadAllOrders();
-    updateTableStatuses();
-    if (data.tableId === selectedTableId) {
-      await loadTableOrder(selectedTableId);
-      renderOrder();
-      if (isMobile()) renderMobOrder();
-    }
-    renderFloor();
-    if (isMobile()) renderMobTables();
+  socket.on('order:closed', function(data) {
+    scheduleOrdersRefresh({ tables: true, order: data.tableId === selectedTableId });
+  });
+
+  socket.on('order:cancelled', function(data) {
+    scheduleOrdersRefresh({ tables: true, order: data.tableId === selectedTableId });
+  });
+
+  socket.on('order:sent', function(data) {
+    if (data.orderId === currentOrderId) scheduleOrdersRefresh({ forceOrder: true });
+  });
+
+  socket.on('order:split', function(data) {
+    scheduleOrdersRefresh({ tables: true, order: data.tableId === selectedTableId });
+  });
+
+  socket.on('items:moved', function(data) {
+    scheduleOrdersRefresh({
+      tables: true,
+      order: data.sourceTableId === selectedTableId || data.targetTableId === selectedTableId,
+    });
+  });
+
+  socket.on('payment:created', function(data) {
+    scheduleOrdersRefresh({ tables: true, order: data.tableId === selectedTableId });
   });
 
   socket.on('table:updated', async function(data) {
@@ -366,10 +418,8 @@ function connectWS() {
   socket.on('storno-basket:updated', function() {
     if (typeof loadStornoBasket === 'function') loadStornoBasket();
   });
-
-  socket.on('disconnect', function() {
-    console.log('WS disconnected');
-  });
+  // POZN: 'disconnect' je registrovaný vyššie (spolu s connect_error a
+  // resyncom po reconnecte) — druhá kópia, ktorá tu bola, len logovala.
 }
 
 async function runPosBootstrap() {
@@ -561,7 +611,14 @@ init();
 
 setupLongPress();
 // Hide edit button for cisnik
-if(getUserRole()==='cisnik'){var eb=document.getElementById('editToggle');if(eb)eb.classList.add('pos-hidden');}
+if(getUserRole()==='cisnik'){
+  var eb=document.getElementById('editToggle');if(eb)eb.classList.add('pos-hidden');
+  // Zľava je manažér/admin-only (showDiscountModal to kontroluje aj serverom).
+  // Čašníkovi sa tlačidlo doteraz zobrazovalo a po klepnutí vždy dostal len
+  // odmietavý toast — miesto v paneli účtu je pritom vzácne.
+  document.querySelectorAll('.btn-discount, .mob-btn-secondary[onclick*="showDiscountModal"]')
+    .forEach(function(el){ el.hidden = true; });
+}
 // Odpis (manazersky odpis uctu mimo fiskal) — odkry LEN pre rolu admin.
 // Server to ovri tiez (requireRole('admin') na /close-as-odpis).
 if(getUserRole()==='admin'){
@@ -661,7 +718,10 @@ document.getElementById('managerPinModal').addEventListener('click',function(e){
     });
   }
   document.addEventListener('keydown', function (e) {
-    if (e.key === '/' && !isTypingInElement(e.target)) {
+    // Len na mape stolov — v pohľade objednávky patrí '/' hľadaniu produktu
+    // (pos-ui.js). Viď komentár tam.
+    if (e.key === '/' && !isTypingInElement(e.target)
+        && typeof currentView !== 'undefined' && currentView === 'tables') {
       e.preventDefault();
       open();
       return;

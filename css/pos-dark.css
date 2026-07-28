@@ -65,6 +65,10 @@
 
   /* Amber (warning) — brightened for dark */
   --accent-amber: #e0a83c;
+  /* V tmavej téme je brandová jantárová na #1c1710 už 8,34:1, takže
+     text-safe varianta nemusí byť iná — inak by sa do tmy dostala tmavá
+     #8a5d14 zo svetlého :root a text by zmizol. */
+  --accent-amber-text: var(--accent-amber);
 
   /* Shadows — tmavé drop stacks (Daylight používa svetlé) */
   --shadow-sm:    0 1px 2px rgba(0, 0, 0, .40),

@@ -73,20 +73,55 @@ async function recordAttempt({ staffId, ip, success }) {
   }
 }
 
+/**
+ * Nájde zamestnanca podľa PINu.
+ *
+ * Dve zmeny oproti pôvodnému `allStaff.find(s => bcrypt.compareSync(...))`:
+ *
+ * 1. ASYNC compare. bcryptjs je čistý JavaScript (žiadny natívny modul), takže
+ *    compareSync blokuje event loop. Pri cost 10 a desiatich aktívnych
+ *    zamestnancoch to je rádovo sekunda, počas ktorej server NEOBSLÚŽI nič —
+ *    ani objednávku, ani platbu. Async varianta krája prácu cez setImmediate.
+ *
+ * 2. Bez skratky pri prvej zhode. `find` skončil hneď, ako PIN sedel, takže
+ *    trvanie odpovede prezrádzalo poradie zamestnanca v tabuľke. Prejdeme
+ *    vždy všetky riadky.
+ */
+async function findStaffByPin(pin, allStaff) {
+  let match = null;
+  for (const s of allStaff) {
+    // eslint-disable-next-line no-await-in-loop
+    const ok = await bcrypt.compare(pin, s.pin);
+    if (ok && !match) match = s;
+  }
+  return match;
+}
+
 // POST /api/auth/login — PIN-based login
 router.post('/login', validate(loginSchema), async (req, res) => {
   const { pin } = req.body;
   const ip = req.ip || req.connection?.remoteAddress || '';
 
-  const allStaff = await db.select().from(staff).where(eq(staff.active, true));
-  const found = allStaff.find(s => bcrypt.compareSync(pin, s.pin));
-
-  // Check lockout for this identity (matched staff row, else IP-based fallback
-  // for the bucket of attempts that never matched any staff row).
-  const lockKey = found ? { staffId: found.id, ip } : { staffId: null, ip };
-  const fails = await countRecentFailures(lockKey);
-  if (fails >= PIN_MAX_ATTEMPTS) {
+  // LOCKOUT SA KONTROLUJE PRED bcryptom.
+  // Predtým sa najprv prehnal PIN cez bcrypt voči VŠETKÝM aktívnym
+  // zamestnancom a až potom sa pozrelo, či nie je účet zablokovaný. Útočník
+  // na tailnete tak vedel zmraziť kasu tým, že bez prestávky posielal nesprávne
+  // PINy: každý request minul ~sekundu CPU v event loope, aj keď bol dávno
+  // za limitom pokusov. Anonymná IP vetva sa dá overiť ešte pred hashovaním.
+  const ipFails = await countRecentFailures({ staffId: null, ip });
+  if (ipFails >= PIN_MAX_ATTEMPTS) {
     return res.status(429).json({ error: 'Prilis vela pokusov. Skuste neskor.' });
+  }
+
+  const allStaff = await db.select().from(staff).where(eq(staff.active, true));
+  const found = await findStaffByPin(pin, allStaff);
+
+  // Druhá kontrola — teraz už vieme, o koho ide, takže platí per-účet limit.
+  if (found) {
+    const fails = await countRecentFailures({ staffId: found.id, ip });
+    if (fails >= PIN_MAX_ATTEMPTS) {
+      return res.status(429).json({ error: 'Prilis vela pokusov. Skuste neskor.' });
+    }
   }
 
   if (!found) {
@@ -133,15 +168,24 @@ router.post('/verify-manager', validate(loginSchema), async (req, res) => {
   const { pin } = req.body;
   const ip = req.ip || req.connection?.remoteAddress || '';
 
-  const allManagers = await db.select().from(staff)
-    .where(and(eq(staff.active, true), sql`${staff.role} IN ('manazer', 'admin')`));
-  const found = allManagers.find(s => bcrypt.compareSync(pin, s.pin));
-
-  const lockKey = found ? { staffId: found.id, ip } : { staffId: null, ip };
-  const fails = await countRecentFailures(lockKey);
-  if (fails >= PIN_MAX_ATTEMPTS) {
+  // Rovnako ako pri /login: anonymnú IP vetvu overíme PRED hashovaním, nech
+  // sa server nedá zmraziť opakovaným posielaním nesprávnych PINov.
+  const ipFailsMgr = await countRecentFailures({ staffId: null, ip });
+  if (ipFailsMgr >= PIN_MAX_ATTEMPTS) {
     res.set('Retry-After', String(Math.ceil(PIN_WINDOW_MS / 1000)));
     return res.status(429).json({ error: 'Prilis vela pokusov. Skuste neskor.' });
+  }
+
+  const allManagers = await db.select().from(staff)
+    .where(and(eq(staff.active, true), sql`${staff.role} IN ('manazer', 'admin')`));
+  const found = await findStaffByPin(pin, allManagers);
+
+  if (found) {
+    const fails = await countRecentFailures({ staffId: found.id, ip });
+    if (fails >= PIN_MAX_ATTEMPTS) {
+      res.set('Retry-After', String(Math.ceil(PIN_WINDOW_MS / 1000)));
+      return res.status(429).json({ error: 'Prilis vela pokusov. Skuste neskor.' });
+    }
   }
 
   if (!found) {

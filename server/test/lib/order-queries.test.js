@@ -4,7 +4,11 @@
 // dotenv does not override a pre-set env var, so the npm test scripts pass:
 //   DATABASE_URL=postgresql://pos:pos@localhost:5432/pos_test node --test ...
 // Verify: process.env.DATABASE_URL must end with '/pos_test' at this point.
-if (!process.env.DATABASE_URL?.endsWith('/pos_test')) {
+// Pripusta aj paralelne worker DB (pos_test_w1..w6) — inak sa tento subor
+// neda spustit vedla ostatnych bez kolizie na jednej zdielanej pos_test.
+// Nazov MUSI zacinat 'pos_test', nech sa testy nikdy netrafia do zivej 'pos'
+// (truncateAll() maze 32 tabuliek).
+if (!/\/pos_test(_[a-z0-9]+)?$/.test(process.env.DATABASE_URL ?? '')) {
   throw new Error(
     'Tests must run with DATABASE_URL pointing to pos_test. ' +
     'Use: npm test  (or npm run test:lib)\n' +

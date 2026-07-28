@@ -50,16 +50,44 @@
       .replace(/\t/g, '&#9;');
   }
 
+  /**
+   * Escape for a value that lands in TWO contexts at once — inside an inline
+   * handler attribute AND inside a JS string literal there, e.g.
+   *   onclick="removeItem('<VALUE>')"
+   *
+   * Poradie je podstatné a nedá sa poskladať z escAttr samotného: prehliadač
+   * najprv dekóduje HTML entity a AŽ POTOM parsuje JavaScript. Preto sa musí
+   * najskôr escapovať pre JS reťazec (spätná lomka, apostrof, nový riadok)
+   * a výsledok potom pre atribút.
+   *
+   * Bez toho stačil produkt s apostrofom alebo spätnou lomkou v názve
+   * („Jack Daniel's", „AC\DC špeciál") a +/−, poznámka aj mazanie riadku
+   * prestali v strede prevádzky fungovať — onclick sa rozpadol na syntax
+   * error, ktorý nikde nevidno.
+   * @param {*} value
+   * @returns {string}
+   */
+  function escJsAttr(value) {
+    return escAttr(
+      toStr(value)
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/\r/g, '\\r')
+        .replace(/\n/g, '\\n')
+    );
+  }
+
   // Expose to global scope (classic-script convention used by the POS app).
   // Override any prior escHtml (e.g. from /components/escHtml.js) with this
   // stricter, null/undefined-safe implementation — API-compatible.
   if (typeof window !== 'undefined') {
     window.escHtml = escHtml;
     window.escAttr = escAttr;
+    window.escJsAttr = escJsAttr;
   }
 
   // CommonJS export so Node-side unit tests can load this file directly.
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { escHtml: escHtml, escAttr: escAttr };
+    module.exports = { escHtml: escHtml, escAttr: escAttr, escJsAttr: escJsAttr };
   }
 })();

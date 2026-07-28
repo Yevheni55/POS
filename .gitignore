@@ -18,3 +18,27 @@ server/.env.ttlock
 /playwright-report/
 /playwright/.cache/
 .playwright-mcp/
+
+# ── Pracovné smetie ─────────────────────────────────────────────────────────
+# Deploy skript (scripts/deploy-tailscale-pos.sh) od 2026-07 ODMIETNE nasadiť
+# so špinavým pracovným stromom — presne preto, že na kase predtým bežal kód,
+# ktorý nebol v žiadnom commite. Aby tá brána nebola otravná, musí byť jasné,
+# čo je zdroj a čo je jednorazový odpad.
+
+# Ad-hoc SQL a jednorazové skripty (tmp/*.sql sa púšťa ručne cez docker exec).
+# Staršie súbory v tmp/ zostávajú trackované, nové sem už nepribúdajú.
+/tmp/*.sql
+/tmp/*.csv
+/tmp/*.mjs
+
+# Jednorazové exporty z Comgate (2,5 MB textu, nie zdrojový kód)
+/_comgate_extracted.txt
+/_comgate_text.txt
+/comgate_extract.txt
+
+# Pracovné výstupy agentov / nástrojov
+/.claude/rev.diff
+/.claude/review-diff.patch
+/.claude/*.json
+/.claude/admin-specs/
+/.claude/worktrees/

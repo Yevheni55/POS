@@ -37,6 +37,20 @@ test('pairEventsToShifts ignores a stray clock_out with no preceding clock_in', 
   assert.equal(shifts.length, 0);
 });
 
+test('pairEventsToShifts clamps an inverted pair (clock_out before clock_in) to 0 minutes', () => {
+  // Manuálna úprava môže omylom posunúť odchod pred príchod — nesmie to dať
+  // zápornú mzdu tečúcu do outstanding/balance. Clamp drží minutes >= 0.
+  const events = [
+    { id: 1, type: 'clock_in',  at: at('2026-05-01T13:00:00Z') },
+    { id: 2, type: 'clock_out', at: at('2026-05-01T12:30:00Z') }, // 30 min PRED príchodom
+  ];
+  const shifts = pairEventsToShifts(events);
+  assert.equal(shifts.length, 1);
+  assert.equal(shifts[0].closed, true);
+  assert.equal(shifts[0].minutes, 0);
+  assert.equal(computeWage(summarizeHours(shifts).minutes, '7.50'), 0);
+});
+
 test('summarizeHours sums closed shifts only', () => {
   const shifts = [
     { minutes: 240, closed: true },

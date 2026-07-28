@@ -21,7 +21,12 @@ import {
   registerCashReceiptWithRetry,
   resolveFiscalAttempt,
 } from './fiscal-resolve.js';
-import { STORNO_ELIGIBLE_MODES, parseJsonField } from './shared.js';
+import {
+  STORNO_ELIGIBLE_MODES,
+  fiscalFailureHttpStatus,
+  fiscalSuccessHttpStatus,
+  parseJsonField,
+} from './shared.js';
 
 export async function fiscalStornoHandler(req, res) {
   const paymentId = Number.parseInt(req.params.id, 10);
@@ -140,7 +145,7 @@ export async function fiscalStornoHandler(req, res) {
       staffId: req.user.id,
     }).catch((e) => console.error('[Portos] storno-failed audit log error:', e?.message || e));
 
-    return res.status(fiscalOutcome.httpStatus || 503).json({
+    return res.status(fiscalFailureHttpStatus(fiscalOutcome, 503)).json({
       error: fiscalOutcome.errorDetail || 'Storno doklad bol odmietnuty alebo zlyhal — skús znova',
       fiscal: {
         status: fiscalOutcome.resultMode,
@@ -176,7 +181,7 @@ export async function fiscalStornoHandler(req, res) {
     staffId: req.user.id,
   });
 
-  res.status(fiscalOutcome.httpStatus || 200).json({
+  res.status(fiscalSuccessHttpStatus(fiscalOutcome)).json({
     ok: true,
     fiscal: toFiscalResponse(stornoDoc),
   });

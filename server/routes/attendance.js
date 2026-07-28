@@ -10,6 +10,7 @@ import {
   pinSchema,
   clockSchema,
   manualEventSchema,
+  editEventSchema,
   summaryQuerySchema,
 } from '../schemas/attendance.js';
 import {
@@ -74,12 +75,26 @@ function startOfTodayUtc(now = new Date()) {
 async function eventsForStaffSince(staffId, since) {
   return db.select().from(attendanceEvents)
     .where(and(eq(attendanceEvents.staffId, staffId), gte(attendanceEvents.at, since)))
-    .orderBy(attendanceEvents.at);
+    .orderBy(attendanceEvents.at, attendanceEvents.id);
 }
 
+// bcrypt.compare (async) namiesto compareSync.
+// bcryptjs je čistý JavaScript, takže compareSync blokuje event loop; toto je
+// navyše VEREJNÝ endpoint dochádzkového terminálu (bez JWT), takže ktokoľvek
+// na sieti podniku vedel opakovaným posielaním PINu vyťažiť CPU tak, že kasa
+// prestala odpovedať. Async varianta prácu rozkúskuje.
+// Cyklus zámerne nekončí pri prvej zhode — trvanie odpovede tak neprezrádza
+// poradie zamestnanca v tabuľke.
 async function findStaffByAttendancePin(pin) {
   const all = await db.select().from(staff).where(eq(staff.active, true));
-  return all.find((s) => s.attendancePin && bcrypt.compareSync(pin, s.attendancePin)) || null;
+  let match = null;
+  for (const s of all) {
+    if (!s.attendancePin) continue;
+    // eslint-disable-next-line no-await-in-loop
+    const ok = await bcrypt.compare(pin, s.attendancePin);
+    if (ok && !match) match = s;
+  }
+  return match;
 }
 
 async function buildStateFor(staffMember) {
@@ -212,7 +227,7 @@ publicRouter.post('/my-shifts', validate(pinSchema), asyncRoute(async (req, res)
     eq(attendanceEvents.staffId, found.id),
     gte(attendanceEvents.at, fromDate),
     lte(attendanceEvents.at, toDate),
-  )).orderBy(attendanceEvents.at);
+  )).orderBy(attendanceEvents.at, attendanceEvents.id);
 
   // Map clock_out events → payout (ak existuje), aby zamestnanec videl
   // ✓ vyplatené pri každej smene a vedel rozlíšiť čo už dostal vs. čo
@@ -310,7 +325,7 @@ adminRouter.get('/history/:staffId', mgr, asyncRoute(async (req, res) => {
     eq(attendanceEvents.staffId, staffId),
     gte(attendanceEvents.at, fromDate),
     lte(attendanceEvents.at, toDate),
-  )).orderBy(attendanceEvents.at);
+  )).orderBy(attendanceEvents.at, attendanceEvents.id);
 
   // Enrich each clock_out event with its payout (if any) so the admin
   // table can render "✓ Vyplatené" badges per shift without a second
@@ -480,7 +495,7 @@ adminRouter.post('/payouts/lump-sum', mgr, asyncRoute(async (req, res) => {
   // Vsetky events zamestnanca aby sme spravne spárovali shifts (asc by time)
   const events = await db.select().from(attendanceEvents)
     .where(eq(attendanceEvents.staffId, staffId))
-    .orderBy(attendanceEvents.at);
+    .orderBy(attendanceEvents.at, attendanceEvents.id);
   const shifts = pairEventsToShifts(events);
   // Closed shifts (oba clock_in + clock_out) FIFO podla clock_out time
   const closed = shifts
@@ -606,7 +621,7 @@ adminRouter.get('/summary', mgr, asyncRoute(async (req, res) => {
   const allEvents = await db.select().from(attendanceEvents).where(and(
     gte(attendanceEvents.at, fromDate),
     lte(attendanceEvents.at, toDate),
-  )).orderBy(attendanceEvents.at);
+  )).orderBy(attendanceEvents.at, attendanceEvents.id);
 
   const byStaff = new Map();
   for (const e of allEvents) {
@@ -700,7 +715,7 @@ adminRouter.get('/summary', mgr, asyncRoute(async (req, res) => {
 // dlžíš, stále to je záväzok.
 adminRouter.get('/balance', mgr, asyncRoute(async (req, res) => {
   const allStaff = await db.select().from(staff); // vrátane neaktívnych
-  const allEvents = await db.select().from(attendanceEvents).orderBy(attendanceEvents.at);
+  const allEvents = await db.select().from(attendanceEvents).orderBy(attendanceEvents.at, attendanceEvents.id);
 
   const byStaff = new Map();
   for (const e of allEvents) {
@@ -814,11 +829,94 @@ adminRouter.post('/events', mgr, validate(manualEventSchema), asyncRoute(async (
   res.status(201).json({ event });
 }));
 
+// PATCH /events/:id — inline úprava času existujúceho záznamu. Updatuje
+// iba `at` (+ označí riadok ako manuálny override s reason/editedBy). Typ
+// sa nemení. Zachovaním id zostáva naviazaný payout (clock_out_event_id)
+// neporušený — preto edit, nie delete+create. Mzda/zostatok sa prepočítajú
+// automaticky pri ďalšom /summary, lebo wage sa ráta z časov eventov.
+adminRouter.patch('/events/:id', mgr, validate(editEventSchema), asyncRoute(async (req, res) => {
+  const id = Number.parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Neplatne id' });
+  const [existing] = await db.select().from(attendanceEvents).where(eq(attendanceEvents.id, id));
+  if (!existing) return res.status(404).json({ error: 'Záznam nenájdený' });
+
+  const [event] = await db.update(attendanceEvents).set({
+    at: new Date(req.body.at),
+    source: 'manual',
+    reason: req.body.reason,
+    note: req.body.note || '',
+    editedBy: req.user.id,
+  }).where(eq(attendanceEvents.id, id)).returning();
+
+  res.json({ event });
+}));
+
 adminRouter.delete('/events/:id', mgr, asyncRoute(async (req, res) => {
   const id = Number.parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'Neplatne id' });
   await db.delete(attendanceEvents).where(eq(attendanceEvents.id, id));
   res.json({ ok: true });
+}));
+
+// DELETE /api/attendance/shifts/:clockOutEventId
+//
+// Zmaze CELU ukoncenu smenu = par (clock_in + clock_out) NARAZ, a ak je
+// smena vyplatena, aj jej payout + naviazany cashflow zaznam (salary
+// expense) — vsetko v jednej transakcii, aby nezostal sirotny payout/cashflow
+// ani polovicna smena. Parovy clock_in najdeme cez ROVNAKU paircovaciu logiku
+// ako display (pairEventsToShifts), takze to co user vidi ako "smenu" sa zmaze
+// cele. Otvorenu smenu (samotny clock_in bez clock_out) tu neriesime — tu sa
+// maze cez clock_out id; stray event sa da zmazat cez DELETE /events/:id.
+// Mzda/zostatok sa prepocitaju automaticky pri dalsom /summary.
+adminRouter.delete('/shifts/:clockOutEventId', mgr, asyncRoute(async (req, res) => {
+  const clockOutEventId = Number.parseInt(req.params.clockOutEventId, 10);
+  if (!Number.isFinite(clockOutEventId)) return res.status(400).json({ error: 'Neplatne id' });
+
+  try {
+    // VSETKO (validacia + paircovanie + payout + delete) v JEDNEJ transakcii.
+    // Inak by medzi "co zmazat" a samotnym zmazanim mohol konkurencny insert
+    // (POST /events) prepairovat odchod na iny prichod (→ sirotny event) alebo
+    // konkurencny DELETE /payouts zmazat payout (→ sirotna cashflow polozka).
+    // Pairujeme presne ako display: vsetky eventy zamestnanca v poradi (at, id).
+    await db.transaction(async (tx) => {
+      const [outEvent] = await tx.select().from(attendanceEvents).where(eq(attendanceEvents.id, clockOutEventId));
+      if (!outEvent) { const e = new Error('Smena (odchod) nenájdená'); e.statusCode = 404; throw e; }
+      if (outEvent.type !== 'clock_out') {
+        const e = new Error('Zadaný záznam nie je odchod — zmazať takto sa dá iba ukončená smena.'); e.statusCode = 409; throw e;
+      }
+
+      const staffEvents = await tx.select().from(attendanceEvents)
+        .where(eq(attendanceEvents.staffId, outEvent.staffId))
+        .orderBy(attendanceEvents.at, attendanceEvents.id);
+      const shift = pairEventsToShifts(staffEvents).find(
+        (s) => s.outEvent && s.outEvent.id === clockOutEventId,
+      );
+      if (!shift || !shift.inEvent) {
+        const e = new Error('K tomuto odchodu sa nenašiel párový príchod — smenu nemožno jednoznačne zmazať.'); e.statusCode = 409; throw e;
+      }
+      const clockInEventId = shift.inEvent.id;
+
+      // Payout (ak smena vyplatena) — zmaz explicitne + jeho cashflow expense.
+      // (FK clock_out_event_id ma onDelete cascade, ten payout zmaze aj tak pri
+      //  delete clock_out eventu; explicitny delete je tu kvoli citatelnosti a
+      //  hlavne kvoli naviazanej cashflow polozke, ktoru FK NEzmaze.)
+      const [payout] = await tx.select().from(attendancePayouts)
+        .where(eq(attendancePayouts.clockOutEventId, clockOutEventId));
+      if (payout) {
+        await tx.delete(attendancePayouts).where(eq(attendancePayouts.id, payout.id));
+        if (payout.cashflowEntryId) {
+          await tx.delete(cashflowEntries).where(eq(cashflowEntries.id, payout.cashflowEntryId));
+        }
+      }
+      await tx.delete(attendanceEvents).where(eq(attendanceEvents.id, clockOutEventId));
+      await tx.delete(attendanceEvents).where(eq(attendanceEvents.id, clockInEventId));
+    });
+  } catch (e) {
+    if (e.statusCode) return res.status(e.statusCode).json({ error: e.message });
+    throw e;
+  }
+
+  res.status(204).end();
 }));
 
 export default publicRouter;

@@ -50,11 +50,22 @@ function showConfirm(title, text, onConfirm, opts) {
   // opts.onCancel bezi LEN pri kliku na cancel tlacidlo (explicitna volba,
   // napr. 'Odhlasit bez uzavierky'). Escape a klik na pozadie modal iba
   // zatvoria — preto keyboard handler vola overlay._dismiss, nie .click().
-  overlay._dismiss = close;
+  //
+  // opts.onDismiss bezi pri KAZDOM zatvoreni bez potvrdenia — teda aj pri
+  // cancel tlacidle, aj pri Escape, aj pri kliku na pozadie. Potrebuju to
+  // volajuci, ktori showConfirm obalili do Promise: bez toho by sa promise
+  // pri Escape nikdy neresolvol a UI by zamrzlo v cakani.
+  var _settled = false;
+  function dismissOnce() {
+    if (_settled) return;
+    _settled = true;
+    if (opts.onDismiss) opts.onDismiss();
+  }
+  overlay._dismiss = function() { dismissOnce(); close(); };
   var cancelBtn = document.getElementById('confirmCancel');
-  if (cancelBtn) cancelBtn.onclick = function() { if (opts.onCancel) opts.onCancel(); close(); };
-  document.getElementById('confirmOk').onclick = function() { close(); if (onConfirm) onConfirm(); };
-  overlay.addEventListener('click', function(e) { if (e.target === overlay) close(); });
+  if (cancelBtn) cancelBtn.onclick = function() { if (opts.onCancel) opts.onCancel(); dismissOnce(); close(); };
+  document.getElementById('confirmOk').onclick = function() { _settled = true; close(); if (onConfirm) onConfirm(); };
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) { dismissOnce(); close(); } });
 }
 
 function showPrompt(title, placeholder, onSubmit, opts) {
@@ -140,7 +151,7 @@ function showStornoReason(itemName, qty, callback) {
     +   '<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">'
     +     '<div style="display:flex;align-items:center;justify-content:center;width:36px;height:36px;line-height:1;color:var(--color-danger,#ef4444)"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="svg-icon"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div>'
     +     '<div>'
-    +       '<div id="stornoModalTitle" style="font-size:24px;font-weight:700;color:var(--color-text);margin:0;line-height:1.15">' + qty + '× ' + itemName + '</div>'
+    +       '<div id="stornoModalTitle" style="font-size:24px;font-weight:700;color:var(--color-text);margin:0;line-height:1.15">' + qty + '× ' + escHtml(itemName) + '</div>'
     +       '<div style="font-size:13px;color:var(--color-danger,#ef4444);margin:2px 0 0;text-transform:uppercase;letter-spacing:.5px;font-weight:600">Storno</div>'
     +     '</div>'
     +   '</div>'
@@ -164,7 +175,7 @@ function showStornoReason(itemName, qty, callback) {
     +     '<input id="stornoNote" class="form-input" maxlength="200" placeholder="Poznamka (volitelna)">'
     +   '</div>'
     +   '<div class="u-modal-btns" style="margin-top:16px">'
-    +     '<button type="button" class="u-btn u-btn-ghost" id="stornoCancel">Zrusit</button>'
+    +     '<button type="button" class="u-btn u-btn-ghost" id="stornoCancel">Preskocit</button>'
     +     '<button type="button" class="u-btn u-btn-mint" id="stornoSubmit" disabled>Potvrdit</button>'
     +   '</div>'
     + '</div>';
@@ -187,7 +198,8 @@ function showStornoReason(itemName, qty, callback) {
   }
 
   function keyHandler(ev) {
-    if (ev.key === 'Escape') { ev.preventDefault(); finishClose(null); }
+    // Escape = preskočiť, NIE zahodiť (viď komentár pri klike na pozadie).
+    if (ev.key === 'Escape') { ev.preventDefault(); finishClose({ __skipped: true }); }
     else if (ev.key === 'Enter' && !submitBtn.disabled) { ev.preventDefault(); submit(); }
   }
   document.addEventListener('keydown', keyHandler, true);
@@ -203,7 +215,12 @@ function showStornoReason(itemName, qty, callback) {
   }
 
   ov.addEventListener('click', function(e) {
-    if (e.target === ov) { finishClose(null); return; }
+    // Klik na pozadie NESMIE zápis zahodiť. Modal sa otvára AŽ POTOM, ako sa
+    // položka zmazala z účtu a do kuchyne odišiel STORNO bon — nie je cesta
+    // späť. Predtým tu bolo finishClose(null), volajúci to vyhodnotil ako
+    // „netreba nič zapisovať" a strata zmizla: v Storno koši nič, sklad
+    // neopravený, v P&L neviditeľné.
+    if (e.target === ov) { finishClose({ __skipped: true }); return; }
 
     var prep = e.target.closest('.storno-prep-btn');
     if (prep) {
@@ -226,7 +243,9 @@ function showStornoReason(itemName, qty, callback) {
     }
   });
 
-  ov.querySelector('#stornoCancel').addEventListener('click', function() { finishClose(null); });
+  // „Preskočiť" nie je „zahodiť" — zápis vznikne s dôvodom „Ine" a manažér ho
+  // dorieši v Storno koši. Bez zápisu by sa odpísaný tovar nikde neobjavil.
+  ov.querySelector('#stornoCancel').addEventListener('click', function() { finishClose({ __skipped: true }); });
   submitBtn.addEventListener('click', submit);
 }
 
@@ -405,8 +424,11 @@ function showManagerPin(contextLabel, callback) {
     if (contextLabel) {
       if (!ctxEl && body) {
         ctxEl = document.createElement('div');
+        // Štýl je v css/pos.css (.manager-pin-context). Inline cssText tu
+        // predtým siahal na var(--color-text-muted), ktorá v projekte
+        // neexistuje — vyhral biely fallback na krémovom podklade a text
+        // „čo sa schvaľuje" bol pre manažéra neviditeľný.
         ctxEl.className = 'manager-pin-context';
-        ctxEl.style.cssText = 'font-size:14px;color:var(--color-text-muted, rgba(255,255,255,.7));margin-bottom:12px;text-align:center';
         body.insertBefore(ctxEl, body.firstChild);
       }
       if (ctxEl) ctxEl.textContent = contextLabel;
@@ -538,8 +560,16 @@ function endDrag(){
   document.removeEventListener('mouseup',endDrag);
 }
 
-// Touch drag support
-document.addEventListener('touchstart',function(e){
+// Touch drag support — presúvanie stolov po pôdoryse v edit móde.
+//
+// Tieto tri listenery boli registrované NEPODMIENENE pri načítaní skriptu a
+// dva z nich s {passive:false}. Non-passive touch listener na `document`
+// prehliadaču povie „môžem zavolať preventDefault", takže musí pred každým
+// scrollom počkať na JS — vypína to asynchrónny scrolling pre CELÚ stránku.
+// Platilo to teda pri každom prstom po mriežke produktov, hoci vnútri je hneď
+// `if(!editMode)return;` a edit mód zapína manažér párkrát za mesiac.
+// Teraz sa viažu až pri zapnutí edit módu (rovnaký vzor ako _startTableResize).
+function _onEditTouchStart(e){
   if(!editMode)return;
   // Resize handle má precedens — ak je touch na corner grip, nech ho rieši
   // startTableResize (cez canvas touchstart listener), neštartuj position drag.
@@ -554,8 +584,8 @@ document.addEventListener('touchstart',function(e){
   dragOffX=touch.clientX-rect.left;
   dragOffY=touch.clientY-rect.top;
   chip.classList.add('dragging');
-},{passive:false});
-document.addEventListener('touchmove',function(e){
+}
+function _onEditTouchMove(e){
   if(!dragId)return;
   e.preventDefault();
   const touch=e.touches[0];
@@ -569,14 +599,32 @@ document.addEventListener('touchmove',function(e){
   if(t){t.x=nx;t.y=ny}
   const el=document.querySelector(`[data-id="${dragId}"]`);
   if(el){el.style.left=nx+'px';el.style.top=ny+'px'}
-},{passive:false});
-document.addEventListener('touchend',function(){
+}
+function _onEditTouchEnd(){
   if(dragId){
     const el=document.querySelector(`[data-id="${dragId}"]`);
     if(el)el.classList.remove('dragging');
     dragId=null;
   }
-});
+}
+
+// Volá sa z toggleEdit() v pos-render.js. Idempotentné — dvojité zapnutie
+// nenaviaže listener druhýkrát.
+var _editTouchBound = false;
+function bindEditTouchDrag(on){
+  if (on && !_editTouchBound) {
+    document.addEventListener('touchstart', _onEditTouchStart, { passive: false });
+    document.addEventListener('touchmove',  _onEditTouchMove,  { passive: false });
+    document.addEventListener('touchend',   _onEditTouchEnd);
+    _editTouchBound = true;
+  } else if (!on && _editTouchBound) {
+    document.removeEventListener('touchstart', _onEditTouchStart, { passive: false });
+    document.removeEventListener('touchmove',  _onEditTouchMove,  { passive: false });
+    document.removeEventListener('touchend',   _onEditTouchEnd);
+    _editTouchBound = false;
+  }
+}
+if (typeof window !== 'undefined') window.bindEditTouchDrag = bindEditTouchDrag;
 
 // Keyboard
 document.addEventListener('keydown',function(e){
@@ -624,6 +672,12 @@ document.addEventListener('keydown',function(e){
   if(e.key==='F2'){e.preventDefault();switchView(currentView==='tables'?'products':'tables');return}
   if(e.key==='?'){e.preventDefault();document.getElementById('helpModal').classList.add('show');return}
   if(currentView==='products'){
+    // '/' je kontextové: na mape stolov skáče na stôl (handler v pos-init.js),
+    // v objednávke hľadá produkt. Predtým boli na `/` naviazané OBA handlery
+    // naraz — fokus síce skočil do hľadania produktu, ale hneď nad tým sa
+    // otvorilo „Skoč na stôl…" a prekrylo ho. Nápoveda (pos-enterprise.html)
+    // pritom sľubovala hľadanie produktu.
+    if(e.key==='/'&&typeof currentView!=='undefined'&&currentView==='tables')return;
     if(e.key==='/'&&document.activeElement!==document.getElementById('searchInput')){e.preventDefault();document.getElementById('searchInput').focus();return}
     if(document.activeElement.tagName!=='INPUT'){const cats=Object.keys(MENU);const k=parseInt(e.key);if(k>=1&&k<=cats.length){e.preventDefault();setCategory(cats[k-1])}}
   }
@@ -667,13 +721,100 @@ document.addEventListener('keydown',function(e){
   if(next>=0&&next<cards.length)cards[next].focus();
 });
 
+// Vráti VRCHNÝ otvorený overlay, nie prvý v DOM.
+// `document.querySelector('.u-overlay.show')` vracia prvý v poradí dokumentu,
+// takže keď nad platobným modálom visel manažérsky PIN, fokusová pasca aj
+// automatický fokus pracovali so spodným (skrytým) modálom. Dynamické modály
+// sa pripájajú na koniec <body>, takže posledný zhodný = ten navrchu.
+function _topmostOverlay(){
+  var all=document.querySelectorAll('.u-overlay.show');
+  return all.length ? all[all.length-1] : null;
+}
+
+// ─── Fokus do statických modálov ────────────────────────────────────────────
+// captureModalTrigger() sa volalo LEN v dynamicky vytváraných modáloch
+// (showConfirm/showPrompt/…). Statické overlaye v pos-enterprise.html sa
+// otvárajú obyčajným `classList.add('show')`, takže fokus zostal na prvku
+// pod nimi: čítačka obrazovky o modáli nevedela, klávesnica ním nevedela
+// prejsť (pasca nižšie sa chytá až keď je aktívny prvok vnútri) a po zavretí
+// sa fokus nemal kam vrátiť.
+// Riešime centrálne cez MutationObserver, nech netreba prepisovať desiatky
+// volaní `classList.add('show')` roztrúsených po celom POS.
+(function(){
+  if (typeof MutationObserver === 'undefined') return;
+
+  function focusInto(overlay){
+    var modal = overlay.querySelector('.u-modal') || overlay;
+    // Najprv textové pole, až potom čokoľvek iné.
+    // POZOR: querySelector so zoznamom selektorov vracia prvý prvok v poradí
+    // DOKUMENTU, nie podľa poradia selektorov — bez tohto dvojkroku by fokus
+    // v platobnom modáli skončil na prvom tlačidle rýchlej sumy namiesto
+    // v poli pre hotovosť.
+    var target = modal.querySelector(
+      'input:not([type="hidden"]):not([disabled]),select:not([disabled]),textarea:not([disabled])'
+    ) || modal.querySelector('button:not([disabled]),[href],[tabindex]:not([tabindex="-1"])');
+    if (!target) return;
+    // setTimeout — prvok musí byť viditeľný (visibility prepína prechod),
+    // inak .focus() na skrytom prvku prehliadač ignoruje.
+    setTimeout(function(){ try { target.focus({ preventScroll: true }); } catch (e) { target.focus(); } }, 60);
+  }
+
+  var observer = new MutationObserver(function(records){
+    for (var i = 0; i < records.length; i++) {
+      var el = records[i].target;
+      if (!el.classList || !el.classList.contains('u-overlay')) continue;
+      var wasShown = (records[i].oldValue || '').indexOf('show') !== -1;
+      var isShown = el.classList.contains('show');
+      if (isShown && !wasShown) {
+        // Trigger si pamätáme len ak ho ešte nikto nezachytil (dynamické
+        // modály si ho zachytávajú samy, skôr než sa DOM zmení).
+        if (!_modalTrigger) captureModalTrigger();
+        focusInto(el);
+      } else if (!isShown && wasShown) {
+        // Ak už nie je otvorený žiadny ďalší overlay, vráť fokus späť.
+        if (!_topmostOverlay()) restoreModalTrigger();
+      }
+    }
+  });
+
+  function startObserving(){
+    var overlays = document.querySelectorAll('.u-overlay');
+    for (var i = 0; i < overlays.length; i++) {
+      observer.observe(overlays[i], { attributes: true, attributeFilter: ['class'], attributeOldValue: true });
+    }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startObserving);
+  } else {
+    startObserving();
+  }
+  // Dynamicky pridané overlaye (showConfirm & spol.) si fokus riešia samy,
+  // ale nech ich pozná aj obnova fokusu pri zatvorení.
+  if (document.body) {
+    new MutationObserver(function(recs){
+      for (var i = 0; i < recs.length; i++) {
+        var added = recs[i].addedNodes;
+        for (var j = 0; j < added.length; j++) {
+          var n = added[j];
+          if (n.nodeType === 1 && n.classList && n.classList.contains('u-overlay')) {
+            observer.observe(n, { attributes: true, attributeFilter: ['class'], attributeOldValue: true });
+          }
+        }
+      }
+    }).observe(document.body, { childList: true });
+  }
+})();
+
 // Focus trap for modals and qty popup
 document.addEventListener('keydown',function(e){
   if(e.key!=='Tab')return;
   var qtyPop=document.getElementById('qtyPopup');
   var modal=null;
   if(qtyPop&&qtyPop.classList.contains('show'))modal=qtyPop;
-  else modal=document.querySelector('.u-overlay.show .u-modal');
+  else {
+    var top=_topmostOverlay();
+    modal = top ? (top.querySelector('.u-modal') || top) : null;
+  }
   if(!modal)return;
 
   var focusable=modal.querySelectorAll('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])');

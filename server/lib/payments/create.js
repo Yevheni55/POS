@@ -30,6 +30,7 @@ import {
   loadExistingPaymentSnapshot,
   loadOrderPaymentContext,
 } from './context.js';
+import { fiscalFailureHttpStatus } from './shared.js';
 
 export async function createPaymentHandler(req, res) {
   const { orderId, method, amount } = req.body;
@@ -57,6 +58,11 @@ export async function createPaymentHandler(req, res) {
       error: `Suma platby (${amount}) je mensia ako celkova suma objednavky (${orderContext.expectedTotal})`,
     });
   }
+
+  // POZN: opačný smer (amount > expectedTotal) sa ZÁMERNE neodmieta —
+  // prevýšenie znamená „hosť podal viac, vydáva sa mimo systém" a je pokryté
+  // testom payments.test.js:345. Viď komentár pri zápise payments.amount
+  // v server/lib/payments/context.js.
 
   if (!isPortosEnabled()) {
     try {
@@ -141,7 +147,9 @@ export async function createPaymentHandler(req, res) {
   const requestPayload = buildCashRegisterRequestContext({
     orderId,
     items: orderContext.items,
-    discountAmount: orderContext.discountAmount,
+    // Order-level discount only — per-item discounts are emitted as their own
+    // fiscal lines from items[].discountAmount (avoid double-counting).
+    discountAmount: orderContext.orderDiscountAmount,
     method,
     expectedTotal: orderContext.expectedTotal,
     cashRegisterCode: activeCashRegisterCode,
@@ -189,7 +197,7 @@ export async function createPaymentHandler(req, res) {
     const mismatchMsg = fiscalOutcome.resultMode === 'mismatch_rejected'
       ? `Doklad z eKasy NEZHODA s objednávkou (${fiscalOutcome.mismatchReason || 'neznámy dôvod'}). Kontaktuj manažéra — platbu NEUKLADAJ ako úspešnú.`
       : null;
-    return res.status(fiscalOutcome.resultMode === 'blocked' ? 503 : (fiscalOutcome.httpStatus || 400)).json({
+    return res.status(fiscalOutcome.resultMode === 'blocked' ? 503 : fiscalFailureHttpStatus(fiscalOutcome)).json({
       error: mismatchMsg || certificateHint || fiscalOutcome.errorDetail || 'Fiskalizacia bola odmietnuta',
       fiscal: {
         status: fiscalOutcome.resultMode,

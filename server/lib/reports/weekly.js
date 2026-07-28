@@ -3,6 +3,48 @@ import { sql } from 'drizzle-orm';
 import { db } from '../../db/index.js';
 import { TZ, roundMoney } from './shared.js';
 
+// Lokálny (Europe/Bratislava) dátum + hodina pre daný instant. Ručne
+// počítaný `offsetMs` cez `toLocaleString` dával nesprávne hranice — na
+// UTC serveri posúval hodinový bucket o 1–2 h a na dev stroji o iný
+// offset, takže tá istá zmena spadla do inej hodiny. Intl.formatToParts
+// rieši DST podľa IANA tz db.
+const HOUR_FMT = new Intl.DateTimeFormat('en-GB', {
+  timeZone: TZ,
+  year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', hourCycle: 'h23',
+});
+function localDateHour(instant){
+  const g = {};
+  for (const p of HOUR_FMT.formatToParts(instant)){
+    if (p.type !== 'literal') g[p.type] = p.value;
+  }
+  return { date: g.year + '-' + g.month + '-' + g.day, hour: Number(g.hour) };
+}
+
+// Rozreže zmenu (inAt→outAt) na úseky podľa lokálnych hodinových hraníc
+// a vráti [{ date:'YYYY-MM-DD', hour:0..23, minutes }]. Offset Bratislavy
+// je vždy celý počet hodín (+1/+2) a DST prepína o 01:00 UTC, takže lokálne
+// hodinové hranice splývajú s UTC hodinovými hranicami — stačí zaokrúhliť
+// na celú hodinu v epoch ms.
+// Exportované kvôli unit testu (server/test/lib/reports-local-day.test.js) —
+// hodinové buckety sú jediné miesto, kde sa TZ počíta v JS a nie v SQL.
+const HOUR_MS = 3600000;
+export function localHourSlices(inAt, outAt){
+  const startMs = new Date(inAt).getTime();
+  const endMs = new Date(outAt).getTime();
+  const slices = [];
+  if (!(endMs > startMs)) return slices;
+  let cur = startMs;
+  while (cur < endMs){
+    const { date, hour } = localDateHour(new Date(cur));
+    const sliceEnd = Math.min(Math.floor(cur / HOUR_MS) * HOUR_MS + HOUR_MS, endMs);
+    const minutes = (sliceEnd - cur) / 60000;
+    if (minutes > 0 && hour >= 0 && hour < 24) slices.push({ date, hour, minutes });
+    cur = sliceEnd;
+  }
+  return slices;
+}
+
 // GET /api/reports/weekly?from=YYYY-MM-DD&to=YYYY-MM-DD
 // Detailný týždenný breakdown — hodina × deň-v-týždni × destinácia
 // (bar/kuchyna), plus cook-shifts pre per-hour výpočet kuchárskej
@@ -161,28 +203,8 @@ export async function weeklyHandler(req, res) {
   // Shift overlap with hour [h, h+1): for each shift, slice into per-hour segments.
   // Day boundary: ak zmena prekročí polnoc, rozdelíme tiež.
   for (const sh of usedShifts){
-    const start = new Date(sh.inAt);
-    const end = new Date(sh.outAt);
-    if (end <= start) continue;
-    let cur = new Date(start);
-    while (cur < end){
-      // Nájdi koniec aktuálneho hour-bucketu (TZ-aware cez Bratislava local)
-      const local = new Date(cur.toLocaleString('en-US', { timeZone: 'Europe/Bratislava' }));
-      const hour = local.getHours();
-      // Compute next hour boundary in UTC
-      const localNextHour = new Date(local);
-      localNextHour.setHours(hour + 1, 0, 0, 0);
-      // Convert local back to UTC
-      const offsetMs = (new Date(local.toLocaleString('en-US', { timeZone: 'UTC' })).getTime()
-                       - local.getTime());
-      const nextBoundaryUtc = new Date(localNextHour.getTime() + offsetMs);
-      const sliceEnd = nextBoundaryUtc > end ? end : nextBoundaryUtc;
-      const minutes = (sliceEnd - cur) / 60000;
-      if (minutes > 0 && hour >= 0 && hour < 24){
-        byHour[hour].cookMinutes += minutes;
-      }
-      cur = sliceEnd;
-      if (sliceEnd >= end) break;
+    for (const slice of localHourSlices(sh.inAt, sh.outAt)){
+      byHour[slice.hour].cookMinutes += slice.minutes;
     }
   }
 
@@ -222,23 +244,9 @@ export async function weeklyHandler(req, res) {
     const minutesPerCook = new Map();
     let totalMin = 0;
     for (const sh of usedShifts){
-      const start = new Date(sh.inAt);
-      const end = new Date(sh.outAt);
-      let cur = new Date(start);
       let cookH = 0;
-      while (cur < end){
-        const local = new Date(cur.toLocaleString('en-US', { timeZone: 'Europe/Bratislava' }));
-        const hour = local.getHours();
-        const localNextHour = new Date(local);
-        localNextHour.setHours(hour + 1, 0, 0, 0);
-        const offsetMs = (new Date(local.toLocaleString('en-US', { timeZone: 'UTC' })).getTime()
-                         - local.getTime());
-        const nextBoundaryUtc = new Date(localNextHour.getTime() + offsetMs);
-        const sliceEnd = nextBoundaryUtc > end ? end : nextBoundaryUtc;
-        const minutes = (sliceEnd - cur) / 60000;
-        if (hour === h) cookH += minutes;
-        cur = sliceEnd;
-        if (sliceEnd >= end) break;
+      for (const slice of localHourSlices(sh.inAt, sh.outAt)){
+        if (slice.hour === h) cookH += slice.minutes;
       }
       if (cookH > 0){
         minutesPerCook.set(sh.staffId, (minutesPerCook.get(sh.staffId) || 0) + cookH);
@@ -381,47 +389,27 @@ export async function weeklyHandler(req, res) {
 
   // Allokuj cook minutes per (date, hour) — re-iterate shifty s denným bucketom.
   for (const sh of usedShifts){
-    const start = new Date(sh.inAt);
-    const end = new Date(sh.outAt);
-    if (end <= start) continue;
-    let cur = new Date(start);
-    while (cur < end){
-      const local = new Date(cur.toLocaleString('en-US', { timeZone: 'Europe/Bratislava' }));
-      const hour = local.getHours();
-      const dateStr = local.getFullYear() + '-'
-        + String(local.getMonth() + 1).padStart(2, '0') + '-'
-        + String(local.getDate()).padStart(2, '0');
-      const localNextHour = new Date(local);
-      localNextHour.setHours(hour + 1, 0, 0, 0);
-      const offsetMs = (new Date(local.toLocaleString('en-US', { timeZone: 'UTC' })).getTime()
-                       - local.getTime());
-      const nextBoundaryUtc = new Date(localNextHour.getTime() + offsetMs);
-      const sliceEnd = nextBoundaryUtc > end ? end : nextBoundaryUtc;
-      const minutes = (sliceEnd - cur) / 60000;
-      if (minutes > 0 && hour >= 0 && hour < 24){
-        // Ensure dayMap has this date even if no sales
-        if (!dayMap.has(dateStr)){
-          const d = new Date(dateStr + 'T12:00:00');
-          const isoDow = d.getDay() === 0 ? 7 : d.getDay();
-          dayMap.set(dateStr, {
-            date: dateStr, weekday: isoDow,
-            hours: new Map(),
-            kitchenRevenue: 0, kitchenCogs: 0, barRevenue: 0, orders: 0,
-          });
-        }
-        const day = dayMap.get(dateStr);
-        let hourCell = day.hours.get(hour);
-        if (!hourCell){
-          hourCell = {
-            hour, kitchenRevenue: 0, kitchenCogs: 0, barRevenue: 0,
-            kitchenItems: 0, barItems: 0, orders: 0, cookMinutes: 0, activeCooks: 0,
-          };
-          day.hours.set(hour, hourCell);
-        }
-        hourCell.cookMinutes += minutes;
+    for (const { date: dateStr, hour, minutes } of localHourSlices(sh.inAt, sh.outAt)){
+      // Ensure dayMap has this date even if no sales
+      if (!dayMap.has(dateStr)){
+        const d = new Date(dateStr + 'T12:00:00');
+        const isoDow = d.getDay() === 0 ? 7 : d.getDay();
+        dayMap.set(dateStr, {
+          date: dateStr, weekday: isoDow,
+          hours: new Map(),
+          kitchenRevenue: 0, kitchenCogs: 0, barRevenue: 0, orders: 0,
+        });
       }
-      cur = sliceEnd;
-      if (sliceEnd >= end) break;
+      const day = dayMap.get(dateStr);
+      let hourCell = day.hours.get(hour);
+      if (!hourCell){
+        hourCell = {
+          hour, kitchenRevenue: 0, kitchenCogs: 0, barRevenue: 0,
+          kitchenItems: 0, barItems: 0, orders: 0, cookMinutes: 0, activeCooks: 0,
+        };
+        day.hours.set(hour, hourCell);
+      }
+      hourCell.cookMinutes += minutes;
     }
   }
 

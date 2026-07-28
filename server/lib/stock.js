@@ -179,12 +179,16 @@ export async function applyWriteOff(tx, writeOffId, staffId) {
 
 /**
  * Get all items/ingredients below their minimum stock threshold.
+ *
+ * @param {object} [handle] - Drizzle db/tx handle. Defaults to the app pool;
+ *   tests (and any caller already inside a transaction) pass their own so the
+ *   query does not silently escape to the DATABASE_URL connection.
  */
-export async function getLowStockAlerts() {
-  const lowIngredients = await db.select().from(ingredients)
+export async function getLowStockAlerts(handle = db) {
+  const lowIngredients = await handle.select().from(ingredients)
     .where(and(eq(ingredients.active, true), lte(ingredients.currentQty, ingredients.minQty)));
 
-  const lowMenuItems = await db.select().from(menuItems)
+  const lowMenuItems = await handle.select().from(menuItems)
     .where(and(eq(menuItems.trackMode, 'simple'), lte(menuItems.stockQty, menuItems.minStockQty)));
 
   return {

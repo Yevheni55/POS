@@ -1,5 +1,36 @@
 # POS Design Code
 
+> ## ⚠️ POZOR: ČASŤ HODNÔT V TOMTO DOKUMENTE JE ZASTARANÁ
+> **(stav k 2026-07-28)**
+>
+> Sekcie s konkrétnymi farbami a fontmi (najmä § 1.1 – 1.3 a zmienky o Sora /
+> Manrope) opisujú **vyradenú tmavo-fialovú paletu**. Všetkých päť reálnych
+> povrchov — POS, admin, dochádzka, login, KDS — dnes beží na téme
+> **Atelier Daylight** (krémová + terrakota) a na fonte **Outfit**:
+>
+> | | v tomto dokumente (NEPLATÍ) | reálne v kóde |
+> |---|---|---|
+> | pozadie | `#0f0d1a` (tmavá) | `#f5efe3` krémová (`css/pos.css:35`) |
+> | accent | `#8B7CF6` fialová | `#b8542a` terrakota (`css/pos.css:37`) |
+> | display font | Sora | Outfit (`css/pos.css:82`) |
+> | body font | Manrope | Outfit |
+>
+> **Zdroj pravdy pre farby a fonty je kód, nie tento súbor:**
+> `tokens.css` (základ) → `css/pos.css :root` (Daylight override, POS) →
+> `admin/admin.css :root` (admin) → `css/pos-dark.css` / `admin/admin-dark.css`
+> (tmavý režim). Fonty sú self-hostované v `fonts/fonts.css`.
+>
+> **PLATÍ naďalej** a treba dodržať: princípy v § 0, pravidlá o tokenoch
+> (žiadne hex mimo palety, žiadne `!important` okrem `[hidden]`), type scale,
+> spacing, radius, tap targety ≥ 44 px, kontrast AA, `prefers-reduced-motion`,
+> `Intl.DateTimeFormat` s `Europe/Bratislava`, `sk-SK` locale.
+>
+> *Prečo tento banner: `CLAUDE.md` robí tento dokument povinným čítaním pred
+> každou UI zmenou, takže bez varovania z neho každý ďalší človek aj agent
+> prepisoval fialové hodnoty do krémovej appky.*
+
+---
+
 **Single source of truth pre dizajn všetkých POS + Admin obrazoviek.**
 Každá nová funkcia, page, komponent alebo modál musí dodržať pravidlá
 uvedené v tomto dokumente. Bez výnimky — keď tento dokument povie že
@@ -15,7 +46,7 @@ POS nepoužíva inú hodnotu.
 | 1 | **Vždy importuj `tokens.css` ako prvý** | Jediná centrálna definícia palety, spacingu, fontov |
 | 2 | **Žiadne hex hodnoty v komponentnom CSS** — používaj `var(--color-*)` | Jeden zdroj pravdy, dark/light theme niekedy v budúcnosti |
 | 3 | **Žiadne `!important`** okrem `[hidden]` overridov | Špecificita rieš architektúrou, nie hammer-om |
-| 4 | **Žiadne nové fonty** mimo Sora + Manrope (POS), Instrument Serif + Plus Jakarta Sans + Caveat (web) | Brand consistency |
+| 4 | **Žiadne nové fonty** mimo **Outfit** (POS + admin, display aj body), **JetBrains Mono** (číselné/tabuľkové hodnoty), **Newsreader** (serifový akcent v admine); web: Instrument Serif + Plus Jakarta Sans + Caveat. Všetky sú self-hostované vo `fonts/fonts.css` — **nič sa neťahá z Google Fonts** (kasa musí naštartovať aj bez internetu) | Brand consistency + kasa bez internetu |
 | 5 | **Touch targets ≥ 44 px** (`--btn-h-md`) | iOS HIG + Material Design A11y |
 | 6 | **Kontrast WCAG AA** — všetok text proti pozadiu min. 4.5:1, large text 3:1 | Operátor v slnku na terase musí čítať |
 | 7 | **Mobile-first** — píš najprv pre 375 px (iPhone SE), enhance pre tablet/desktop | Kasa je iPad, telefón čašníka, často slabé wifi |

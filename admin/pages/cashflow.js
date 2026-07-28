@@ -59,7 +59,16 @@ function todayMinusDaysIso(n) {
   return d.toISOString().slice(0, 10);
 }
 function fmtEur(n) { return fmtCost(n) + ' €'; }
+// Jediná implementácia escapovania v projekte je /js/pos-escape.js
+// (escHtml pre textový obsah, escAttr pre atribút, escJsAttr pre inline
+// handler). Predtým mala takmer každá admin stránka vlastnú kópiu a boli
+// medzi nimi ŠTYRI rôzne správania — časť neescapovala apostrof ani
+// úvodzovku, čo je práve to, na čom záleží pri interpolácii do atribútu.
+// Lokálne meno ostáva, nech sa neprepisujú stovky volaní.
 function escapeHtml(v) {
+  // window.* zamerne: v moduloch, kde sa lokalna funkcia vola tiez escHtml,
+  // by holy identifikator ukazoval sam na seba (nekonecna rekurzia).
+  if (typeof window !== 'undefined' && typeof window.escHtml === 'function') return window.escHtml(v);
   return String(v == null ? '' : v)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -289,7 +298,7 @@ function openEntryModal(mode, presetType, existing) {
   function refillCategories() {
     const list = typeSel.value === 'income' ? INCOME_CATS : EXPENSE_CATS;
     const cur = isEdit && existing.category;
-    catSel.innerHTML = list.map((c) => '<option value="' + c.slug + '"' + (c.slug === cur ? ' selected' : '') + '>' + c.label + '</option>').join('');
+    catSel.innerHTML = list.map((c) => '<option value="' + c.slug + '"' + (c.slug === cur ? ' selected' : '') + '>' + escapeHtml(c.label) + '</option>').join('');
     refreshSupplierVisibility();
   }
   refillCategories();

@@ -26,7 +26,16 @@ function todayMinusDaysIso(n) {
   return d.toISOString().slice(0, 10);
 }
 
+// Jediná implementácia escapovania v projekte je /js/pos-escape.js
+// (escHtml pre textový obsah, escAttr pre atribút, escJsAttr pre inline
+// handler). Predtým mala takmer každá admin stránka vlastnú kópiu a boli
+// medzi nimi ŠTYRI rôzne správania — časť neescapovala apostrof ani
+// úvodzovku, čo je práve to, na čom záleží pri interpolácii do atribútu.
+// Lokálne meno ostáva, nech sa neprepisujú stovky volaní.
 function escapeHtml(v) {
+  // window.* zamerne: v moduloch, kde sa lokalna funkcia vola tiez escHtml,
+  // by holy identifikator ukazoval sam na seba (nekonecna rekurzia).
+  if (typeof window !== 'undefined' && typeof window.escHtml === 'function') return window.escHtml(v);
   return String(v == null ? '' : v)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -60,6 +69,8 @@ const TYPE_LABELS = {
   payment_voided:   'Zrušená platba',
   discount_applied: 'Pridaná zľava',
   discount_removed: 'Odstránená zľava',
+  item_discount_applied: 'Zľava na položku',
+  item_discount_removed: 'Zľava z položky zrušená',
   storno_requested: 'Storno žiadosť',
   storno_approved:  'Storno schválené',
   storno_rejected:  'Storno zamietnuté',
@@ -76,13 +87,18 @@ function typeBadgeClass(type) {
 // The full JSON is also reachable via the hover tooltip so nothing is hidden.
 function describePayload(type, payload) {
   if (!payload || typeof payload !== 'object') return '';
-  if (type === 'order_created')   return (payload.label ? '"' + payload.label + '" · ' : '') + (payload.itemCount || 0) + ' položiek';
+  if (type === 'order_created')   return (payload.label ? '"' + escapeHtml(payload.label) + '" · ' : '') + (payload.itemCount || 0) + ' položiek';
   if (type === 'item_added')      return Array.isArray(payload.items) ? payload.items.length + ' položiek' : '';
   if (type === 'item_qty_changed')return 'menuItemId=' + (payload.menuItemId || '?') + ', qty ' + (payload.from != null ? payload.from + '→' + payload.to : payload.qty);
   if (type === 'item_removed')    return 'itemId=' + (payload.itemId || '?');
   if (type === 'order_sent')      return (payload.itemCount || 0) + ' nových položiek';
   if (type === 'discount_applied')return (payload.discountAmount || 0) + ' € zľava';
   if (type === 'discount_removed')return 'odstránená zľava';
+  if (type === 'item_discount_applied') {
+    var dv = payload.type === 'percent' ? (payload.value + '%') : (payload.value + ' €');
+    return 'položka #' + (payload.itemId || '?') + ' · -' + dv;
+  }
+  if (type === 'item_discount_removed') return 'položka #' + (payload.itemId || '?');
   if (type === 'order_split')     return 'rozdelená na ' + (Array.isArray(payload.newOrderIds) ? payload.newOrderIds.length : '?') + ' obj.';
   if (type === 'order_cancelled') return 'stôl ' + (payload.tableId || '?');
   // Generic fallback: show first 2 keys

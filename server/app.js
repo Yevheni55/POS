@@ -4,6 +4,7 @@ import compression from 'compression';
 import cors from 'cors';
 import helmet from 'helmet';
 import path from 'path';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'url';
 
 import authRoutes from './routes/auth.js';
@@ -37,6 +38,7 @@ import {
   adminRouter as attendanceAdminRouter,
 } from './routes/attendance.js';
 import publicMenuRouter from './routes/public-menu.js';
+import clientErrorRoutes from './routes/client-errors.js';
 import { idempotency } from './middleware/idempotency.js';
 import { auth } from './middleware/auth.js';
 import { ALLOWED_ORIGINS, corsOriginCallback } from './lib/cors-origin.js';
@@ -78,12 +80,12 @@ app.use(helmet({
     directives: {
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'", "'unsafe-inline'"],
-      // Google Fonts CSS (Outfit + JetBrains Mono) loaded via @import in
-      // fonts/fonts.css for Daylight theme — needs fonts.googleapis.com.
-      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      // Outfit + JetBrains Mono are self-hosted in /fonts (see fonts/fonts.css).
+      // fonts.googleapis.com / fonts.gstatic.com were removed from the policy
+      // on purpose: nothing may reach a third party from the kasa any more.
+      styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", 'data:', 'blob:'],
-      // Google Fonts files served from fonts.gstatic.com.
-      fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
+      fontSrc: ["'self'", 'data:'],
       connectSrc: ["'self'", 'ws:', 'wss:'],
       workerSrc: ["'self'"],
       // 'self' (not 'none') — POS opens the admin panel as an iframe
@@ -118,13 +120,43 @@ app.use(helmet({
 }));
 app.use(compression());
 app.use(cors({ origin: corsOriginCallback }));
-app.use(express.json({ limit: '20mb' }));
+// Limity na telo požiadavky — per-route, nie jeden globálny strop.
+//
+// Predtým platilo `limit: '20mb'` na CELÉ /api, hoci to potrebuje jediný
+// endpoint (sken faktúry). Ktokoľvek s tokenom tak mohol na hocijakú routu
+// poslať 20 MB tela, ktoré Express najprv celé naparsuje — a až potom
+// prípadne odpovie 403. Bežná POS požiadavka má kilobajty.
+//
+// Zoradené od najkonkrétnejšieho: prvý parser, ktorý sa trafí, nastaví
+// req.body a ďalší (body-parser to kontroluje cez req._body) sa preskočí.
+app.use('/api/invoice-scan', express.json({ limit: '20mb' }));  // fotka faktúry pre gpt-4o
+app.use('/api/menu', express.json({ limit: '8mb' }));           // POST /menu/items/:id/image (4 MB po dekódovaní base64)
+app.use('/api/inventory', express.json({ limit: '8mb' }));      // purchase order + imageData faktúry
+app.use(express.json({ limit: '1mb' }));
 
 // Service worker — inject the current build version so every fresh deploy
-// (= server restart) ships a bytewise-different sw.js → browser detects an
-// update → install runs → activate prunes the old cache. No more
-// Ctrl+Shift+R after each deploy.
-const SW_VERSION = process.env.BUILD_VERSION || String(Date.now());
+// ships a bytewise-different sw.js → browser detects an update → install runs
+// → activate prunes the old cache. No more Ctrl+Shift+R after each deploy.
+//
+// Zdroj verzie, v poradi:
+//   1. DEPLOYED_SHA — subor, ktory pise scripts/deploy-tailscale-pos.sh.
+//      Meni sa PRESNE vtedy, ked sa meni nasadeny kod.
+//   2. BUILD_VERSION z prostredia.
+//   3. Date.now() — posledna moznost.
+// Predtym tu bolo rovno `Date.now()`, takze KAZDY restart kontajnera (aj
+// obycajny `docker compose restart`, aj pad a autorestart) vygeneroval novy
+// nazov cache → `activate` zmazal celu offline cache → kasa bola az do
+// dalsieho online nacitania bez offline zaloh.
+function resolveSwVersion() {
+  if (process.env.BUILD_VERSION) return process.env.BUILD_VERSION;
+  try {
+    const raw = readFileSync(path.join(__dirname, '..', 'DEPLOYED_SHA'), 'utf8');
+    const m = raw.match(/sha=([0-9a-f]{7,40})/i);
+    if (m) return m[1].slice(0, 12);
+  } catch { /* not a deployed bundle (dev checkout) — fall through */ }
+  return String(Date.now());
+}
+const SW_VERSION = resolveSwVersion();
 let _swSourceCache = null;
 async function readSwSource() {
   if (_swSourceCache) return _swSourceCache;
@@ -191,6 +223,11 @@ app.use('/api/attendance', attendancePublicRouter);
 // Verejný read-only menu endpoint pre surfspirit.sk webku — bez auth,
 // 30s cache, vracia rovnaký JSON shape ako static surfspirit-menu.json.
 app.use('/api/public', publicMenuRouter);
+// Zber JS chýb z prehliadača. Zápis je verejný zámerne (chyba môže nastať aj
+// pred prihlásením a posiela sa cez sendBeacon); čítanie má vnútri routera
+// vlastný auth + requireRole('manazer','admin'). Musí byť PRED idempotency
+// middlewarom — beacon nenesie idempotency kľúč a nemá zmysel ho zdržiavať.
+app.use('/api/client-errors', clientErrorRoutes);
 
 // Idempotency middleware for write operations
 app.use('/api', idempotency);

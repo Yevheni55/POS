@@ -18,9 +18,19 @@ function $$(sel) {
   return _container.querySelectorAll(sel);
 }
 
-function escapeHtml(str) {
-  if (!str) return '';
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+// Jediná implementácia escapovania v projekte je /js/pos-escape.js
+// (escHtml pre textový obsah, escAttr pre atribút, escJsAttr pre inline
+// handler). Predtým mala takmer každá admin stránka vlastnú kópiu a boli
+// medzi nimi ŠTYRI rôzne správania — časť neescapovala apostrof ani
+// úvodzovku, čo je práve to, na čom záleží pri interpolácii do atribútu.
+// Lokálne meno ostáva, nech sa neprepisujú stovky volaní.
+function escapeHtml(v) {
+  // window.* zamerne: v moduloch, kde sa lokalna funkcia vola tiez escHtml,
+  // by holy identifikator ukazoval sam na seba (nekonecna rekurzia).
+  if (typeof window !== 'undefined' && typeof window.escHtml === 'function') return window.escHtml(v);
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function fmtEur(n) {
@@ -200,6 +210,30 @@ async function deleteOrder(id) {
   if (idx < 0) return;
   const snapshot = orders[idx];
 
+  // Pri PRIJATEJ faktúre sa mazaním odpočítava celá dodávka zo skladu.
+  // Predtým to bolo bez akéhokoľvek potvrdenia hneď vedľa tlačidla „Detail",
+  // takže jeden omylný tap prepísal stav skladu bez varovania.
+  if (snapshot.status === 'received') {
+    const ok = await new Promise(function (resolve) {
+      let settled = false;
+      function done(v) { if (!settled) { settled = true; resolve(v); } }
+      showConfirm(
+        'Vymazať prijatú faktúru?',
+        'Faktúra #' + id + ' je už prijatá — jej položky sú na sklade. '
+          + 'Vymazaním sa zo skladu ODPOČÍTAJÚ a faktúra zmizne aj z histórie. '
+          + 'Ak ju chceš len stiahnuť z platnosti, použi „Zrušiť" — tá sklad opraví a faktúru zachová.',
+        function () { done(true); },
+        {
+          type: 'danger',
+          confirmText: 'Vymazať a odpísať zo skladu',
+          cancelText: 'Späť',
+          onDismiss: function () { done(false); },
+        }
+      );
+    });
+    if (!ok) return;
+  }
+
   // Optimistic remove
   orders.splice(idx, 1);
   renderTable();
@@ -376,7 +410,7 @@ function openEditOrderModal(po) {
   var ingOpts = ingredients
     .filter(function (i) { return (i.type || 'ingredient') === 'ingredient'; })
     .map(function (ing) {
-      return '<option value="' + ing.id + '">' + escapeHtml(ing.name) + ' (' + ing.unit + ')</option>';
+      return '<option value="' + ing.id + '">' + escapeHtml(ing.name) + ' (' + escapeHtml(ing.unit) + ')</option>';
     }).join('');
 
   function rowHtml(item, idx) {
@@ -1162,7 +1196,7 @@ function buildScanItemCard(item, idx) {
     var ingType = ing.type || 'ingredient';
     var matchesType = (isSupply && ingType === 'supply') || (!isSupply && ingType === 'ingredient');
     var prefix = matchesType ? '' : (ingType === 'supply' ? '[T] ' : '[S] ');
-    ingOpts += '<option value="' + ing.id + '"' + (String(ing.id) === String(matched) ? ' selected' : '') + '>' + prefix + escapeHtml(ing.name) + ' (' + ing.unit + ')</option>';
+    ingOpts += '<option value="' + ing.id + '"' + (String(ing.id) === String(matched) ? ' selected' : '') + '>' + prefix + escapeHtml(ing.name) + ' (' + escapeHtml(ing.unit) + ')</option>';
   });
 
   var h = '';

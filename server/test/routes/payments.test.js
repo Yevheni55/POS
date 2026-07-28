@@ -1,7 +1,8 @@
 // DATABASE_URL must point to pos_test BEFORE Node starts, because db/index.js
 // is a static ESM dependency loaded at import time.  The npm test script passes:
 //   DATABASE_URL=postgresql://pos:pos@localhost:5432/pos_test node --test ...
-if (!process.env.DATABASE_URL?.endsWith('/pos_test')) {
+// Sandbox behy používajú pos_test_<sufix> — stále testovacia DB, nikdy `pos`.
+if (!/\/pos_test(_[A-Za-z0-9]+)?$/.test(process.env.DATABASE_URL ?? '')) {
   throw new Error(
     'Tests must run with DATABASE_URL pointing to pos_test.\n' +
     'Use: npm test\n' +

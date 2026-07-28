@@ -24,7 +24,9 @@ function fmtPct(n){ return (Number(n) || 0).toFixed(1) + ' %'; }
 function fmtNumNoEur(n){
   return (Number(n) || 0).toLocaleString('sk-SK', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
-function todayStr(){ return new Date().toISOString().split('T')[0]; }
+// bratislavaDayIso je zdielany global z /api.js — `toISOString()` nad lokalnym
+// Date by medzi polnocou a 02:00 miestneho casu vratil vcerajsok.
+function todayStr(){ return bratislavaDayIso(new Date()); }
 function daysBetween(a, b){
   const A = new Date(a), B = new Date(b);
   return Math.max(1, Math.round((B - A) / 86400000) + 1);
@@ -33,8 +35,19 @@ function formatDateSk(iso){
   const [y, m, d] = iso.split('-');
   return d + '.' + m + '.' + y;
 }
-function escapeHtml(s){
-  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+// Jediná implementácia escapovania v projekte je /js/pos-escape.js
+// (escHtml pre textový obsah, escAttr pre atribút, escJsAttr pre inline
+// handler). Predtým mala takmer každá admin stránka vlastnú kópiu a boli
+// medzi nimi ŠTYRI rôzne správania — časť neescapovala apostrof ani
+// úvodzovku, čo je práve to, na čom záleží pri interpolácii do atribútu.
+// Lokálne meno ostáva, nech sa neprepisujú stovky volaní.
+function escapeHtml(v) {
+  // window.* zamerne: v moduloch, kde sa lokalna funkcia vola tiez escHtml,
+  // by holy identifikator ukazoval sam na seba (nekonecna rekurzia).
+  if (typeof window !== 'undefined' && typeof window.escHtml === 'function') return window.escHtml(v);
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 const DAY_LABEL_SK = ['Ne','Po','Ut','St','Št','Pi','So'];
@@ -405,7 +418,7 @@ function renderDowHeatmap(daily){
     avgs.map(a => {
       const pct = max > 0 ? (a.avg/max)*100 : 0;
       const tier = pct === 0 ? 0 : pct < 33 ? 1 : pct < 66 ? 2 : 3;
-      return `<div class="season-hm-cell tier-${tier}" title="${a.label} — priemer ${fmtEur(a.avg)} z ${a.count} dní">
+      return `<div class="season-hm-cell tier-${tier}" title="${escapeHtml(a.label)} — priemer ${fmtEur(a.avg)} z ${a.count} dní">
         <div class="season-hm-day">${a.short}</div>
         <div class="season-hm-num">${a.count > 0 ? fmtEur(a.avg, {dec:0}) : '—'}</div>
         <div class="season-hm-foot">${a.count} dní</div>

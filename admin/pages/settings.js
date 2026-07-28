@@ -19,6 +19,7 @@ const DEFAULTS = {
   sRounding: 'centy',
   sTipEnabled: true,
   sTipDefault: 10,
+  sQrPaymentEnabled: true,
   sReceiptName: 'Kaviaren & Bar',
   sReceiptFooter: 'Dakujeme za navstevu!',
   sReceiptFormat: '80mm',
@@ -159,6 +160,18 @@ function getTemplate() {
             </div>
           </div>
         </div>
+        <div class="form-group">
+          <label>QR platba (Portos PayMe)</label>
+          <div class="toggle-row mt-1">
+            <button class="toggle on" id="sQrPaymentEnabled"></button>
+            <span class="toggle-label" id="sQrPaymentLabel">Zapnute</span>
+          </div>
+        </div>
+      </div>
+      <div class="text-muted" style="font-size:12px;margin:8px 0 0;line-height:1.5">
+        Ak QR platbu vypnete, tlačidlo „QR platba“ zmizne z pokladne po ďalšom
+        prihlásení/obnovení stránky na danom zariadení. Nastavenie je uložené
+        lokálne v prehliadači — treba ho nastaviť na každej kase zvlášť.
       </div>
     </div>
 
@@ -416,6 +429,9 @@ function applyToForm() {
     btn.classList.toggle('active', parseInt(btn.dataset.val) === settings.sTipDefault);
   });
 
+  byId('sQrPaymentEnabled').classList.toggle('on', settings.sQrPaymentEnabled);
+  byId('sQrPaymentLabel').textContent = settings.sQrPaymentEnabled ? 'Zapnute' : 'Vypnute';
+
   byId('sReceiptName').value = settings.sReceiptName;
   byId('sReceiptFooter').value = settings.sReceiptFooter;
   byId('sReceiptFormat').value = settings.sReceiptFormat;
@@ -456,6 +472,7 @@ function gatherSettings() {
   settings.sBranchName = byId('sBranchName').value;
   settings.sBranchAddress = byId('sBranchAddress').value;
   settings.sCashRegisterCode = byId('sCashRegisterCode').value;
+  settings.sQrPaymentEnabled = byId('sQrPaymentEnabled').classList.contains('on');
   settings.sVat = parseInt(byId('sVat').value) || 0;
   settings.sCurrency = byId('sCurrency').value;
   settings.sRounding = byId('sRounding').value;
@@ -527,6 +544,16 @@ function toggleTip() {
   byId('tipOptions').style.pointerEvents = isOn ? 'all' : 'none';
 }
 
+/* ─── QR PLATBA ─── */
+
+function toggleQrPayment() {
+  var toggle = byId('sQrPaymentEnabled');
+  toggle.classList.toggle('on');
+  var isOn = toggle.classList.contains('on');
+  settings.sQrPaymentEnabled = isOn;
+  byId('sQrPaymentLabel').textContent = isOn ? 'Zapnute' : 'Vypnute';
+}
+
 /* ─── COLOR ─── */
 
 function updateColorHex(inputId, hexId) {
@@ -570,17 +597,19 @@ function renderPrinters() {
     var activeClass = p.active ? 'on' : '';
     var statusId = 'printerStatus_' + p.id;
 
+    // XSS: nazov/IP/ucel su volny text z DB (POST /printers) — vzdy escapovat.
     html += '<tr class="data-row">';
-    html += '<td class="data-td td-name">' + p.name + '</td>';
-    html += '<td class="data-td td-mono td-sec">' + p.ip + '</td>';
-    html += '<td class="data-td td-sec">' + p.port + '</td>';
-    html += '<td class="data-td td-accent">' + destLabel + '</td>';
+    html += '<td class="data-td td-name">' + escapeHtml(p.name) + '</td>';
+    html += '<td class="data-td td-mono td-sec">' + escapeHtml(p.ip) + '</td>';
+    html += '<td class="data-td td-sec">' + escapeHtml(p.port) + '</td>';
+    html += '<td class="data-td td-accent">' + escapeHtml(destLabel) + '</td>';
     html += '<td class="data-td text-center"><button class="toggle ' + activeClass + '" data-printer-toggle="' + p.id + '" data-printer-active="' + p.active + '"></button></td>';
     html += '<td class="data-td text-center"><span id="' + statusId + '" class="status-dot"></span></td>';
     html += '<td class="data-td text-right nowrap">';
     html += '<button class="action-btn action-btn-accent" data-printer-test="' + p.id + '">Test</button>';
     html += '<button class="action-btn action-btn-dim" data-printer-edit="' + p.id + '">Upravit</button>';
-    html += '<button class="action-btn action-btn-danger" data-printer-delete="' + p.id + '" data-printer-name="' + p.name.replace(/"/g, '&quot;') + '">Zmazat</button>';
+    // XSS: samotne &quot; nestaci — pri ' alebo > sa da vyskocit z atributu.
+    html += '<button class="action-btn action-btn-danger" data-printer-delete="' + p.id + '" data-printer-name="' + escapeHtml(p.name) + '">Zmazat</button>';
     html += '</td></tr>';
   });
   html += '</tbody></table></div>';
@@ -1113,6 +1142,12 @@ function onContainerClick(e) {
   // Simple toggle (autoPrint, showVat)
   if (target.id === 'sAutoPrint' || target.id === 'sShowVat') {
     target.classList.toggle('on');
+    return;
+  }
+
+  // QR payment toggle
+  if (target.id === 'sQrPaymentEnabled' || target.closest('#sQrPaymentEnabled')) {
+    toggleQrPayment();
     return;
   }
 

@@ -13,13 +13,19 @@ function byId(id) {
   return _container.querySelector('#' + id);
 }
 
-function escapeHtml(value) {
-  return String(value == null ? '' : value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+// Jediná implementácia escapovania v projekte je /js/pos-escape.js
+// (escHtml pre textový obsah, escAttr pre atribút, escJsAttr pre inline
+// handler). Predtým mala takmer každá admin stránka vlastnú kópiu a boli
+// medzi nimi ŠTYRI rôzne správania — časť neescapovala apostrof ani
+// úvodzovku, čo je práve to, na čom záleží pri interpolácii do atribútu.
+// Lokálne meno ostáva, nech sa neprepisujú stovky volaní.
+function escapeHtml(v) {
+  // window.* zamerne: v moduloch, kde sa lokalna funkcia vola tiez escHtml,
+  // by holy identifikator ukazoval sam na seba (nekonecna rekurzia).
+  if (typeof window !== 'undefined' && typeof window.escHtml === 'function') return window.escHtml(v);
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function fmtEur(value) {
@@ -176,7 +182,7 @@ function detailCell(d) {
     html += '<td style="padding:4px 8px 4px 0">' + escapeHtml((it.emoji ? it.emoji + ' ' : '') + it.name)
           + (it.note ? '<div class="text-muted" style="font-size:12px">+ ' + escapeHtml(it.note) + '</div>' : '')
           + '</td>';
-    html += '<td class="num" style="padding:4px 8px;text-align:right;white-space:nowrap;color:var(--color-text-muted,#b9b9c7)">'
+    html += '<td class="num" style="padding:4px 8px;text-align:right;white-space:nowrap;color:var(--color-text-sec,#b9b9c7)">'
           + (it.price == null ? '—' : escapeHtml(fmtEur(it.price))) + '</td>';
     html += '<td class="num" style="padding:4px 0;text-align:right;white-space:nowrap;width:90px"><strong>'
           + (it.lineTotal == null ? '—' : escapeHtml(fmtEur(it.lineTotal))) + '</strong></td>';

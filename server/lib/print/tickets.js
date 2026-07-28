@@ -2,7 +2,7 @@
 // ready to send to a thermal printer via sendToPrinter().
 
 import { needsSaucePicker, SAUCE_ANNOTATION_NAME } from '../menu-helpers.js';
-import { CMD, formatEur, localDateTime, padLine, s } from './format.js';
+import { CMD, formatEur, localDateTime, localTimeHHMM, padLine, s } from './format.js';
 
 export function buildKitchenTicket({ dest, tableName, staffName, items, orderNum, time }) {
   let ticket = '';
@@ -438,9 +438,9 @@ export function buildZReportTicket(data) {
   t += CMD.BOLD_ON;
   t += '================================\n';
   t += 'UZAVIERKA DOKONCENA\n';
-  const now = new Date();
-  const time = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
-  t += time + '\n';
+  // Cas uzavierky musi byt lokalny (Europe/Bratislava). `now.getHours()` je
+  // v Dockeri UTC hodina, takze na papieri bol cas o 1–2 h pozadu.
+  t += localTimeHHMM(new Date()) + '\n';
   t += '================================\n';
   t += CMD.BOLD_OFF;
   t += CMD.FEED;

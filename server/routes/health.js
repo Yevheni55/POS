@@ -34,6 +34,10 @@ router.get('/', async (req, res) => {
     },
     db: 'unknown',
     printers: [],
+    // Vek poslednej zálohy. Bez tohto sa tichý výpadok záloh (plný disk,
+    // chýbajúci pg_dump po rebuilde image) nedal spozorovať inak než SSH
+    // na kasu — a zistilo by sa to až vo chvíli, keď treba obnovovať.
+    backup: null,
   };
 
   // DB check
@@ -62,6 +66,24 @@ router.get('/', async (req, res) => {
     const ok = await checkPrinter(ip, port);
     health.printers.push({ name: 'Default', ip, port, dest: 'all', status: ok ? 'ok' : 'error' });
     if (!ok) health.status = 'degraded';
+  }
+
+  // Zálohy — zámerne bez ciest na disku, nech verejný /health nič neprezrádza.
+  try {
+    const { getLastBackupInfo } = await import('../lib/backup.js');
+    const b = await getLastBackupInfo();
+    health.backup = {
+      ok: b.ok,
+      lastDate: b.lastDate,
+      ageHours: b.ageHours,
+      sizeMb: b.bytes ? Math.round((b.bytes / 1048576) * 10) / 10 : 0,
+      count: b.count,
+      mirrorConfigured: !!b.mirrorConfigured,
+    };
+    if (!b.ok) health.status = health.status === 'ok' ? 'degraded' : health.status;
+  } catch {
+    health.backup = { ok: false, lastDate: null, ageHours: null, sizeMb: 0, count: 0 };
+    health.status = health.status === 'ok' ? 'degraded' : health.status;
   }
 
   res.json(health);

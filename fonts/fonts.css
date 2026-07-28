@@ -7,15 +7,107 @@
    Sora: Latin + Latin-ext (variable font, 400–800)
    Manrope: Latin + Latin-ext + Cyrillic + Cyrillic-ext (variable font, 400–700)
 
-   Daylight foundation (Phase 1) additions:
-   Outfit         — display-alt (300–800 variable), loaded for Phase 2 swap.
-   JetBrains Mono — mono / numerals for tabular values (incl. variable).
-   Loaded via Google Fonts (CSS2 API). Not applied via rules in Phase 1.
+   Daylight (current surface font stack):
+   Outfit         — display + body on every surface (300–800 variable).
+   JetBrains Mono — mono / numerals for tabular values (100–800 variable).
+   Newsreader     — serif accent used by admin.css.
+
+   All SELF-HOSTED. They used to come from fonts.googleapis.com via <link>
+   tags in pos-enterprise.html / login.html / dochadzka.html, which meant:
+     - a render-blocking request to a third party on every POS boot, on a
+       machine whose internet is not guaranteed (venue wifi / Tailscale),
+     - admin/index.html and kitchen.html loaded only this file, which did not
+       declare Outfit at all — so the whole admin ran on system-ui while
+       admin.css asked for 'Outfit',
+     - the fonts could not be precached by sw.js for offline use.
+   Subsets: latin + latin-ext (latin-ext carries ľščťžýáíéúäôň for Slovak).
    ========================================================== */
 
-/* Outfit + JetBrains Mono Variable hoisted to <link> tags in HTML for
-   parallel loading (no @import cascade serialization). See
-   pos-enterprise.html / login.html. */
+/* ===== OUTFIT — Display + Body (Daylight) ===== */
+
+/* latin-ext */
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 300 800;
+  font-display: swap;
+  src: url('./outfit-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 300 800;
+  font-display: swap;
+  src: url('./outfit-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* ===== JETBRAINS MONO — Numerals / tabular values =====
+   Declared under both names: --font-mono asks for 'JetBrains Mono Variable'
+   first (the name the Google CSS2 variable build used to register) and falls
+   back to 'JetBrains Mono'. Same files, the browser dedupes the download. */
+
+/* latin-ext */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url('./jetbrains-mono-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url('./jetbrains-mono-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* latin-ext — alias name used first in --font-mono */
+@font-face {
+  font-family: 'JetBrains Mono Variable';
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url('./jetbrains-mono-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin — alias name used first in --font-mono */
+@font-face {
+  font-family: 'JetBrains Mono Variable';
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url('./jetbrains-mono-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* ===== NEWSREADER — serif accent (admin.css) =====
+   The woff2 files were already in this folder but nothing declared the face,
+   so 'Newsreader', serif silently fell through to the platform serif. */
+
+/* latin-ext */
+@font-face {
+  font-family: 'Newsreader';
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url('./newsreader-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Newsreader';
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url('./newsreader-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
 
 /* ===== SORA — Display Font ===== */
 

@@ -13,6 +13,7 @@ import { zReportHandler } from '../lib/reports/z-report.js';
 import { exportHandler } from '../lib/reports/export.js';
 import { staffHandler } from '../lib/reports/staff.js';
 import { forecastsHandler, forecastHourlyTodayHandler } from '../lib/reports/forecasts.js';
+import { sheetsExportHandler } from '../lib/sheets-export.js';
 
 const router = Router();
 const mgr = requireRole('manazer', 'admin');
@@ -25,5 +26,7 @@ router.get('/export',   mgr, exportHandler);
 router.get('/staff',    mgr, staffHandler);
 router.get('/forecasts', mgr, forecastsHandler);
 router.get('/forecasts/hourly-today', mgr, forecastHourlyTodayHandler);
+// Manuálny push sezónneho P&L do Google Sheets (denný cron beží sám o 05:10).
+router.post('/sheets-export', mgr, sheetsExportHandler);
 
 export default router;

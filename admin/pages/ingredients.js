@@ -3,6 +3,19 @@ import { mountEmptyState } from '../components/empty-state.js';
 import { softDelete } from '../components/toast-undo.js';
 import { fmtCost, fmtNum } from '../../components/fmt.js';
 
+// Escapovanie: jediná implementácia je /js/pos-escape.js (načítaná v
+// admin/index.html). Táto stránka predtým NEescapovala vôbec nič — názov
+// kategórie / produktu / stola / suroviny / zamestnanca ide z DB rovno do
+// innerHTML, takže čokoľvek, čo si manažér uloží ako názov, sa v admine
+// vykoná ako HTML (CSP má 'unsafe-inline', takže aj ako skript).
+function escapeHtml(v) {
+  if (typeof window !== 'undefined' && typeof window.escHtml === 'function') return window.escHtml(v);
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+
 let ingredients = [];
 let editingId = null;
 let searchTerm = '';
@@ -80,18 +93,18 @@ function renderTable() {
 
   filtered.forEach(function (item) {
     html += '<tr class="data-row">';
-    html += '<td class="data-td td-name">' + item.name + '</td>';
-    html += '<td class="data-td td-sec">' + item.unit + '</td>';
+    html += '<td class="data-td td-name">' + escapeHtml(item.name) + '</td>';
+    html += '<td class="data-td td-sec">' + escapeHtml(item.unit) + '</td>';
     html += '<td class="data-td text-right num">' + fmtNum(item.currentQty) + '</td>';
     html += '<td class="data-td text-right num td-sec">' + fmtNum(item.minQty) + '</td>';
     // \u20AC/jednotka \u2014 pridanie sufixu "/g", "/l", "/ks" hne\u010F za sumou aby
     // bolo jednozna\u010Dn\u00E9 ze cena je per-gram/liter, nie za balenie.
     // Pre sub-centov\u00E9 ceny zobraz\u00EDme 4-5 desatinn\u00FDch miest cez fmtCost.
-    html += '<td class="data-td text-right num">' + fmtCost(item.costPerUnit) + '\u00A0\u20AC/' + item.unit + '</td>';
+    html += '<td class="data-td text-right num">' + fmtCost(item.costPerUnit) + '\u00A0\u20AC/' + escapeHtml(item.unit) + '</td>';
     html += '<td class="data-td text-center">' + getStatusBadge(item) + '</td>';
     html += '<td class="data-td text-right"><div class="prod-actions">';
     html += '<button class="act-btn" data-edit-id="' + item.id + '" title="Upravit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>';
-    html += '<button class="act-btn del" data-delete-id="' + item.id + '" data-delete-name="' + item.name.replace(/"/g, '&quot;') + '" title="Zmazat"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>';
+    html += '<button class="act-btn del" data-delete-id="' + item.id + '" data-delete-name="' + escapeHtml(item.name) + '" title="Zmazat"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>';
     html += '</div></td></tr>';
   });
 

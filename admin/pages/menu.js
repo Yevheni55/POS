@@ -1,6 +1,19 @@
 import { softDelete } from '../components/toast-undo.js';
 import { fmtCost } from '../../components/fmt.js';
 
+// Escapovanie: jediná implementácia je /js/pos-escape.js (načítaná v
+// admin/index.html). Táto stránka predtým NEescapovala vôbec nič — názov
+// kategórie / produktu / stola / suroviny / zamestnanca ide z DB rovno do
+// innerHTML, takže čokoľvek, čo si manažér uloží ako názov, sa v admine
+// vykoná ako HTML (CSP má 'unsafe-inline', takže aj ako skript).
+function escapeHtml(v) {
+  if (typeof window !== 'undefined' && typeof window.escHtml === 'function') return window.escHtml(v);
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+
 let MENU_DATA = [];
 let activeCatId = null;
 let editingProductId = null;
@@ -139,7 +152,7 @@ function renderCategories() {
       <span class="cat-drag-handle">\u22EE\u22EE</span>
       <span class="cat-icon">${cat.icon}</span>
       <div class="cat-info" style="flex:1;min-width:0">
-        <div class="cat-name">${cat.label}</div>
+        <div class="cat-name">${escapeHtml(cat.label)}</div>
         <div class="cat-count">${cat.items.length} poloziek</div>
       </div>
       <div class="cat-actions" style="display:flex;gap:2px;opacity:.7">
@@ -566,8 +579,8 @@ function renderProducts() {
       <span class="prod-drag">\u22EE\u22EE</span>
       <span class="prod-emoji">${item.emoji}</span>
       <div class="prod-info">
-        <div class="prod-name">${item.name}</div>
-        <div class="prod-desc">${item.desc}</div>
+        <div class="prod-name">${escapeHtml(item.name)}</div>
+        <div class="prod-desc">${escapeHtml(item.desc)}</div>
         <div style="font-size:12px;color:var(--color-text-sec);margin-top:4px">DPH ${formatVatRate(item.vatRate)}%</div>
       </div>
       <div class="prod-price">${fmt(item.price)}</div>
@@ -666,7 +679,7 @@ async function toggleAvail(id) {
 // === Product modal ===
 function populateCategorySelect() {
   const sel = byId('fCategory');
-  sel.innerHTML = MENU_DATA.map(c => `<option value="${c.id}" ${c.id === activeCatId ? 'selected' : ''}>${c.icon} ${c.label}</option>`).join('');
+  sel.innerHTML = MENU_DATA.map(c => `<option value="${c.id}" ${c.id === activeCatId ? 'selected' : ''}>${escapeHtml(c.icon)} ${escapeHtml(c.label)}</option>`).join('');
 }
 
 function populateCompanionSelect(selfId, selectedId) {
@@ -679,7 +692,7 @@ function populateCompanionSelect(selfId, selectedId) {
     cat.items.forEach(it => {
       if (it.id === selfId) return;
       if (selfId != null && it.companionMenuItemId === selfId) return;
-      const name = (it.emoji ? it.emoji + ' ' : '') + it.name;
+      const name = escapeHtml((it.emoji ? it.emoji + ' ' : '') + it.name);
       const sel = (selectedId != null && it.id === selectedId) ? ' selected' : '';
       options.push(`<option value="${it.id}"${sel}>${name}</option>`);
     });
@@ -976,13 +989,13 @@ export function init(container) {
               </select>
             </div>
             <div class="u-modal-field">
-              <label for="fDestOverride">Tlač do <span style="color:var(--color-text-muted);font-weight:400">(stanica)</span></label>
+              <label for="fDestOverride">Tlač do <span style="color:var(--color-text-sec);font-weight:400">(stanica)</span></label>
               <select id="fDestOverride">
                 <option value="">Default (podľa kategórie)</option>
                 <option value="kuchyna">🍳 Kuchyňa</option>
                 <option value="bar">🍹 Bar</option>
               </select>
-              <small style="color:var(--color-text-muted);font-size:11px;margin-top:3px;display:block">Default = kuchyna pre jedlo kategórie, bar pre nápoje. Override použi keď chceš tlačiť inde (napr. shisha tabak v bar kategórii, ale tlač na kuchynskú stanicu).</small>
+              <small style="color:var(--color-text-sec);font-size:11px;margin-top:3px;display:block">Default = kuchyna pre jedlo kategórie, bar pre nápoje. Override použi keď chceš tlačiť inde (napr. shisha tabak v bar kategórii, ale tlač na kuchynskú stanicu).</small>
             </div>
           </div>
           <div class="u-modal-field">
@@ -990,7 +1003,7 @@ export function init(container) {
             <select id="fCompanion">
               <option value="">— žiadna —</option>
             </select>
-            <small style="color:var(--color-text-muted);font-size:12px">Napr. "Záloha fľaša" k flaške Coly. Pri pridaní/zmazaní hlavnej položky sa pridá/zmaže aj táto automaticky.</small>
+            <small style="color:var(--color-text-sec);font-size:12px">Napr. "Záloha fľaša" k flaške Coly. Pri pridaní/zmazaní hlavnej položky sa pridá/zmaže aj táto automaticky.</small>
           </div>
           <div class="u-modal-field">
             <label>Fotka (max 4 MB; JPEG / PNG / WebP)</label>
@@ -1002,7 +1015,7 @@ export function init(container) {
                   <input id="fImageInput" type="file" accept="image/jpeg,image/png,image/webp" style="display:none">
                 </label>
                 <button type="button" id="fImageClear" class="u-btn u-btn-ghost" style="display:none;margin-left:6px;padding:8px 14px;font-size:13px">Zmazať</button>
-                <div id="fImageHint" style="font-size:11px;color:var(--color-text-muted);margin-top:4px">Po výbere fotky stlač <b>Uložiť</b>.</div>
+                <div id="fImageHint" style="font-size:11px;color:var(--color-text-sec);margin-top:4px">Po výbere fotky stlač <b>Uložiť</b>.</div>
               </div>
             </div>
           </div>

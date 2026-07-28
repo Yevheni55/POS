@@ -3,6 +3,8 @@ import { getPortosConfig } from './portos.js';
 export const PAYMENT_METHOD_LABELS = {
   hotovost: 'Hotovos\u0165',
   karta: 'Karta',
+  // QR platba cez Portos (PayMe/SBA) \u2014 na fi\u0161k\u00e1lnom doklade sa zobraz\u00ed ako "QR platba".
+  prevod: 'QR platba',
 };
 
 /**
@@ -215,6 +217,41 @@ export function allocateDiscountAcrossVatGroups(items, discountAmount) {
     }));
 }
 
+/**
+ * Per-item discount lines. Each line with item.discountAmount > 0 emits ONE
+ * negative `Discount` line carrying THAT item's VAT rate (so the eKasa VAT
+ * summary stays correct when VAT-registered) and a name 'Zľava: <položka>' for
+ * an audit trail on the doklad. Mirrors the order-level allocateDiscount lines
+ * (same type 'Discount' → handled identically by storno + receipt-compare).
+ */
+export function buildItemDiscountLines(items) {
+  const lines = [];
+  for (const item of items) {
+    const amount = roundMoney(item.discountAmount || 0);
+    if (amount <= 0) continue;
+    lines.push({
+      type: 'Discount',
+      name: sanitizeForFiscalPrinter(`Zľava: ${item.name}`),
+      price: -amount,
+      unitPrice: -amount,
+      quantity: {
+        amount: 1,
+        unit: 'ks',
+      },
+      referenceReceiptId: null,
+      vatRate: normalizeVatRate(item.vatRate),
+      description: null,
+    });
+  }
+  return lines;
+}
+
+/**
+ * @param {Array} items - order items; each MAY carry a per-item `discountAmount`
+ * @param {number} discountAmount - ORDER-LEVEL discount only (per-item discounts
+ *   ride on items[].discountAmount and are emitted separately). Passing the
+ *   combined total here would double-count.
+ */
 export function buildFiscalReceiptItems(items, discountAmount = 0, { forceZeroVat = false } = {}) {
   const normalizedItems = forceZeroVat
     ? items.map((item) => ({ ...item, vatRate: 0 }))
@@ -234,7 +271,9 @@ export function buildFiscalReceiptItems(items, discountAmount = 0, { forceZeroVa
     description: null,
   }));
 
-  return receiptItems.concat(allocateDiscountAcrossVatGroups(normalizedItems, discountAmount));
+  return receiptItems
+    .concat(buildItemDiscountLines(normalizedItems))
+    .concat(allocateDiscountAcrossVatGroups(normalizedItems, discountAmount));
 }
 
 /** Paragón externalId — prefix `paragon-` + lokálne poradové číslo + salt. */

@@ -512,7 +512,22 @@ async function syncOrderToServer() {
       order.forEach(function (o) {
         if (typeof o.id === 'number' && o.id > 1000000000 && !o.sent) syncedLocalIds.add(o.id);
       });
-      var newOrder = await api.post('/orders', { tableId: selectedTableId, items: items });
+      // STABILNÝ idempotency kľúč pre založenie účtu na tomto stole.
+      // Offline sa POST zaradí do fronty a vráti null; kým je kasa offline,
+      // ďalšie pokusy o sync posielajú POST znova. Po obnove spojenia by sa
+      // prehrala fronta AJ nový priamy POST — a na stole by vzniklo viac
+      // účtov, ktoré nikto nezakladal. Rovnaký kľúč nechá server zlúčiť ich
+      // do jednej objednávky (server/middleware/idempotency.js).
+      var _createKey = _orderCreateKey(selectedTableId);
+      var newOrder = await api.post('/orders', { tableId: selectedTableId, items: items }, _createKey);
+      // Offline vracia api.request() pre POST null. Bez tejto kontroly tu
+      // padol TypeError „Cannot read properties of null".
+      if (!newOrder || newOrder.id == null) {
+        var offlineErr = new Error('Objednávku sa nepodarilo vytvoriť — skontroluj pripojenie. Položky zostávajú uložené.');
+        offlineErr.code = 'ORDER_CREATE_UNAVAILABLE';
+        throw offlineErr;
+      }
+      _clearOrderCreateKey(selectedTableId);
       currentOrderId = newOrder.id;
       currentOrderVersion = newOrder.version || 1;
     } else {
@@ -552,6 +567,34 @@ async function syncOrderToServer() {
     showToast('Chyba sync: ' + e.message);
     throw e;
   }
+}
+
+// Idempotency kľúč pre `POST /orders` daného stola. Drží sa v localStorage,
+// aby prežil reload aj pád tabu — inak by po reštarte vznikol nový kľúč a
+// zaradený offline POST by sa už nezlúčil s tým novým.
+var ORDER_CREATE_KEY_PREFIX = 'pos_ordercreate_';
+function _newIdempotencyKey() {
+  if (typeof api !== 'undefined' && api && typeof api._genIdempotencyKey === 'function') {
+    return api._genIdempotencyKey();
+  }
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  return Date.now() + '-' + Math.random().toString(36).slice(2);
+}
+function _orderCreateKey(tableId) {
+  var k = ORDER_CREATE_KEY_PREFIX + tableId;
+  try {
+    var existing = localStorage.getItem(k);
+    if (existing) return existing;
+    var fresh = _newIdempotencyKey();
+    localStorage.setItem(k, fresh);
+    return fresh;
+  } catch (e) {
+    // Bez localStorage sa aspoň nezlomíme — vrátime jednorazový kľúč.
+    return _newIdempotencyKey();
+  }
+}
+function _clearOrderCreateKey(tableId) {
+  try { localStorage.removeItem(ORDER_CREATE_KEY_PREFIX + tableId); } catch (e) {}
 }
 
 function _findOrderItemForQtyChange(order, name, itemId) {
@@ -631,20 +674,33 @@ function scrollOrderToTop() {
 function _promptStornoReasonAndWriteOff(s) {
   if (!s || !s.miId) return;
   showStornoReason(s.sName, s.sQty, function(result) {
-    if (!result) return;
-    // Cashier's input goes to the basket — admin will resolve it from the
-    // Storno page, which is when the actual stock revert / write-off runs.
+    // ZÁPIS VZNIKNE VŽDY. Modal sa otvára až potom, ako sa položka zmazala
+    // z účtu a do kuchyne odišiel STORNO bon — späť sa to už nedá vziať.
+    // Keď obsluha dôvod nezadá (Preskočiť / Escape / klik vedľa), založí sa
+    // záznam s dôvodom „Ine" a manažér ho dorieši v Storno koši. Predtým sa
+    // v tejto vetve nezapísalo NIČ: sklad zostal odpísaný ako predaj a strata
+    // bola v P&L neviditeľná.
+    var skipped = !result || result.__skipped;
+    var reason = skipped ? 'other' : result.reason;
+    var note = skipped
+      ? 'Dôvod nezadaný (obsluha preskočila) — dorieš v Storno koši'
+      : (result.note || '');
+    // Pri nezadanom dôvode NEvraciame suroviny na sklad: radšej nech je
+    // strata viditeľná a manažér ju opraví, než aby sa sklad ticho nafúkol.
+    var wasPrepared = skipped ? true : !result.returnToStock;
+
     api.post('/storno-basket', {
       menuItemId: s.miId,
       qty: s.sQty,
       name: s.sName,
       unitPrice: typeof s.unitPrice === 'number' ? s.unitPrice : 0,
-      reason: result.reason,
-      note: result.note || '',
-      wasPrepared: !result.returnToStock,
+      reason: reason,
+      note: note,
+      wasPrepared: wasPrepared,
       orderId: s.oid || null,
     }).then(function () {
-      showToast('✔ Storno zapísané', true);
+      showToast(skipped ? 'Storno zapísané bez dôvodu — dorieš v admine' : '✔ Storno zapísané',
+                skipped ? 'warning' : true);
     }).catch(function (e) {
       console.error('storno-basket POST error:', e);
       // Offline (fetch TypeError) is already auto-queued by api.request and
@@ -663,13 +719,16 @@ function _promptStornoReasonAndWriteOff(s) {
               qty: s.sQty,
               name: s.sName,
               unitPrice: typeof s.unitPrice === 'number' ? s.unitPrice : 0,
-              reason: result.reason,
-              note: result.note || '',
-              wasPrepared: !result.returnToStock,
+              // Rovnaké hodnoty ako pri priamom POSTe vyššie — vrátane vetvy,
+              // keď obsluha dôvod preskočila (result môže byť aj null).
+              reason: reason,
+              note: note,
+              wasPrepared: wasPrepared,
               orderId: s.oid || null,
             },
             idempotencyKey: (typeof api._genIdempotencyKey === 'function' ? api._genIdempotencyKey() : null),
             timestamp: Date.now(),
+            staffId: (function () { var u = api.getUser(); return u && u.id != null ? u.id : null; })(),
           });
           api._saveQueue();
           showToast('Storno zápis zlyhal — uložené, skúsim znova po obnove spojenia', 'warning');
@@ -897,9 +956,17 @@ function changeQty(name,d,itemId,_managerOverride){
   updateQtyBadges(item.menuItemId);
   _scheduleRender();
 }
-async function removeItem(name){
+// POZOR na itemId: bez neho sa riadok hľadá podľa MENA a zmaže sa PRVÝ zhodný.
+// Duplicitné mená sú na účte úplne bežné — tá istá položka s poznámkou a bez
+// nej, combo riadky s `_noMerge`, a hlavne sent + unsent dvojica toho istého
+// produktu. Čašník tak klikol × na jednom riadku a zmizol iný: ak bol ten
+// „nesprávny" už odoslaný, do kuchyne odišiel STORNO bon na položku, ktorú
+// nikto rušiť nechcel, a tá, ktorú zrušiť chcel, ostala na účte a išla do
+// fiškálu. `_findOrderItemForQtyChange` (preferuje id, meno len ako fallback)
+// tu existoval už predtým — changeQty ho používal, removeItem nie.
+async function removeItem(name, itemId){
   const order = getOrder();
-  const item = order.find(o => o.name === name);
+  const item = _findOrderItemForQtyChange(order, name, itemId);
   if (!item) return;
 
   // If sent and user is cisnik (not manazer/admin), require manager PIN
@@ -907,16 +974,16 @@ async function removeItem(name){
   if (item.sent && user && user.role === 'cisnik') {
     var _stQty = item._sentQty || item.qty || 1;
     var _stPrice = typeof item.price === 'number' ? item.price : 0;
-    var _ctx = 'Storno: ' + _stQty + '× ' + name + ' (' + (_stPrice * _stQty).toFixed(2) + ' €)';
-    showManagerPin(_ctx, function() { doRemoveItem(name); });
+    var _ctx = 'Storno: ' + _stQty + '× ' + item.name + ' (' + (_stPrice * _stQty).toFixed(2) + ' €)';
+    showManagerPin(_ctx, function() { doRemoveItem(item.name, item.id); });
     return;
   }
 
-  doRemoveItem(name);
+  doRemoveItem(item.name, item.id);
 }
-async function doRemoveItem(name){
+async function doRemoveItem(name, wantedItemId){
   const order = getOrder();
-  const item = order.find(o => o.name === name);
+  const item = _findOrderItemForQtyChange(order, name, wantedItemId);
   if (!item) return;
 
   var sentQty = item._sentQty || 0;
@@ -985,12 +1052,14 @@ async function doRemoveItem(name){
 function confirmRemoveItem(name, id) {
   var order = getOrder();
   var item = order.find(function (o) { return o.id === id; });
-  if (!item) { removeItem(name); return; }
-  if (item.qty <= 1) { removeItem(name); return; }
+  // id sa posúva ďalej do removeItem — inak by sa potvrdilo odstránenie
+  // jedného riadku a zmazal by sa prvý s rovnakým menom.
+  if (!item) { removeItem(name, id); return; }
+  if (item.qty <= 1) { removeItem(item.name, item.id); return; }
   showConfirm(
     'Odstránit položku',
     '„' + escHtml(item.name) + '" × ' + item.qty + ' bude odobrané z účtu.',
-    function () { removeItem(name); },
+    function () { removeItem(item.name, item.id); },
     { type: 'danger', confirmText: 'Odstránit', cancelText: 'Späť' }
   );
 }
@@ -1046,6 +1115,55 @@ async function _clearOrderImmediate(){
     showToast('Chyba: ' + e.message);
   }
 }
+// Zápis jedného riadku do storno koša. Vyňaté z
+// _promptStornoReasonAndWriteOff, nech to vie použiť aj zrušenie CELÉHO účtu.
+function _postStornoBasketRow(s, reason, note, wasPrepared) {
+  return api.post('/storno-basket', {
+    menuItemId: s.miId,
+    qty: s.sQty,
+    name: s.sName,
+    unitPrice: typeof s.unitPrice === 'number' ? s.unitPrice : 0,
+    reason: reason,
+    note: note,
+    wasPrepared: wasPrepared,
+    orderId: s.oid || null,
+  });
+}
+
+// Jeden dôvod pre celý zrušený účet a z neho N riadkov do koša.
+// Pýtať sa na dôvod pri každej položke zvlášť by bolo uprostred obsluhy
+// neúnosné, ale nezapísať NIČ (čo sa dialo doteraz) znamená, že sklad ostane
+// odpísaný ako predaj a strata je v P&L neviditeľná.
+function _promptStornoReasonForWholeOrder(rows) {
+  if (!rows || !rows.length) return;
+  var totalQty = rows.reduce(function (s, r) { return s + r.sQty; }, 0);
+  var label = 'celý účet — ' + rows.length + ' ' + (rows.length === 1 ? 'položka' : 'položky');
+
+  showStornoReason(label, totalQty, function (result) {
+    var skipped = !result || result.__skipped;
+    var reason = skipped ? 'other' : result.reason;
+    var note = (skipped
+      ? 'Zrušený celý účet, dôvod nezadaný — dorieš v Storno koši'
+      : ('Zrušený celý účet. ' + (result.note || '')).trim());
+    var wasPrepared = skipped ? true : !result.returnToStock;
+
+    Promise.all(rows.map(function (r) {
+      return _postStornoBasketRow(r, reason, note, wasPrepared).catch(function (e) {
+        console.error('storno-basket (cely ucet) POST error:', e);
+        return null;
+      });
+    })).then(function (res) {
+      var ok = res.filter(function (x) { return x !== null; }).length;
+      if (ok === rows.length) {
+        showToast(skipped ? 'Storno zapísané bez dôvodu — dorieš v admine' : '✔ Storno účtu zapísané',
+                  skipped ? 'warning' : true);
+      } else {
+        showToast('Časť storna sa nezapísala (' + ok + '/' + rows.length + ') — skontroluj Storno kôš', 'error');
+      }
+    });
+  });
+}
+
 async function doClearOrder(){
   try {
     if(!getOrder().length)return;
@@ -1054,10 +1172,22 @@ async function doClearOrder(){
 
     // Print storno for all sent items
     var stornoItems = [];
+    // Zároveň si odložíme podklady pre storno kôš — po zmazaní účtu už
+    // getOrder() nič nevráti.
+    var basketRows = [];
     getOrder().forEach(function(item) {
       var sentQty = item._sentQty || 0;
       if (sentQty > 0) {
         stornoItems.push({ qty: -sentQty, name: item.name, note: '' });
+        if (item.menuItemId) {
+          basketRows.push({
+            miId: item.menuItemId,
+            sQty: sentQty,
+            sName: item.name,
+            unitPrice: typeof item.price === 'number' ? item.price : 0,
+            oid: currentOrderId,
+          });
+        }
       }
     });
     if (stornoItems.length) {
@@ -1093,6 +1223,12 @@ async function doClearOrder(){
     if(currentView==='tables')renderFloor();
     if(isMobile())renderMobTables();
     showToast('Objednavka zrusena');
+
+    // Storno odoslaných položiek do koša — až teraz, keď je účet naozaj
+    // zrušený. Predtým sa pri zrušení CELÉHO účtu nezapísalo nič: storno
+    // jedného piva skončilo v koši a opravilo sklad, ale storno
+    // osempoložkového účtu bolo pre sklad aj P&L neviditeľné.
+    if (basketRows.length) _promptStornoReasonForWholeOrder(basketRows);
   } catch(e) {
     console.error('clearOrder error:', e);
     showToast('Chyba: ' + e.message);

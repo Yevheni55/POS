@@ -17,6 +17,7 @@ export async function init(container, subRoute) {
     tabs: [
       { slug: 'platby',   label: 'Platby',          importer: function () { return import('./payments.js'); } },
       { slug: 'fiskalne', label: 'Fiškálne doklady', importer: function () { return import('./fiscal-documents.js'); } },
+      { slug: 'odpisy',   label: 'Odpisy',          importer: function () { return import('./odpisy.js'); } },
       { slug: 'audit',    label: 'Audit objednávok', importer: function () { return import('./audit.js'); } },
     ],
   });

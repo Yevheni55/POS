@@ -27,11 +27,16 @@
   --color-danger: #b03830;
   --color-danger-bg: rgba(176, 56, 48, .10);
   --accent-amber: #b87c1a;
+  /* Text-safe varianta jantárovej. Brand --accent-amber ma na kremovom
+     podklade len 3,09:1 (na elevated 2,80:1), co je pod AA aj pre velky
+     text — a nesie pritom cas obsadenia stola a cistu cenu po zlave.
+     Vyplne, bodky a ramiky zostavaju na brandovej; text ide na tuto. */
+  --accent-amber-text: #8a5d14;
   --accent-amber-bg: rgba(184, 124, 26, .12);
 
   --color-text:     #1e1812;
   --color-text-sec: #5a4f3c;
-  --color-text-dim: #8a7d65;
+  --color-text-dim: #706552;
 
   --font-display: 'Outfit', system-ui, sans-serif;
   --font-body:    'Outfit', system-ui, sans-serif;
@@ -326,7 +331,7 @@ body::before {
 }
 .doch-splash.out .doch-splash-card {
   border-color: var(--accent-amber);
-  color: var(--accent-amber);
+  color:var(--accent-amber-text);
   box-shadow:
     0 4px 12px rgba(30, 24, 18, .12),
     0 24px 64px -16px rgba(30, 24, 18, .28),
@@ -584,7 +589,7 @@ body::before {
   font-weight: 700;
   letter-spacing: .12em;
   text-transform: uppercase;
-  color: var(--accent-amber);
+  color:var(--accent-amber-text);
   background: var(--accent-amber-bg);
   border: 1px solid rgba(184, 124, 26, .35);
   padding: 2px 8px;
@@ -592,7 +597,7 @@ body::before {
 }
 .ms-running {
   font-size: 11px;
-  color: var(--accent-amber);
+  color:var(--accent-amber-text);
   font-style: italic;
   font-weight: 600;
 }

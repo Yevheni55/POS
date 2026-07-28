@@ -11,9 +11,19 @@ function $(sel) {
   return _container.querySelector(sel);
 }
 
-function escHtml(str) {
-  if (!str) return '';
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+// Jediná implementácia escapovania v projekte je /js/pos-escape.js
+// (escHtml pre textový obsah, escAttr pre atribút, escJsAttr pre inline
+// handler). Predtým mala takmer každá admin stránka vlastnú kópiu a boli
+// medzi nimi ŠTYRI rôzne správania — časť neescapovala apostrof ani
+// úvodzovku, čo je práve to, na čom záleží pri interpolácii do atribútu.
+// Lokálne meno ostáva, nech sa neprepisujú stovky volaní.
+function escHtml(v) {
+  // window.* zamerne: v moduloch, kde sa lokalna funkcia vola tiez escHtml,
+  // by holy identifikator ukazoval sam na seba (nekonecna rekurzia).
+  if (typeof window !== 'undefined' && typeof window.escHtml === 'function') return window.escHtml(v);
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function fmtEur(n) {
@@ -230,7 +240,7 @@ function openAddEditModal(id) {
     + '<label for="fNote">Poznamka</label>'
     + '<input id="fNote" class="form-input" type="text" placeholder="Volitelna poznamka" value="' + escHtml(item ? (item.note || '') : '') + '">'
     + '</div>'
-    + '<div id="depPreview" style="padding:10px 14px;background:var(--color-surface-raised);border-radius:8px;font-size:13px;color:var(--color-text-dim);margin-top:4px">'
+    + '<div id="depPreview" style="padding:10px 14px;background:var(--surface-raised);border-radius:8px;font-size:13px;color:var(--color-text-dim);margin-top:4px">'
     + 'Mesacny odpis: --'
     + '</div>'
     + '</div>'
@@ -380,7 +390,7 @@ function renderDetailContent(ov, asset) {
     + '<div><div style="font-size:11px;color:var(--color-text-dim);margin-bottom:2px">Zostatkovs hodnota</div><div class="num">' + fmtEur(asset.residualValue) + '</div></div>'
     + '</div>';
 
-  var stateHtml = '<div style="padding:14px;background:var(--color-surface-raised);border-radius:10px;margin-bottom:20px">'
+  var stateHtml = '<div style="padding:14px;background:var(--surface-raised);border-radius:10px;margin-bottom:20px">'
     + '<div style="font-weight:600;margin-bottom:10px;font-size:13px">Aktualny stav</div>'
     + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">'
     + '<div><div style="font-size:11px;color:var(--color-text-dim)">Aktualna hodnota</div><div class="num" style="font-weight:600;font-size:15px">' + fmtEur(asset.currentValue) + '</div></div>'
@@ -508,7 +518,7 @@ export function init(container) {
     + '</div>'
     + '</div>'
     + '<div class="stat-card">'
-    + '<div class="stat-icon" style="background:rgba(130,170,255,.12);color:var(--color-info)">'
+    + '<div class="stat-icon" style="background:rgba(130,170,255,.12);color:var(--color-accent-secondary)">'
     + '<svg aria-hidden="true" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>'
     + '</div>'
     + '<div class="stat-info">'

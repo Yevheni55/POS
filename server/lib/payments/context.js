@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { db } from '../../db/index.js';
 import { menuItems, orderItems, orders, payments, tables } from '../../db/schema.js';
 import { logEvent } from '../audit.js';
-import { roundMoney } from './shared.js';
+import { lineDiscountAmount, roundMoney } from './shared.js';
 import {
   buildFiscalDocumentValues,
   selectSaleFiscalDocumentForOrder,
@@ -31,27 +31,56 @@ export async function loadOrderPaymentContext(orderId) {
     qty: orderItems.qty,
     price: menuItems.price,
     vatRate: menuItems.vatRate,
+    discountType: orderItems.discountType,
+    discountValue: orderItems.discountValue,
   })
     .from(orderItems)
     .innerJoin(menuItems, eq(orderItems.menuItemId, menuItems.id))
     .where(eq(orderItems.orderId, orderId));
 
-  const normalizedItems = items.map((item) => ({
-    ...item,
-    qty: Number(item.qty),
-    price: Number(item.price),
-    vatRate: Number(item.vatRate),
-  }));
+  // Each line's euro discount is derived live from the current menu price
+  // (no price snapshot on order_items). discountAmount is attached to the item
+  // so the fiscal builder can emit a per-item negative discount line.
+  const normalizedItems = items.map((item) => {
+    const qty = Number(item.qty);
+    const price = Number(item.price);
+    const discountValue = item.discountValue == null ? null : Number(item.discountValue);
+    const discountAmount = item.discountType && discountValue
+      ? lineDiscountAmount(price, qty, item.discountType, discountValue)
+      : 0;
+    return {
+      ...item,
+      qty,
+      price,
+      vatRate: Number(item.vatRate),
+      discountAmount,
+    };
+  });
 
   const subtotal = roundMoney(normalizedItems.reduce((sum, item) => sum + (item.price * item.qty), 0));
-  const discountAmount = roundMoney(order.discountAmount ? Number(order.discountAmount) : 0);
+  // Per-item discounts are each capped at their own line → itemDiscountTotal ≤ subtotal.
+  const itemDiscountTotal = roundMoney(normalizedItems.reduce((sum, item) => sum + (item.discountAmount || 0), 0));
+  const rawOrderDiscount = roundMoney(order.discountAmount ? Number(order.discountAmount) : 0);
+  // Order-level discount was frozen against the gross subtotal; item discounts
+  // come on top. Clamp the order-level portion so order + item discounts never
+  // exceed the subtotal — otherwise the fiscal line sum would go negative while
+  // expectedTotal floors at 0, and Portos rejects on amount mismatch.
+  const orderDiscountAmount = Math.min(rawOrderDiscount, Math.max(0, roundMoney(subtotal - itemDiscountTotal)));
+  const discountAmount = roundMoney(itemDiscountTotal + orderDiscountAmount);
   const expectedTotal = roundMoney(subtotal - discountAmount);
 
   return {
     order,
     items: normalizedItems,
     subtotal,
+    // discountAmount = TOTAL discount (order-level + per-item) used for the
+    // payment guard / expectedTotal. orderDiscountAmount is the (clamped)
+    // order-level portion only — the fiscal builder needs them split: per-item
+    // discounts are emitted as their own lines (items[].discountAmount), the
+    // order-level portion is allocated across VAT groups.
     discountAmount,
+    orderDiscountAmount,
+    itemDiscountTotal,
     expectedTotal,
   };
 }
@@ -93,6 +122,18 @@ export async function finalizeLocalPayment({ orderContext, method, amount, fisca
       throw new Error(currentOrder ? 'Order is not open' : 'Order not found');
     }
 
+    // POZN. pre majiteľa (vedomé rozhodnutie, NEmeniť bez rozhodnutia):
+    // `payments.amount` je ZÁMERNE suma, ktorú poslal klient — teda „koľko
+    // hosť podal", nie „koľko bol účet". Pripína sa na to test
+    // server/test/routes/payments.test.js:345 („accepts overpayment and stores
+    // the tendered amount"). Fiškálny doklad sa pritom razí zo serverového
+    // `orderContext.expectedTotal`.
+    // Kým web POS posiela `amount: getOrderTotal()` (js/pos-payments.js), obe
+    // hodnoty sedia a rozdiel nevzniká. Ak by však niektorý klient (Android)
+    // niekedy poslal skutočnú podanú hotovosť, tržba v reportoch by o vydanú
+    // sumu NARÁSTLA oproti súčtu eKasa dokladov. Ak sa to má riešiť, treba to
+    // rozhodnúť ako produktovú otázku (samostatný stĺpec `tendered_amount`),
+    // nie tichou zmenou významu tohto stĺpca.
     const [payment] = await tx.insert(payments).values({
       orderId: orderContext.order.id,
       method,

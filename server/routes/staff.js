@@ -30,7 +30,13 @@ function safeStaff(s) {
 
 // GET /api/staff — any authenticated user can list staff (needed for POS UI).
 // Never selects pin / attendance_pin so hashes cannot leak into responses.
+//
+// SEC: hourlyRate je mzdovy udaj — vracia sa iba manazerovi/adminovi.
+// Overene: jedini konzumenti pola su admin/pages/staff.js a Android
+// admin StaffScreen.kt (obe manazer+); POS klient (js/) /api/staff vobec
+// nevola, takze cisnik hodinovku nepotrebuje.
 router.get('/', async (req, res) => {
+  const canSeeRate = req.user?.role === 'admin' || req.user?.role === 'manazer';
   const result = await db.select({
     id: staff.id,
     name: staff.name,
@@ -49,7 +55,9 @@ router.get('/', async (req, res) => {
     role: row.role,
     active: row.active,
     position: row.position || '',
-    hourlyRate: row.hourlyRate ?? null,
+    // Kluc sa pre cisnika vynecha uplne (nie null), aby sa nedalo odlisit
+    // "nema sadzbu" od "nesmiem vidiet".
+    ...(canSeeRate ? { hourlyRate: row.hourlyRate ?? null } : {}),
     hasPin: true,
     hasAttendancePin: !!row.attendancePin,
     createdAt: row.createdAt,

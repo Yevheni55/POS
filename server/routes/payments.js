@@ -14,10 +14,12 @@ import { asyncRoute } from '../lib/async-route.js';
 import {
   changePaymentMethodSchema,
   createPaymentSchema,
+  qrPaymentCreateSchema,
 } from '../schemas/payments.js';
 
 import { changeMethodHandler } from '../lib/payments/change-method.js';
 import { createPaymentHandler } from '../lib/payments/create.js';
+import { createQrPaymentHandler, qrPaymentStatusHandler, qrNonDeliveryNoticeHandler, qrRenderHandler } from '../lib/payments/qr.js';
 import { fiscalGetHandler } from '../lib/payments/fiscal-get.js';
 import { fiscalStornoHandler } from '../lib/payments/fiscal-storno.js';
 import { historyHandler } from '../lib/payments/history.js';
@@ -32,10 +34,20 @@ const mgr = requireRole('manazer', 'admin');
 const staff = requireRole('cisnik', 'manazer', 'admin');
 
 router.post('/',                  staff, validate(createPaymentSchema),       asyncRoute(createPaymentHandler));
+// QR platba (Portos PayMe). Literálne cesty pred '/:id/...' aby ich neprebil
+// param-router (napr. GET /qr/QR-xxx by inak spadol pod /:id/...).
+router.post('/qr',                staff, validate(qrPaymentCreateSchema),     asyncRoute(createQrPaymentHandler));
+router.post('/qr/:transactionId/non-delivery-notice', staff,                 asyncRoute(qrNonDeliveryNoticeHandler));
+router.post('/qr/:transactionId/render', staff,                              asyncRoute(qrRenderHandler));
+router.get('/qr/:transactionId',  staff,                                      asyncRoute(qrPaymentStatusHandler));
 router.get('/history',            mgr,                                        asyncRoute(historyHandler));
 router.get('/:id/items',          mgr,                                        asyncRoute(paymentItemsHandler));
 router.get('/:id/fiscal',         mgr,                                        asyncRoute(fiscalGetHandler));
-router.post('/:id/receipt-copy',                                              asyncRoute(receiptCopyHandler));
+// Kópia fiškálneho dokladu bola JEDINÁ platobná trasa bez role guardu —
+// ktokoľvek prihlásený vedel dotlačiť kópiu ľubovoľného historického bloku.
+// Teraz staff-only; čašník navyše len doklady z dnešného dňa (obmedzenie je
+// v receipt-copy.js) a každá tlač ide do auditu.
+router.post('/:id/receipt-copy',  staff,                                      asyncRoute(receiptCopyHandler));
 router.post('/:id/refiscalize',   mgr,                                        asyncRoute(refiscalizeHandler));
 router.post('/:id/change-method', mgr, validate(changePaymentMethodSchema),   asyncRoute(changeMethodHandler));
 router.post('/:id/fiscal-storno', mgr,                                        asyncRoute(fiscalStornoHandler));

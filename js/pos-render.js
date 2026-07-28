@@ -31,6 +31,7 @@ function _applyActionButtonState() {
   var btnPreBill = document.getElementById('btnPreBill');
   var btnCash    = document.querySelector('.btn-cash');
   var btnCard    = document.querySelector('.btn-card');
+  var btnOdpis   = document.getElementById('btnOdpis');
   var btnCancel  = document.querySelector('.actions .btn-cancel');
 
   // Disabled in 'empty' state (Spec 2.4)
@@ -38,6 +39,7 @@ function _applyActionButtonState() {
   if (btnPreBill) btnPreBill.disabled = (state === 'empty');
   if (btnCash)    btnCash.disabled    = (state === 'empty');
   if (btnCard)    btnCard.disabled    = (state === 'empty');
+  if (btnOdpis)   btnOdpis.disabled   = (state === 'empty');
   if (btnCancel) {
     btnCancel.disabled = (state === 'empty');
     btnCancel.classList.toggle('pos-hidden', state === 'empty');
@@ -120,6 +122,36 @@ function hasPendingOrderFlushState() {
   return !!(_orderDirty || (_pendingStorno && _pendingStorno.length) || getOrder().length);
 }
 
+// Ak sa odoslanie nepodarí, opýtaj sa — nezamykaj čašníka na stole.
+// Volajúci používajú vzor `if (!flushed) return;`, takže tvrdé `false` pri
+// každom 409/5xx/výpadku znamenalo, že tap na „Stoly", na iný stôl aj mobilná
+// záložka „Stoly" neurobili NIČ okrem dvoch surových anglických toastov.
+// Čašník zostal uväznený na jednom účte a nevedel obslúžiť iný stôl.
+// Lokálny stav je pritom persistovaný (_persistTableOrdersNow), takže odchod
+// nič nestráca — položky sa odošlú pri ďalšom pokuse.
+function _confirmLeaveDespiteFlushError(err) {
+  return new Promise(function (resolve) {
+    var detail = (err && err.message) ? (' (' + err.message + ')') : '';
+    if (typeof showConfirm !== 'function') { resolve(false); return; }
+    var done = false;
+    function settle(v) { if (!done) { done = true; resolve(v); } }
+    showConfirm(
+      'Odoslanie zlyhalo',
+      'Položky sa nepodarilo odoslať na kuchyňu/bar' + detail
+        + '. Zostávajú uložené na účte a odošlú sa pri ďalšom pokuse.<br><br>Chceš aj tak odísť zo stola?',
+      function () { settle(true); },
+      {
+        type: 'danger',
+        confirmText: 'Odísť zo stola',
+        cancelText: 'Zostať',
+        // onDismiss pokryje aj Escape a klik na pozadie — inak by promise
+        // ostal visieť a čašník by bol zaseknutý ešte tvrdšie než predtým.
+        onDismiss: function () { settle(false); },
+      }
+    );
+  });
+}
+
 function flushOrderBeforeTableLeave() {
   // Resolve "true" when there is nothing to flush so that callers using the
   // !flushed-as-abort pattern (e.g. openTable / mobile pickTable) don't bail
@@ -133,7 +165,7 @@ function flushOrderBeforeTableLeave() {
     .then(function() { return true; })
     .catch(function(err) {
       _toastSendKitchenError(err);
-      return false;
+      return _confirmLeaveDespiteFlushError(err);
     })
     .finally(function() {
       _tableLeaveFlushPromise = null;
@@ -181,6 +213,9 @@ function toggleEdit(){
   document.getElementById('editLabel').textContent=editMode?'Hotovo':'Upravit';
   document.getElementById('floorCanvas').classList.toggle('edit-mode',editMode);
   document.body.classList.toggle('edit-mode',editMode);
+  // Non-passive touch listenery viažeme len počas edit módu — mimo neho
+  // zbytočne vypínali asynchrónny scrolling celej stránky (pos-ui.js).
+  if (typeof bindEditTouchDrag === 'function') bindEditTouchDrag(editMode);
   if(!editMode)savePositions();
   renderFloor();
 }
@@ -204,6 +239,93 @@ function setZone(id){activeZone=id;renderFloorZones();renderFloor();if(typeof pe
 // Floor canvas — absolute-pixel positioning, identical coordinate system to admin.
 // Admin drag-and-drop on /admin#tables writes the same (x,y) integers we read here.
 // Canvas becomes scrollable if tables extend beyond its visible area.
+// Net total for a table chip / floor summary — subtracts BOTH the order-level
+// zľava (lives on the order object, surfaced via allOrdersCache) and per-item
+// zľavy (rule stored on the line items in tableOrders). Matches the account
+// panel's getOrderTotal so floor a účet ukazujú rovnakú sumu.
+// Riadky, z ktorých sa počíta suma na chipe stola.
+// Pre NEvybrané stoly je zdrojom tableOrders[id] (tam loadAllOrders zloží súčet
+// všetkých účtov stola). Pre VYBRANÝ stôl tam ale zámerne nesiahame — tableOrders
+// je preň len aktuálny účet (viď loadAllOrders v pos-state.js) — takže súčet za
+// celý stôl skladáme tu z allOrdersCache (server = všetky účty) a dopĺňame
+// lokálne ešte neodoslané riadky, ktoré server logicky nepozná.
+function _tableChipRows(tableId){
+  if (typeof selectedTableId === 'undefined' || tableId !== selectedTableId) {
+    return tableOrders[tableId] || [];
+  }
+  var rows = [];
+  var cached = (typeof allOrdersCache !== 'undefined' && allOrdersCache[tableId]) || [];
+  cached.forEach(function(o){
+    (o.items || []).forEach(function(i){
+      rows.push({
+        id: i.id, price: parseFloat(i.price), qty: i.qty,
+        discountType: i.discountType || null,
+        discountValue: i.discountValue != null ? parseFloat(i.discountValue) : null,
+      });
+    });
+  });
+  (tableOrders[tableId] || []).forEach(function(p){
+    if (!p || p.sent) return;
+    if (typeof p.id !== 'number' || p.id <= 1000000000) return;   // len local-only
+    if (rows.some(function(r){ return r.id === p.id; })) return;
+    rows.push(p);
+  });
+  return rows;
+}
+
+function _tableNetTotal(tableId){
+  var ord = _tableChipRows(tableId);
+  var gross = ord.reduce(function(s,o){ return s + o.price * o.qty; }, 0);
+  var itemDisc = (typeof itemLineDiscount === 'function')
+    ? ord.reduce(function(s,o){ return s + itemLineDiscount(o); }, 0)
+    : 0;
+  var cached = (typeof allOrdersCache !== 'undefined' && allOrdersCache[tableId]) || [];
+  var orderDisc = cached.reduce(function(s,o){ return s + (o && o.discountAmount ? parseFloat(o.discountAmount) : 0); }, 0);
+  return Math.max(0, Math.round((gross - itemDisc - orderDisc) * 100) / 100);
+}
+
+// Vlastný názov účtu (meno hosťa) pre stôl — ak je label otvoreného účtu iný
+// než default „Ucet N". Vracia null keď nič vlastné nie je (→ chip ukáže názov
+// stola). Pre vybraný stôl je zdroj pravdy tableOrdersList.
+function _tableCustomName(tableId){
+  var list = (typeof allOrdersCache !== 'undefined' && allOrdersCache[tableId]) || [];
+  if (typeof selectedTableId !== 'undefined' && tableId === selectedTableId
+      && typeof tableOrdersList !== 'undefined' && tableOrdersList && tableOrdersList.length) {
+    list = tableOrdersList;
+  }
+  for (var i = 0; i < list.length; i++){
+    var lbl = list[i] && list[i].label;
+    if (lbl && !/^ucet\s*\d+$/i.test(String(lbl).trim())) return lbl;
+  }
+  return null;
+}
+
+// Pomenovať aktuálny otvorený účet (napr. menom hosťa) — aby sa dal ľahko nájsť
+// na podlaží. Po zaplatení sa účet zatvorí, takže názov sa „vráti" sám.
+function renameCurrentOrder(){
+  if (!currentOrderId) { showToast('Najprv otvor účet', 'warning'); return; }
+  var cur = (typeof tableOrdersList !== 'undefined' && tableOrdersList)
+    ? tableOrdersList.find(function(o){ return o.id === currentOrderId; }) : null;
+  var curLabel = (cur && cur.label && !/^ucet\s*\d+$/i.test(String(cur.label).trim())) ? cur.label : '';
+  showPrompt('Pomenovať účet', 'napr. Janko / pri okne', function(name){
+    name = String(name || '').trim().slice(0, 40);
+    if (!name) return;
+    api.patch('/orders/' + currentOrderId + '/label', { label: name }).then(function(res){
+      var lbl = (res && res.order && res.order.label) || name;
+      if (cur) cur.label = lbl;
+      try {
+        var arr = (typeof allOrdersCache !== 'undefined') ? (allOrdersCache[selectedTableId] || []) : [];
+        for (var i = 0; i < arr.length; i++) if (arr[i].id === currentOrderId) arr[i].label = lbl;
+      } catch (e) {}
+      showToast('Účet pomenovaný: ' + lbl, 'success');
+      if (typeof renderOrder === 'function') renderOrder();
+      if (typeof renderFloor === 'function') renderFloor();
+    }).catch(function(e){
+      showToast((e && e.message) || 'Premenovanie zlyhalo', 'error');
+    });
+  }, { defaultValue: curLabel, confirmText: 'Uložiť' });
+}
+
 function renderFloor(){
   const canvas=document.getElementById('floorCanvas');
   if(!canvas)return;
@@ -267,8 +389,7 @@ function renderFloor(){
   }
 
   canvas.innerHTML=filtered.map(t=>{
-    const ord=tableOrders[t.id]||[];
-    const total=ord.reduce((s,o)=>s+o.price*o.qty,0);
+    const total=_tableNetTotal(t.id);
     const isSel=t.id===selectedTableId;
     const isForgotten = t.status==='occupied' && isForgottenTable(t.id);
     const shapeClass=t.shape==='round'?'round':t.shape==='large'?'large':'';
@@ -302,6 +423,12 @@ function renderFloor(){
       +   '<span class="chip-glyph s-' + t.status + '" aria-hidden="true">' + glyph + '</span>'
       +   '<div class="chip-name">' + escHtml(t.name) + '</div>'
       + '</div>';
+
+    // Vlastný názov účtu (meno hosťa) — aby sa stôl ľahko našiel pri platbe.
+    var custName = _tableCustomName(t.id);
+    if (custName) {
+      bodyHtml += '<div class="chip-customer" title="Hosť">' + escHtml(custName) + '</div>';
+    }
 
     if (t.status === 'occupied' && total > 0) {
       bodyHtml += '<div class="chip-amount">' + fmt(total) + '</div>';
@@ -413,8 +540,7 @@ function renderFloorSummary(filteredTables){
   if (existing) existing.remove();
 
   var total = (filteredTables || []).reduce(function(s, t){
-    var ord = tableOrders[t.id] || [];
-    return s + ord.reduce(function(s2, o){ return s2 + o.price * o.qty; }, 0);
+    return s + _tableNetTotal(t.id);
   }, 0);
   var occupied = (filteredTables || []).filter(function(t){ return t.status === 'occupied'; }).length;
   var totalCount = (filteredTables || []).length;
@@ -673,7 +799,7 @@ function pickAccount(orderId, openProducts) {
   currentOrderVersion = order ? (order.version || null) : null;
   if (order) {
     tableOrders[selectedTableId] = order.items.map(function(i) {
-      return { id:i.id, name:i.name, emoji:i.emoji, price:parseFloat(i.price), qty:i.qty, note:i.note, menuItemId:i.menuItemId, sent:!!i.sent, _sentQty:i.sent?i.qty:0 };
+      return { id:i.id, name:i.name, emoji:i.emoji, price:parseFloat(i.price), qty:i.qty, note:i.note, menuItemId:i.menuItemId, sent:!!i.sent, _sentQty:i.sent?i.qty:0, discountType:i.discountType||null, discountValue:i.discountValue!=null?parseFloat(i.discountValue):null, discountName:i.discountName||null };
     });
   }
   closeAccountPicker();
@@ -1159,11 +1285,21 @@ function renderOrder(){
     const _parentName=_parent?_parent.name:'';
     const _companionBadge=_isCompanion?`<span class="companion-badge" title="Auto: viazane na ${escHtml(_parentName)}" style="margin-left:6px;opacity:.6;font-size:14px">&#128279;</span>`:'';
     const _companionTitleAttr=_isCompanion?` title="Auto: viazane na ${escHtml(_parentName)}"`:'';
+    // Per-item zľava — derived live so it tracks local qty edits.
+    const _itemDisc=(typeof itemLineDiscount==='function')?itemLineDiscount(o):0;
+    const _gross=o.price*o.qty;
+    const _net=_gross-_itemDisc;
+    const _hasItemDisc=_itemDisc>0.005;
+    const _discText=o.discountName||(o.discountType==='percent'?('-'+o.discountValue+'%'):('-'+fmt(o.discountValue||0)));
+    const _discBadge=_hasItemDisc?`<span class="oi-disc-badge" title="Zlava na polozku">${escHtml(_discText)}</span>`:'';
+    const _totalHtml=_hasItemDisc?`<span class="oi-gross">${fmt(_gross)}</span><span class="oi-net">${fmt(_net)}</span>`:fmt(_gross);
+    const _canDiscount=(typeof getUserRole==='function'&&getUserRole()!=='cisnik');
+    const _discBtn=_canDiscount?`<button type="button" class="order-item-disc-btn${_hasItemDisc?' has-disc':''}" onclick="event.stopPropagation();openItemDiscountModal('${esc}', ${o.id})" aria-label="${_hasItemDisc?'Upravit zlavu polozky':'Zlava na polozku'}" title="${_hasItemDisc?'Upravit zlavu polozky':'Zlava na polozku'}">%</button>`:'';
     if(moveMode){
       return `<div class="order-item-wrap${_moveSelected?' move-selected':''}" data-item-id="${o.id}"${_companionTitleAttr} onclick="toggleMoveSelection(${o.id})">
   <div class="order-item-inner${_isSent?' sent':''}"><div class="move-sel">${_moveSelected?'&#10003;':''}</div><span class="order-item-emoji" aria-hidden="true">${(typeof productIconSVG==='function'?productIconSVG(o.name,o.categorySlug):escHtml(o.emoji||''))}</span>
   <div class="order-item-info"><div class="order-item-name">${escHtml(o.name)}${_movePartialBadge}</div>${o.note?`<div class="order-item-note">${escHtml(o.note)}</div>`:''}</div>
-  <span class="order-item-total">${o.qty}x${_companionBadge} &middot; ${fmt(o.price*o.qty)}</span></div>
+  <span class="order-item-total">${o.qty}x${_companionBadge} &middot; ${_totalHtml}</span></div>
 </div>`;
     }
     return `<div class="order-item-wrap" data-item-id="${o.id}"${_companionTitleAttr} ontouchstart="swipeStart(event,this)" ontouchmove="swipeMove(event,this)" ontouchend="swipeEnd(event,this)" onmousedown="swipeStart(event,this)" onmousemove="swipeMove(event,this)" onmouseup="swipeEnd(event,this)">
@@ -1172,10 +1308,10 @@ function renderOrder(){
     <div class="order-item-stack">
       <div class="order-item-info">
         <div class="order-item-name-row">
-          <div class="order-item-name">${escHtml(o.name)}</div>
+          <div class="order-item-name">${escHtml(o.name)}${_discBadge}</div>
           <button type="button" class="order-item-note-btn${o.note?' has-note':''}" onclick="event.stopPropagation();openNoteModal('${esc}', ${o.id})" aria-label="${o.note?'Upravit poznamku':'Pridat poznamku'}" title="${o.note?'Upravit poznamku':'Pridat poznamku'}">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-          </button>
+          </button>${_discBtn}
         </div>
         ${o.note?`<div class="order-item-note">&#9998; ${escHtml(o.note)}</div>`:''}
       </div>
@@ -1185,7 +1321,7 @@ function renderOrder(){
           <span class="qty-val">${o.qty}</span>${_companionBadge}
           <button type="button" class="qty-btn" onclick="event.stopPropagation();changeQty('${esc}', 1, ${o.id})" onpointerdown="startQtyHold('${esc}', 1, ${o.id})" aria-label="Zvysit pocet">+</button>
         </div>
-        <div class="order-item-total">${fmt(o.price*o.qty)}</div>
+        <div class="order-item-total">${_totalHtml}</div>
         <button type="button" class="order-item-remove" onclick="event.stopPropagation();confirmRemoveItem('${esc}', ${o.id})" aria-label="Odstranit polozku">&times;</button>
       </div>
     </div>
@@ -1202,22 +1338,33 @@ function renderOrder(){
 function updateTotals(){
   const order=getOrder(),subtotal=order.reduce((s,o)=>s+o.price*o.qty,0);
   const currentOrd=tableOrdersList.find(o=>o.id===currentOrderId);
-  const discountAmt=currentOrd&&currentOrd.discountAmount?parseFloat(currentOrd.discountAmount):0;
+  const orderDiscAmt=currentOrd&&currentOrd.discountAmount?parseFloat(currentOrd.discountAmount):0;
+  const itemDiscAmt=(typeof orderItemsDiscountTotal==='function')?orderItemsDiscountTotal():0;
+  const totalDisc=Math.min(subtotal,Math.round((orderDiscAmt+itemDiscAmt)*100)/100);
   const disc=currentOrd?currentOrd.discount:null;
   const discDisplay=document.getElementById('discountDisplay');
-  if(discountAmt>0&&discDisplay){
+  if(totalDisc>0.005&&discDisplay){
     discDisplay.classList.remove('pos-hidden');
     document.getElementById('subtotalVal').textContent=fmt(subtotal);
-    var lbl='Zlava';
-    if(disc){
+    var lbl;
+    if(orderDiscAmt>0&&itemDiscAmt>0){
+      lbl='Zlava (ucet + polozky)';
+    }else if(itemDiscAmt>0){
+      lbl='Zlava na polozky';
+    }else if(disc){
       lbl=disc.name||(disc.type==='percent'?'Zlava -'+disc.value+'%':'Zlava -'+fmt(disc.value));
     }else if(currentOrd&&currentOrd.discountAmount&&!currentOrd.discountId){
-      var pct=subtotal>0?Math.round(discountAmt/subtotal*100):0;
+      var pct=subtotal>0?Math.round(orderDiscAmt/subtotal*100):0;
       lbl='Zlava -'+pct+'%';
+    }else{
+      lbl='Zlava';
     }
-    document.getElementById('discountLabel').innerHTML=escHtml(lbl)+' <button class="discount-remove" onclick="removeDiscount()" title="Odstranit zlavu" aria-label="Odstranit zlavu">&times;</button>';
-    document.getElementById('discountVal').textContent='-'+fmt(discountAmt);
-    document.getElementById('total').textContent=fmt(subtotal-discountAmt);
+    // The × removes only the ORDER-level discount; per-item zľavy sa rušia
+    // priamo na riadku (tlačidlo % → Odstrániť).
+    var removeBtn=orderDiscAmt>0?' <button class="discount-remove" onclick="removeDiscount()" title="Odstranit zlavu uctu" aria-label="Odstranit zlavu uctu">&times;</button>':'';
+    document.getElementById('discountLabel').innerHTML=escHtml(lbl)+removeBtn;
+    document.getElementById('discountVal').textContent='-'+fmt(totalDisc);
+    document.getElementById('total').textContent=fmt(Math.max(0,subtotal-totalDisc));
   }else{
     if(discDisplay)discDisplay.classList.add('pos-hidden');
     document.getElementById('total').textContent=fmt(subtotal);
@@ -1313,6 +1460,109 @@ document.addEventListener('DOMContentLoaded',function(){
   // Close discount modal on backdrop click
   var dm=document.getElementById('discountModal');
   if(dm)dm.addEventListener('click',function(e){if(e.target===this)closeDiscountModal()});
+});
+
+// ===== PER-ITEM DISCOUNT (zľava na položku) =====
+var _selectedItemDiscountId=null;
+var _itemDiscountTargetId=null;
+
+function openItemDiscountModal(esc,itemId){
+  var role=getUserRole();
+  if(role==='cisnik'){showToast('Zlavu moze aplikovat len manazer/admin');return}
+  if(!currentOrderId){showToast('Ziadna objednavka');return}
+  // Lokálne (ešte nesynchronizované) položky nemajú serverové id.
+  if(typeof itemId==='number'&&itemId>1000000000){showToast('Najprv posli polozku do kuchyne');return}
+  var item=getOrder().find(function(o){return o.id===itemId});
+  if(!item){showToast('Polozka nenajdena');return}
+  _itemDiscountTargetId=itemId;
+  _selectedItemDiscountId=null;
+  var hasDisc=(typeof itemLineDiscount==='function')&&itemLineDiscount(item)>0.005;
+  var titleEl=document.getElementById('itemDiscountModalTitle');
+  if(titleEl)titleEl.textContent='Zlava: '+(item.name||'polozka');
+  var rmBtn=document.getElementById('itemDiscountRemoveBtn');
+  if(rmBtn)rmBtn.style.display=hasDisc?'':'none';
+  var ci=document.getElementById('customItemDiscountInput');
+  if(ci)ci.value='';
+  var listEl=document.getElementById('itemDiscountList');
+  listEl.innerHTML='<div class="u-modal-loading">Nacitavam...</div>';
+  document.getElementById('itemDiscountModal').classList.add('show');
+  api.get('/discounts').then(function(dList){
+    if(!dList.length){
+      listEl.innerHTML='<div class="discount-list-empty">Ziadne preddefinovane zlavy</div>';
+      return;
+    }
+    listEl.innerHTML=dList.map(function(d){
+      var valLabel=d.type==='percent'?('-'+d.value+'%'):('-'+d.value.toFixed(2)+' EUR');
+      return '<div class="discount-item" data-id="'+d.id+'" onclick="selectItemDiscount('+d.id+',this)"><span class="discount-item-name">'+escHtml(d.name)+'</span><span class="discount-item-value">'+escHtml(valLabel)+'</span></div>';
+    }).join('');
+  }).catch(function(){
+    listEl.innerHTML='<div class="discount-list-error">Chyba nacitania</div>';
+  });
+}
+
+function closeItemDiscountModal(){
+  document.getElementById('itemDiscountModal').classList.remove('show');
+  _selectedItemDiscountId=null;
+  _itemDiscountTargetId=null;
+}
+
+function selectItemDiscount(id,el){
+  document.querySelectorAll('#itemDiscountList .discount-item').forEach(function(e){e.classList.remove('selected')});
+  if(_selectedItemDiscountId===id){_selectedItemDiscountId=null;return}
+  _selectedItemDiscountId=id;
+  el.classList.add('selected');
+  var ci=document.getElementById('customItemDiscountInput');
+  if(ci)ci.value='';
+}
+
+async function applyItemDiscount(){
+  if(!currentOrderId||!_itemDiscountTargetId){showToast('Ziadna polozka');return}
+  var customPct=parseInt(document.getElementById('customItemDiscountInput').value);
+  var body={};
+  if(_selectedItemDiscountId){
+    body.discountId=_selectedItemDiscountId;
+  }else if(customPct>0&&customPct<=100){
+    body.customPercent=customPct;
+  }else{
+    showToast('Vyberte zlavu alebo zadajte vlastnu');return;
+  }
+  if(currentOrderVersion!==null)body.version=currentOrderVersion;
+  var itemId=_itemDiscountTargetId;
+  try{
+    await api.post('/orders/'+currentOrderId+'/items/'+itemId+'/discount',body);
+    closeItemDiscountModal();
+    await loadTableOrder(selectedTableId,true);
+    renderOrder();if(isMobile())renderMobOrder();
+    showToast('Zlava na polozku aplikovana',true);
+  }catch(e){
+    showToast('Chyba: '+e.message);
+  }
+}
+
+async function removeItemDiscount(){
+  if(!currentOrderId||!_itemDiscountTargetId)return;
+  var itemId=_itemDiscountTargetId;
+  try{
+    await api.del('/orders/'+currentOrderId+'/items/'+itemId+'/discount',{ version: currentOrderVersion });
+    closeItemDiscountModal();
+    await loadTableOrder(selectedTableId,true);
+    renderOrder();if(isMobile())renderMobOrder();
+    showToast('Zlava z polozky odstranena');
+  }catch(e){
+    showToast('Chyba: '+e.message);
+  }
+}
+
+document.addEventListener('DOMContentLoaded',function(){
+  var ci=document.getElementById('customItemDiscountInput');
+  if(ci)ci.addEventListener('input',function(){
+    if(this.value){
+      _selectedItemDiscountId=null;
+      document.querySelectorAll('#itemDiscountList .discount-item').forEach(function(e){e.classList.remove('selected')});
+    }
+  });
+  var dm=document.getElementById('itemDiscountModal');
+  if(dm)dm.addEventListener('click',function(e){if(e.target===this)closeItemDiscountModal()});
 });
 
 // Keep the "X min" portion of the order header status badge fresh without

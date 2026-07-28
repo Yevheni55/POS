@@ -1,18 +1,28 @@
-import { and, desc, eq, gte, sql } from 'drizzle-orm';
+import { desc, eq, sql } from 'drizzle-orm';
 
 import { db } from '../../db/index.js';
 import { orders, orderItems, payments, menuItems, staff } from '../../db/schema.js';
 import { allocateDiscountAcrossVatGroups } from '../fiscal-payment.js';
-import { roundMoney } from './shared.js';
+import { lineDiscountAmount } from '../payments/shared.js';
+import { localDateSK, localTimeHHMM, localYmd } from '../print/format.js';
+
+import { TZ, roundMoney } from './shared.js';
 
 // GET /api/reports/export?from=2026-03-01&to=2026-03-26&format=csv
 export async function exportHandler(req, res) {
-  const from = req.query.from || new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
-  const to = req.query.to || new Date().toISOString().split('T')[0];
+  // Defaultny rozsah = poslednych 30 LOKALNYCH dni (UTC den sa po polnoci lisi).
+  const from = req.query.from || localYmd(new Date(Date.now() - 30 * 86400000));
+  const to = req.query.to || localYmd();
   const format = req.query.format || 'csv';
 
-  const fromDate = new Date(from);
-  const toDate = new Date(to + 'T23:59:59');
+  // Uctovnicky export musi rezat dni v Europe/Bratislava. `new Date(from)`
+  // bola UTC polnoc = 02:00 lokalne, takze vecerne doklady posledneho dna
+  // v obdobi vypadli z exportu a rannne z predosleho dna sa pridali.
+  // Stlpec je `timestamp` bez zony (UTC nastenny cas) → interpretujeme ho
+  // explicitne ako UTC, aby vysledok nezavisel od session TimeZone databazy.
+  const fromBoundary = sql`(${from + ' 00:00:00'})::timestamp AT TIME ZONE ${TZ}`;
+  const toBoundary   = sql`(${to + ' 23:59:59.999'})::timestamp AT TIME ZONE ${TZ}`;
+  const inRange = (col) => sql`(${col} AT TIME ZONE 'UTC') >= ${fromBoundary} AND (${col} AT TIME ZONE 'UTC') <= ${toBoundary}`;
 
   try {
     // Get all closed orders with payments, items, and staff
@@ -24,22 +34,20 @@ export async function exportHandler(req, res) {
       staffName: staff.name,
       paymentMethod: payments.method,
       paymentAmount: sql`${payments.amount}::numeric`,
+      orderItemId: orderItems.id,
       itemName: menuItems.name,
       itemQty: orderItems.qty,
       itemPrice: sql`${menuItems.price}::numeric`,
       itemVatRate: sql`COALESCE(${menuItems.vatRate}::numeric, 0)`,
+      itemDiscountType: orderItems.discountType,
+      itemDiscountValue: sql`${orderItems.discountValue}::numeric`,
     })
     .from(payments)
     .innerJoin(orders, eq(payments.orderId, orders.id))
     .innerJoin(staff, eq(orders.staffId, staff.id))
     .innerJoin(orderItems, eq(orderItems.orderId, orders.id))
     .innerJoin(menuItems, eq(orderItems.menuItemId, menuItems.id))
-    .where(
-      and(
-        gte(payments.createdAt, fromDate),
-        sql`${payments.createdAt} <= ${toDate}`
-      )
-    )
+    .where(inRange(payments.createdAt))
     .orderBy(desc(payments.createdAt));
 
     // Group by payment (orderId + paymentMethod as key)
@@ -54,13 +62,28 @@ export async function exportHandler(req, res) {
           paymentMethod: row.paymentMethod,
           paymentAmount: parseFloat(row.paymentAmount),
           discountAmount: parseFloat(row.orderDiscountAmount),
+          itemDiscountTotal: 0,
+          _seenItemIds: new Set(),
           items: [],
         };
       }
-      const existing = grouped[key].items.find(i => i.name === row.itemName);
-      if (existing) {
-        // skip duplicate from join
-      } else {
+      // Deduplikacia join fan-outu je na order_item ID, NIE na nazve polozky.
+      // Podla nazvu sa dva legitimne riadky s rovnakym produktom (Kofola
+      // s poznamkou a bez) zlucili do jedneho → z uctu zmizla polozka
+      // a "Zaklad" prestal sediet s "Celkom". Zlava aj samotna polozka sa
+      // preto zapocitaju presne raz per order_item.
+      const oiId = row.orderItemId;
+      const seenItemIds = grouped[key]._seenItemIds;
+      if (oiId == null || !seenItemIds.has(oiId)) {
+        if (oiId != null) seenItemIds.add(oiId);
+        // Per-item discount pooled into the order discount before VAT
+        // allocation so zaklad/DPH reconcile with celkom = payments.amount.
+        const discValue = row.itemDiscountValue == null ? null : parseFloat(row.itemDiscountValue);
+        if (row.itemDiscountType && discValue) {
+          grouped[key].itemDiscountTotal += lineDiscountAmount(
+            parseFloat(row.itemPrice), row.itemQty, row.itemDiscountType, discValue,
+          );
+        }
         grouped[key].items.push({
           name: row.itemName,
           qty: row.itemQty,
@@ -70,9 +93,12 @@ export async function exportHandler(req, res) {
       }
     }
     const rows = Object.values(grouped).map(g => {
+      // Datum aj cas v Bratislava zone — `toLocaleDateString` bez `timeZone`
+      // beri TZ procesu (Docker = UTC), takze doklad z 00:30 lokalneho casu
+      // mal v exporte predosly den a cas o 1–2 h posunuty.
       const dt = new Date(g.date);
-      const dateStr = dt.toLocaleDateString('sk-SK');
-      const timeStr = dt.toLocaleTimeString('sk-SK', { hour: '2-digit', minute: '2-digit' });
+      const dateStr = localDateSK(dt);
+      const timeStr = localTimeHHMM(dt);
       const itemsList = g.items.map(i => i.qty + 'x ' + i.name).join(', ');
       const celkom = g.paymentAmount;
       const vatGroups = new Map();
@@ -80,7 +106,10 @@ export async function exportHandler(req, res) {
         const key = String(item.vatRate);
         vatGroups.set(key, roundMoney((vatGroups.get(key) || 0) + (item.price * item.qty)));
       }
-      for (const discount of allocateDiscountAcrossVatGroups(g.items, g.discountAmount)) {
+      // Pool order-level + per-item discounts into the VAT allocation so the
+      // VAT base nets out to the actual charged amount (celkom).
+      const pooledDiscount = roundMoney(g.discountAmount + g.itemDiscountTotal);
+      for (const discount of allocateDiscountAcrossVatGroups(g.items, pooledDiscount)) {
         const key = String(discount.vatRate || 0);
         vatGroups.set(key, roundMoney((vatGroups.get(key) || 0) + discount.price));
       }

@@ -14,6 +14,7 @@ import {
   registerCashReceipt,
 } from '../lib/portos.js';
 import { requireRole } from '../middleware/requireRole.js';
+import { fiscalFailureHttpStatus, fiscalSuccessHttpStatus } from '../lib/payments/shared.js';
 
 const router = Router();
 const mgr = requireRole('manazer', 'admin');
@@ -336,7 +337,12 @@ async function runFiscalStorno({ document, staffId }) {
     }));
 
     return {
-      status: fiscalOutcome.httpStatus || 503,
+      // Portos httpStatus preberáme len ak je sám chybový. Pri outcome, kde
+      // Portos vrátil 2xx ale MY doklad odmietame, by `httpStatus || 503`
+      // odpovedalo 2xx s chybovým telom — klient to vyhodnotí ako úspech,
+      // hoci žiadny storno riadok nevznikol. Rovnaké riešenie ako v
+      // lib/payments/fiscal-storno.js a lib/payments/create.js.
+      status: fiscalFailureHttpStatus(fiscalOutcome, 503),
       body: {
         error: fiscalOutcome.errorDetail || 'Storno doklad bol odmietnuty alebo zlyhal',
         fiscal: {
@@ -368,7 +374,12 @@ async function runFiscalStorno({ document, staffId }) {
   });
 
   return {
-    status: fiscalOutcome.httpStatus || 200,
+    // Zrkadlový prípad: pri `reconciled_*` ostáva v httpStatus PÔVODNÝ chybový
+    // kód prvého pokusu (napr. 500 pri -502 print failed), hoci doklad sa
+    // dohľadal a reconciliácia prešla. `httpStatus || 200` by tak vrátilo 500
+    // s telom `ok: true` → manažér vidí „storno zlyhalo", zopakuje ho a
+    // narazí na dedup 409. Preberáme len 2xx.
+    status: fiscalSuccessHttpStatus(fiscalOutcome),
     body: {
       ok: true,
       fiscal: toFiscalResponse(stornoDoc),

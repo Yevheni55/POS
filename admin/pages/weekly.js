@@ -27,34 +27,34 @@ function fmtHours(min){
   const m = Math.round((min || 0) % 60);
   return h + 'h ' + String(m).padStart(2,'0') + 'm';
 }
-function escapeHtml(s){
-  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+// Jediná implementácia escapovania v projekte je /js/pos-escape.js
+// (escHtml pre textový obsah, escAttr pre atribút, escJsAttr pre inline
+// handler). Predtým mala takmer každá admin stránka vlastnú kópiu a boli
+// medzi nimi ŠTYRI rôzne správania — časť neescapovala apostrof ani
+// úvodzovku, čo je práve to, na čom záleží pri interpolácii do atribútu.
+// Lokálne meno ostáva, nech sa neprepisujú stovky volaní.
+function escapeHtml(v) {
+  // window.* zamerne: v moduloch, kde sa lokalna funkcia vola tiez escHtml,
+  // by holy identifikator ukazoval sam na seba (nekonecna rekurzia).
+  if (typeof window !== 'undefined' && typeof window.escHtml === 'function') return window.escHtml(v);
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 // Pondelok = ISO 1, Nedeľa = ISO 7
 const DOW_LABEL = { 1:'Po', 2:'Ut', 3:'St', 4:'Št', 5:'Pi', 6:'So', 7:'Ne' };
 const DOW_FULL  = { 1:'Pondelok', 2:'Utorok', 3:'Streda', 4:'Štvrtok', 5:'Piatok', 6:'Sobota', 7:'Nedeľa' };
 
-function todayStr(){ return new Date().toISOString().split('T')[0]; }
-function thisMondayStr(){
-  const d = new Date();
-  const dow = d.getDay() === 0 ? 6 : d.getDay() - 1; // Po=0..Ne=6
-  d.setDate(d.getDate() - dow);
-  return d.toISOString().split('T')[0];
-}
-function lastSundayStr(){
-  const d = new Date();
-  const dow = d.getDay() === 0 ? 6 : d.getDay() - 1;
-  d.setDate(d.getDate() - dow + 6);
-  return d.toISOString().split('T')[0];
-}
+// Kotvene na bratislavsky den cez zdielane globaly z /api.js. Povodne to islo
+// cez `toISOString()` nad lokalnym Date: medzi polnocou a 02:00 miestneho casu
+// (teda presne pocas uzavierky) sa cely tyzdenny rozsah posunul o den dozadu.
+function todayStr(){ return bratislavaDayIso(new Date()); }
+function thisMondayStr(){ return bratislavaMondayIso(new Date()); }
+function lastSundayStr(){ return isoAddDays(bratislavaMondayIso(new Date()), 6); }
 function shiftWeek(deltaWeeks){
-  const fromD = new Date(_from);
-  fromD.setDate(fromD.getDate() + deltaWeeks * 7);
-  const toD = new Date(_to);
-  toD.setDate(toD.getDate() + deltaWeeks * 7);
-  _from = fromD.toISOString().split('T')[0];
-  _to = toD.toISOString().split('T')[0];
+  _from = isoAddDays(_from, deltaWeeks * 7);
+  _to   = isoAddDays(_to,   deltaWeeks * 7);
   load();
 }
 function fmtDateSk(iso){
@@ -236,7 +236,7 @@ function render(){
   // Auto-select today (or first day with data) — render hneď default
   const days = (d.dailyHours || []);
   if (days.length){
-    const todayIso = new Date().toISOString().split('T')[0];
+    const todayIso = todayStr();
     const initial = days.find(x => x.date === todayIso) || days[days.length - 1];
     const initBtn = document.querySelector('.weekly-day-tab[data-date="' + initial.date + '"]');
     if (initBtn) initBtn.classList.add('active');
@@ -555,11 +555,13 @@ function renderCookTable(cooks){
 function renderHourTable(byHour){
   // Tabuľka per (date, hour) — kombinujeme dáta cez dni v týždni.
   // Pre každý deň × hodinu zlúčime sales + weather.
-  const fromD = new Date(_from);
-  const toD = new Date(_to);
+  // Cisto retazcova kalendarna iteracia (isoAddDays pocita v UTC priestore).
+  // Povodny cyklus miesal `new Date('YYYY-MM-DD')` (parsuje sa ako UTC polnoc)
+  // s `setDate()` (pracuje v lokalnom case) — cez prechod letneho/zimneho casu
+  // to je nestabilne.
   const days = [];
-  for (let d = new Date(fromD); d <= toD; d.setDate(d.getDate() + 1)){
-    days.push(d.toISOString().split('T')[0]);
+  for (let d = _from; d <= _to; d = isoAddDays(d, 1)){
+    days.push(d);
   }
 
   // Sales mapy: date|hour → kitchen/bar/orders. Server vracia byHour

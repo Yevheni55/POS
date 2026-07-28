@@ -124,20 +124,35 @@ describe('POST /api/orders — create order', () => {
     assert.equal(res.body.label, 'VIP');
   });
 
-  it('returns 400 when items array is empty', async () => {
+  // Prazdny ucet je ZAMERNA vlastnost, nie chyba: multi-account model (fc24207,
+  // 2026-04-03) najprv vytvori prazdny ucet na stole (`items: []` + label) a az
+  // potom don pridava polozky. Rovnako to robi split (a10d294) aj move-to-new
+  // -account, a identicky aj Android klient (OrderScreen.kt: CreateOrderReq(
+  // tableId, emptyList(), label)). Preto createOrderSchema.items ma `.default([])`
+  // — 582db03 to zmenil z `.min(1)`, aby tieto toky prestali padat na 400.
+  it('creates an empty account when items array is empty', async () => {
     const res = await createOrder({
       tableId: fixtures.table1.id,
       items: [],
+      label: 'Ucet 9',
     });
 
-    assert.equal(res.status, 400);
-    assert.ok(res.body.error, 'error message must be present');
+    assert.equal(res.status, 201);
+    assert.equal(res.body.status, 'open');
+    assert.equal(res.body.label, 'Ucet 9');
+
+    const items = await fetchOrderItems(res.body.id);
+    assert.equal(items.length, 0, 'empty account must not create order items');
   });
 
-  it('returns 400 when items is missing entirely', async () => {
+  it('creates an empty account when items is missing entirely', async () => {
     const res = await createOrder({ tableId: fixtures.table1.id });
 
-    assert.equal(res.status, 400);
+    assert.equal(res.status, 201);
+    assert.equal(res.body.status, 'open');
+
+    const items = await fetchOrderItems(res.body.id);
+    assert.equal(items.length, 0);
   });
 
   it('returns 400 when tableId is missing', async () => {
@@ -969,7 +984,9 @@ describe('DELETE /api/orders/:id — cancel order', () => {
     assert.ok(await fetchOrder(orderId), 'order row must remain');
   });
 
-  it('allows manazer to delete order with payment and fiscal rows (FK cleanup)', async () => {
+  // FK cleanup path: NEUSPESNY fiskalny pokus (isSuccessful=false) sa spolu
+  // s objednavkou zmazat smie — na eKase po nom nic nezostalo.
+  it('allows manazer to delete order with payment and failed fiscal rows (FK cleanup)', async () => {
     const orderRes = await createOrder({
       tableId: fixtures.table1.id,
       items: [{ menuItemId: fixtures.itemBurger.id, qty: 1 }],
@@ -990,9 +1007,9 @@ describe('DELETE /api/orders/:id — cancel order', () => {
       externalId: `test-fiscal-${orderId}-${pay.id}`,
       cashRegisterCode: 'TEST',
       requestType: 'register',
-      httpStatus: 200,
-      resultMode: 'success',
-      isSuccessful: true,
+      httpStatus: 500,
+      resultMode: 'error',
+      isSuccessful: false,
     });
 
     const res = await request
@@ -1002,5 +1019,131 @@ describe('DELETE /api/orders/:id — cancel order', () => {
 
     assert.equal(res.status, 200);
     assert.equal(await fetchOrder(orderId), undefined);
+  });
+
+  // eKasa doklad, ktory presiel, uz existuje na financnej sprave — lokalny
+  // hard-delete by po nom nenechal ziadnu stopu (order_events padnu s cascade).
+  it('returns 409 when the order has a SUCCESSFUL fiscal document', async () => {
+    const orderRes = await createOrder({
+      tableId: fixtures.table1.id,
+      items: [{ menuItemId: fixtures.itemBurger.id, qty: 1 }],
+    });
+    const orderId = orderRes.body.id;
+
+    const [pay] = await testDb.insert(schema.payments).values({
+      orderId,
+      method: 'cash',
+      amount: '8.50',
+    }).returning();
+
+    await testDb.insert(schema.fiscalDocuments).values({
+      sourceType: 'payment',
+      sourceId: pay.id,
+      orderId,
+      paymentId: pay.id,
+      externalId: `test-fiscal-ok-${orderId}-${pay.id}`,
+      cashRegisterCode: 'TEST',
+      requestType: 'register',
+      httpStatus: 200,
+      resultMode: 'success',
+      isSuccessful: true,
+      receiptId: 'R-1',
+      okp: 'OKP-1',
+    });
+
+    for (const token of [tokens.manazer(), tokens.admin()]) {
+      const res = await request
+        .delete(`/api/orders/${orderId}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({});
+
+      assert.equal(res.status, 409);
+      assert.ok(res.body.error);
+    }
+
+    assert.ok(await fetchOrder(orderId), 'objednavka musi ostat');
+    const fiscalRows = await testDb
+      .select()
+      .from(schema.fiscalDocuments)
+      .where(eq(schema.fiscalDocuments.orderId, orderId));
+    assert.equal(fiscalRows.length, 1, 'fiskalny doklad sa nesmie zmazat');
+    const payRows = await testDb
+      .select()
+      .from(schema.payments)
+      .where(eq(schema.payments.orderId, orderId));
+    assert.equal(payRows.length, 1, 'platba sa nesmie zmazat');
+  });
+
+  // order_events kaskaduje s orders — trvala stopa po zrusenom ucte musi byt
+  // v `events`, ktora nekaskaduje.
+  it('writes a non-cascading audit row into events when an order is cancelled', async () => {
+    const orderRes = await createOrder({
+      tableId: fixtures.table1.id,
+      items: [{ menuItemId: fixtures.itemBurger.id, qty: 1 }],
+    });
+    const orderId = orderRes.body.id;
+
+    const res = await request
+      .delete(`/api/orders/${orderId}`)
+      .set('Authorization', `Bearer ${tokens.manazer()}`)
+      .send({});
+    assert.equal(res.status, 200);
+    assert.equal(await fetchOrder(orderId), undefined);
+
+    const rows = await testDb
+      .select()
+      .from(schema.events)
+      .where(eq(schema.events.type, 'order_cancelled'));
+    const mine = rows
+      .map((r) => JSON.parse(r.payload))
+      .find((p) => p.orderId === orderId);
+    assert.ok(mine, 'audit zaznam o zruseni musi prezit zmazanie objednavky');
+    assert.equal(mine.tableId, fixtures.table1.id);
+    assert.equal(mine.staffRole, 'manazer');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/orders/:orderId/label — pomenovať účet (meno hosťa)
+// ---------------------------------------------------------------------------
+
+describe('PATCH /api/orders/:orderId/label — rename order', () => {
+  let fixtures;
+
+  before(async () => {
+    await truncateAll();
+    fixtures = await seed();
+  });
+
+  it('premenuje otvorený účet a vráti nový label', async () => {
+    const created = await createOrder({ tableId: fixtures.table1.id });
+    const orderId = created.body.id;
+
+    const res = await request
+      .patch(`/api/orders/${orderId}/label`)
+      .set('Authorization', `Bearer ${tokens.cisnik()}`)
+      .send({ label: 'Janko' });
+
+    assert.equal(res.status, 200);
+    assert.equal(res.body.order.label, 'Janko');
+    const row = await fetchOrder(orderId);
+    assert.equal(row.label, 'Janko');
+  });
+
+  it('odmietne prázdny názov (400)', async () => {
+    const created = await createOrder({ tableId: fixtures.table1.id });
+    const res = await request
+      .patch(`/api/orders/${created.body.id}/label`)
+      .set('Authorization', `Bearer ${tokens.cisnik()}`)
+      .send({ label: '   ' });
+    assert.equal(res.status, 400);
+  });
+
+  it('404 pre neexistujúci účet', async () => {
+    const res = await request
+      .patch('/api/orders/999999/label')
+      .set('Authorization', `Bearer ${tokens.cisnik()}`)
+      .send({ label: 'Janko' });
+    assert.equal(res.status, 404);
   });
 });

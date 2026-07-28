@@ -16,6 +16,7 @@ import { runDailyBackupOnce, pruneOldBackups } from './lib/backup.js';
 import { corsOriginCallback } from './lib/cors-origin.js';
 import { getPortosConfig, isPortosEnabled } from './lib/portos.js';
 import { runPortosProfileSync, startPortosProfileSync } from './lib/portos-sync-job.js';
+import { startSheetsExportCron } from './lib/sheets-export.js';
 import { startWeatherHourlyCron } from './lib/weather.js';
 import { startForecastCron } from './lib/forecast/engine.js';
 import { isVatRegisteredBusiness } from './lib/vat-registration.js';
@@ -78,13 +79,25 @@ io.on('connection', (socket) => {
 // Make io available to routes
 app.set('io', io);
 
-// Crash logging
-const LOG_FILE = path.join(__dirname, 'crash.log');
+// Crash logging.
+//
+// Predtým sa písalo do server/crash.log VNÚTRI image — teda do efemérneho
+// súborového systému kontajnera. Prvá vec, ktorou sa pád rieši, je
+// `docker compose up -d --build`, a ten log s príčinou zmaže. LOG_DIR
+// (defaultne /backups, čo JE namountovaný named volume) prežije rebuild.
+// Zápis je best-effort: keď sa nedá, aspoň to ide do stdout → `docker logs`.
+const LOG_DIR = process.env.LOG_DIR || process.env.BACKUP_DIR || __dirname;
+const LOG_FILE = path.join(LOG_DIR, 'crash.log');
 
 function logCrash(type, err) {
   const entry = `[${new Date().toISOString()}] ${type}: ${err.stack || err}\n`;
-  fs.appendFileSync(LOG_FILE, entry);
+  // console.error PRVÝ — stdout zachytí docker logs aj keď zápis zlyhá.
   console.error(entry);
+  try {
+    fs.appendFileSync(LOG_FILE, entry);
+  } catch (e) {
+    console.error('[crash-log] zapis do ' + LOG_FILE + ' zlyhal:', e?.message || e);
+  }
 }
 
 process.on('uncaughtException', (err) => {
@@ -126,6 +139,10 @@ httpServer.listen(PORT, () => {
   // Hourly revenue forecast (ridge model: počasie + kalendár + hodinový profil).
   // Pretrénuje sa, projektuje dnešok + 7 dní → revenue_forecasts (method v2-ridge).
   startForecastCron();
+  // Denný export sezónneho P&L do Google Sheets o 05:10 Bratislava (po 04:00
+  // auto-close zmien, aby včerajšie mzdy boli uzavreté). Bez SHEETS_EXPORT_URL
+  // v .env sa iba zaloguje "disabled".
+  startSheetsExportCron();
   if (isPortosEnabled()) {
     startPortosProfileSync();
     runPortosProfileSync({ timeoutMs: 12000 })
@@ -157,15 +174,28 @@ if (httpsServer) {
 async function runAutoCloseOnce(now = new Date()) {
   // Cutoff = 04:00 Bratislava on the date just past. Postgres handles the
   // TZ math so DST switches don't drift this by an hour.
+  // POSLEDNÁ hranica 04:00, nie dnešná.
+  // Predtým to bolo natvrdo „dnes 04:00": keď funkcia bežala pred štvrtou
+  // ráno (napr. pri catch-upe po reštarte o 02:00), cutoff ležal v BUDÚCNOSTI
+  // a auto-close by uzavrel aj smenu človeka, ktorý práve pracuje na nočnej.
+  // Takto je hranica vždy v minulosti a v riadnom behu o 04:00 vyjde presne
+  // rovnaká hodnota ako doteraz.
   const cutoffSql = await db.execute(
-    sql`SELECT (date_trunc('day', NOW() AT TIME ZONE 'Europe/Bratislava') + INTERVAL '4 hours') AT TIME ZONE 'Europe/Bratislava' AS cutoff`
+    sql`SELECT (
+          CASE WHEN (NOW() AT TIME ZONE 'Europe/Bratislava')::time >= TIME '04:00'
+               THEN date_trunc('day', NOW() AT TIME ZONE 'Europe/Bratislava') + INTERVAL '4 hours'
+               ELSE date_trunc('day', (NOW() AT TIME ZONE 'Europe/Bratislava') - INTERVAL '1 day') + INTERVAL '4 hours'
+          END
+        ) AT TIME ZONE 'Europe/Bratislava' AS cutoff`
   );
   const cutoff = cutoffSql.rows[0]?.cutoff;
   if (!cutoff) return { closed: 0 };
   const cutoffDate = new Date(cutoff);
-  // Look 36h back so we cover at most one missed run; any older orphans
-  // would already have been closed by a prior tick.
-  const since = new Date(cutoffDate.getTime() - 36 * 60 * 60 * 1000);
+  // 72 h dozadu: pri 36 h stačilo, aby kasa prespala jeden beh (reštart medzi
+  // polnocou a 04:00 predtým celý ten deň preskočil), a zabudnutý „Odchod"
+  // už žiadny ďalší tick nezachytil — zostal otvorený navždy a skresľoval
+  // mzdový report.
+  const since = new Date(cutoffDate.getTime() - 72 * 60 * 60 * 1000);
 
   return await db.transaction(async (tx) => {
     const rows = await tx.select().from(attendanceEvents)
@@ -179,14 +209,52 @@ async function runAutoCloseOnce(now = new Date()) {
   });
 }
 
+/**
+ * Zmaže staré riadky z prevádzkových tabuliek. Beží raz denne o 04:00 v tom
+ * istom hooku ako záloha a auto-close dochádzky.
+ *
+ * Retencie sú volené tak, aby sa nedalo prísť o nič, čo ešte niekto číta:
+ *   events           30 dní — socket fan-out; KDS si cez /events dočítava
+ *                    zmeškané udalosti len rádovo v minútach.
+ *   print_queue       7 dní pre 'done'; 'failed' zostávajú (diagnostika).
+ *   idempotency_keys  2 dni — middleware ich považuje za expirované po 24 h.
+ *   auth_attempts    30 dní — lockout okno je 15 minút, zvyšok je len audit.
+ * Každý DELETE má vlastný try/catch, nech jedno zlyhanie nezhodí ostatné.
+ */
+async function pruneOperationalTables() {
+  const out = { events: 0, print_queue: 0, idempotency_keys: 0, auth_attempts: 0 };
+  const jobs = [
+    ['events', sql`DELETE FROM events WHERE created_at < NOW() - INTERVAL '30 days'`],
+    ['print_queue', sql`DELETE FROM print_queue WHERE status = 'done' AND created_at < NOW() - INTERVAL '7 days'`],
+    ['idempotency_keys', sql`DELETE FROM idempotency_keys WHERE created_at < NOW() - INTERVAL '2 days'`],
+    ['auth_attempts', sql`DELETE FROM auth_attempts WHERE created_at < NOW() - INTERVAL '30 days'`],
+  ];
+  for (const [name, stmt] of jobs) {
+    try {
+      const r = await db.execute(stmt);
+      out[name] = Number(r.rowCount ?? 0);
+    } catch (e) {
+      console.error(`[maintenance] prune ${name} failed:`, e?.message || e);
+    }
+  }
+  return out;
+}
+
 function scheduleAutoClose() {
   function msUntilNext0400Local() {
     // Compute "next 04:00 Bratislava" by asking Postgres directly so the
     // DST boundary is correct.
+    //
+    // Predtým tu bolo natvrdo `+ INTERVAL '1 day'`, teda VŽDY zajtrajšie
+    // 04:00. Reštart kontajnera o 01:00 tak preskočil dnešný beh úplne —
+    // a s ním aj dennú zálohu, ktorá visí na tom istom hooku. Teraz sa
+    // vyberie dnešné 04:00, ak ešte neprešlo.
     return db.execute(
       sql`SELECT EXTRACT(EPOCH FROM (
-         (date_trunc('day', (NOW() AT TIME ZONE 'Europe/Bratislava') + INTERVAL '1 day')
-            + INTERVAL '4 hours') AT TIME ZONE 'Europe/Bratislava' - NOW()
+         (CASE WHEN (NOW() AT TIME ZONE 'Europe/Bratislava')::time < TIME '04:00'
+               THEN date_trunc('day', NOW() AT TIME ZONE 'Europe/Bratislava') + INTERVAL '4 hours'
+               ELSE date_trunc('day', (NOW() AT TIME ZONE 'Europe/Bratislava') + INTERVAL '1 day') + INTERVAL '4 hours'
+          END) AT TIME ZONE 'Europe/Bratislava' - NOW()
        )) * 1000 AS ms`
     ).then(r => Math.max(60_000, Number(r.rows[0]?.ms) || 24 * 60 * 60 * 1000));
   }
@@ -216,11 +284,41 @@ function scheduleAutoClose() {
     } catch (e) {
       console.error('[backup] prune failed:', e?.message || e);
     }
+    // Upratovanie prevádzkových tabuliek. Žiadna z nich sa doteraz nečistila,
+    // takže na kase rástli donekonečna — `events` je len socket fan-out
+    // (nikto ho spätne nečíta), `print_queue` po vytlačení tiež nie.
+    // Zálohy sa tým zbytočne nafukovali a dotazy nad nimi spomaľovali.
+    // Zámerne konzervatívne: neúspešné tlače (`failed`) sa NEMAŽÚ, tie chce
+    // majiteľ vidieť.
+    try {
+      const pruned = await pruneOperationalTables();
+      const nonZero = Object.entries(pruned).filter(([, n]) => n > 0);
+      if (nonZero.length) {
+        console.log('[maintenance] pruned:', nonZero.map(([k, n]) => `${k}=${n}`).join(' '));
+      }
+    } catch (e) {
+      console.error('[maintenance] prune failed:', e?.message || e);
+    }
     const ms = await msUntilNext0400Local();
     setTimeout(loop, ms);
   }
-  // First tick: schedule for the next 04:00 Bratislava. Don't run on boot
-  // — that would close shifts again right after a deploy.
+  // Catch-up po štarte. Kasa sa reštartuje pri každom deployi aj po výpadku
+  // prúdu; ak reštart padol do okna, v ktorom mal beh prebehnúť, deň sa
+  // predtým jednoducho preskočil (zabudnutý „Odchod" ostal otvorený a v ten
+  // deň nevznikla ani záloha). runAutoCloseOnce je bezpečné spustiť
+  // opakovane — pracuje voči POSLEDNEJ hranici 04:00 (teda vždy v minulosti)
+  // a už uzavreté smeny druhýkrát nenájde.
+  setTimeout(function () {
+    runAutoCloseOnce()
+      .then((r) => {
+        if (r && r.closed > 0) {
+          console.log(`[attendance] boot catch-up auto-closed ${r.closed} orphan shift(s)`, r.staffIds);
+        }
+      })
+      .catch((e) => console.error('[attendance] boot catch-up failed:', e?.message || e));
+  }, 20_000);
+
+  // Ďalej už normálny plán na najbližšie 04:00 Bratislava.
   msUntilNext0400Local().then((ms) => setTimeout(loop, ms));
 }
 

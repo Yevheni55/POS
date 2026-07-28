@@ -10,12 +10,9 @@
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icons/icon-192.svg">
 <title>POS - Prihlasenie</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="preload" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300..800&display=swap" as="style">
-<link rel="preload" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap" as="style">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300..800&display=swap">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap">
+<!-- Fonts are self-hosted in /fonts/fonts.css (Outfit + JetBrains Mono).
+     No fonts.googleapis.com: the kasa must boot with no internet. -->
+<link rel="preload" href="/fonts/outfit-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/tokens.css">
 <link rel="stylesheet" href="/a11y.css">
 <link rel="stylesheet" href="/fonts/fonts.css">
@@ -54,7 +51,7 @@
 
     --color-text:     #1e1812;
     --color-text-sec: #5a4f3c;
-    --color-text-dim: #8a7d65;
+    --color-text-dim: #706552;
     --color-focus:    #b8542a;
 
     /* Shadows — 3-tier paper drop stack (Phase 1 stronger floats) */
@@ -676,6 +673,6 @@
   setInterval(updateClock, 1000);
 })();
 </script>
-<script>if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js')}</script>
+<script src="/js/pos-sw-update.js"></script>
 </body>
 </html>

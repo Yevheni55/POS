@@ -52,8 +52,9 @@ function renderMobTables() {
     return `<div class="mob-zone-group">
       <div class="mob-zone-title">${zoneLabels[zone] || zone}</div>
       ${tables.map(t => {
-        const order = tableOrders[t.id] || [];
-        const total = order.reduce((s, o) => s + o.price * o.qty, 0);
+        const total = (typeof _tableNetTotal === 'function')
+          ? _tableNetTotal(t.id)
+          : (tableOrders[t.id] || []).reduce((s, o) => s + o.price * o.qty, 0);
         const sel = t.id === selectedTableId ? ' selected' : '';
         var rowLabel = escHtml(t.name) + ', ' + escHtml(statusLabels[t.status] || t.status) + (total > 0 ? ', ' + escHtml(fmt(total)) : '');
         return `<button type="button" class="mob-table-row${sel}" onclick="mobSelectTable(${t.id})" aria-label="${rowLabel}">
@@ -171,12 +172,59 @@ function renderMobMenu() {
     const inOrder = order.find(o => o.name === item.name);
     const badge = inOrder ? `<span class="mob-product-badge">${inOrder.qty}</span>` : '';
     var prodLabel = escHtml(item.name) + ', ' + escHtml(fmt(item.price));
-    return `<button type="button" class="mob-product" onclick="mobAddItem('${item.name.replace(/'/g, "\\'")}','${item.emoji}',${item.price})" onpointerdown="_lpStart(event,'${item.name.replace(/'/g, "\\'")}','${item.emoji}',${item.price})" onpointerup="_lpCancel()" onpointerleave="_lpCancel()" onpointercancel="_lpCancel()" oncontextmenu="event.preventDefault()" aria-label="${prodLabel}">
+    // escJsAttr — meno ide naraz do atribútu aj do JS reťazca vnútri neho.
+    const nameJs = (typeof escJsAttr === 'function') ? escJsAttr(item.name) : item.name.replace(/'/g, "\\'");
+    const emojiJs = (typeof escJsAttr === 'function') ? escJsAttr(item.emoji || '') : (item.emoji || '');
+    // data-name — kotva pre cielený update odznaku (updateMobQtyBadges nižšie),
+    // aby sa pri každom +/- neprestavovala celá mriežka.
+    return `<button type="button" class="mob-product" data-name="${escAttr(item.name)}" onclick="mobAddItem('${nameJs}','${emojiJs}',${item.price})" onpointerdown="_lpStart(event,'${nameJs}','${emojiJs}',${item.price})" onpointerup="_lpCancel()" onpointerleave="_lpCancel()" onpointercancel="_lpCancel()" oncontextmenu="event.preventDefault()" aria-label="${prodLabel}">
       ${badge}<span class="mob-product-emoji" aria-hidden="true">${(typeof productIconSVG==='function'?productIconSVG(item.name,item.categorySlug):escHtml(item.emoji||''))}</span>
       <div class="mob-product-name">${escHtml(item.name)}</div>
       <div class="mob-product-price">${fmt(item.price)}</div>
     </button>`;
   }).join('');
+}
+
+// Cielený update množstevných odznakov na mobilnej mriežke.
+//
+// Predtým bol `updateQtyBadges` na mobile prepatchovaný tak, že volal celý
+// `renderMobMenu()` — teda pri KAŽDOM +/- sa prestavalo 40-80 tlačidiel cez
+// innerHTML a stratila sa pozícia scrollu (obsluha po pridaní položky zrazu
+// pozerala na začiatok kategórie). Desktop pritom presne tento problém rieši
+// cielene už dávno (applyToCard v pos-render.js).
+function updateMobQtyBadges() {
+  const grid = document.getElementById('mobProducts');
+  if (!grid) return;
+  const order = getOrder();
+
+  // Súčet množstiev podľa názvu, companion-mirror riadky sa nerátajú
+  // (rovnaká logika ako applyToCard na desktope).
+  const totals = Object.create(null);
+  for (let i = 0; i < order.length; i++) {
+    const o = order[i];
+    if (o._companionOf) continue;
+    totals[String(o.name)] = (totals[String(o.name)] || 0) + o.qty;
+  }
+
+  const cards = grid.querySelectorAll('.mob-product[data-name]');
+  // Ak mriežka ešte nemá data-name (staršie vykreslenie), padni na plný render.
+  if (!cards.length) { renderMobMenu(); return; }
+
+  cards.forEach((card) => {
+    const q = totals[card.getAttribute('data-name')] || 0;
+    let badge = card.querySelector('.mob-product-badge');
+    if (q > 0) {
+      if (badge) { badge.textContent = q; }
+      else {
+        badge = document.createElement('span');
+        badge.className = 'mob-product-badge';
+        badge.textContent = q;
+        card.prepend(badge);
+      }
+    } else if (badge) {
+      badge.remove();
+    }
+  });
 }
 
 function setMobCat(key) {
@@ -314,29 +362,46 @@ function renderMobOrder() {
     var mobDisplay = (typeof _groupOrderForDisplay === 'function')
       ? _groupOrderForDisplay(order)
       : order;
+    var _mobCanDiscount = (typeof getUserRole === 'function' && getUserRole() !== 'cisnik');
     container.innerHTML = mobDisplay.map(o => {
-      const esc = o.name.replace(/'/g, "\\'");
+      // escJsAttr — meno ide naraz do HTML atribútu aj do JS reťazca vnútri
+      // neho. Predtým tu bol len `replace(/'/g,"\\'")`, takže úvodzovka alebo
+      // spätná lomka v názve produktu rozbila celý onclick.
+      const esc = (typeof escJsAttr === 'function') ? escJsAttr(o.name) : o.name.replace(/'/g, "\\'");
       const isSent = o.sent && !o._hasUnsentDelta;
       const pencilSvg = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="svg-icon" style="vertical-align:-2px;margin-right:4px"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
       const noteBlock = o.note
         ? `<div class="mob-oi-note">${escHtml(o.note)}</div>`
         : `<div class="mob-oi-add-note">${isSent ? pencilSvg + 'poznamka' : '+ poznamka'}</div>`;
+      // Per-item zľava
+      const _itemDisc = (typeof itemLineDiscount === 'function') ? itemLineDiscount(o) : 0;
+      const _gross = o.price * o.qty;
+      const _hasItemDisc = _itemDisc > 0.005;
+      const _priceHtml = _hasItemDisc
+        ? `<span class="mob-oi-gross">${fmt(_gross)}</span> ${fmt(_gross - _itemDisc)}`
+        : fmt(_gross);
+      const _discText = o.discountName || (o.discountType === 'percent' ? ('-' + o.discountValue + '%') : ('-' + fmt(o.discountValue || 0)));
+      const _discBadge = _hasItemDisc ? `<span class="oi-disc-badge">${escHtml(_discText)}</span>` : '';
+      const _discBtn = _mobCanDiscount
+        ? `<button type="button" class="mob-oi-disc${_hasItemDisc ? ' has-disc' : ''}" onclick="event.stopPropagation();openItemDiscountModal('${esc}', ${o.id})" aria-label="Zlava na polozku" title="Zlava">%</button>`
+        : '';
       const row2 = isSent
-        ? `<div class="mob-oi-qty-readonly">${o.qty}x &middot; ${fmt(o.price * o.qty)}</div>`
+        ? `<div class="mob-oi-qty-readonly">${o.qty}x &middot; ${_priceHtml}</div>`
         : `
           <div class="mob-oi-qty">
             <button type="button" onclick="mobChangeQty('${esc}',-1,${o.id})" aria-label="Znížiť">&minus;</button>
             <span aria-live="polite">${o.qty}</span>
             <button type="button" onclick="mobChangeQty('${esc}',1,${o.id})" aria-label="Zvýšiť">+</button>
           </div>
-          <div class="mob-oi-price">${fmt(o.price * o.qty)}</div>
+          <div class="mob-oi-price">${_priceHtml}</div>
         `;
       return `<div class="mob-order-item${isSent ? ' sent' : ''}">
         <div class="mob-oi-row1">
           <span class="mob-oi-emoji" aria-hidden="true">${(typeof productIconSVG==='function'?productIconSVG(o.name,o.categorySlug):escHtml(o.emoji||''))}</span>
-          <div class="mob-oi-info" onclick="openNoteModal('${esc}', ${o.id});"><div class="mob-oi-name">${escHtml(o.name)}</div>${noteBlock}</div>
+          <div class="mob-oi-info" onclick="openNoteModal('${esc}', ${o.id});"><div class="mob-oi-name">${escHtml(o.name)}${_discBadge}</div>${noteBlock}</div>
+          ${_discBtn}
           <button type="button" class="mob-oi-move" onclick="event.stopPropagation();enterMoveMode(${o.id})" aria-label="Presunut polozku" title="Presunut"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="svg-icon"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg></button>
-          <button type="button" class="mob-oi-del" onclick="event.stopPropagation();removeItem('${esc}');renderMobOrder();updateMobBadge()" aria-label="${isSent ? 'Storno polozky' : 'Odstranit polozku'}" title="${isSent ? 'Storno' : 'Odstranit'}">${isSent ? '⌫' : '×'}</button>
+          <button type="button" class="mob-oi-del" onclick="event.stopPropagation();confirmRemoveItem('${esc}', ${o.id})" aria-label="${isSent ? 'Storno polozky' : 'Odstranit polozku'}" title="${isSent ? 'Storno' : 'Odstranit'}">${isSent ? '⌫' : '×'}</button>
         </div>
         <div class="mob-oi-row2">${row2}</div>
       </div>`;
@@ -499,12 +564,12 @@ renderOrder = function() {
   }
 };
 
-// Patch updateQtyBadges for mobile
+// Patch updateQtyBadges for mobile — cielene, nie prestavaním celej mriežky.
 const _baseUpdateQtyBadges = typeof updateQtyBadges === 'function' ? updateQtyBadges : null;
 if (_baseUpdateQtyBadges) {
   updateQtyBadges = function() {
     _baseUpdateQtyBadges.apply(this, arguments);
-    if (isMobile()) renderMobMenu();
+    if (isMobile()) updateMobQtyBadges();
   };
 }
 

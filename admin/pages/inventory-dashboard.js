@@ -1,4 +1,17 @@
 // Inventory dashboard page module
+
+// Escapovanie: jediná implementácia je /js/pos-escape.js (načítaná v
+// admin/index.html). Táto stránka predtým NEescapovala vôbec nič — názov
+// kategórie / produktu / stola / suroviny / zamestnanca ide z DB rovno do
+// innerHTML, takže čokoľvek, čo si manažér uloží ako názov, sa v admine
+// vykoná ako HTML (CSP má 'unsafe-inline', takže aj ako skript).
+function escapeHtml(v) {
+  if (typeof window !== 'undefined' && typeof window.escHtml === 'function') return window.escHtml(v);
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 let _container = null;
 let _interval = null;
 
@@ -32,7 +45,7 @@ function getMovementBadge(type) {
     inventory:   { cls: 'badge-warning',  label: 'Inventura' }
   };
   var entry = map[type] || { cls: '', label: type || '--' };
-  return '<span class="badge ' + entry.cls + '">' + entry.label + '</span>';
+  return '<span class="badge ' + entry.cls + '">' + escapeHtml(entry.label) + '</span>';
 }
 
 async function loadDashboard() {
@@ -110,8 +123,8 @@ function renderLowStock(ingredients, menuItems) {
 
   tbody.innerHTML = rows.map(function(r) {
     return '<tr>' +
-      '<td class="td-name">' + r.name + '</td>' +
-      '<td>' + r.unit + '</td>' +
+      '<td class="td-name">' + escapeHtml(r.name) + '</td>' +
+      '<td>' + escapeHtml(r.unit) + '</td>' +
       '<td class="num">' + r.current + '</td>' +
       '<td class="num">' + r.min + '</td>' +
       '<td>' + r.badge + '</td>' +

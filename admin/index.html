@@ -7,6 +7,11 @@
 <title>POS Admin</title>
 <script>/* Anti-FOUC: téma na <html> PRED CSS (zdieľa pos_theme s POS, rovnaký origin) */try{document.documentElement.setAttribute('data-theme',localStorage.getItem('pos_theme')==='dark'?'dark':'light');}catch(e){}</script>
 <link rel="stylesheet" href="/tokens.css">
+<!-- a11y.css carries the spinner keyframes components/loading.js relies on,
+     .field-error styling for validate.js, the global focus ring, the skip
+     link and the blanket prefers-reduced-motion block. The admin never
+     loaded it, so all of those were silently missing here. -->
+<link rel="stylesheet" href="/a11y.css">
 <link rel="stylesheet" href="/fonts/fonts.css">
 <link rel="stylesheet" href="admin.css?v=22">
 <link rel="stylesheet" href="admin-dark.css?v=1">
@@ -162,6 +167,11 @@
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
+<!-- Jediná implementácia escapovania (escHtml / escAttr / escJsAttr) pre celý
+     projekt. Admin ju predtým nenačítaval a každá stránka si niesla vlastnú
+     kópiu — dokopy 19 kópií so štyrmi rôznymi správaniami. Musí byť PRED
+     modulmi stránok, ktoré na window.escHtml delegujú. -->
+<script src="/js/pos-escape.js"></script>
 <script src="/components/loading.js"></script>
 <script src="/components/validate.js"></script>
 <script src="/api.js"></script>
@@ -337,7 +347,18 @@ function showConfirm(title,text,onConfirm,opts){
   ov.setAttribute('role','dialog');
   ov.setAttribute('aria-modal','true');
   var ctext=opts.confirmText?escapeHtml(opts.confirmText):'Potvrdiť';
-  ov.innerHTML='<div class="u-modal"><span class="u-modal-icon" aria-hidden="true">'+icon+'</span><div class="u-modal-title">'+escapeHtml(title)+'</div><div class="u-modal-text">'+escapeHtml(text)+'</div><div class="u-modal-btns"><button type="button" class="u-btn u-btn-ghost" id="dynCancel">Zrušiť</button><button type="button" class="u-btn '+btnClass+'" id="dynConfirm">'+ctext+'</button></div></div>';
+  var canceltext=opts.cancelText?escapeHtml(opts.cancelText):'Zrušiť';
+  ov.innerHTML='<div class="u-modal"><span class="u-modal-icon" aria-hidden="true">'+icon+'</span><div class="u-modal-title">'+escapeHtml(title)+'</div><div class="u-modal-text">'+escapeHtml(text)+'</div><div class="u-modal-btns"><button type="button" class="u-btn u-btn-ghost" id="dynCancel">'+canceltext+'</button><button type="button" class="u-btn '+btnClass+'" id="dynConfirm">'+ctext+'</button></div></div>';
+  // opts.onDismiss zabehne pri KAŽDOM zatvorení bez potvrdenia (tlačidlo,
+  // Escape aj klik na pozadie). Bez neho sa nedalo showConfirm bezpečne
+  // obaliť do Promise — pri Escape by ostal navždy nevyriešený a akcia by
+  // ticho zamrzla. opts.onCancel je len pre explicitné kliknutie na Zrušiť.
+  var _dynSettled=false;
+  function dynDismiss(){
+    if(_dynSettled)return;
+    _dynSettled=true;
+    if(typeof opts.onDismiss==='function')opts.onDismiss();
+  }
   function cleanupDyn(){
     document.removeEventListener('keydown',onDynKey);
     if(prevFocus&&typeof prevFocus.focus==='function')try{prevFocus.focus();}catch(x){}
@@ -347,13 +368,13 @@ function showConfirm(title,text,onConfirm,opts){
     cleanupDyn();
   }
   function onDynKey(e){
-    if(e.key==='Escape'){e.preventDefault();removeDyn();}
+    if(e.key==='Escape'){e.preventDefault();dynDismiss();removeDyn();}
   }
   document.body.appendChild(ov);
   document.addEventListener('keydown',onDynKey);
-  ov.querySelector('#dynCancel').onclick=function(){removeDyn();};
-  ov.querySelector('#dynConfirm').onclick=function(){removeDyn();onConfirm();};
-  ov.addEventListener('click',function(e){if(e.target===ov)removeDyn();});
+  ov.querySelector('#dynCancel').onclick=function(){if(typeof opts.onCancel==='function')opts.onCancel();dynDismiss();removeDyn();};
+  ov.querySelector('#dynConfirm').onclick=function(){_dynSettled=true;removeDyn();onConfirm();};
+  ov.addEventListener('click',function(e){if(e.target===ov){dynDismiss();removeDyn();}});
   setTimeout(function(){var x=ov.querySelector('#dynCancel');if(x)x.focus();},0);
 }
 </script>

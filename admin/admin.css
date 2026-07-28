@@ -44,14 +44,25 @@
 
   --color-text:     #1e1812;
   --color-text-sec: #5a4f3c;
-  --color-text-dim: #8a7d65;
+  --color-text-dim: #706552;
 
   --color-focus: #b8542a;
   --accent-amber: #b87c1a;
+  /* Text-safe varianta jantárovej. Brand --accent-amber ma na kremovom
+     podklade len 3,09:1 (na elevated 2,80:1), co je pod AA aj pre velky
+     text — a nesie pritom cas obsadenia stola a cistu cenu po zlave.
+     Vyplne, bodky a ramiky zostavaju na brandovej; text ide na tuto. */
+  --accent-amber-text: #8a5d14;
   /* Semantic alias — pages use var(--color-warning) for amber bars/badges. */
   --color-warning:        #b87c1a;
   --color-warning-bg:     rgba(184, 124, 26, .10);
   --color-warning-border: rgba(184, 124, 26, .26);
+
+  /* Tmavšie TEXT varianty — semibold text na .10/.14 tinte cez cream dosiahne
+     WCAG AA (samotný --color-warning/-success je na vlastnom tinte len
+     ~2.6–3.6:1). Tint bg + border ostávajú ako hue cue; text ide -strong. */
+  --color-warning-strong: #7a5210;
+  --color-success-strong: #3a6230;
 
   --shadow-sm:    0 1px 2px rgba(30, 24, 18, .06),
                   0 2px 6px -1px rgba(30, 24, 18, .08);
@@ -384,9 +395,16 @@ body{font-family:var(--font-body);color:var(--color-text);background:var(--color
   position:fixed;inset:0;z-index:200;
   background:var(--color-overlay);
   display:flex;align-items:center;justify-content:center;
-  opacity:0;pointer-events:none;transition:opacity .3s ease;
+  /* visibility:hidden — inak zostávajú zatvorené modály v tab-poradí
+     (opacity:0 prvok je pre klávesnicu stále plnohodnotný prvok).
+     Oneskorenie 0s linear .3s = preklopí sa až po dobehnutí fade-outu. */
+  opacity:0;pointer-events:none;visibility:hidden;
+  transition:opacity .3s ease, visibility 0s linear .3s;
 }
-.u-overlay.show{opacity:1;pointer-events:all}
+.u-overlay.show{
+  opacity:1;pointer-events:all;visibility:visible;
+  transition:opacity .3s ease, visibility 0s linear 0s;
+}
 .u-modal{
   background:rgba(245, 239, 227, .98);
   border:1px solid var(--color-border-strong);border-radius:var(--radius-lg);
@@ -1504,6 +1522,139 @@ textarea.form-input,textarea.form-select,.u-modal-field textarea{height:auto;min
   -webkit-tap-highlight-color:transparent;
 }
 .doch-pay-btn:hover{background:rgba(184, 84, 42, .16)}
+/* Vymazať smenu — danger varianta doch-pay-btn (zmaže celý pár + výplatu). */
+.doch-shift-del{
+  padding:6px 12px;border-radius:8px;
+  background:rgba(176, 56, 48, .06);
+  color:var(--color-danger);
+  border:1px solid rgba(176, 56, 48, .26);
+  font-size:11.5px;font-weight:600;letter-spacing:.2px;
+  cursor:pointer;transition:background .15s;
+  -webkit-tap-highlight-color:transparent;
+}
+.doch-shift-del:hover{background:rgba(176, 56, 48, .16)}
+
+/* ── Inline úprava času (Smeny tabuľka) ───────────────────────────────────────
+   Časy príchodu/odchodu sú klikateľné tlačidlá — klik otvorí editačný modal.
+   Vyzerajú ako editovateľná hodnota (jemný rámik, hover zvýrazní), ceruzka sa
+   ukáže až na hover/focus aby tabuľka ostala čistá. */
+.doch-time-edit{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:5px 10px;min-height:32px;border-radius:var(--radius-sm);
+  background:rgba(30, 24, 18, .03);border:1px solid var(--color-border);
+  color:var(--color-text);font:inherit;
+  font-variant-numeric:tabular-nums;font-weight:600;
+  cursor:pointer;transition:background .15s,border-color .15s;
+  -webkit-tap-highlight-color:transparent;
+}
+.doch-time-edit:hover{background:var(--color-bg-hover);border-color:var(--color-border-hover)}
+.doch-time-edit:focus-visible{outline:none;border-color:var(--color-accent);box-shadow:0 0 0 3px rgba(184, 84, 42, .18)}
+.doch-time-edit .doch-pencil{opacity:0;color:var(--color-text-dim);transition:opacity .15s}
+.doch-time-edit:hover .doch-pencil,
+.doch-time-edit:focus-visible .doch-pencil{opacity:.7}
+
+/* "+ príchod / + odchod" — akčná výzva pri neúplnej smene. Dashed outline =
+   "tu niečo chýba, doplň". Warn varianta (otvorená smena) je jantárová. */
+.doch-time-add{
+  display:inline-flex;align-items:center;gap:4px;
+  padding:5px 10px;min-height:32px;border-radius:var(--radius-sm);
+  background:transparent;border:1px dashed var(--color-border);
+  color:var(--color-text-sec);font:inherit;font-size:12px;font-weight:600;
+  cursor:pointer;transition:background .15s,border-color .15s,color .15s;
+  -webkit-tap-highlight-color:transparent;
+}
+.doch-time-add:hover{background:rgba(184, 84, 42, .06);border-color:var(--color-accent);color:var(--color-accent)}
+.doch-time-add:focus-visible{outline:none;border-color:var(--color-accent);box-shadow:0 0 0 3px rgba(184, 84, 42, .18)}
+.doch-time-add-warn{border-color:var(--color-warning-border);color:var(--color-warning)}
+.doch-time-add-warn:hover{background:var(--color-warning-bg);border-color:var(--color-warning);color:var(--color-warning)}
+/* "+ Pridať smenu" je SAMOSTATNÉ tlačidlo (nie inline v bunke) → plný 44px tap
+   target podľa DESIGN-CODE §5.1. In-row +príchod/+odchod ostávajú 32px (inline). */
+#dAddShift{min-height:44px;padding-left:14px;padding-right:14px}
+
+/* Nudge čipy (−15 / −5 / +5 / +15) v time-edit modáli — rýchla úprava bez
+   klávesnice (tablet). Tap target ≥ 44 px. */
+.doch-nudge-row{display:flex;gap:6px;margin:0}
+.doch-nudge-btn{
+  flex:1;min-height:44px;border-radius:var(--radius-sm);
+  background:rgba(30, 24, 18, .04);border:1px solid var(--color-border);
+  color:var(--color-text-sec);
+  font-family:var(--font-mono);font-weight:700;font-size:14px;
+  cursor:pointer;transition:background .15s,border-color .15s,color .15s;
+  -webkit-tap-highlight-color:transparent;
+}
+.doch-nudge-btn:hover{background:var(--color-bg-hover);border-color:var(--color-border-hover);color:var(--color-text)}
+.doch-nudge-btn:focus-visible{outline:none;border-color:var(--color-accent);box-shadow:0 0 0 3px rgba(184, 84, 42, .18)}
+
+/* ── Zoštíhlená tabuľka ľudí ──────────────────────────────────────────────────
+   Zlúčená bunka „Zamestnanec" (meno + pozícia/sadzba subtitle + otv. badge)
+   a zlúčený stĺpec „Stav výplaty" (Vyplatené + Zostáva v jednom). */
+.doch-name-cell{display:flex;flex-direction:column;gap:1px;align-items:flex-start}
+.doch-name-pos{font-size:11px;color:var(--color-text-dim);font-weight:var(--weight-normal)}
+.doch-pay-sub{font-size:var(--text-xs);color:var(--color-text-dim);margin-top:var(--space-1)}
+
+/* ── Stav výplaty ako pilulka — okamžitá vizuálna čitateľnosť stavu ──────────
+   Tint-bg + tint-color + radius-full badge (DESIGN-CODE §14 Badge/Pill vzor).
+   Zeleno = vyrovnané, jantárovo = dlhuješ, navy = preplatil (záloha). */
+.doch-status-pill{
+  display:inline-flex;align-items:center;gap:var(--space-1);
+  padding:var(--space-1) var(--space-3);min-height:26px;
+  border-radius:var(--radius-full);border:1px solid transparent;
+  font-size:var(--text-base);font-weight:var(--weight-semibold);
+  font-variant-numeric:tabular-nums;white-space:nowrap;line-height:1;
+}
+.doch-status-pill.is-paid{background:var(--color-success-bg);color:var(--color-success-strong);border-color:var(--color-success-border)}
+.doch-status-pill.is-owed{background:var(--color-warning-bg);color:var(--color-warning-strong);border-color:var(--color-warning-border)}
+.doch-status-pill.is-advance{background:var(--color-accent-secondary-soft);color:var(--color-accent-secondary);border-color:rgba(31, 58, 92, .22)}
+
+/* ── Hero: celkový dlh na výplatách — vizuálne dominantná „balance karta" ────
+   Najdôležitejšia info pre manažéra (komu koľko dlhuje) dostane najväčší
+   dôraz: eyebrow label + obrovské display číslo + zoznam dlžníkov ako čipy. */
+.doch-hero{
+  margin-bottom:var(--space-5);
+  padding:var(--space-5) var(--space-6);
+  border:1px solid var(--color-border);
+  border-left:3px solid var(--color-warning);
+  border-radius:var(--radius-md);
+  background:linear-gradient(135deg, var(--color-warning-bg), var(--color-bg-surface) 62%);
+  box-shadow:var(--shadow-sm);
+}
+.doch-hero.is-clear{
+  border-left-color:var(--color-success);
+  background:linear-gradient(135deg, var(--color-success-bg), var(--color-bg-surface) 62%);
+}
+.doch-hero-top{display:flex;justify-content:space-between;align-items:flex-start;gap:var(--space-4);flex-wrap:wrap}
+.doch-hero-eyebrow{
+  font-size:var(--text-xs);font-weight:var(--weight-semibold);
+  letter-spacing:var(--tracking-wider);text-transform:uppercase;
+  color:var(--color-text-sec);
+}
+.doch-hero-sub{font-size:var(--text-base);color:var(--color-text-sec);margin-top:var(--space-1)}
+.doch-hero-num{
+  font-family:var(--font-display);font-weight:var(--weight-extrabold);
+  font-size:var(--text-7xl);line-height:var(--leading-tight);
+  letter-spacing:var(--tracking-tight);color:var(--color-warning-strong);
+}
+.doch-hero.is-clear .doch-hero-num{color:var(--color-success-strong)}
+.doch-hero-debtors{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:var(--space-2);margin-top:var(--space-4)}
+.doch-debtor-chip{
+  display:flex;justify-content:space-between;align-items:center;gap:var(--space-3);
+  padding:var(--space-2) var(--space-3);
+  background:var(--color-bg-surface);border:1px solid var(--color-border);
+  border-radius:var(--radius-sm);
+}
+.doch-debtor-chip strong{color:var(--color-warning-strong);white-space:nowrap;font-variant-numeric:tabular-nums}
+.doch-hero-allpaid{margin-top:var(--space-2);color:var(--color-success);font-weight:var(--weight-semibold)}
+.doch-hero-note{font-size:var(--text-base);color:var(--color-text-sec);margin-top:var(--space-2)}
+.doch-hero-note.bordered{padding-top:var(--space-2);border-top:1px solid var(--color-border)}
+
+/* "Vyplatiť" v riadku — tinted success (DESIGN-CODE §5.2), Daylight forest. */
+.doch-payout-btn{
+  background:var(--color-success-bg);
+  border:1px solid var(--color-success-border);
+  color:var(--color-success);
+  font-weight:var(--weight-semibold);
+}
+.doch-payout-btn:hover{background:rgba(74, 122, 58, .18);border-color:var(--color-success)}
 
 /* ════════════════════════════════════════════════════════════════════════════
    EDITORIAL ATELIER REFINEMENT — Daylight phase 2
@@ -2306,11 +2457,15 @@ select:focus-visible{
   -webkit-backdrop-filter:blur(6px);
   opacity:0;
   pointer-events:none;
-  transition:opacity 180ms cubic-bezier(0.32, 0.72, 0, 1);
+  /* viď .u-overlay — zatvorená paleta nesmie zostať v tab-poradí. */
+  visibility:hidden;
+  transition:opacity 180ms cubic-bezier(0.32, 0.72, 0, 1), visibility 0s linear 180ms;
 }
 .cmdk-overlay.show{
   opacity:1;
   pointer-events:auto;
+  visibility:visible;
+  transition:opacity 180ms cubic-bezier(0.32, 0.72, 0, 1), visibility 0s linear 0s;
 }
 .cmdk-modal{
   width:min(96vw, 580px);

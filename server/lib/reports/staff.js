@@ -1,39 +1,48 @@
-import { and, desc, eq, gte, sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 
 import { db } from '../../db/index.js';
 import { orders, orderItems, payments, staff } from '../../db/schema.js';
-import { notStornoedSql } from './shared.js';
+import { localYmd } from '../print/format.js';
+
+import { TZ, notStornoedSql } from './shared.js';
 
 // GET /api/reports/staff?from=&to=
 export async function staffHandler(req, res) {
-  const from = req.query.from || new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
-  const to = req.query.to || new Date().toISOString().split('T')[0];
+  // Defaultny rozsah = poslednych 30 LOKALNYCH dni (UTC den sa po polnoci lisi).
+  const from = req.query.from || localYmd(new Date(Date.now() - 30 * 86400000));
+  const to = req.query.to || localYmd();
 
-  const fromDate = new Date(from);
-  const toDate = new Date(to + 'T23:59:59');
+  // Okno dna sa pocita v Europe/Bratislava, nie v UTC (server bezi v Dockeri
+  // v UTC a created_at je `timestamp` bez zony s UTC nastennym casom).
+  // `new Date(from)` predtym znamenalo 02:00 lokalneho casu → vecerne trzby
+  // z posledneho dna vypadli a rannne z predosleho pribudli. Stlpec
+  // interpretujeme explicitne ako UTC, aby vysledok nezavisel od session
+  // TimeZone databazy. Rovnaky princip ako server/lib/reports/summary.js.
+  const fromBoundary = sql`(${from + ' 00:00:00'})::timestamp AT TIME ZONE ${TZ}`;
+  const toBoundary   = sql`(${to + ' 23:59:59.999'})::timestamp AT TIME ZONE ${TZ}`;
+  const inRange = (col) => sql`(${col} AT TIME ZONE 'UTC') >= ${fromBoundary} AND (${col} AT TIME ZONE 'UTC') <= ${toBoundary}`;
 
   try {
-    // Staff with order counts and revenue
+    // Pocty objednavok a poloziek. Platby sa tu UZ NEJOINUJU: join na
+    // order_items robil fan-out (jeden riadok platby na kazdu polozku) a
+    // povodny `SUM(DISTINCT payments.amount)` to riesil tak, ze dve rozne
+    // ucty s rovnakou sumou zlucil do jednej → trzba cisnika bola systematicky
+    // podhodnotena (v bare je vacsina uctov cennikovy sucet, takze rovnake
+    // sumy su bezne). Trzba sa preto berie z paymentBreakdown nizsie, ktory
+    // agreguje platby bez fan-outu a uz filtruje stornovane doklady.
     const staffStats = await db.select({
       staffId: staff.id,
       name: staff.name,
       role: staff.role,
       ordersCount: sql`COUNT(DISTINCT ${orders.id})`,
       itemsCount: sql`COALESCE(SUM(${orderItems.qty}), 0)`,
-      revenue: sql`COALESCE(SUM(DISTINCT ${payments.amount}::numeric), 0)`,
       cancelledOrders: sql`COUNT(DISTINCT ${orders.id}) FILTER (WHERE ${orders.status} = 'cancelled')`,
     })
     .from(staff)
-    .leftJoin(orders, and(
-      eq(orders.staffId, staff.id),
-      gte(orders.createdAt, fromDate),
-      sql`${orders.createdAt} <= ${toDate}`
-    ))
+    .leftJoin(orders, sql`${orders.staffId} = ${staff.id} AND ${inRange(orders.createdAt)}`)
     .leftJoin(orderItems, eq(orderItems.orderId, orders.id))
-    .leftJoin(payments, eq(payments.orderId, orders.id))
     .where(eq(staff.active, true))
-    .groupBy(staff.id, staff.name, staff.role)
-    .orderBy(desc(sql`COALESCE(SUM(DISTINCT ${payments.amount}::numeric), 0)`));
+    .groupBy(staff.id, staff.name, staff.role);
 
     // Get payment method breakdown per staff
     const paymentBreakdown = await db.select({
@@ -45,11 +54,7 @@ export async function staffHandler(req, res) {
     .innerJoin(orders, eq(payments.orderId, orders.id))
     .innerJoin(staff, eq(orders.staffId, staff.id))
     .where(
-      and(
-        gte(payments.createdAt, fromDate),
-        sql`${payments.createdAt} <= ${toDate}`,
-        sql.raw(notStornoedSql('payments'))   // stornované platby nie sú tržba
-      )
+      sql`${inRange(payments.createdAt)} AND ${sql.raw(notStornoedSql('payments'))}`   // stornované platby nie sú tržba
     )
     .groupBy(staff.id, payments.method);
 
@@ -59,10 +64,22 @@ export async function staffHandler(req, res) {
       breakdownMap[pb.staffId][pb.method] = parseFloat(pb.total);
     }
 
+    // POS zapisuje sposoby platby ako 'hotovost' / 'karta' (js/pos-payments.js),
+    // anglicke 'cash' / 'card' su len historicke/importovane riadky. Stlpce
+    // Hotovost/Karta v admin/pages/reports.js preto ukazovali 0,00 € pri
+    // kazdom cisnikovi. Akceptujeme obe pisania — rovnako ako z-report.js
+    // pri vypocte `cashFiscal`.
+    const sumMethods = (bd, names) => Math.round(
+      names.reduce((sum, n) => sum + (bd[n] || 0), 0) * 100
+    ) / 100;
+
     const result = staffStats.map(s => {
-      const revenue = parseFloat(s.revenue);
-      const ordersCount = parseInt(s.ordersCount);
       const bd = breakdownMap[s.staffId] || {};
+      // Headline trzba = sucet metod z breakdownu → uz bez stornovanych
+      // platieb (predtym headline stornovane obsahoval, breakdown nie, takze
+      // si navzajom nesedeli).
+      const revenue = Math.round(Object.values(bd).reduce((sum, v) => sum + v, 0) * 100) / 100;
+      const ordersCount = parseInt(s.ordersCount);
       return {
         staffId: s.staffId,
         name: s.name,
@@ -72,10 +89,13 @@ export async function staffHandler(req, res) {
         revenue,
         averageOrder: ordersCount > 0 ? Math.round((revenue / ordersCount) * 100) / 100 : 0,
         cancelledOrders: parseInt(s.cancelledOrders),
-        cashPayments: bd['cash'] || 0,
-        cardPayments: bd['card'] || 0,
+        cashPayments: sumMethods(bd, ['hotovost', 'cash']),
+        cardPayments: sumMethods(bd, ['karta', 'card']),
       };
     });
+    // Poradie podla trzby — predtym to robil ORDER BY nad SUM(DISTINCT),
+    // teraz je trzba pocitana v JS, takze sa triedi tu.
+    result.sort((a, b) => b.revenue - a.revenue);
 
     res.json(result);
   } catch (err) {

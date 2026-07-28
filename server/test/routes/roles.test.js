@@ -280,3 +280,93 @@ describe('GET routes accessible to any authenticated role', () => {
     assert.equal(res.status, 401);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Invoice scan — POST /api/invoice-scan (manazer/admin only)
+// Plateny OpenAI call na ucet prevadzky, cisnik ho nesmie spustit.
+// ---------------------------------------------------------------------------
+
+describe('POST /api/invoice-scan — manazer/admin endpoint', () => {
+  it('returns 403 when cisnik triggers an invoice scan', async () => {
+    const res = await request
+      .post('/api/invoice-scan')
+      .set('Authorization', `Bearer ${tokens.cisnik()}`)
+      .send({ image: 'data:image/png;base64,aGVsbG8=' });
+
+    assert.equal(res.status, 403);
+    assert.ok(res.body.error, 'error field must be present');
+  });
+
+  it('lets manazer through the gate (400 on missing image, not 403)', async () => {
+    // Bez `image` sa routa ukonci pred akymkolvek OpenAI volanim — dokazuje,
+    // ze gate manazera pusti, a pritom neminie ziadny kredit.
+    const res = await request
+      .post('/api/invoice-scan')
+      .set('Authorization', `Bearer ${tokens.manazer()}`)
+      .send({});
+
+    assert.equal(res.status, 400);
+  });
+
+  it('returns 401 when no token is provided', async () => {
+    const res = await request
+      .post('/api/invoice-scan')
+      .send({ image: 'data:image/png;base64,aGVsbG8=' });
+
+    assert.equal(res.status, 401);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/staff — hourlyRate je mzdovy udaj, iba manazer/admin
+// ---------------------------------------------------------------------------
+
+describe('GET /api/staff — hourlyRate visibility', () => {
+  let paidStaffId;
+
+  before(async () => {
+    const created = await request
+      .post('/api/staff')
+      .set('Authorization', `Bearer ${tokens.admin()}`)
+      .send({ name: 'Rate Holder', pin: '7777', role: 'cisnik', hourlyRate: '9.50' });
+
+    assert.equal(created.status, 201);
+    paidStaffId = created.body.id;
+  });
+
+  it('omits hourlyRate for cisnik', async () => {
+    const res = await request
+      .get('/api/staff')
+      .set('Authorization', `Bearer ${tokens.cisnik()}`);
+
+    assert.equal(res.status, 200);
+    const row = res.body.find((s) => s.id === paidStaffId);
+    assert.ok(row, 'staff row must be listed');
+    assert.equal('hourlyRate' in row, false, 'cisnik must not receive hourlyRate');
+    // Zvysok zoznamu musi ostat pouzitelny pre POS.
+    assert.equal(row.name, 'Rate Holder');
+    assert.equal(res.body.every((s) => !('hourlyRate' in s)), true);
+  });
+
+  it('returns hourlyRate for manazer', async () => {
+    const res = await request
+      .get('/api/staff')
+      .set('Authorization', `Bearer ${tokens.manazer()}`);
+
+    assert.equal(res.status, 200);
+    const row = res.body.find((s) => s.id === paidStaffId);
+    assert.ok(row);
+    assert.equal(row.hourlyRate, '9.50');
+  });
+
+  it('returns hourlyRate for admin', async () => {
+    const res = await request
+      .get('/api/staff')
+      .set('Authorization', `Bearer ${tokens.admin()}`);
+
+    assert.equal(res.status, 200);
+    const row = res.body.find((s) => s.id === paidStaffId);
+    assert.ok(row);
+    assert.equal(row.hourlyRate, '9.50');
+  });
+});

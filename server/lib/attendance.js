@@ -19,7 +19,11 @@ export function pairEventsToShifts(events) {
       openIn = ev;
     } else if (ev.type === 'clock_out') {
       if (!openIn) continue; // stray clock_out
-      const minutes = Math.round((ev.at.getTime() - openIn.at.getTime()) / 60000);
+      // Clamp na >= 0: manuálna úprava môže posunúť odchod pred príchod
+      // (preklep / nudge), čo by inak dalo zápornú mzdu tečúcu do
+      // outstanding/balance. Mirror frontendového buildShifts guardu aj
+      // clampov v /active a computeWageWithOverlap.
+      const minutes = Math.max(0, Math.round((ev.at.getTime() - openIn.at.getTime()) / 60000));
       shifts.push({ inEvent: openIn, outEvent: ev, minutes, closed: true });
       openIn = null;
     }

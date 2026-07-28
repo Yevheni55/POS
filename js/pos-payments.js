@@ -1,12 +1,58 @@
 'use strict';
 // pos-payments.js - Payment, kitchen send, storno, manager PIN verification, formatting
 
+// ── Re-entrancy guard pre nevratné akcie ────────────────────────────────────
+// Jediná ochrana pred dvojitým odoslaním bola `btnLoading(btn)`, ktorá nastaví
+// `button.disabled = true`. To zastaví druhý KLIK, ale nie druhé zavolanie
+// funkcie — a Enter v modáli platby volá `confirmPayment()` PRIAMO
+// (js/pos-ui.js), takže disabled tlačidlo nezastavilo nič. Kasa je Windows PC
+// s klávesnicou: podržaný Enter generuje desiatky volaní za sekundu.
+//
+// Lokálna DB duplicitu ustojí (payments_order_id_uidx + transakčný
+// finalizeLocalPayment), ale FIŠKÁL nie: každý request si cez api.post vypýta
+// nový idempotency kľúč a vyrobí vlastný externalId, takže Portos vystaví
+// DRUHÝ eKasa doklad — ten už v našej DB nemá stopu a stornovať sa dá len
+// ručne v Portose.
+//
+// Guard sa berie AŽ tam, kde začína nevratná práca (nie na začiatku funkcie),
+// aby neblokoval legitímne rekurzívne volanie z potvrdzovacieho dialógu.
+var _busyActions = Object.create(null);
+function beginExclusiveAction(key) {
+  if (_busyActions[key]) return false;
+  _busyActions[key] = true;
+  return true;
+}
+function endExclusiveAction(key) {
+  delete _busyActions[key];
+}
+function isExclusiveActionBusy(key) {
+  return !!_busyActions[key];
+}
+
+// Realized euro discount for a single order line, derived live from the
+// current menu price (mirror of server lineDiscountAmount). The line stores
+// only the rule (discountType + discountValue) so this scales with qty edits.
+function itemLineDiscount(o) {
+  if (!o || !o.discountType || !o.discountValue) return 0;
+  var gross = Math.round(o.price * o.qty * 100) / 100;
+  if (gross <= 0) return 0;
+  var raw = o.discountType === 'fixed' ? o.discountValue : (gross * o.discountValue) / 100;
+  return Math.round(Math.min(Math.max(raw, 0), gross) * 100) / 100;
+}
+
+function orderItemsDiscountTotal() {
+  return Math.round(getOrder().reduce(function (s, o) { return s + itemLineDiscount(o); }, 0) * 100) / 100;
+}
+
 function getOrderTotal() {
   var order = getOrder();
   var subtotal = order.reduce(function (s, o) { return s + o.price * o.qty; }, 0);
+  var itemDisc = orderItemsDiscountTotal();
   var currentOrd = tableOrdersList.find(function (o) { return o.id === currentOrderId; });
-  var discountAmt = currentOrd && currentOrd.discountAmount ? parseFloat(currentOrd.discountAmount) : 0;
-  return Math.max(0, subtotal - discountAmt);
+  var orderDisc = currentOrd && currentOrd.discountAmount ? parseFloat(currentOrd.discountAmount) : 0;
+  // Combined discount can never exceed the subtotal (mirror server clamp).
+  var totalDisc = Math.min(subtotal, Math.round((orderDisc + itemDisc) * 100) / 100);
+  return Math.max(0, Math.round((subtotal - totalDisc) * 100) / 100);
 }
 
 function readFiscalPayload(source) {
@@ -45,7 +91,10 @@ function normalizeFiscalOutcome(result, err) {
     };
   }
 
-  if (err && err.name === 'TypeError' && /fetch/i.test(err.message || '')) {
+  // api._isTransportError — hlaska sa lisi podla prehliadaca (Chrome
+  // 'Failed to fetch', Safari 'Load failed', Firefox 'NetworkError...'),
+  // takze regex na slovo 'fetch' na iPhone nikdy nesedel.
+  if (typeof api !== 'undefined' && api._isTransportError && api._isTransportError(err)) {
     return { kind: 'offline_queued', tone: 'warning', message: 'Platba bola ulozena offline a synchronizuje sa neskor.' };
   }
 
@@ -409,6 +458,407 @@ function initiatePayment(method) {
   _setupCashHelper(method, total);
 }
 
+// ============================ QR PLATBA =====================================
+// Okamžitá platba prevodom cez Portos QR (PayMe/SBA). QR sa vytlačí na bonček.
+// ČAKANIE NA ÚHRADU BEŽÍ NA POZADÍ — modal možno zavrieť („Na pozadí") a po
+// úhrade (Portos status='paid' z bankovej notifikácie) sa doklad vystaví
+// AUTOMATICKY, aj keď je obsluha medzitým na inom účte. Kým auto-notifikácia
+// nefunguje, obsluha potvrdí ručne („Zaplatené"). Registry podporuje viac
+// súbežných QR platieb + plávajúci indikátor na re-otvorenie modalu.
+//
+// payment = { transactionId, orderId, amount, tableId, tableName, expiresAt,
+//             printed, qrDataUrl, pollTimer, finalizing }
+var _qrPayments = [];
+var _qrActiveModalTx = null;   // tx práve zobrazené v modali (alebo null)
+var _qrCountdownTimer = null;  // countdown v modali (len view)
+
+// Perzistencia rozrobených QR platieb.
+// `_qrPayments` bolo čisto v pamäti tabu: stačil reload / pád Chrome / restart
+// tabletu medzi vytlačením QR kódu a úhradou a transakcia zmizla — hosť
+// zaplatil na účet podniku, ale POS o platbe už nevedel, doklad nevznikol a
+// účet zostal otvorený. Starý zápis `qrTx:<orderId>` sa síce zapisoval, ale
+// NIKDE sa nečítal, takže obnovu neriešil.
+var QR_STORAGE_KEY = 'pos_qr_payments';
+var QR_MAX_AGE_MS = 12 * 60 * 60 * 1000;  // po 12 h už nemá zmysel obnovovať
+
+function _qrSerializable(p) {
+  return {
+    transactionId: p.transactionId,
+    orderId: p.orderId,
+    amount: p.amount,
+    tableId: p.tableId,
+    tableName: p.tableName,
+    expiresAt: p.expiresAt || null,
+    printed: !!p.printed,
+    qrDataUrl: p.qrDataUrl || null,
+    savedAt: p.savedAt || Date.now(),
+  };
+}
+
+function _qrPersist() {
+  try {
+    localStorage.setItem(QR_STORAGE_KEY, JSON.stringify(_qrPayments.map(_qrSerializable)));
+  } catch (e) {
+    // Quota / private mode — perzistencia je bonus, beh nesmie spadnúť.
+    console.warn('[QR] persist failed:', e && e.message);
+  }
+}
+
+// Volá sa raz pri štarte POS (pos-init.js). Obnoví registry, znovu naštartuje
+// pooling na pozadí a vykreslí plávajúci indikátor, takže po reloade obsluha
+// vidí, že na účte beží QR platba.
+function restoreQrPayments() {
+  var raw;
+  try { raw = localStorage.getItem(QR_STORAGE_KEY); } catch (e) { return; }
+  if (!raw) return;
+  var list;
+  try { list = JSON.parse(raw); } catch (e) { return; }
+  if (!Array.isArray(list) || !list.length) return;
+
+  var now = Date.now();
+  var restored = 0;
+  for (var i = 0; i < list.length; i++) {
+    var p = list[i];
+    if (!p || !p.transactionId || !p.orderId) continue;
+    if (p.savedAt && (now - p.savedAt) > QR_MAX_AGE_MS) continue;
+    if (_qrFind(p.transactionId)) continue;
+    p.pollTimer = null;
+    p.finalizing = false;
+    _qrPayments.push(p);
+    _startQrBgPoll(p);
+    restored++;
+  }
+  if (restored) {
+    _qrPersist();
+    _renderQrIndicator();
+    if (typeof showToast === 'function') {
+      showToast('Obnovená ' + restored + ' rozrobená QR platba — čaká sa na úhradu', 'info');
+    }
+  } else {
+    _qrPersist();  // vyčisti prestarnuté záznamy
+  }
+}
+
+function _qrFind(tx) {
+  for (var i = 0; i < _qrPayments.length; i++) if (_qrPayments[i].transactionId === tx) return _qrPayments[i];
+  return null;
+}
+function _qrRemove(tx) {
+  for (var i = 0; i < _qrPayments.length; i++) {
+    if (_qrPayments[i].transactionId === tx) {
+      if (_qrPayments[i].pollTimer) clearTimeout(_qrPayments[i].pollTimer);
+      // Legacy kľúč z čias, keď sa zapisoval (a nikdy nečítal) — upratujeme,
+      // nech na kasách nezostáva odpad v localStorage.
+      try { localStorage.removeItem('qrTx:' + _qrPayments[i].orderId); } catch (e) {}
+      _qrPayments.splice(i, 1);
+      break;
+    }
+  }
+  _qrPersist();
+  _renderQrIndicator();
+}
+
+async function initiateQrPayment() {
+  if (typeof isQrPaymentEnabled === 'function' && !isQrPaymentEnabled()) {
+    showToast('QR platba je v nastaveniach vypnuta', 'warning');
+    return;
+  }
+  // Dvojité spustenie by na tom istom účte založilo DVE QR transakcie v Portose
+  // a vytlačilo dva bločky s rôznymi QR kódmi — hosť by nevedel, ktorý platí.
+  if (!beginExclusiveAction('qr')) return;
+  try {
+    var order = getOrder();
+    if (!order.length || getOrderTotal() <= 0) { showToast('Nie je co platit', 'warning'); return; }
+
+    try { await syncOrderToServer(); }
+    catch (e) { showToast('Objednávku sa nepodarilo uložiť', 'error'); return; }
+    if (!currentOrderId) { showToast('Nie je co platit', 'warning'); return; }
+
+    // Doriešime storno + neodoslané položky TERAZ (kým je tento účet aktívny),
+    // aby finalizácia na pozadí potrebovala už len zaúčtovať platbu.
+    try { await flushPendingStornoTickets(); } catch (e) {}
+    try { await autoSendPendingItemsBeforePayment(); } catch (e) {}
+
+    if (isMobile() && typeof closeMobPayDrawer === 'function') closeMobPayDrawer();
+
+    var orderId = currentOrderId;
+    var amount = getOrderTotal();
+    var tbl = (typeof TABLES !== 'undefined' && TABLES) ? TABLES.find(function (t) { return t.id === selectedTableId; }) : null;
+
+    var info;
+    try {
+      info = await api.post('/payments/qr', { orderId: orderId });
+    } catch (e) {
+      showToast((e && e.message) || 'QR platbu sa nepodarilo vytvoriť', 'error');
+      return;
+    }
+    if (!info || !info.transactionId || (!info.printed && !info.qrDataUrl)) {
+      showToast('QR platba nie je dostupná', 'error');
+      return;
+    }
+
+    var payment = {
+      transactionId: info.transactionId,
+      orderId: orderId,
+      amount: Number(info.amount) || amount,
+      tableId: selectedTableId,
+      tableName: tbl ? tbl.name : ('účet #' + orderId),
+      expiresAt: info.expiresAt || null,
+      printed: !!info.printed,
+      qrDataUrl: info.qrDataUrl || null,
+      pollTimer: null,
+      finalizing: false,
+    };
+    _qrPayments.push(payment);
+    _qrPersist();
+    _openQrModal(payment);
+    _startQrBgPoll(payment);
+  } finally {
+    endExclusiveAction('qr');
+  }
+}
+
+// Pooling stavu — beží NEZÁVISLE od modalu (na pozadí), pokým je payment v registry.
+function _startQrBgPoll(payment) {
+  var errStreak = 0;
+  function poll() {
+    if (!_qrFind(payment.transactionId)) return;            // zrušené / finalizované
+    api.get('/payments/qr/' + encodeURIComponent(payment.transactionId)).then(function (st) {
+      errStreak = 0;
+      if (!_qrFind(payment.transactionId)) return;
+      if (st && st.paid) { _qrFinalize(payment, 'auto'); return; }
+      if (st && st.final) { _qrOnExpired(payment); return; }
+      payment.pollTimer = setTimeout(poll, 2500);
+    }).catch(function () {
+      if (!_qrFind(payment.transactionId)) return;
+      errStreak += 1;
+      // Stratu spojenia nevzdávame natvrdo (platba môže doraziť) — len spomalíme.
+      payment.pollTimer = setTimeout(poll, errStreak >= 5 ? 6000 : 2500);
+    });
+  }
+  payment.pollTimer = setTimeout(poll, 2500);
+}
+
+function _qrOnExpired(payment) {
+  if (payment.pollTimer) { clearTimeout(payment.pollTimer); payment.pollTimer = null; }
+  if (_qrActiveModalTx === payment.transactionId) {
+    var statusEl = document.getElementById('qrPayStatus');
+    if (statusEl) {
+      statusEl.innerHTML = '⏱ QR vypršal. Ak zákazník zaplatil, klikni <strong>Zaplatené</strong>; inak Zrušiť.';
+      statusEl.style.color = 'var(--color-warning)';
+    }
+    // payment ostáva v registry — Zaplatené/Zrušiť ho doriešia.
+  } else {
+    showToast('⏱ QR pre ' + payment.tableName + ' vypršal — nezaplatené.', 'warning');
+    _qrRemove(payment.transactionId);
+  }
+}
+
+// Finalizácia: zaúčtuje platbu pre KONKRÉTNY účet (orderId z payment) a vystaví
+// fiškálny doklad cez Portos (spôsob „QR platba"). Funguje aj na pozadí, keď je
+// obsluha na inom účte — sumu/účet berie z payment, nie z globálneho stavu UI.
+async function _qrFinalize(payment, mode) {
+  if (payment.finalizing) return;
+  payment.finalizing = true;
+  if (payment.pollTimer) { clearTimeout(payment.pollTimer); payment.pollTimer = null; }
+
+  // Modal necháme OTVORENÝ počas vystavovania dokladu — po úspechu sa v ňom
+  // ukáže zelená fajka (predtým len zmizol a o sekundu vyletel doklad).
+  var modalActive = (_qrActiveModalTx === payment.transactionId);
+  if (modalActive) _qrModalProcessing(payment, mode);
+  _renderQrIndicator();
+
+  var isCurrent = (currentOrderId === payment.orderId);
+  try {
+    var res = await api.post('/payments', { orderId: payment.orderId, method: 'prevod', amount: payment.amount });
+    if (res === null) {
+      _qrRemove(payment.transactionId);
+      if (modalActive) _hideQrModal();
+      showToast('QR (' + payment.tableName + '): platba odložená offline.', 'warning');
+      return;
+    }
+    var outcome = (typeof normalizeFiscalOutcome === 'function') ? normalizeFiscalOutcome(res, null) : { kind: 'success', tone: 'success', message: '' };
+    if (outcome.kind === 'blocked' || outcome.kind === 'ambiguous') {
+      payment.finalizing = false;       // necháme v registry → obsluha vie skúsiť znova
+      if (modalActive) _hideQrModal();
+      _renderQrIndicator();
+      showToast('QR (' + payment.tableName + '): ' + (outcome.message || 'fiškalizácia vyžaduje kontrolu'), outcome.tone || 'error');
+      return;
+    }
+    // úspech — Portos vytlačil fiškálny doklad
+    _qrRemove(payment.transactionId);
+    if (typeof window._todayRevenue !== 'number') window._todayRevenue = 0;
+    window._todayRevenue += Number(payment.amount) || 0;
+    if (typeof updateShiftStrip === 'function') updateShiftStrip();
+    // zelená fajka v otvorenom modali (podrží sa ~1,4 s a zavrie)
+    if (modalActive) await _qrModalSuccess(payment);
+    if (isCurrent) {
+      await finalizeSuccessfulPayment('✓ Zaplatené cez QR — doklad vytlačený', 'success');
+    } else {
+      showToast('✓ ' + payment.tableName + ' zaplatený cez QR — doklad vytlačený', 'success');
+      try {
+        if (typeof updateTableStatuses === 'function') updateTableStatuses();
+        if (typeof currentView !== 'undefined' && currentView === 'tables' && typeof renderFloor === 'function') renderFloor();
+        if (isMobile() && typeof renderMobTables === 'function') renderMobTables();
+      } catch (e) {}
+    }
+  } catch (e) {
+    payment.finalizing = false;
+    if (modalActive) _hideQrModal();
+    _renderQrIndicator();
+    showToast(payment.tableName + ': QR zaplatený, ale doklad zlyhal — over ručne. ' + ((e && e.message) || ''), 'error');
+  }
+}
+
+// Modal počas vystavovania dokladu — necháme otvorený, zablokujeme tlačidlá,
+// status prepíšeme na potvrdenie. (Zelená fajka príde až po úspešnom POST-e.)
+function _qrModalProcessing(payment, mode) {
+  var ov = document.getElementById('qrPayModal');
+  if (!ov) return;
+  var sEl = ov.querySelector('#qrPayStatus');
+  if (sEl) {
+    sEl.textContent = '✓ ' + (mode === 'auto' ? 'Zaplatené' : 'Potvrdené') + ' — vystavujem doklad…';
+    sEl.style.color = 'var(--color-success, #4a7a3a)';
+  }
+  var btns = ov.querySelector('.u-modal-btns');
+  if (btns) Array.prototype.forEach.call(btns.querySelectorAll('button'), function (b) { b.disabled = true; });
+}
+
+// Úspešný stav v modali — veľká zelená fajka. Podrží sa chvíľu, potom modal
+// zavrie. Vracia Promise, aby finalizácia počkala, kým fajku obsluha uvidí.
+function _qrModalSuccess(payment) {
+  var ov = document.getElementById('qrPayModal');
+  if (!ov) return Promise.resolve();
+  var body = ov.querySelector('#qrPayBody');
+  var btns = ov.querySelector('.u-modal-btns');
+  if (btns) {
+    btns.style.display = 'none';
+    var hint = btns.previousElementSibling;
+    if (hint) hint.style.display = 'none';
+  }
+  if (body) {
+    body.innerHTML =
+      '<div class="qr-success-check">' +
+        '<svg viewBox="0 0 52 52" width="96" height="96" aria-hidden="true">' +
+          '<circle class="qr-success-circle" cx="26" cy="26" r="24" fill="none"></circle>' +
+          '<path class="qr-success-tick" fill="none" d="M15 27 l7.5 7.5 L38 18"></path>' +
+        '</svg>' +
+      '</div>' +
+      '<div style="font-family:var(--font-display);font-size:24px;font-weight:700;color:var(--color-success,#4a7a3a);margin-top:2px">Zaplatené</div>' +
+      '<div style="font-size:13px;color:var(--color-text-sec);margin-top:3px">' +
+        fmt(Number(payment.amount) || 0) + ' · doklad vytlačený</div>';
+  }
+  return new Promise(function (resolve) {
+    setTimeout(function () { _hideQrModal(); resolve(); }, 1400);
+  });
+}
+
+// ---- Modal (view nad jednou payment) ----
+function _qrModalBody(payment) {
+  if (payment.printed) {
+    return '<div style="font-size:40px;line-height:1">🖨️</div>' +
+      '<div style="font-weight:600;margin:6px 0 2px">QR kód vytlačený na bonček</div>' +
+      '<div style="font-size:13px;color:var(--color-text-sec)">Zákazník naskenuje QR z bončeka a zaplatí v mobilnej banke.</div>' +
+      '<button type="button" id="qrPayReprint" class="u-btn u-btn-ghost" style="margin-top:8px;padding:4px 12px;font-size:12px">🖨️ Vytlačiť znova</button>';
+  }
+  return '<img id="qrPayImg" src="' + (payment.qrDataUrl || '') + '" alt="QR platba" width="220" height="220" style="border-radius:14px;background:#fff;padding:8px;max-width:100%;height:auto">' +
+    '<div style="font-size:12px;color:var(--color-warning);margin-top:4px">Tlačiareň nedostupná — ukáž QR zákazníkovi na obrazovke.</div>';
+}
+
+function _openQrModal(payment) {
+  var existing = document.getElementById('qrPayModal');
+  if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+
+  var safeTable = String(payment.tableName || '').replace(/[<>&]/g, '');
+  var ov = document.createElement('div');
+  ov.id = 'qrPayModal';
+  ov.className = 'u-overlay';
+  ov.setAttribute('role', 'dialog');
+  ov.setAttribute('aria-modal', 'true');
+  ov.innerHTML =
+    '<div class="u-modal" style="max-width:380px;text-align:center">' +
+      '<div class="u-modal-title">QR platba · ' + safeTable + '</div>' +
+      '<div id="qrPayBody" style="margin-top:6px">' +
+        _qrModalBody(payment) +
+        '<div id="qrPayAmount" style="font-family:var(--font-display);font-size:30px;font-weight:700;margin-top:10px">' + fmt(Number(payment.amount) || 0) + '</div>' +
+        '<div id="qrPayStatus" style="font-size:13px;color:var(--color-text-sec);min-height:18px;margin-top:4px">Čaká na úhradu… <span id="qrPayCountdown"></span></div>' +
+      '</div>' +
+      '<div style="font-size:12px;color:var(--color-text-dim);margin:8px 4px 0;line-height:1.45">Po úhrade klikni <strong>Zaplatené</strong>. Alebo <strong>Na pozadí</strong> — doklad sa vystaví automaticky po úhrade.</div>' +
+      '<div class="u-modal-btns" style="flex-wrap:wrap">' +
+        '<button type="button" class="u-btn u-btn-ghost" id="qrPayCancel">Zrušiť</button>' +
+        '<button type="button" class="u-btn u-btn-ice" id="qrPayBg">Na pozadí</button>' +
+        '<button type="button" class="u-btn u-btn-mint" id="qrPayConfirm">Zaplatené</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(ov);
+  _qrActiveModalTx = payment.transactionId;
+  requestAnimationFrame(function () { ov.classList.add('show'); });
+
+  ov.querySelector('#qrPayCancel').addEventListener('click', function () {
+    _qrRemove(payment.transactionId);
+    _hideQrModal();
+  });
+  ov.querySelector('#qrPayBg').addEventListener('click', function () {
+    _hideQrModal();
+    showToast('QR platba beží na pozadí — po úhrade sa doklad vytlačí automaticky.', 'info');
+  });
+  ov.querySelector('#qrPayConfirm').addEventListener('click', function () { _qrFinalize(payment, 'manual'); });
+  var reprintBtn = ov.querySelector('#qrPayReprint');
+  if (reprintBtn) {
+    reprintBtn.addEventListener('click', function () {
+      reprintBtn.disabled = true;
+      api.post('/payments/qr/' + encodeURIComponent(payment.transactionId) + '/render', {}).then(function () {
+        showToast('QR kód znova vytlačený', 'success');
+      }).catch(function () {
+        showToast('Tlač QR zlyhala', 'error');
+      }).then(function () { reprintBtn.disabled = false; });
+    });
+  }
+
+  // Countdown (len view).
+  if (_qrCountdownTimer) { clearInterval(_qrCountdownTimer); _qrCountdownTimer = null; }
+  if (payment.expiresAt) {
+    var exp = new Date(payment.expiresAt).getTime();
+    _qrCountdownTimer = setInterval(function () {
+      var el = document.getElementById('qrPayCountdown');
+      if (!el || _qrActiveModalTx !== payment.transactionId) { clearInterval(_qrCountdownTimer); _qrCountdownTimer = null; return; }
+      var sec = Math.max(0, Math.round((exp - Date.now()) / 1000));
+      el.textContent = '(' + Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0') + ')';
+      if (sec <= 0) { clearInterval(_qrCountdownTimer); _qrCountdownTimer = null; }
+    }, 1000);
+  }
+  _renderQrIndicator();
+}
+
+// Skryje modal — NEzastaví pooling (beží ďalej na pozadí).
+function _hideQrModal() {
+  if (_qrCountdownTimer) { clearInterval(_qrCountdownTimer); _qrCountdownTimer = null; }
+  _qrActiveModalTx = null;
+  var ov = document.getElementById('qrPayModal');
+  if (ov) { ov.classList.remove('show'); setTimeout(function () { if (ov && ov.parentNode) ov.parentNode.removeChild(ov); }, 200); }
+  _renderQrIndicator();
+}
+
+// Plávajúci indikátor bežiacich QR platieb (keď je modal zatvorený). Klik = re-open.
+function _renderQrIndicator() {
+  var el = document.getElementById('qrBgIndicator');
+  var pending = _qrPayments.filter(function (p) { return !p.finalizing; });
+  if (!pending.length || _qrActiveModalTx) {
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+    return;
+  }
+  if (!el) {
+    el = document.createElement('button');
+    el.id = 'qrBgIndicator';
+    el.type = 'button';
+    el.style.cssText = 'position:fixed;right:14px;bottom:14px;z-index:9000;background:var(--color-accent);color:#fff;border:none;border-radius:999px;padding:10px 16px;font-family:var(--font-display);font-weight:700;font-size:14px;box-shadow:0 6px 16px rgba(0,0,0,.28);cursor:pointer';
+    document.body.appendChild(el);
+  }
+  var first = pending[0];
+  el.textContent = '⏳ QR čaká: ' + first.tableName + (pending.length > 1 ? (' +' + (pending.length - 1)) : '');
+  el.onclick = function () { _openQrModal(first); };
+}
+
 // Receipt preview — zobrazi zoznam poloziek pred fiskalnou tlacou.
 // Casnik vidi presne co pojde na bon: meno + qty x cena + spolu. Chyti
 // chybu (zlu polozku, zly qty) PRED Portos roundtripom. Render je
@@ -769,6 +1219,83 @@ async function closeAsStaffMeal() {
   }
 }
 
+// === ODPIS (manazersky odpis uctu "na ucet podniku") ===
+// Uzavrie CELY ucet ako odpis — ziadna platba, ziadny fiskal. Predajna suma
+// sa zratava v reportoch (Reporty -> KPI "Odpisy (predaj)" + stlpec Odpis,
+// Uzavierka -> karta Odpisy). Pristup LEN pre rolu admin (kontrola na klientovi
+// aj na serveri cez requireRole('admin')). Bez potvrdenia — jedno klik (per
+// poziadavka prevadzky). Polozky sa pred odpisom auto-poslu rovnako ako pri
+// platbe/staff_meal, aby kuchyna/bar dostali bon a sklad sa odpisal cez /send.
+async function closeAsOdpis() {
+  if (typeof getUserRole === 'function' && getUserRole() !== 'admin') {
+    showToast('Odpis môže urobiť len admin', 'warning');
+    return;
+  }
+  var order = getOrder();
+  if (!order.length) { showToast('Nie je čo odpísať', 'warning'); return; }
+
+  // Odpis ide zámerne na jeden klik bez potvrdenia (požiadavka prevádzky),
+  // o to viac musí byť chránený pred dvojitým spustením — druhý beh by
+  // zavieral už zavretý účet.
+  if (!beginExclusiveAction('odpis')) return;
+
+  var btn = document.getElementById('btnOdpis');
+  if (btn) btnLoading(btn);
+
+  try {
+    // Najprv sync local-only items na server
+    await syncOrderToServer();
+    if (!currentOrderId) { showToast('Nie je čo odpísať', 'warning'); return; }
+
+    // Auto-send nepostatych poloziek (+ storno tikety) tak ako pri platbe —
+    // kuchyna/bar musia dostat bon a sklad sa odpise cez /send.
+    var stornoResult = await flushPendingStornoTickets();
+    if (stornoResult && stornoResult.printed) {
+      showToast('Storno bolo odoslané na kuchyňu/bar', 'success');
+    }
+    var autoSendResult = await autoSendPendingItemsBeforePayment();
+    if (autoSendResult && autoSendResult.printed) {
+      showToast('Položky boli odoslané na kuchyňu/bar', 'success');
+    }
+
+    var token = (typeof api !== 'undefined' && api.getToken) ? api.getToken() : '';
+    var resp = await fetch('/api/orders/' + currentOrderId + '/close-as-odpis', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token,
+      },
+      body: JSON.stringify({ version: currentOrderVersion }),
+    });
+    var body = null;
+    try { body = await resp.json(); } catch (_) {}
+    if (!resp.ok) {
+      var err = new Error((body && body.error) || ('HTTP ' + resp.status));
+      err.statusCode = resp.status;
+      throw err;
+    }
+    if (!body || !body.order) { showToast('Odpis zlyhal', 'error'); return; }
+
+    try { if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15); } catch (_) {}
+    var amt = Number(body.odpisAmount) || 0;
+    // Odpis sa rata do trzby (ako bezny predaj) → priebezne navys shift strip
+    // rovnako ako po platbe (z-report ho uz folduje do totalRevenue pri reloade).
+    if (typeof window._todayRevenue !== 'number') window._todayRevenue = 0;
+    window._todayRevenue += amt;
+    if (typeof updateShiftStrip === 'function') updateShiftStrip();
+    await finalizeSuccessfulPayment(
+      'Účet odpísaný — ' + (typeof fmt === 'function' ? fmt(amt) : amt.toFixed(2) + ' €'),
+      'success'
+    );
+  } catch (e) {
+    console.error('closeAsOdpis error:', e);
+    showToast((e && e.message) ? e.message : 'Odpis zlyhal', 'error');
+  } finally {
+    endExclusiveAction('odpis');
+    if (btn) btnReset(btn);
+  }
+}
+
 // Paragón offline fallback — § 10 z. 289/2008.
 // Volane keď platba zlyhá lebo Portos/eKasa je nedostupné. Zobrazí confirm
 // modal "eKasa nedostupná — vystaviť paragón?". Na potvrdenie:
@@ -874,6 +1401,10 @@ async function confirmPayment(opts) {
     }
   }
 
+  // Od tohto bodu je akcia nevratná (Portos doklad). Guard musí byť AŽ tu —
+  // vyššie sa confirmPayment volá rekurzívne z potvrdenia podplatenia.
+  if (!beginExclusiveAction('payment')) return;
+
   var btn = document.querySelector('#paymentModal .u-btn-mint');
   if (btn) btnLoading(btn);
   try {
@@ -949,7 +1480,7 @@ async function confirmPayment(opts) {
 
     // Portos transport error / network down → ponúkni paragón fallback.
     var isOfflineCase = (e && e.code === 'OFFLINE_NO_QUEUE')
-      || (e && e.name === 'TypeError' && /fetch/i.test(e.message || ''))
+      || (typeof api !== 'undefined' && api._isTransportError && api._isTransportError(e))
       || outcome.kind === 'blocked'
       || outcome.kind === 'offline_queued';
     if (isOfflineCase) {
@@ -961,6 +1492,7 @@ async function confirmPayment(opts) {
     }
     showToast(outcome.message, outcome.tone);
   } finally {
+    endExclusiveAction('payment');
     if (btn) btnReset(btn);
   }
 }
@@ -979,6 +1511,32 @@ window.showToast = function(msg, typeOrBool) {
 
 // === Manager PIN for storno ===
 var pendingStornoAction = null;
+
+// Krátkodobý elevačný token z /auth/verify-manager (server ho razí na 120 s).
+// Držíme ho v pamäti — NIE v localStorage: je to kredenciál manažéra a nemá
+// prežiť ani reload, ani prepnutie používateľa na zdieľanom tablete.
+var _managerElevation = { token: null, at: 0 };
+var MANAGER_ELEVATION_TTL_MS = 110 * 1000;   // o niečo menej než serverových 120 s
+
+function setManagerElevationToken(token) {
+  _managerElevation = { token: token, at: Date.now() };
+}
+function getManagerElevationToken() {
+  if (!_managerElevation.token) return null;
+  if (Date.now() - _managerElevation.at > MANAGER_ELEVATION_TTL_MS) {
+    _managerElevation = { token: null, at: 0 };
+    return null;
+  }
+  return _managerElevation.token;
+}
+function clearManagerElevationToken() {
+  _managerElevation = { token: null, at: 0 };
+}
+if (typeof window !== 'undefined') {
+  window.setManagerElevationToken = setManagerElevationToken;
+  window.getManagerElevationToken = getManagerElevationToken;
+  window.clearManagerElevationToken = clearManagerElevationToken;
+}
 
 function requireManagerPin(action) {
   pendingStornoAction = action;
@@ -1009,13 +1567,21 @@ async function verifyManagerPin() {
       errEl.classList.remove('pos-hidden');
       return;
     }
+    // ELEVAČNÝ TOKEN si musíme odložiť.
+    // /auth/verify-manager razí do už prihlásenej session krátkodobý (120 s)
+    // token s rolou manažéra. Server ho od 2026-07 VYŽADUJE pri storne už
+    // ODOSLANEJ položky (managerElevation v server/routes/orders.js) — dovtedy
+    // sa PIN overoval len na klientovi a čašník vedel odoslanú položku zmazať
+    // priamym API volaním úplne bez PINu. Keby sme token zahodili ako predtým,
+    // legitímny tok „PIN → storno" by po zadaní SPRÁVNEHO PINu skončil na 403.
+    if (vr && vr.token) setManagerElevationToken(vr.token);
     document.getElementById('managerPinModal').classList.remove('show');
     if (pendingStornoAction) { pendingStornoAction(); pendingStornoAction = null; }
   } catch(e) {
     var msg;
     if (e && e.status === 429) {
       msg = (e.data && e.data.error) || 'Zablokované — priveľa pokusov, skús o chvíľu';
-    } else if (e && (e.status >= 500 || (e.name === 'TypeError' && /fetch/i.test(e.message || '')))) {
+    } else if (e && (e.status >= 500 || (typeof api !== 'undefined' && api._isTransportError && api._isTransportError(e)))) {
       // Server/transport error — keep the typed PIN so the manager needn't retype.
       msg = 'Server nedostupný — skús znova';
     } else {

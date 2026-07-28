@@ -61,7 +61,18 @@ function loadPosMobile(options = {}) {
     currentOrderId: options.currentOrderId || null,
     selectedTableId: options.selectedTableId || 1,
     moveMode: !!options.moveMode,
+    // Since f1eb164 ("partial moves") an entry is { id, qty }; qty === null
+    // means "move the whole line".
     moveSelectedItems: options.moveSelectedItems || [],
+    // Selection helpers live in pos-orders.js; only pos-mobile.js is
+    // evaluated in this sandbox, so mirror them here.
+    _findSelectedIdx(itemId) {
+      return sandbox.moveSelectedItems.findIndex((sel) => sel && sel.id === itemId);
+    },
+    _moveSelectionQtyFor(itemId) {
+      const idx = sandbox._findSelectedIdx(itemId);
+      return idx < 0 ? null : sandbox.moveSelectedItems[idx].qty;
+    },
     mobActiveCategory: null,
     mobSearchQuery: '',
     renderOrder() {},
@@ -138,7 +149,7 @@ test('renderMobOrder shows mobile move targets and selected items when move mode
     order: [item],
     currentOrderId: 10,
     moveMode: true,
-    moveSelectedItems: [501],
+    moveSelectedItems: [{ id: 501, qty: null }],
     tableOrdersList: [
       { id: 10, label: 'Ucet 1', items: [item] },
       { id: 11, label: 'Ucet 2', items: [] },

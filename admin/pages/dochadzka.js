@@ -95,7 +95,16 @@ function fmtMinutes(m) {
   return h + 'h ' + mm + 'm';
 }
 function fmtEur(n) { return fmtCost(n) + ' €'; }
+// Jediná implementácia escapovania v projekte je /js/pos-escape.js
+// (escHtml pre textový obsah, escAttr pre atribút, escJsAttr pre inline
+// handler). Predtým mala takmer každá admin stránka vlastnú kópiu a boli
+// medzi nimi ŠTYRI rôzne správania — časť neescapovala apostrof ani
+// úvodzovku, čo je práve to, na čom záleží pri interpolácii do atribútu.
+// Lokálne meno ostáva, nech sa neprepisujú stovky volaní.
 function escapeHtml(v) {
+  // window.* zamerne: v moduloch, kde sa lokalna funkcia vola tiez escHtml,
+  // by holy identifikator ukazoval sam na seba (nekonecna rekurzia).
+  if (typeof window !== 'undefined' && typeof window.escHtml === 'function') return window.escHtml(v);
   return String(v == null ? '' : v)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -118,6 +127,10 @@ function formatLocalTime(iso) {
   if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleTimeString('sk-SK', { hour: '2-digit', minute: '2-digit' });
 }
+
+// Malá ceruzka — affordance „tento čas sa dá kliknúť a upraviť". Zobrazí sa
+// až na hover/focus (CSS), aby tabuľka ostala čistá.
+const EDIT_PENCIL = '<svg class="doch-pencil" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 2.2l2.3 2.3L6 12.3l-2.6.6.6-2.6z"/></svg>';
 
 // Group raw clock events into shifts. Pairs each clock_in with the next
 // clock_out; an unmatched clock_in becomes an "open" shift (operator forgot
@@ -161,26 +174,29 @@ function nowForDateTimeLocal() {
 }
 
 /**
- * Unified payout modal — kombinuje per-shift mode (single shift, pre-filled
- * full wage) + lump-sum mode (manager zadá sumu, FIFO rozhod cez najstaršie
- * nezaplatené smeny). Radio toggle na vrchu.
+ * Výplatný modal — bez mätúceho prepínača režimov. Režim sa volí KONTEXTOM,
+ * nie radiom:
+ *  - lump (default, z riadku zamestnanca): predvyplní dlžobu, suma sa rozhodí
+ *    FIFO cez najstaršie nezaplatené smeny. Chip „Celý dlh" = jeden klik.
+ *  - shift (z detailu „Označiť ako vyplatené"): pripočíta k jednej smene.
  *
  * @param {object} opts
  * @param {number} opts.staffId
  * @param {string} opts.staffName
  * @param {number} [opts.hourlyRate]   — pre live preview "≈ X hod"
+ * @param {number} [opts.outstanding]  — dlžoba (lump pre-fill + chip „Celý dlh")
  * @param {('lump'|'shift')} [opts.defaultMode='lump']
  * @param {number} [opts.shiftWage]    — pre 'shift' mode pre-fill input
- * @param {number} [opts.clockOutEventId] — pre 'shift' mode (povinné v shift mode)
- * @param {function} opts.onSuccess    — callback po úspešnom POST, dostane
- *                                       backend response object
+ * @param {number} [opts.clockOutEventId] — pre 'shift' mode (povinné)
+ * @param {function} opts.onSuccess    — callback po úspešnom POST
  */
 function openUnifiedPayoutModal(opts) {
   const staffId = opts.staffId;
   const staffName = opts.staffName || '';
   const hourlyRate = Number(opts.hourlyRate) || 0;
-  const initialMode = opts.defaultMode === 'shift' ? 'shift' : 'lump';
+  const mode = opts.defaultMode === 'shift' ? 'shift' : 'lump';
   const shiftWage = Number(opts.shiftWage) || 0;
+  const outstanding = Number(opts.outstanding) || 0;
   const clockOutEventId = opts.clockOutEventId || null;
 
   const existing = document.getElementById('unifiedPayoutModal');
@@ -191,48 +207,37 @@ function openUnifiedPayoutModal(opts) {
   ov.setAttribute('role', 'dialog');
   ov.setAttribute('aria-modal', 'true');
   ov.setAttribute('aria-labelledby', 'unifiedPayoutTitle');
-  const initVal = initialMode === 'shift' ? shiftWage.toFixed(2) : '';
+
+  // Pre-fill: shift → celá mzda smeny; lump → dlžoba (ak ju dlhujeme).
+  const initVal = mode === 'shift'
+    ? shiftWage.toFixed(2)
+    : (outstanding > 0 ? outstanding.toFixed(2) : '');
+  const title = mode === 'shift'
+    ? 'Vyplatiť smenu — ' + escapeHtml(staffName)
+    : 'Vyplatiť ' + escapeHtml(staffName);
+  const hint = mode === 'shift'
+    ? 'Označí túto smenu ako vyplatenú. Predvyplnená je celá mzda smeny.'
+    : (outstanding > 0
+        ? 'Predvyplnená dlžoba ' + escapeHtml(fmtEur(outstanding)) + '. Suma sa rozhodí cez nezaplatené smeny (FIFO).'
+        : 'Suma sa rozhodí cez najstaršie nezaplatené smeny (FIFO).');
+
   ov.innerHTML =
-    '<div class="u-modal" style="max-width:460px">' +
+    '<div class="u-modal" style="max-width:440px">' +
       '<span class="u-modal-icon" aria-hidden="true">💸</span>' +
-      '<div class="u-modal-title" id="unifiedPayoutTitle">Vyplatiť ' + escapeHtml(staffName) + '</div>' +
-      '<div class="u-modal-body" style="margin-top:8px">' +
-        // Mode toggle
-        '<div class="payout-mode-toggle" style="display:flex;gap:6px;margin-bottom:14px;padding:4px;background:rgba(0,0,0,.04);border-radius:var(--radius-sm)">' +
-          '<label class="payout-mode-opt" style="flex:1;cursor:pointer;padding:8px 10px;border-radius:var(--radius-xs);text-align:center;font-size:12px;font-weight:600;' + (initialMode === 'lump' ? 'background:var(--color-bg-elevated);box-shadow:0 1px 2px rgba(0,0,0,.06)' : '') + '">' +
-            '<input type="radio" name="payoutMode" value="lump" ' + (initialMode === 'lump' ? 'checked' : '') + ' style="position:absolute;opacity:0">' +
-            'Rozhoď FIFO' +
-          '</label>' +
-          '<label class="payout-mode-opt" style="flex:1;cursor:pointer;padding:8px 10px;border-radius:var(--radius-xs);text-align:center;font-size:12px;font-weight:600;' + (initialMode === 'shift' ? 'background:var(--color-bg-elevated);box-shadow:0 1px 2px rgba(0,0,0,.06)' : '') + '">' +
-            '<input type="radio" name="payoutMode" value="shift" ' + (initialMode === 'shift' ? 'checked' : '') + (clockOutEventId == null ? ' disabled' : '') + ' style="position:absolute;opacity:0">' +
-            'Konkrétna smena' +
-          '</label>' +
-        '</div>' +
-
-        '<div class="u-modal-text" id="payoutModeHint" style="font-size:12px;color:var(--color-text-sec);margin-bottom:10px">' +
-          (initialMode === 'lump'
-            ? 'Suma sa rozhodí cez najstaršie nezaplatené smeny FIFO. Posledná smena môže byť čiastočne pokrytá.'
-            : 'Pripočíta sa k tejto jednej smene. Default = celá mzda smeny.') +
-        '</div>' +
-
-        // Quick chips
-        '<div id="payoutChips" style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap"></div>' +
-
-        // Amount input
-        '<label for="payoutAmtInput" class="sr-only">Suma (€)</label>' +
+      '<div class="u-modal-title" id="unifiedPayoutTitle">' + title + '</div>' +
+      '<div class="u-modal-text" style="margin-bottom:12px">' + hint + '</div>' +
+      '<div class="u-modal-body">' +
+        '<div id="payoutChips" style="display:flex;gap:6px;flex-wrap:wrap"></div>' +
         '<div style="display:flex;align-items:center;gap:6px">' +
-          '<input type="number" id="payoutAmtInput" class="form-input" step="0.01" min="0.01" max="10000" placeholder="0,00" inputmode="decimal" autocomplete="off" value="' + initVal + '" style="flex:1;font-size:22px;font-weight:700;text-align:right;font-family:var(--font-display)">' +
-          '<span style="font-family:var(--font-display);font-weight:700;font-size:22px;color:var(--color-text-sec)">€</span>' +
+          '<input type="number" id="payoutAmtInput" class="form-input" step="0.01" min="0.01" max="10000" placeholder="0,00" inputmode="decimal" autocomplete="off" aria-label="Suma na vyplatenie v eurách" value="' + initVal + '" style="flex:1;font-size:24px;font-weight:700;text-align:right;font-family:var(--font-display)">' +
+          '<span style="font-family:var(--font-display);font-weight:700;font-size:24px;color:var(--color-text-sec)">€</span>' +
         '</div>' +
-
-        // Note input (only useful in lump mode but harmless in shift mode)
-        '<label style="display:block;margin-top:10px">' +
-          '<span style="font-size:11px;color:var(--color-text-sec);font-family:var(--font-mono);letter-spacing:.04em;text-transform:uppercase">Poznámka (voliteľné)</span>' +
+        '<div class="u-modal-field">' +
+          '<label for="payoutNoteInput">Poznámka (voliteľné)</label>' +
           '<input type="text" id="payoutNoteInput" class="form-input" maxlength="200" placeholder="napr. záloha za máj, bonus...">' +
-        '</label>' +
-
-        '<div id="payoutErr" style="color:var(--color-danger);font-size:12px;margin-top:6px;min-height:14px"></div>' +
-        '<div id="payoutPreview" style="margin-top:6px;font-size:11.5px;color:var(--color-text-dim);min-height:16px"></div>' +
+        '</div>' +
+        '<div id="payoutErr" style="color:var(--color-danger);font-size:12px;min-height:14px"></div>' +
+        '<div id="payoutPreview" style="font-size:11.5px;color:var(--color-text-dim);min-height:16px"></div>' +
       '</div>' +
       '<div class="u-modal-btns">' +
         '<button type="button" class="u-btn u-btn-ghost" id="payoutCancel">Zrušiť</button>' +
@@ -242,7 +247,6 @@ function openUnifiedPayoutModal(opts) {
   document.body.appendChild(ov);
   requestAnimationFrame(function () { ov.classList.add('show'); });
 
-  const modeInputs = ov.querySelectorAll('input[name="payoutMode"]');
   const chipsHost = ov.querySelector('#payoutChips');
   const input = ov.querySelector('#payoutAmtInput');
   const noteInput = ov.querySelector('#payoutNoteInput');
@@ -250,26 +254,26 @@ function openUnifiedPayoutModal(opts) {
   const preview = ov.querySelector('#payoutPreview');
   const confirmBtn = ov.querySelector('#payoutConfirm');
   const cancelBtn = ov.querySelector('#payoutCancel');
-  const hintEl = ov.querySelector('#payoutModeHint');
-  let currentMode = initialMode;
 
-  function getMode() { return currentMode; }
+  function chip(label, amt) {
+    return '<button type="button" class="u-btn u-btn-ghost payout-chip" data-amt="' + amt + '"' +
+      ' style="flex:1;min-width:80px;padding:8px 10px;font-size:12px">' + label + '</button>';
+  }
 
   function renderChips() {
-    const m = getMode();
-    let chipsHtml = '';
-    if (m === 'lump') {
-      ['50', '100', '200', '500'].forEach(function (a) {
-        chipsHtml += '<button type="button" class="u-btn u-btn-ghost payout-chip" data-amt="' + a + '" style="flex:1;min-width:60px;padding:6px 10px;font-size:12px">' + a + ' €</button>';
-      });
+    let html = '';
+    if (mode === 'shift') {
+      html += chip('Celé (' + fmtEur(shiftWage) + ')', shiftWage.toFixed(2));
+      html += chip('Polovica', (shiftWage / 2).toFixed(2));
+      html += chip('Iné', '');
+    } else if (outstanding > 0) {
+      html += chip('Celý dlh (' + fmtEur(outstanding) + ')', outstanding.toFixed(2));
+      html += chip('Polovica', (outstanding / 2).toFixed(2));
+      html += chip('Iné', '');
     } else {
-      // shift mode — Celé / Polovica / Iné based on shiftWage
-      const halfStr = (shiftWage / 2).toFixed(2);
-      chipsHtml += '<button type="button" class="u-btn u-btn-ghost payout-chip" data-amt="' + shiftWage.toFixed(2) + '" style="flex:1;min-width:80px;padding:6px 10px;font-size:12px">Celé (' + fmtEur(shiftWage) + ')</button>';
-      chipsHtml += '<button type="button" class="u-btn u-btn-ghost payout-chip" data-amt="' + halfStr + '" style="flex:1;min-width:80px;padding:6px 10px;font-size:12px">Polovica</button>';
-      chipsHtml += '<button type="button" class="u-btn u-btn-ghost payout-chip" data-amt="" style="flex:1;min-width:80px;padding:6px 10px;font-size:12px">Iné</button>';
+      ['50', '100', '200', '500'].forEach(function (a) { html += chip(a + ' €', a); });
     }
-    chipsHost.innerHTML = chipsHtml;
+    chipsHost.innerHTML = html;
     chipsHost.querySelectorAll('.payout-chip').forEach(function (c) {
       c.addEventListener('click', function () {
         const a = c.getAttribute('data-amt');
@@ -288,27 +292,6 @@ function openUnifiedPayoutModal(opts) {
     }
     const hours = v / hourlyRate;
     preview.textContent = '≈ ' + hours.toFixed(1) + ' hod pri sadzbe ' + fmtEur(hourlyRate) + '/h';
-  }
-
-  function applyModeSwap() {
-    // Update toggle visual highlight
-    ov.querySelectorAll('.payout-mode-opt').forEach(function (l) {
-      const inp = l.querySelector('input');
-      if (inp && inp.checked) {
-        l.style.background = 'var(--color-bg-elevated)';
-        l.style.boxShadow = '0 1px 2px rgba(0,0,0,.06)';
-      } else {
-        l.style.background = '';
-        l.style.boxShadow = '';
-      }
-    });
-    if (currentMode === 'lump') {
-      hintEl.textContent = 'Suma sa rozhodí cez najstaršie nezaplatené smeny FIFO. Posledná smena môže byť čiastočne pokrytá.';
-    } else {
-      hintEl.textContent = 'Pripočíta sa k tejto jednej smene. Default = celá mzda smeny.';
-    }
-    renderChips();
-    updatePreview();
   }
 
   function close() {
@@ -333,7 +316,7 @@ function openUnifiedPayoutModal(opts) {
     confirmBtn.textContent = 'Spracovávam…';
     try {
       let res;
-      if (currentMode === 'lump') {
+      if (mode === 'lump') {
         res = await api.post('/attendance/payouts/lump-sum', {
           staffId: staffId,
           amount: Math.round(v * 100) / 100,
@@ -350,7 +333,7 @@ function openUnifiedPayoutModal(opts) {
         });
       }
       close();
-      if (typeof opts.onSuccess === 'function') opts.onSuccess(res, currentMode);
+      if (typeof opts.onSuccess === 'function') opts.onSuccess(res, mode);
     } catch (e) {
       err.textContent = e.message || 'Výplata zlyhala';
       confirmBtn.disabled = false;
@@ -366,22 +349,249 @@ function openUnifiedPayoutModal(opts) {
     }
   }
 
-  modeInputs.forEach(function (mi) {
-    mi.addEventListener('change', function () {
-      if (mi.checked) {
-        currentMode = mi.value;
-        applyModeSwap();
-      }
-    });
-  });
   input.addEventListener('input', updatePreview);
   cancelBtn.addEventListener('click', close);
   confirmBtn.addEventListener('click', tryConfirm);
   ov.addEventListener('click', function (e) { if (e.target === ov) close(); });
   document.addEventListener('keydown', onKey);
   renderChips();
-  applyModeSwap();
+  updatePreview();
   setTimeout(function () { input.focus(); if (input.value) input.select(); }, 50);
+}
+
+// Rozloží ISO (UTC) timestamp na lokálne polia pre <input type="date"> +
+// <input type="time">. Browser na kase beží v Europe/Bratislava, takže
+// getHours()/getDate() vrátia bratislavský čas — rovnaká logika ako
+// nowForDateTimeLocal() pri vytváraní a formatLocalTime() pri zobrazení,
+// takže round-trip je konzistentný.
+function dateToLocalFields(d) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return {
+    date: d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()),
+    time: pad(d.getHours()) + ':' + pad(d.getMinutes()),
+  };
+}
+
+/**
+ * Jednoduchá úprava času príchodu/odchodu. Otvára sa klikom priamo na čas
+ * v tabuľke Smeny (edit mode → PATCH existujúci event) alebo cez tlačidlo
+ * "+ Pridať odchod/príchod" pri neúplnej smene (create mode → POST nový
+ * event). Nahrádza neintuitívny flow „zmaž záznam + vyplň manuálny formulár".
+ *
+ * @param {object} opts
+ * @param {('edit'|'create')} opts.mode
+ * @param {number} [opts.eventId]   — povinné v edit mode (PATCH cieľ)
+ * @param {('clock_in'|'clock_out')} opts.kind — príchod/odchod
+ * @param {string} opts.currentIso  — predvyplnený čas (edit: existujúci, create: kotva dňa)
+ * @param {string} [opts.siblingIso] — čas partnerského eventu (príchod↔odchod)
+ *                                      pre kontrolu poradia; prázdne = bez partnera
+ * @param {number} opts.staffId
+ * @param {string} opts.staffName
+ * @param {function} opts.onSuccess — callback po úspešnom uložení
+ */
+function openTimeEditModal(opts) {
+  const mode = opts.mode === 'create' ? 'create' : 'edit';
+  const kind = opts.kind === 'clock_out' ? 'clock_out' : 'clock_in';
+  const isArrival = kind === 'clock_in';
+  const staffId = opts.staffId;
+  const staffName = opts.staffName || '';
+
+  const anchor = opts.currentIso ? new Date(opts.currentIso) : new Date();
+  const anchorOk = !Number.isNaN(anchor.getTime());
+  // Partnerský event (clock_in pre clock_out a naopak) — strážime poradie,
+  // aby odchod nemohol byť pred príchodom (záporná smena = pokazená mzda).
+  const sibling = opts.siblingIso ? new Date(opts.siblingIso) : null;
+  const siblingOk = sibling && !Number.isNaN(sibling.getTime());
+  const init = dateToLocalFields(anchorOk ? anchor : new Date());
+  // create = oprava chýbajúceho záznamu (typicky zabudol kliknúť);
+  // edit = oprava nesprávneho času. Predvyplníme najčastejší dôvod, takže
+  // manažér zvyčajne len potvrdí.
+  const defaultReason = mode === 'create' ? 'forgot' : 'wrong_time';
+
+  const word = isArrival ? 'príchod' : 'odchod';
+  const titleVerb = mode === 'create' ? 'Pridať' : 'Upraviť';
+  const icon = isArrival ? '🟢' : '🔵';
+
+  const existing = document.getElementById('timeEditModal');
+  if (existing) existing.remove();
+  const ov = document.createElement('div');
+  ov.id = 'timeEditModal';
+  ov.className = 'u-overlay';
+  ov.setAttribute('role', 'dialog');
+  ov.setAttribute('aria-modal', 'true');
+  ov.setAttribute('aria-labelledby', 'timeEditTitle');
+
+  const reasonOpts = [
+    ['forgot', 'Zabudol kliknúť'],
+    ['wrong_time', 'Nesprávny čas'],
+    ['shift_change', 'Zmena zmeny'],
+    ['pin_failed', 'PIN zlyhal'],
+    ['other', 'Iné'],
+  ].map(([v, l]) => '<option value="' + v + '"' + (v === defaultReason ? ' selected' : '') + '>' + l + '</option>').join('');
+
+  ov.innerHTML =
+    '<div class="u-modal" style="max-width:420px">' +
+      '<span class="u-modal-icon" aria-hidden="true">' + icon + '</span>' +
+      '<div class="u-modal-title" id="timeEditTitle">' + titleVerb + ' ' + escapeHtml(word) + '</div>' +
+      '<div class="u-modal-text" style="margin-bottom:14px">' + escapeHtml(staffName) + '</div>' +
+      '<div class="u-modal-body">' +
+        '<div class="u-modal-row">' +
+          '<div class="u-modal-field" style="flex:1.3">' +
+            '<label for="teTime">Čas</label>' +
+            '<input type="time" id="teTime" class="form-input" value="' + init.time + '" step="60" style="font-size:24px;font-weight:700;text-align:center;font-family:var(--font-display)">' +
+          '</div>' +
+          '<div class="u-modal-field" style="flex:1">' +
+            '<label for="teDate">Dátum</label>' +
+            '<input type="date" id="teDate" class="form-input" value="' + init.date + '">' +
+          '</div>' +
+        '</div>' +
+        '<div class="doch-nudge-row" role="group" aria-label="Rýchla úprava času">' +
+          '<button type="button" class="doch-nudge-btn" data-nudge="-15">−15</button>' +
+          '<button type="button" class="doch-nudge-btn" data-nudge="-5">−5</button>' +
+          '<button type="button" class="doch-nudge-btn" data-nudge="5">+5</button>' +
+          '<button type="button" class="doch-nudge-btn" data-nudge="15">+15</button>' +
+        '</div>' +
+        '<div id="teRelHint" style="text-align:center;font-size:11.5px;color:var(--color-text-dim);min-height:15px"></div>' +
+        '<div class="u-modal-field">' +
+          '<label for="teReason">Dôvod úpravy</label>' +
+          '<select id="teReason" class="form-select">' + reasonOpts + '</select>' +
+        '</div>' +
+        '<div class="u-modal-field">' +
+          '<label for="teNote">Poznámka (voliteľné)</label>' +
+          '<input type="text" id="teNote" class="form-input" maxlength="200" placeholder="napr. zabudol kliknúť">' +
+        '</div>' +
+        '<div id="teErr" style="color:var(--color-danger);font-size:12px;min-height:14px"></div>' +
+      '</div>' +
+      '<div class="u-modal-btns">' +
+        '<button type="button" class="u-btn u-btn-ghost" id="teCancel">Zrušiť</button>' +
+        '<button type="button" class="u-btn u-btn-mint" id="teConfirm">' + (mode === 'create' ? 'Pridať' : 'Uložiť') + '</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(ov);
+  requestAnimationFrame(function () { ov.classList.add('show'); });
+
+  const timeInput = ov.querySelector('#teTime');
+  const dateInput = ov.querySelector('#teDate');
+  const reasonSel = ov.querySelector('#teReason');
+  const noteInput = ov.querySelector('#teNote');
+  const err = ov.querySelector('#teErr');
+  const relHint = ov.querySelector('#teRelHint');
+  const confirmBtn = ov.querySelector('#teConfirm');
+  const cancelBtn = ov.querySelector('#teCancel');
+
+  function currentDate() {
+    if (!dateInput.value || !timeInput.value) return null;
+    const d = new Date(dateInput.value + 'T' + timeInput.value);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  // Kontrola poradia voči partnerskému eventu. Vracia chybový text alebo ''.
+  function orderingError(d) {
+    if (!d || !siblingOk) return '';
+    if (kind === 'clock_out' && d.getTime() < sibling.getTime()) {
+      return 'Odchod je pred príchodom (' + formatLocalTime(opts.siblingIso) + ')';
+    }
+    if (kind === 'clock_in' && d.getTime() > sibling.getTime()) {
+      return 'Príchod je po odchode (' + formatLocalTime(opts.siblingIso) + ')';
+    }
+    return '';
+  }
+
+  function updateRelHint() {
+    const d = currentDate();
+    // Inverzia poradia má prednosť — varujeme jantárovo už počas úprav.
+    const ordErr = orderingError(d);
+    if (ordErr) {
+      relHint.textContent = '⚠ ' + ordErr;
+      relHint.style.color = 'var(--color-warning)';
+      return;
+    }
+    relHint.style.color = 'var(--color-text-dim)';
+    if (!d || mode !== 'edit' || !anchorOk) { relHint.textContent = ''; return; }
+    const diffMin = Math.round((d.getTime() - anchor.getTime()) / 60000);
+    if (diffMin === 0) { relHint.textContent = 'bez zmeny oproti pôvodnému času'; return; }
+    relHint.textContent = 'o ' + fmtMinutes(Math.abs(diffMin)) + (diffMin < 0 ? ' skôr' : ' neskôr') + ' ako pôvodne';
+  }
+
+  function nudge(mins) {
+    const d = currentDate() || new Date();
+    d.setMinutes(d.getMinutes() + mins);
+    const f = dateToLocalFields(d);
+    dateInput.value = f.date;
+    timeInput.value = f.time;
+    updateRelHint();
+  }
+
+  function close() {
+    document.removeEventListener('keydown', onKey);
+    ov.classList.remove('show');
+    setTimeout(function () { ov.remove(); }, 200);
+  }
+
+  async function tryConfirm() {
+    const d = currentDate();
+    if (!d) { err.textContent = 'Zadaj platný dátum a čas'; return; }
+    const ordErr = orderingError(d);
+    if (ordErr) { err.textContent = ordErr; return; }
+    const reason = reasonSel.value;
+    if (!reason) { err.textContent = 'Vyber dôvod úpravy'; return; }
+
+    // No-op: v edit mode pri nezmenenej minúte neukladáme — inak by sme len
+    // odrezali sekundy z presného PIN punchu a zbytočne preklopili záznam na
+    // 'manual' s dôvodom (znečistený audit). Minúta = granularita mzdy.
+    if (mode === 'edit' && anchorOk &&
+        Math.floor(anchor.getTime() / 60000) === Math.floor(d.getTime() / 60000)) {
+      close();
+      showToast('Čas ostal nezmenený', true);
+      return;
+    }
+
+    err.textContent = '';
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Ukladám…';
+    try {
+      const iso = d.toISOString();
+      const note = noteInput.value.trim();
+      if (mode === 'edit') {
+        await api.patch('/attendance/events/' + opts.eventId, { at: iso, reason, note });
+      } else {
+        await api.post('/attendance/events', { staffId, type: kind, at: iso, reason, note });
+      }
+      close();
+      showToast(
+        mode === 'create'
+          ? (isArrival ? 'Príchod pridaný' : 'Odchod pridaný')
+          : 'Čas upravený',
+        true,
+      );
+      if (typeof opts.onSuccess === 'function') opts.onSuccess();
+    } catch (e) {
+      err.textContent = e.message || 'Uloženie zlyhalo';
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = mode === 'create' ? 'Pridať' : 'Uložiť';
+    }
+  }
+
+  function onKey(e) {
+    if (e.key === 'Escape') { e.preventDefault(); close(); }
+    if (e.key === 'Enter' &&
+        (document.activeElement === noteInput || document.activeElement === timeInput || document.activeElement === dateInput)) {
+      e.preventDefault();
+      tryConfirm();
+    }
+  }
+
+  ov.querySelectorAll('.doch-nudge-btn').forEach(function (b) {
+    b.addEventListener('click', function () { nudge(parseInt(b.getAttribute('data-nudge'), 10)); });
+  });
+  timeInput.addEventListener('input', updateRelHint);
+  dateInput.addEventListener('input', updateRelHint);
+  cancelBtn.addEventListener('click', close);
+  confirmBtn.addEventListener('click', tryConfirm);
+  ov.addEventListener('click', function (e) { if (e.target === ov) close(); });
+  document.addEventListener('keydown', onKey);
+  updateRelHint();
+  setTimeout(function () { timeInput.focus(); }, 50);
 }
 
 async function loadSummary() {
@@ -433,35 +643,43 @@ function renderBalancePanel() {
   // Len ľudia ktorým reálne dlžíš (balance > 0), zoradení podľa dlžoby.
   const debtors = (b.rows || []).filter((r) => Number(r.balance) > 0.01);
 
-  // Per-osoba chipy — meno + suma, max čitateľné. Neaktívni dostanú jemný tag.
+  // Per-osoba čipy — meno + suma. Neaktívni dostanú jemný tag.
   const chips = debtors.map((r) => {
-    const inactiveTag = r.active ? '' : ' <span style="font-size:10px;color:var(--color-text-dim)">(neaktívny)</span>';
-    return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 12px;background:var(--color-bg-surface);border:1px solid var(--color-border);border-radius:var(--radius-sm)">' +
+    const inactiveTag = r.active ? '' : ' <span style="color:var(--color-text-dim);font-size:var(--text-xs)">(neaktívny)</span>';
+    return '<div class="doch-debtor-chip">' +
       '<span style="font-weight:var(--weight-semibold)">' + escapeHtml(r.name || '?') + inactiveTag + '</span>' +
-      '<strong style="color:var(--color-warning, #d97706);white-space:nowrap">' + fmtEur(r.balance) + '</strong>' +
+      '<strong>' + fmtEur(r.balance) + '</strong>' +
     '</div>';
   }).join('');
 
   const prepaidNote = prepaid > 0.01
-    ? '<div style="font-size:12px;color:var(--color-text-sec);margin-top:8px">ℹ️ Navyše máš predplatené (zálohy) ' + escapeHtml(fmtEur(prepaid)) + ' — tie sa odrátajú z budúcich miezd.</div>'
+    ? '<div class="doch-hero-note">ℹ️ Navyše máš predplatené (zálohy) ' + escapeHtml(fmtEur(prepaid)) + ' — tie sa odrátajú z budúcich miezd.</div>'
     : '';
 
-  // Hlavný panel: veľká suma dlhu + breakdown po osobách.
+  // "Za obdobie vyplatené" — presunuté sem z pôvodnej KPI karty. Sumár výplat
+  // za zvolený dátumový filter (paidAt), nezávislý od all-time dlhu hore.
+  const periodPaid = (_summary.rows || []).reduce((s, r) => s + (Number(r.paidTotal) || 0), 0);
+  const periodLabel = _from === _to ? escapeHtml(_from) : escapeHtml(_from) + ' → ' + escapeHtml(_to);
+  const periodPaidNote = periodPaid > 0.01
+    ? '<div class="doch-hero-note bordered">Za zvolené obdobie (' + periodLabel + ') si vyplatil <strong>' + escapeHtml(fmtEur(periodPaid)) + '</strong>.</div>'
+    : '';
+
+  const isClear = owed <= 0.01;
+  // Hero karta: veľká suma dlhu + breakdown po osobách (zelená keď nič nedlhuješ).
   host.innerHTML =
-    '<div class="panel" style="margin-bottom:18px;border-left:3px solid ' + (owed > 0.01 ? 'var(--color-warning, #d97706)' : 'var(--color-success, #22c55e)') + '">' +
-      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">' +
+    '<div class="doch-hero' + (isClear ? ' is-clear' : '') + '">' +
+      '<div class="doch-hero-top">' +
         '<div>' +
-          '<div class="panel-title" style="margin:0">💰 Celkovo dlhujem na výplatách</div>' +
-          '<div style="font-size:12px;color:var(--color-text-sec);margin-top:2px">za celé obdobie fungovania — všetky odpracované hodiny mínus všetko vyplatené</div>' +
+          '<div class="doch-hero-eyebrow">💰 Komu dlhujem na výplatách</div>' +
+          '<div class="doch-hero-sub">za celé obdobie fungovania — odpracované hodiny mínus všetko vyplatené</div>' +
         '</div>' +
-        '<div style="font-family:var(--font-display);font-weight:800;font-size:32px;line-height:1;color:' + (owed > 0.01 ? 'var(--color-warning, #d97706)' : 'var(--color-success, #22c55e)') + '">' +
-          escapeHtml(fmtEur(owed)) +
-        '</div>' +
+        '<div class="doch-hero-num">' + escapeHtml(fmtEur(owed)) + '</div>' +
       '</div>' +
       (debtors.length
-        ? '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;margin-top:14px">' + chips + '</div>'
-        : '<div style="margin-top:10px;color:var(--color-success, #22c55e);font-weight:var(--weight-semibold)">✓ Všetko vyplatené — nikomu nedlhuješ</div>') +
+        ? '<div class="doch-hero-debtors">' + chips + '</div>'
+        : '<div class="doch-hero-allpaid">✓ Všetko vyplatené — nikomu nedlhuješ</div>') +
       prepaidNote +
+      periodPaidNote +
     '</div>';
 }
 
@@ -555,15 +773,17 @@ function render() {
     // sa nenačíta.
     '<div id="dBalancePanel"></div>' +
 
-    // KPI grid: override default 4-col na 3-col pre 6 kariet (3+3 vyzera
-    // krajsie ako 4+2). Media query v admin.css zachova 2-col na <=1200px.
+    // KPI grid — zúžené na 3 karty čo manažéra reálne zaujímajú za obdobie:
+    // koľko sa odpracovalo, koľko sa zarobilo, a koľko smien je otvorených
+    // (akčné). Celkový dlh + period-vyplatené sú v hero paneli vyššie, takže
+    // sme zrušili duplicitné karty „Aktívni", „Vyplatené" a „Zostáva".
     '<div class="stat-grid doch-stats" style="grid-template-columns:repeat(3,minmax(0,1fr))">' +
       '<div class="stat-card">' +
         '<div class="stat-icon ice">' +
           '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>' +
         '</div>' +
         '<div class="stat-info">' +
-          '<div class="stat-label">Spolu hodín</div>' +
+          '<div class="stat-label">Odpracované</div>' +
           '<div class="stat-value">' + escapeHtml(fmtMinutes(t.totalMinutes)) + '</div>' +
           '<div class="stat-change neutral">' + t.totalStaff + ' ' + (t.totalStaff === 1 ? 'zamestnanec' : 'zamestnancov') + '</div>' +
         '</div>' +
@@ -573,63 +793,27 @@ function render() {
           '<svg viewBox="0 0 24 24"><path d="M3 7h18M3 12h18M3 17h18"/><path d="M7 5v14M17 5v14"/></svg>' +
         '</div>' +
         '<div class="stat-info">' +
-          '<div class="stat-label">Mzda spolu</div>' +
+          '<div class="stat-label">Zarobené za obdobie</div>' +
           '<div class="stat-value">' + escapeHtml(fmtEur(t.totalWage)) + '</div>' +
           '<div class="stat-change neutral">' + t.withRate + ' so sadzbou</div>' +
-        '</div>' +
-      '</div>' +
-      '<div class="stat-card">' +
-        '<div class="stat-icon lavender">' +
-          '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M3 21a9 9 0 0118 0"/></svg>' +
-        '</div>' +
-        '<div class="stat-info">' +
-          '<div class="stat-label">Aktívni</div>' +
-          '<div class="stat-value">' + t.totalStaff + '</div>' +
-          '<div class="stat-change neutral">' + (_from === _to ? 'dnes' : (_from + ' → ' + _to)) + '</div>' +
         '</div>' +
       '</div>' +
       // Clickable card: toggle _openOnly filter. Hover/cursor menia signal ze
       // sa s tym da niečo robiť. Border-color zvyrazni keď je filter aktivny.
       '<div class="stat-card doch-kpi-open" id="kpiOpenShifts" ' +
         'style="cursor:' + (t.openShifts > 0 || _openOnly ? 'pointer' : 'default') + ';' +
-        (_openOnly ? 'border-color:var(--color-warning, #d97706);box-shadow:0 0 0 2px rgba(217,119,6,.15)' : '') +
+        (_openOnly ? 'border-color:var(--color-warning);box-shadow:0 0 0 2px var(--color-warning-border)' : '') +
         '" title="' + (_openOnly ? 'Klik = vypnúť filter' : (t.openShifts > 0 ? 'Klik = zobraziť len ľudí s otvorenými smenami' : 'Žiadne otvorené smeny')) + '">' +
         '<div class="stat-icon ' + (t.openShifts > 0 ? 'amber' : 'mint') + '">' +
           '<svg viewBox="0 0 24 24"><path d="M12 8v5l3 2"/><circle cx="12" cy="12" r="9"/></svg>' +
         '</div>' +
         '<div class="stat-info">' +
-          '<div class="stat-label">Otvorené smeny' + (_openOnly ? ' <span style="color:var(--color-warning,#d97706);font-weight:700">(filter ON)</span>' : '') + '</div>' +
+          '<div class="stat-label">Otvorené smeny' + (_openOnly ? ' <span style="color:var(--color-warning);font-weight:var(--weight-bold)">(filter ON)</span>' : '') + '</div>' +
           '<div class="stat-value">' + t.openShifts + '</div>' +
           '<div class="stat-change ' + (t.openShifts > 0 ? 'neutral' : 'up') + '">' +
             (_openOnly
               ? 'Klik = vypnúť filter'
               : (t.openShifts > 0 ? 'Klik = ukáž len týchto' : 'Všetko v poriadku')) +
-          '</div>' +
-        '</div>' +
-      '</div>' +
-      '<div class="stat-card">' +
-        '<div class="stat-icon ' + (t.totalPaid > 0 ? 'mint' : 'lavender') + '">' +
-          '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>' +
-        '</div>' +
-        '<div class="stat-info">' +
-          '<div class="stat-label">Vyplatené</div>' +
-          '<div class="stat-value">' + escapeHtml(fmtEur(t.totalPaid)) + '</div>' +
-          '<div class="stat-change ' + (t.totalPaid > 0 ? 'up' : 'neutral') + '">' +
-            (t.totalPaid > 0 ? 'V tomto období' : 'Nič nevyplatené') +
-          '</div>' +
-        '</div>' +
-      '</div>' +
-      '<div class="stat-card">' +
-        '<div class="stat-icon ' + (t.totalOutstanding > 0.01 ? 'amber' : 'mint') + '">' +
-          '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><circle cx="12" cy="16" r="0.6" fill="currentColor"/></svg>' +
-        '</div>' +
-        '<div class="stat-info">' +
-          '<div class="stat-label">Zostáva vyplatiť</div>' +
-          '<div class="stat-value">' + escapeHtml(fmtEur(Math.max(0, t.totalOutstanding))) + '</div>' +
-          '<div class="stat-change ' + (t.totalOutstanding > 0.01 ? 'neutral' : 'up') + '">' +
-            (t.totalOutstanding > 0.01
-              ? t.outstandingPositive + ' ' + (t.outstandingPositive === 1 ? 'osoba' : 'osôb')
-              : 'Všetko vyplatené ✓') +
           '</div>' +
         '</div>' +
       '</div>' +
@@ -643,17 +827,10 @@ function render() {
       '<div id="dBodyWrap" class="table-scroll-wrap">' +
         '<table class="data-table doch-table">' +
           '<thead><tr>' +
-            '<th class="data-th">Meno</th>' +
-            '<th class="data-th">Pozícia</th>' +
-            '<th class="data-th text-right">Sadzba</th>' +
+            '<th class="data-th">Zamestnanec</th>' +
             '<th class="data-th text-right">Hodín</th>' +
-            '<th class="data-th text-right">Otv. smeny</th>' +
             '<th class="data-th text-right">Mzda</th>' +
-            '<th class="data-th text-right" title="Suma vyplatená v zvolenom období (sum payouts.paidAt)">Vyplatené</th>' +
-            '<th class="data-th text-right" title="✓ Vyplatené = mzda = vyplatené  ·  ⚠ treba vyplatiť = dlhuješ tomuto človeku  ·  ℹ️ záloha navyše = preplatil si (bonus/predplate)">' +
-              'Zostáva' +
-              '<span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:rgba(0,0,0,.06);color:var(--color-text-sec);font-size:9px;text-align:center;line-height:14px;margin-left:4px;font-family:var(--font-mono);cursor:help">?</span>' +
-            '</th>' +
+            '<th class="data-th text-right" title="✓ Vyplatené = nič nedlhuješ  ·  Dlhuje sa = treba vyplatiť  ·  Záloha = preplatil si (bonus/predplate)">Stav výplaty</th>' +
             '<th class="data-th"></th>' +
           '</tr></thead>' +
           '<tbody id="dBody"></tbody>' +
@@ -755,7 +932,7 @@ function renderBody() {
       : (_staffFilter === 'all'
           ? 'Žiadne dáta za toto obdobie. Zamestnanci s nastaveným dochádzka PIN-om sa objavia po prvom Príchode.'
           : 'Vybraný zamestnanec nemá v tomto období žiadne záznamy.');
-    body.innerHTML = '<tr><td class="data-td" colspan="9">' +
+    body.innerHTML = '<tr><td class="data-td" colspan="5">' +
       '<div class="empty-hint">' + escapeHtml(msg) + '</div>' +
       '</td></tr>';
     return;
@@ -767,62 +944,70 @@ function renderBody() {
     let overlapNote = '';
     if (r.overlapInfo && r.overlapInfo.minutes > 0) {
       const partner = (allRows.find((x) => String(x.staffId) === String(r.overlapInfo.withStaffId)) || {}).name || 'partner';
-      overlapNote = '<div style="font-size:10px;color:var(--color-text-dim);margin-top:2px">'
+      overlapNote = '<div class="doch-pay-sub">'
         + 'z toho ' + escapeHtml(fmtMinutes(r.overlapInfo.minutes)) + ' @ ' + fmtEur(r.overlapInfo.rate)
         + ' s ' + escapeHtml(partner) + '</div>';
     }
     const wageCell = r.hourlyRate != null
       ? fmtEur(r.wage) + overlapNote
       : '<span class="text-muted">—</span>';
-    const rateCell = r.hourlyRate != null
-      ? fmtEur(r.hourlyRate) + '/h'
-      : '<span class="text-muted">nie je</span>';
-    const openCell = r.openShifts > 0
-      ? '<span class="badge badge-warning">' + r.openShifts + '</span>'
-      : '<span class="text-muted">0</span>';
-    // Vyplatene v období (z payouts.paidAt) — manager vidi ze kolko jedinec
-    // realne dostal. Outstanding = wage − paid. Color-coded: zeleno ked
-    // 0/blizko, oranzovo ked dlhujem, modry ked preplaceny (bonus/predplate).
+
+    // Zamestnanec — meno + (otvorené smeny badge) + pozícia/sadzba ako subtitle.
+    // Zlúčili sme pôvodné stĺpce Pozícia, Sadzba a Otv. smeny do jednej bunky.
+    const openBadge = r.openShifts > 0
+      ? ' <span class="badge badge-warning" title="otvorené smeny — treba uzavrieť">' + r.openShifts + ' otv.</span>'
+      : '';
+    const subParts = [];
+    if (r.position) subParts.push(escapeHtml(r.position));
+    if (r.hourlyRate != null) subParts.push(fmtEur(r.hourlyRate) + '/h');
+    const nameSub = subParts.length
+      ? '<div class="doch-name-pos">' + subParts.join(' · ') + '</div>'
+      : '';
+    const nameCell = '<div class="doch-name-cell"><strong>' + escapeHtml(r.name) + '</strong>' + openBadge + nameSub + '</div>';
+
+    // Stav výplaty — JEDNA bunka namiesto pôvodných Vyplatené + Zostáva.
+    // Outstanding = mzda − vyplatené (period). Zeleno = vyrovnané, oranžovo =
+    // dlhuješ, modro = preplatil (záloha/bonus). Bez sadzby = netrackuje sa.
     const paidTotal = Number(r.paidTotal) || 0;
     const outstanding = Number(r.outstanding) || 0;
-    const paidCell = paidTotal > 0
-      ? '<strong style="color:var(--color-success)">' + fmtEur(paidTotal) + '</strong>'
-        + (r.paidCount ? '<div style="font-size:10px;color:var(--color-text-dim);font-family:var(--font-mono)">' + r.paidCount + 'x</div>' : '')
-      : '<span class="text-muted">—</span>';
-    let outstandingCell;
-    if (Math.abs(outstanding) < 0.01) {
-      // 0 € = vsetko vyplatene = success state
-      outstandingCell = '<span style="display:inline-flex;align-items:center;gap:4px;color:var(--color-success);font-weight:var(--weight-semibold);font-size:12px">'
-        + '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 4 6 11 3 8"/></svg>'
+    let statusCell;
+    if (r.hourlyRate == null) {
+      statusCell = '<span class="text-muted">—</span>';
+    } else if (Math.abs(outstanding) < 0.01) {
+      statusCell = '<span class="doch-status-pill is-paid">'
+        + '<svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 4 6 11 3 8"/></svg>'
         + 'Vyplatené</span>';
     } else if (outstanding > 0) {
-      // Manager dlzuje — warning oranzova
-      outstandingCell = '<strong style="color:var(--color-warning, #d97706)">' + fmtEur(outstanding) + '</strong>'
-        + '<div style="font-size:10px;color:var(--color-text-dim);margin-top:2px">⚠ treba vyplatiť</div>';
+      statusCell = '<span class="doch-status-pill is-owed">Dlhuje sa ' + fmtEur(outstanding) + '</span>'
+        + (paidTotal > 0 ? '<div class="doch-pay-sub">z toho vyplatené ' + fmtEur(paidTotal) + '</div>' : '');
     } else {
-      // Manager preplatil — info modra
-      outstandingCell = '<strong style="color:var(--color-accent-secondary, #1f3a5c)">' + fmtEur(Math.abs(outstanding)) + '</strong>'
-        + '<div style="font-size:10px;color:var(--color-text-dim);margin-top:2px">ℹ️ záloha navyše</div>';
+      statusCell = '<span class="doch-status-pill is-advance">Záloha ' + fmtEur(Math.abs(outstanding)) + '</span>'
+        + '<div class="doch-pay-sub">preplatené (bonus/záloha)</div>';
     }
 
-    return '<tr class="data-row" data-staff="' + r.staffId + '">' +
-      '<td class="data-td"><strong>' + escapeHtml(r.name) + '</strong></td>' +
-      '<td class="data-td">' + (r.position
-        ? escapeHtml(r.position)
-        : '<span class="text-muted">—</span>') + '</td>' +
-      '<td class="data-td num text-right">' + rateCell + '</td>' +
-      '<td class="data-td num text-right"><strong>' + escapeHtml(fmtMinutes(r.minutes)) + '</strong></td>' +
-      '<td class="data-td text-right">' + openCell + '</td>' +
-      '<td class="data-td num text-right">' + wageCell + '</td>' +
-      '<td class="data-td num text-right">' + paidCell + '</td>' +
-      '<td class="data-td num text-right">' + outstandingCell + '</td>' +
-      '<td class="data-td" style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">' +
-        // "Vyplatiť" — lump-sum payout dialog (manager zadá sumu, backend FIFO
-        // pokryje najstarsie nezaplatene smeny).
-        '<button class="btn-edit doch-payout-btn" data-payout-staff="' + r.staffId + '"' +
+    // Dlžoba pre payout pre-fill = ALL-TIME (čo reálne dlhuješ a čo lump-sum
+    // endpoint FIFO vyrovná), nie period-scoped `outstanding`. Inak by chip
+    // „Celý dlh" protirečil all-time panelu hore. Match cez staffId z _balance;
+    // fallback na period outstanding kým sa _balance ešte nenačítal.
+    const balRow = ((_balance && _balance.rows) || []).find((x) => String(x.staffId) === String(r.staffId));
+    const debt = balRow ? (Number(balRow.balance) || 0) : outstanding;
+    // "Vyplatiť" má zmysel len keď má človek sadzbu (lump-sum potrebuje sadzbu
+    // na výpočet mzdy smien); inak ponúkneme len Detail.
+    const payBtn = r.hourlyRate != null
+      ? '<button class="btn-edit doch-payout-btn" data-payout-staff="' + r.staffId + '"' +
           ' data-staff-name="' + escapeHtml(r.name) + '"' +
           ' data-staff-rate="' + (r.hourlyRate || 0) + '"' +
-          ' style="background:rgba(76,175,80,.08);border-color:rgba(76,175,80,.3);color:#2e7d32" title="Vyplatiť hotovostne — backend rozloží sumu cez staré smeny">Vyplatiť</button>' +
+          ' data-staff-outstanding="' + (debt > 0 ? debt.toFixed(2) : '') + '"' +
+          ' title="Vyplatiť hotovostne — predvyplní dlžobu">Vyplatiť</button>'
+      : '';
+
+    return '<tr class="data-row" data-staff="' + r.staffId + '">' +
+      '<td class="data-td">' + nameCell + '</td>' +
+      '<td class="data-td num text-right"><strong>' + escapeHtml(fmtMinutes(r.minutes)) + '</strong></td>' +
+      '<td class="data-td num text-right">' + wageCell + '</td>' +
+      '<td class="data-td num text-right">' + statusCell + '</td>' +
+      '<td class="data-td" style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">' +
+        payBtn +
         '<button class="btn-edit doch-detail-btn" data-toggle="' + r.staffId + '">' +
           (isOpen ? 'Skryť' : 'Detail') +
         '</button>' +
@@ -834,14 +1019,15 @@ function renderBody() {
     b.addEventListener('click', () => toggleDetail(parseInt(b.getAttribute('data-toggle'), 10)));
   });
 
-  // Lump-sum payout button — unified modal v lump mode
+  // Lump-sum payout button — otvorí výplatný modal predvyplnený dlžobou
   body.querySelectorAll('button[data-payout-staff]').forEach((b) => {
     b.addEventListener('click', () => {
       const staffId = parseInt(b.getAttribute('data-payout-staff'), 10);
       const staffName = b.getAttribute('data-staff-name') || '';
       const hourlyRate = Number(b.getAttribute('data-staff-rate')) || 0;
+      const outstanding = Number(b.getAttribute('data-staff-outstanding')) || 0;
       openUnifiedPayoutModal({
-        staffId, staffName, hourlyRate,
+        staffId, staffName, hourlyRate, outstanding,
         defaultMode: 'lump',
         onSuccess: async function (res) {
           const partsMsg = res.partialShifts > 0 ? ' (' + res.partialShifts + ' čiastočne)' : '';
@@ -933,16 +1119,38 @@ async function toggleDetail(staffId) {
   const completed = shifts.filter((s) => s.start && s.end).length;
   const open = shifts.filter((s) => s.start && !s.end).length;
   const shiftRowsHtml = shifts.length === 0
-    ? '<tr><td class="data-td" colspan="7"><div class="empty-hint">Žiadne smeny v tomto období.</div></td></tr>'
+    ? '<tr><td class="data-td" colspan="8"><div class="empty-hint">Žiadne smeny v tomto období.</div></td></tr>'
     : shifts.slice().reverse().map((s) => {
         const refIso = (s.start && s.start.at) || (s.end && s.end.at) || '';
         const dateCell = escapeHtml(formatLocalDate(refIso));
+        // Časy sú priamo klikateľné → otvoria editačný modal (PATCH). Pri
+        // neúplnej smene ponúkneme akčné "+ príchod/odchod" tlačidlo (POST),
+        // ktoré nahrádza pasívny "otvorená" odznak niečím, čo sa dá rovno
+        // vyriešiť. data-ref-iso = kotva dňa pre predvyplnenie create modalu.
+        // data-sibling-iso = čas partnerského eventu (príchod↔odchod) pre
+        // kontrolu poradia v modáli — bráni posunúť odchod pred príchod.
         const startCell = s.start
-          ? escapeHtml(formatLocalTime(s.start.at))
-          : '<span class="text-muted">—</span>';
+          ? '<button type="button" class="doch-time-edit" data-edit-event="' + s.start.id + '"'
+              + ' data-kind="clock_in" data-iso="' + escapeHtml(s.start.at) + '"'
+              + ' data-sibling-iso="' + (s.end ? escapeHtml(s.end.at) : '') + '"'
+              + ' title="Upraviť čas príchodu">'
+              + '<span>' + escapeHtml(formatLocalTime(s.start.at)) + '</span>' + EDIT_PENCIL
+            + '</button>'
+          : '<button type="button" class="doch-time-add" data-add-kind="clock_in"'
+              + ' data-ref-iso="' + escapeHtml(refIso) + '"'
+              + ' data-sibling-iso="' + (s.end ? escapeHtml(s.end.at) : '') + '"'
+              + ' title="Pridať chýbajúci príchod">+ príchod</button>';
         const endCell = s.end
-          ? escapeHtml(formatLocalTime(s.end.at))
-          : '<span class="badge badge-warning">otvorená</span>';
+          ? '<button type="button" class="doch-time-edit" data-edit-event="' + s.end.id + '"'
+              + ' data-kind="clock_out" data-iso="' + escapeHtml(s.end.at) + '"'
+              + ' data-sibling-iso="' + (s.start ? escapeHtml(s.start.at) : '') + '"'
+              + ' title="Upraviť čas odchodu">'
+              + '<span>' + escapeHtml(formatLocalTime(s.end.at)) + '</span>' + EDIT_PENCIL
+            + '</button>'
+          : '<button type="button" class="doch-time-add doch-time-add-warn" data-add-kind="clock_out"'
+              + ' data-ref-iso="' + escapeHtml((s.start && s.start.at) || refIso) + '"'
+              + ' data-sibling-iso="' + (s.start ? escapeHtml(s.start.at) : '') + '"'
+              + ' title="Smena je otvorená — pridať odchod">+ odchod</button>';
         const durCell = s.minutes != null
           ? '<strong>' + escapeHtml(fmtMinutes(s.minutes)) + '</strong>'
           : '<span class="text-muted">—</span>';
@@ -974,6 +1182,16 @@ async function toggleDetail(staffId) {
         } else {
           paidCell = '<span class="text-muted">—</span>';
         }
+        // Akcia: zmazať celú smenu (par príchod+odchod). IBA pre kompletné
+        // smeny viditeľné v perióde (s.start AJ s.end) — vtedy zmažeme presne
+        // ten pár, ktorý user vidí. Otvorená smena (chýba odchod) alebo
+        // osamotený odchod (príchod je mimo zvolené obdobie) sa tu nemažú —
+        // stray event ide cez audit "✕" nižšie. data-del-paid riadi varovanie.
+        const delCell = (s.start && s.end && s.end.id)
+          ? '<button type="button" class="doch-shift-del" data-del-shift="' + s.end.id + '"'
+              + ' data-del-paid="' + (s.end.paid ? '1' : '0') + '"'
+              + ' title="Vymazať celú smenu">Vymazať</button>'
+          : '<span class="text-muted">—</span>';
         return '<tr class="data-row">' +
           '<td class="data-td">' + dateCell + '</td>' +
           '<td class="data-td num text-right">' + startCell + '</td>' +
@@ -982,6 +1200,7 @@ async function toggleDetail(staffId) {
           '<td class="data-td num text-right">' + wageCell + '</td>' +
           '<td class="data-td">' + paidCell + '</td>' +
           '<td class="data-td">' + (flags.join(' ') || '<span class="text-muted">—</span>') + '</td>' +
+          '<td class="data-td num text-right">' + delCell + '</td>' +
         '</tr>';
       }).join('');
   const shiftHeadCounts = (completed > 0 || open > 0)
@@ -1008,7 +1227,14 @@ async function toggleDetail(staffId) {
           '<span class="text-muted">Pozícia:</span> <strong>' + escapeHtml(staffMeta.position) + '</strong>') : '') +
       '</div>' +
 
-      '<div class="doch-subhead">Smeny' + shiftHeadCounts + '</div>' +
+      // Smeny — hlavný blok. Časy sú priamo klikateľné (úprava), neúplné
+      // smeny majú "+ príchod/odchod". "+ Pridať smenu" naľavo otvorí nový
+      // príchod (pre deň úplne bez záznamu) — z neho vznikne otvorená smena,
+      // ktorú zavrieš cez "+ odchod".
+      '<div class="doch-subhead" style="justify-content:space-between">' +
+        '<span>Smeny' + shiftHeadCounts + '</span>' +
+        '<button type="button" class="doch-time-add" id="dAddShift" title="Pridať smenu pre deň bez záznamu">+ Pridať smenu</button>' +
+      '</div>' +
       '<div class="table-scroll-wrap" style="margin-bottom:14px">' +
         '<table class="data-table">' +
           '<thead><tr>' +
@@ -1019,17 +1245,38 @@ async function toggleDetail(staffId) {
             '<th class="data-th text-right">Mzda</th>' +
             '<th class="data-th">Vyplatené</th>' +
             '<th class="data-th">Pozn.</th>' +
+            '<th class="data-th"></th>' +
           '</tr></thead>' +
           '<tbody>' + shiftRowsHtml + '</tbody>' +
         '</table>' +
       '</div>' +
 
-      // Manual uprava — collapsed by default (zriedka pouzivane, sporsi miesto
-      // pre dolezitejsie veci). <details> je native HTML, accessible.
-      '<details class="doch-manual-details" style="margin:14px 0">' +
+      // História úprav + audit — zbalené (po novom sa časy upravujú inline,
+      // takže surový log eventov + ručný formulár treba málokedy). Obsahuje
+      // audit záznamov (so zmazaním stray eventu) a escape-hatch formulár.
+      '<details class="doch-manual-details" style="margin:6px 0 0">' +
         '<summary style="cursor:pointer;font-size:13px;font-weight:var(--weight-semibold);color:var(--color-text-sec);padding:6px 0;user-select:none">' +
-          '+ Manuálna úprava záznamu' +
+          'História úprav · audit (' + (data.events || []).length + ')' +
         '</summary>' +
+        '<div class="table-scroll-wrap" style="margin-top:10px">' +
+          '<table class="data-table">' +
+            '<thead><tr>' +
+              '<th class="data-th">Čas</th>' +
+              '<th class="data-th">Typ</th>' +
+              '<th class="data-th">Zdroj</th>' +
+              '<th class="data-th">Dôvod</th>' +
+              '<th class="data-th">Poznámka</th>' +
+              '<th class="data-th"></th>' +
+            '</tr></thead>' +
+            '<tbody>' +
+              (evRows || '<tr><td class="data-td" colspan="6"><div class="empty-hint">Bez záznamov za toto obdobie.</div></td></tr>') +
+            '</tbody>' +
+          '</table>' +
+        '</div>' +
+        '<div style="font-size:12px;color:var(--color-text-dim);margin:14px 0 0;line-height:1.5">' +
+          'Tip: čas opravíš klikom priamo na <strong>príchod/odchod</strong> v tabuľke Smeny. ' +
+          'Formulár nižšie použi len na pridanie samostatného záznamu.' +
+        '</div>' +
         '<form class="doch-manual-form" id="dManualForm" style="margin-top:10px">' +
           '<label class="doch-toolbar-label">Typ' +
             '<select id="mType" class="doch-input">' +
@@ -1056,26 +1303,62 @@ async function toggleDetail(staffId) {
           '<button class="btn-save doch-manual-submit" type="submit">Pridať záznam</button>' +
         '</form>' +
       '</details>' +
-
-      '<div class="doch-subhead">Záznamy (audit)</div>' +
-      '<div class="table-scroll-wrap">' +
-        '<table class="data-table">' +
-          '<thead><tr>' +
-            '<th class="data-th">Čas</th>' +
-            '<th class="data-th">Typ</th>' +
-            '<th class="data-th">Zdroj</th>' +
-            '<th class="data-th">Dôvod</th>' +
-            '<th class="data-th">Poznámka</th>' +
-            '<th class="data-th"></th>' +
-          '</tr></thead>' +
-          '<tbody>' +
-            (evRows || '<tr><td class="data-td" colspan="6"><div class="empty-hint">Bez záznamov za toto obdobie.</div></td></tr>') +
-          '</tbody>' +
-        '</table>' +
-      '</div>' +
     '</div>';
 
-  detail.querySelector('#dManualForm').addEventListener('submit', async (e) => {
+  // Inline úprava/pridanie času priamo z tabuľky Smeny: klik na čas (edit)
+  // alebo na "+ príchod/odchod" (create). Po uložení obnovíme detail +
+  // summary, aby sa prepočítali hodiny/mzda/zostatok.
+  const refreshDetail = async () => {
+    await loadSummary();
+    _expanded = null;
+    await toggleDetail(staffId);
+  };
+  detail.querySelectorAll('button[data-edit-event]').forEach((b) => {
+    b.addEventListener('click', () => {
+      openTimeEditModal({
+        mode: 'edit',
+        eventId: parseInt(b.getAttribute('data-edit-event'), 10),
+        kind: b.getAttribute('data-kind'),
+        currentIso: b.getAttribute('data-iso'),
+        siblingIso: b.getAttribute('data-sibling-iso') || '',
+        staffId,
+        staffName: staffMeta.name || '',
+        onSuccess: refreshDetail,
+      });
+    });
+  });
+  detail.querySelectorAll('button[data-add-kind]').forEach((b) => {
+    b.addEventListener('click', () => {
+      openTimeEditModal({
+        mode: 'create',
+        kind: b.getAttribute('data-add-kind'),
+        currentIso: b.getAttribute('data-ref-iso') || new Date().toISOString(),
+        siblingIso: b.getAttribute('data-sibling-iso') || '',
+        staffId,
+        staffName: staffMeta.name || '',
+        onSuccess: refreshDetail,
+      });
+    });
+  });
+
+  // "+ Pridať smenu" — nový príchod pre deň úplne bez záznamu. Z neho vznikne
+  // otvorená smena (zavrieš cez "+ odchod" v riadku). Predvyplníme na teraz.
+  const addShiftBtn = detail.querySelector('#dAddShift');
+  if (addShiftBtn) {
+    addShiftBtn.addEventListener('click', () => {
+      openTimeEditModal({
+        mode: 'create',
+        kind: 'clock_in',
+        currentIso: new Date().toISOString(),
+        staffId,
+        staffName: staffMeta.name || '',
+        onSuccess: refreshDetail,
+      });
+    });
+  }
+
+  const manualForm = detail.querySelector('#dManualForm');
+  if (manualForm) manualForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const at = detail.querySelector('#mAt').value;
     const type = detail.querySelector('#mType').value;
@@ -1171,6 +1454,34 @@ async function toggleDetail(staffId) {
           }
         },
         { type: 'danger', confirmText: 'Zrušiť' },
+      );
+    });
+  });
+  // Vymazať celú smenu (príchod + odchod naraz). Ak je vyplatená, varuj že
+  // sa zruší aj výplata + cashflow. Server (DELETE /attendance/shifts/:id)
+  // to spraví atomicky.
+  detail.querySelectorAll('button[data-del-shift]').forEach((b) => {
+    b.addEventListener('click', () => {
+      const clockOutEventId = parseInt(b.getAttribute('data-del-shift'), 10);
+      const paid = b.getAttribute('data-del-paid') === '1';
+      const msg = paid
+        ? 'Táto smena je VYPLATENÁ — spolu s ňou sa natrvalo zruší aj jej výplata a zodpovedajúci záznam v Cashflow. Mzdový prepočet sa obnoví.'
+        : 'Natrvalo odstráni túto smenu (príchod + odchod). Mzdový prepočet sa obnoví.';
+      showConfirm(
+        'Vymazať celú smenu?',
+        msg,
+        async () => {
+          try {
+            await api.del('/attendance/shifts/' + clockOutEventId);
+            showToast('Smena vymazaná', true);
+            await loadSummary();
+            _expanded = null;
+            await toggleDetail(staffId);
+          } catch (err) {
+            showToast(err.message || 'Smenu sa nepodarilo vymazať', 'error');
+          }
+        },
+        { type: 'danger', confirmText: 'Vymazať smenu' },
       );
     });
   });

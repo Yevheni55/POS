@@ -1,4 +1,17 @@
 // Tables page module
+
+// Escapovanie: jediná implementácia je /js/pos-escape.js (načítaná v
+// admin/index.html). Táto stránka predtým NEescapovala vôbec nič — názov
+// kategórie / produktu / stola / suroviny / zamestnanca ide z DB rovno do
+// innerHTML, takže čokoľvek, čo si manažér uloží ako názov, sa v admine
+// vykoná ako HTML (CSP má 'unsafe-inline', takže aj ako skript).
+function escapeHtml(v) {
+  if (typeof window !== 'undefined' && typeof window.escHtml === 'function') return window.escHtml(v);
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 let ZONES = [];
 let TABLES = [];
 let activeZone = 'all';
@@ -93,11 +106,11 @@ function renderZoneBtns() {
   el.innerHTML = allZones.map((z) => {
     const active = z.id === activeZone ? ' active' : '';
     if (z.id === 'all') {
-      return '<button class="zone-btn' + active + '" data-zone="' + z.id + '">' + z.label + '</button>';
+      return '<button class="zone-btn' + active + '" data-zone="' + z.id + '">' + escapeHtml(z.label) + '</button>';
     }
     return '<span class="zone-btn-wrap">' +
-      '<button class="zone-btn' + active + '" data-zone="' + z.id + '">' + z.label + '</button>' +
-      '<button class="zone-rename-btn" data-rename-zone="' + z.id + '" title="Premenovať zónu" aria-label="Premenovať zónu ' + z.label + '">' +
+      '<button class="zone-btn' + active + '" data-zone="' + z.id + '">' + escapeHtml(z.label) + '</button>' +
+      '<button class="zone-rename-btn" data-rename-zone="' + z.id + '" title="Premenovať zónu" aria-label="Premenovať zónu ' + escapeHtml(z.label) + '">' +
         '<svg viewBox="0 0 16 16" aria-hidden="true" width="12" height="12">' +
           '<path d="M11.5 1.5l3 3-9 9H2.5v-3l9-9z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>' +
         '</svg>' +
@@ -139,7 +152,7 @@ async function renameZone(slug) {
 }
 
 function populateZoneSelects() {
-  const opts = ZONES.map(z => `<option value="${z.id}">${z.label}</option>`).join('');
+  const opts = ZONES.map(z => `<option value="${z.id}">${escapeHtml(z.label)}</option>`).join('');
   const pz = $('#pZone');
   const atz = $('#atZone');
   if (pz) pz.innerHTML = opts;
@@ -167,7 +180,7 @@ function renderFloor() {
     const isSel = t.id === selectedTableId;
     return `<div class="table-chip ${t.shape} z-${t.zone} ${isSel ? 'selected' : ''}"
       data-id="${t.id}" style="left:${t.x}px;top:${t.y}px">
-      <div class="chip-name">${t.name}</div>
+      <div class="chip-name">${escapeHtml(t.name)}</div>
       <div class="chip-seats">${t.seats} miest</div>
       <div class="chip-zone">${zoneLabels[t.zone] || t.zone}</div>
     </div>`;

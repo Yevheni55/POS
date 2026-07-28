@@ -21,10 +21,14 @@ describe('menu VAT helpers', () => {
   });
 
   it('validates the supported Portos VAT set', () => {
+    // 0 % je platná sadzba pre neplatiteľa DPH (firma bez IČ DPH) — pridané
+    // v 0eb891e "Force 0% VAT on Portos receipts when company is not
+    // VAT-registered". Portos vtedy prijme len položky s vatRate 0.
+    assert.equal(isSupportedVatRate(0), true);
     assert.equal(isSupportedVatRate(5), true);
     assert.equal(isSupportedVatRate(19), true);
     assert.equal(isSupportedVatRate(23), true);
     assert.equal(isSupportedVatRate(20), false);
-    assert.equal(formatSupportedVatRates(), '5%, 19%, 23%');
+    assert.equal(formatSupportedVatRates(), '0%, 5%, 19%, 23%');
   });
 });

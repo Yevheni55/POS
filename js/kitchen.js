@@ -107,28 +107,85 @@
     return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
   }
 
-  // Load orders
+  // Load orders — ZO SERVERA.
+  //
+  // Táto obrazovka predtým čítala localStorage['pos_orders'], ktorý NIKTO
+  // nezapisuje: POS ukladá do 'pos_tableOrders' a KDS aj tak beží na inom
+  // zariadení, kde je localStorage z princípu iný. Kuchynská obrazovka tak
+  // bola trvalo prázdna, hoci socket časť nižšie bola napojená správne a pri
+  // každej udalosti poslušne volala loadOrders().
+  //
+  // POZN. k času: order_items nemá stĺpec `sent_at`, takže „ako dlho čaká"
+  // počítame od vytvorenia ÚČTU (order.createdAt). Pri účte otvorenom dávno
+  // a doobjednávke neskôr to nadhodnocuje. Presný čas si vyžaduje migráciu
+  // (pridať order_items.sent_at a plniť ho v /send) — vedomý kompromis, nech
+  // je obrazovka aspoň funkčná.
   function loadOrders() {
-    let raw;
+    if (!wsToken) return;
+    fetch('/api/orders', { headers: { 'Authorization': 'Bearer ' + wsToken } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (orders) { if (orders) renderFromOrders(orders); })
+      .catch(function (e) { console.error('KDS load orders failed:', e); });
+  }
+
+  // ── Lokálne potvrdenie „hotové" ────────────────────────────────────────
+  // order_items nemá stav 'ready' (len boolean `sent`), takže vybavenie
+  // položky sa nedá uložiť na server bez migrácie. Držíme ho teda lokálne na
+  // TOMTO displeji — presne ako to robí väčšina KDS: kuchár si odškrtáva na
+  // svojej obrazovke. Kľúč obsahuje id položky, takže prežije aj reload.
+  const ACK_KEY = 'pos_kds_ack';
+  const ACK_TTL_MS = 24 * 60 * 60 * 1000;
+
+  function loadAcks() {
     try {
-      raw = localStorage.getItem('pos_orders');
-    } catch(e) { return; }
+      const raw = JSON.parse(localStorage.getItem(ACK_KEY) || '{}');
+      const cutoff = Date.now() - ACK_TTL_MS;
+      let changed = false;
+      for (const k in raw) if (raw[k] < cutoff) { delete raw[k]; changed = true; }
+      if (changed) localStorage.setItem(ACK_KEY, JSON.stringify(raw));
+      return raw;
+    } catch (e) { return {}; }
+  }
+  function saveAcks(acks) {
+    try { localStorage.setItem(ACK_KEY, JSON.stringify(acks)); } catch (e) {}
+  }
+  function ackItem(itemId) {
+    const acks = loadAcks();
+    acks[String(itemId)] = Date.now();
+    saveAcks(acks);
+  }
 
-    if (!raw) raw = '{}';
+  // Posledná odpoveď zo servera — akcie (hotovo / tlač) pracujú nad ňou,
+  // netreba kvôli nim znova volať API.
+  let lastOrders = [];
 
-    const allOrders = JSON.parse(raw);
+  function renderFromOrders(orders) {
+    lastOrders = orders || [];
+    const acks = loadAcks();
     const filteredTables = {};
 
-    for (const tableId in allOrders) {
-      const items = allOrders[tableId];
-      if (!Array.isArray(items)) continue;
-      const sentItems = items.filter(function(it) {
-        return it.status === 'sent' && it.dest === currentView;
-      });
-      if (sentItems.length > 0) {
-        filteredTables[tableId] = sentItems;
-      }
-    }
+    lastOrders.forEach(function (order) {
+      const sentItems = (order.items || [])
+        .filter(function (it) {
+          return it.sent && it.dest === currentView && !acks[String(it.id)];
+        })
+        .map(function (it) {
+          return {
+            id: it.id,
+            name: it.name,
+            qty: it.qty,
+            note: it.note || '',
+            dest: it.dest,
+            status: 'sent',
+            sentAt: order.createdAt,
+          };
+        });
+      if (!sentItems.length) return;
+      // Kľúč = účet, nie stôl: na jednom stole môžu byť dva účty a kuchyňa
+      // ich potrebuje vidieť oddelene.
+      const key = order.label || ('Ucet ' + order.id);
+      filteredTables[key] = (filteredTables[key] || []).concat(sentItems);
+    });
 
     // Build a hash to check if data changed
     const dataHash = JSON.stringify(filteredTables);
@@ -255,28 +312,26 @@
     markItemReady(tableId, idx);
   };
 
-  // Mark single item ready
-  function markItemReady(tableId, itemIdx) {
-    let raw;
-    try { raw = localStorage.getItem('pos_orders'); } catch(e) { return; }
-    if (!raw) return;
-    const orders = JSON.parse(raw);
-    if (!orders[tableId] || !Array.isArray(orders[tableId])) return;
-
-    // Find the sent items matching current dest
-    let sentIdx = -1;
-    for (let i = 0; i < orders[tableId].length; i++) {
-      const it = orders[tableId][i];
-      if (it.status === 'sent' && it.dest === currentView) {
-        sentIdx++;
-        if (sentIdx === itemIdx) {
-          orders[tableId][i].status = 'ready';
-          break;
-        }
-      }
+  // Položky práve zobrazené na karte daného účtu (v poradí, v akom sa
+  // vykresľujú) — index z UI tak sedí na konkrétnu položku.
+  function visibleItemsFor(tableId) {
+    const acks = loadAcks();
+    for (const order of lastOrders) {
+      const key = order.label || ('Ucet ' + order.id);
+      if (key !== tableId) continue;
+      return (order.items || []).filter(function (it) {
+        return it.sent && it.dest === currentView && !acks[String(it.id)];
+      });
     }
+    return [];
+  }
 
-    localStorage.setItem('pos_orders', JSON.stringify(orders));
+  // Mark single item ready — lokálne potvrdenie na tomto displeji.
+  function markItemReady(tableId, itemIdx) {
+    const items = visibleItemsFor(tableId);
+    const target = items[itemIdx];
+    if (!target) return;
+    ackItem(target.id);
     previousDataHash = '';
     loadOrders();
   }
@@ -289,11 +344,8 @@
       confirmText: 'Ano, oznacit',
       danger: false,
       onConfirm: function() {
-        let raw;
-        try { raw = localStorage.getItem('pos_orders'); } catch(e) { return; }
-        if (!raw) return;
-        const orders = JSON.parse(raw);
-        if (!orders[tableId] || !Array.isArray(orders[tableId])) return;
+        const items = visibleItemsFor(tableId);
+        if (!items.length) return;
 
         // Animate card out
         const card = document.querySelector('[data-table="' + tableId + '"]');
@@ -302,12 +354,7 @@
         }
 
         setTimeout(function() {
-          for (let i = 0; i < orders[tableId].length; i++) {
-            if (orders[tableId][i].status === 'sent' && orders[tableId][i].dest === currentView) {
-              orders[tableId][i].status = 'ready';
-            }
-          }
-          localStorage.setItem('pos_orders', JSON.stringify(orders));
+          items.forEach(function (it) { ackItem(it.id); });
           delete perItemMode[tableId];
           previousDataHash = '';
           loadOrders();
@@ -325,18 +372,12 @@
 
   // Print order
   window.printOrder = function(tableId) {
-    let raw;
-    try { raw = localStorage.getItem('pos_orders'); } catch(e) { return; }
-    if (!raw) return;
-    const orders = JSON.parse(raw);
-    if (!orders[tableId]) return;
-
-    const items = orders[tableId].filter(function(it) {
-      return it.status === 'sent' && it.dest === currentView;
-    });
+    const items = visibleItemsFor(tableId);
     if (items.length === 0) return;
 
-    const tableName = tableId.replace(/^t/, 'Stol ').toUpperCase();
+    // tableId je tu už názov účtu (label), nie 't<id>' ako v starej
+    // localStorage schéme.
+    const tableName = String(tableId).toUpperCase();
     const dest = currentView.toUpperCase();
     const now = new Date();
     const timeStr = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
@@ -378,8 +419,9 @@
 
   // Polling (fallback, reduced frequency — WebSocket is primary)
   setInterval(loadOrders, 30000);
+  // Iný tab/okno tej istej obrazovky odškrtlo položku — premietni to.
   window.addEventListener('storage', function(e) {
-    if (e.key === 'pos_orders') {
+    if (e.key === ACK_KEY) {
       previousDataHash = '';
       loadOrders();
     }

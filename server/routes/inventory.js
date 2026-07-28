@@ -621,14 +621,31 @@ router.post('/purchase-orders/:id/reopen', mgr, asyncRoute(async (req, res) => {
   res.json({ ...result.po, totalCost: parseFloat(result.po.totalCost) });
 }));
 
+// DELETE /purchase-orders/:id
+//
+// PRIJATÁ faktúra pripočítala množstvá na sklad. Mazanie ich predtým
+// NEODPOČÍTALO — sklad zostal nafúknutý o celú dodávku a v `stock_movements`
+// ostali riadky s `referenceId` ukazujúcim na už neexistujúcu objednávku,
+// takže sa к tomu nedalo ani spätne dopátrať. Pritom `cancel` aj `reopen`
+// reversePurchaseOrderStock() volajú správne — mazanie bolo jediná cesta,
+// ktorá to obišla.
 router.delete('/purchase-orders/:id', mgr, asyncRoute(async (req, res) => {
   const [po] = await db.select().from(purchaseOrders).where(eq(purchaseOrders.id, +req.params.id));
   if (!po) return res.status(404).json({ error: 'Not found' });
+
   await db.transaction(async (tx) => {
+    // Len prijatá objednávka niečo na sklad pripočítala; draft/cancelled nie.
+    if (po.status === 'received') {
+      await reversePurchaseOrderStock(
+        tx, po.id, req.user?.id ?? null,
+        'Vymazanie prijatej faktury #' + po.id
+      );
+    }
     await tx.delete(purchaseOrderItems).where(eq(purchaseOrderItems.purchaseOrderId, po.id));
     await tx.delete(purchaseOrders).where(eq(purchaseOrders.id, po.id));
   });
-  res.json({ ok: true });
+
+  res.json({ ok: true, stockReversed: po.status === 'received' });
 }));
 
 router.get('/purchase-orders/:id/image', asyncRoute(async (req, res) => {

@@ -299,21 +299,36 @@ describe('Flow 2: Storno with stock return', () => {
       .where(eq(schema.menuItems.id, fixtures.itemTracked.id));
     assert.equal(parseFloat(miAfterStorno.stockQty), 10, 'stock should be restored to 10');
 
-    // Step 5: Close the order and verify it becomes 'closed'
-    const closeRes = await request(app)
+    // Step 5: /close už NIE JE cesta, ako zavrieť účet.
+    //
+    // Do 2026-07 vedel POST /orders/:id/close zavolať KTOKOĽVEK s platným JWT
+    // a zavrel účet s closure_type='paid' BEZ platby a BEZ fiškálneho dokladu
+    // — tržba tak zmizla bez akejkoľvek stopy. Tento test to dovtedy volal
+    // čašníckym tokenom, čím tú dieru fixoval ako očakávané správanie.
+    //
+    // Nový kontrakt (obe strany si tu pripíname, nech sa brána nedá potichu
+    // zrušiť): čašník dostane 403, manažér bez platby na účte 409. Účet sa
+    // zatvára platbou, staff meal alebo odpisom — nie týmto endpointom.
+    const closeDenied = await request(app)
       .post(`/api/orders/${order.id}/close`)
       .set('Authorization', `Bearer ${cisnikToken}`)
       .send({});
-    assert.equal(closeRes.status, 200);
+    assert.equal(closeDenied.status, 403, 'čašník nesmie zavrieť účet mimo platby');
 
+    const closeNoPayment = await request(app)
+      .post(`/api/orders/${order.id}/close`)
+      .set('Authorization', `Bearer ${manazerToken}`)
+      .send({});
+    assert.equal(closeNoPayment.status, 409,
+      'ani manažér nesmie zavrieť účet bez platby: ' + JSON.stringify(closeNoPayment.body));
+
+    // A účet musí naozaj zostať otvorený — odmietnutie nesmie nič zmeniť.
     const [orderRow] = await testDb
       .select()
       .from(schema.orders)
       .where(eq(schema.orders.id, order.id));
-    assert.ok(
-      orderRow.status === 'closed' || orderRow.status === 'storno',
-      `order status should be closed or storno, got: ${orderRow.status}`
-    );
+    assert.equal(orderRow.status, 'open',
+      `odmietnuté zatvorenie nesmie zmeniť stav, got: ${orderRow.status}`);
   });
 
   it('storno with returnToStock=false creates a write-off record', async () => {

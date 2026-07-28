@@ -3,6 +3,7 @@ import { db } from '../db/index.js';
 import { ingredients } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
 import OpenAI from 'openai';
+import { requireRole } from '../middleware/requireRole.js';
 
 const router = Router();
 
@@ -11,8 +12,12 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 /**
  * POST /api/invoice-scan
  * Body: { image: "data:image/...;base64,..." }
+ *
+ * SEC: manazer+admin. Scan mini faktury je plateny OpenAI call na ucet
+ * prevadzky (gpt-4o, obrazok do 20 MB) — cisnik ho nema preco spustat a bez
+ * gate-u je to volne cerpanie kreditu z lubovolneho prihlaseneho JWT.
  */
-router.post('/', async (req, res) => {
+router.post('/', requireRole('manazer', 'admin'), async (req, res) => {
   const { image } = req.body;
   if (!image) return res.status(400).json({ error: 'No image provided' });
 

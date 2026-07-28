@@ -9,7 +9,21 @@ services:
     volumes:
       - pg_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      # Bound to loopback ONLY. This used to be "5432:5432", i.e. 0.0.0.0 —
+      # anyone who could reach the kasa over the tailnet or the venue LAN
+      # could `psql -h <kasa> -U pos` with the credentials below and read or
+      # write every table directly, bypassing every requireRole() in the app
+      # (including staff.pin_visible). The app itself does NOT need this
+      # mapping: it talks to the db over the compose network as db:5432.
+      # Keep it only so a maintainer can psql from the kasa console itself.
+      #
+      # TODO(owner, manual): the pos/pos password is still the initdb one and
+      # is now known to have been committed. Rotate it on the kasa with
+      #   docker exec pos-db-1 psql -U pos -d pos -c "ALTER USER pos PASSWORD '<new>'"
+      # then update DATABASE_URL below and in server/.env. It cannot be
+      # rotated by editing POSTGRES_PASSWORD here — that only applies on a
+      # fresh initdb, and the pg_data volume already exists.
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U pos -d pos"]
       interval: 5s
@@ -48,6 +62,11 @@ services:
       # image and across `compose down/up` cycles; on the host they live
       # under /var/lib/docker/volumes/ (inspect with `docker volume inspect pos_backups`).
       - pos_backups:/backups
+      # Fotky produktov nahrané cez admin (POST /api/menu/items/:id/image).
+      # Zapisovali sa do súborového systému kontajnera, takže KAŽDÝ
+      # `docker compose up -d --build` ich zmazal a v menu ostali rozbité
+      # obrázky. Named volume ich udrží cez rebuildy.
+      - pos_uploads:/app/uploads
     depends_on:
       db:
         condition: service_healthy
@@ -55,3 +74,4 @@ services:
 volumes:
   pg_data:
   pos_backups:
+  pos_uploads:

@@ -20,6 +20,31 @@ export function localTimeHHMM(date) {
   }).format(date || new Date());
 }
 
+// Kalendárny deň "YYYY-MM-DD" v Bratislava timezone — pre defaultné rozsahy
+// reportov. `new Date().toISOString().split('T')[0]` je UTC deň, takže medzi
+// polnocou a 02:00 lokálneho času vracal ešte VČERAJŠÍ dátum a uzávierka
+// ťahaná po polnoci bola prázdna. `en-CA` formátuje presne ako YYYY-MM-DD.
+export function localYmd(date) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Bratislava',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date || new Date());
+}
+
+// Lokálny dátum "DD. MM. YYYY" (sk-SK) v Bratislava timezone. Pre exporty
+// a doklady, kde dátum a čas idú do samostatných stĺpcov — `toLocaleDateString`
+// bez `timeZone` by na UTC serveri po polnoci vypísal predošlý deň.
+export function localDateSK(date) {
+  return new Intl.DateTimeFormat('sk-SK', {
+    timeZone: 'Europe/Bratislava',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date || new Date());
+}
+
 export function localDateTime(date) {
   return new Intl.DateTimeFormat('sk-SK', {
     timeZone: 'Europe/Bratislava',

@@ -78,14 +78,18 @@ export async function summaryHandler(req, res) {
   // Per-day per-product breakdown — pre pivot tabulku "kolko burgerov sa
   // predalo 25.5 vs 26.5". Bucketuje po order.created_at LOCAL Bratislava
   // (rovnako ako cogsRows / dailyRows). Vylucuje staff_meal aj cancelled.
-  // Vracia (date, name, dest, qty) — frontend skladá do pivot matice.
-  // Dest = override polozky ALEBO category default (COALESCE).
+  // Vracia (date, name, category, dest, qty, revenue) — frontend pivotuje
+  // buď po polozke alebo po kategorii, metrika ks alebo trzba (qty × price,
+  // gross — rovnako ako topItems/products). Dest = override polozky ALEBO
+  // category default (COALESCE).
   const productsByDayRows = await db.execute(sql`
     SELECT
       to_char((o.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ})::date, 'YYYY-MM-DD') AS date,
       mi.name AS name,
+      mc.label AS category,
       COALESCE(mi.dest_override, mc.dest, 'bar') AS dest,
-      SUM(oi.qty)::int AS qty
+      SUM(oi.qty)::int AS qty,
+      COALESCE(SUM(oi.qty * mi.price::numeric), 0)::float AS revenue
     FROM order_items oi
     INNER JOIN orders o ON o.id = oi.order_id
     INNER JOIN menu_items mi ON mi.id = oi.menu_item_id
@@ -93,7 +97,7 @@ export async function summaryHandler(req, res) {
     WHERE o.created_at >= ${fromBoundary} AND o.created_at <= ${toBoundary}
       AND o.status != 'cancelled'
       AND COALESCE(o.closure_type, 'paid') != 'staff_meal'
-    GROUP BY 1, mi.name, mi.dest_override, mc.dest
+    GROUP BY 1, mi.name, mc.label, mi.dest_override, mc.dest
     ORDER BY 1, mi.name
   `);
 
@@ -672,12 +676,16 @@ export async function summaryHandler(req, res) {
       };
     }),
     // Per-day per-product matrix — frontend pivotuje na rendering.
-    // Structure: [{ date, name, dest, qty }, ...] sorted by (date, name).
+    // Structure: [{ date, name, category, dest, qty, revenue }, ...] sorted
+    // by (date, name). category + revenue umoznuju prepnut pivot na
+    // "trzba podla kategorii po dnoch".
     productsByDay: productsByDayRows.rows.map(r => ({
       date: r.date,
       name: r.name,
+      category: r.category || '',
       dest: r.dest || 'bar',
       qty: Number(r.qty) || 0,
+      revenue: roundMoney(Number(r.revenue) || 0),
     })),
   });
 }

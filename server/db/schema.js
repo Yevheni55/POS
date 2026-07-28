@@ -175,7 +175,10 @@ export const orders = pgTable('orders', {
   // closure_type: ako bola objednávka uzavretá. 'paid' = normálna platba
   // (s payment row + fiškálnym dokladom), 'staff_meal' = zamestnanecká
   // spotreba (žiadny payment, žiadny fiškál — len odpis suroviny + náklad
-  // v reportoch). Default 'paid' kvôli backward-compat starých riadkov.
+  // v reportoch), 'odpis' = manažérsky odpis účtu "na účet podniku" (žiadny
+  // payment, žiadny fiškál; reporty sumarizujú PREDAJNÚ hodnotu = SUM qty ×
+  // menu price, mimo tržieb aj mimo zisku). Default 'paid' kvôli
+  // backward-compat starých riadkov.
   closureType: varchar('closure_type', { length: 20 }).notNull().default('paid'),
   label: varchar('label', { length: 20 }).notNull().default('Ucet 1'),
   discountId: integer('discount_id').references(() => discounts.id),
@@ -195,6 +198,17 @@ export const orderItems = pgTable('order_items', {
   qty: integer('qty').notNull().default(1),
   note: varchar('note', { length: 200 }).notNull().default(''),
   sent: boolean('sent').notNull().default(false),
+  // Per-item discount (zľava na položku). Mirror of the orders.discountId
+  // pattern but applied to a single line. We DELIBERATELY do not snapshot a
+  // euro amount here — order_items carries no price snapshot either, prices
+  // are always re-read live from menu_items — so we store the RULE
+  // (discountType + discountValue) and derive the euro amount on the fly via
+  // lineDiscountAmount(). discountId links the named discounts catalog row
+  // (nullable: custom-percent has no catalog row). All three are NULL when the
+  // line has no discount.
+  discountId: integer('discount_id').references(() => discounts.id),
+  discountType: varchar('discount_type', { length: 10 }),
+  discountValue: numeric('discount_value', { precision: 8, scale: 2 }),
 }, (t) => [
   index('order_items_order_id_idx').on(t.orderId),
   index('order_items_menu_item_idx').on(t.menuItemId),

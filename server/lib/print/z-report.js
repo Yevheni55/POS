@@ -9,6 +9,52 @@ import { getPrinterForDest } from './network.js';
 import { sendOrQueue } from './queue.js';
 import { buildZReportTicket } from './tickets.js';
 
+// Marker v note cashflow riadku: pre tento deň fiškálny paragón výberu
+// NEVZNIKOL (digitálna uzávierka / Portos vypnutý / Portos zlyhal). Iba riadok
+// s týmto markerom smie ešte raz osloviť Portos — riadok BEZ markera (vrátane
+// starých riadkov spred tejto zmeny) považujeme za „paragón už vytlačený"
+// a druhý nikdy neposielame.
+const NO_PARAGON_MARK = 'Portos paragón výberu nebol vytvorený';
+
+/**
+ * Pošle Portos paragón výberu (best-effort). Vracia `portosWithdraw` objekt
+ * pre odpoveď — `ok:true` znamená, že paragón fakticky vznikol.
+ */
+async function issueWithdrawalParagon({ isDigital, amount, date }) {
+  // V digital mode sa fiškálny paragón výberu zámerne netlačí — výber je
+  // zaevidovaný len v cashflow.
+  if (isDigital) {
+    return { ok: false, skipped: true, digital: true, error: 'Digital mode — Portos výber preskočený' };
+  }
+  if (!isPortosEnabled()) {
+    return { ok: false, error: 'Portos disabled', skipped: true };
+  }
+  try {
+    const cashRegisterCode = await getActiveCashRegisterCode();
+    // Deterministický externalId → aj keby dva requesty prešli cez
+    // DB check súčasne (race), Portos ich zdedupuje na jeden paragón.
+    const portosResult = await registerCashWithdrawal({
+      cashRegisterCode,
+      amount,
+      externalId: `withdraw-${date}-${cashRegisterCode}`,
+    });
+    const out = {
+      ok: portosResult.ok,
+      status: portosResult.status,
+      receiptId: portosResult.data?.response?.data?.id || null,
+      error: portosResult.ok ? null : (portosResult.data?.detail || portosResult.data?.title || ('HTTP ' + portosResult.status)),
+    };
+    if (!portosResult.ok) {
+      console.warn(`[Portos] Withdrawal failed: status=${portosResult.status} detail="${out.error}"`);
+    }
+    return out;
+  } catch (portosErr) {
+    const isTransport = portosErr instanceof PortosTransportError;
+    console.warn(`[Portos] Withdrawal ${isTransport ? 'transport' : 'unexpected'} error:`, portosErr.message);
+    return { ok: false, error: portosErr.message, transportError: isTransport };
+  }
+}
+
 // POST /api/print/z-report — print Z-report.
 //
 // Body:
@@ -70,44 +116,74 @@ export async function zReportHandler(req, res) {
       const shishaCash = data.shisha ? Number(data.shisha.revenue) || 0 : 0;
       const amount = Math.max(0, Math.round(cashAmount * 100) / 100);
       if (amount > 0) {
-        // (a) Portos výber paragón. V digital mode preskoč — výber je v
-        // cashflow zaznamenaný, ale fiškálny paragón výberu sa nevytlačí.
-        // Best-effort pre normal mode — failure neblokuje cashflow.
-        if (isDigital) {
-          portosWithdraw = { ok: false, skipped: true, digital: true, error: 'Digital mode — Portos výber preskočený' };
-        } else if (isPortosEnabled()) {
-          try {
-            const cashRegisterCode = await getActiveCashRegisterCode();
-            const portosResult = await registerCashWithdrawal({ cashRegisterCode, amount });
-            portosWithdraw = {
-              ok: portosResult.ok,
-              status: portosResult.status,
-              receiptId: portosResult.data?.response?.data?.id || null,
-              error: portosResult.ok ? null : (portosResult.data?.detail || portosResult.data?.title || ('HTTP ' + portosResult.status)),
-            };
-            if (!portosResult.ok) {
-              console.warn(`[Portos] Withdrawal failed: status=${portosResult.status} detail="${portosWithdraw.error}"`);
-            }
-          } catch (portosErr) {
-            const isTransport = portosErr instanceof PortosTransportError;
-            console.warn(`[Portos] Withdrawal ${isTransport ? 'transport' : 'unexpected'} error:`, portosErr.message);
-            portosWithdraw = { ok: false, error: portosErr.message, transportError: isTransport };
-          }
-        } else {
-          portosWithdraw = { ok: false, error: 'Portos disabled', skipped: true };
-        }
-
-        // Idempotency: ten istý kalendárny deň (Bratislava) + kategória
-        // = už existuje výber. Druhé volanie endpointu nepridá duplicit.
+        // KRITICKÉ (fiškálna idempotencia): existenciu výberu overujeme PRED
+        // volaním Portosu. Predtým sa najprv poslal /receipts/withdraw a až
+        // potom sa pozrelo do cashflow — druhý ťuk na tablete teda vytlačil
+        // DRUHÝ fiškálny paragón výberu, hoci cashflow riadok pribudol len
+        // jeden. Zásuvka a papier si potom nesedeli.
+        //
+        // Idempotency kľúč: ten istý kalendárny deň (Bratislava) + kategória.
         // Porovnávame cez occurred_at::date v Bratislava timezone.
-        const [existing] = await db.select({ id: cashflowEntries.id })
+        const [existing] = await db.select({ id: cashflowEntries.id, note: cashflowEntries.note })
           .from(cashflowEntries)
           .where(and(
             eq(cashflowEntries.category, 'withdrawal_uzavierka'),
             sql`(${cashflowEntries.occurredAt} AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Bratislava')::date = ${date}::date`,
           ))
           .limit(1);
-        if (!existing) {
+
+        // Chýba k existujúcemu riadku fiškálny paragón? Vieme to LEN ak sme si
+        // to sami poznačili (digitálna uzávierka / Portos vypnutý / zlyhanie).
+        // Konzervatívne: žiadny marker = paragón existuje = nič neposielame.
+        const paragonMissing = existing
+          ? String(existing.note || '').includes(NO_PARAGON_MARK)
+          : false;
+
+        if (existing && (isDigital || !paragonMissing)) {
+          // Výber pre tento deň už existuje a paragón (podľa záznamu) tiež,
+          // resp. digitálna uzávierka paragón aj tak netlačí → Portos vôbec
+          // neoslovujeme. Toto je jadro fixu: druhý ťuk na uzávierku už
+          // NEVYTLAČÍ druhý fiškálny paragón výberu.
+          //
+          // portosWithdraw ostáva null zámerne — klient (admin reports.js aj
+          // Android ReportsDailyScreen) vetví toast tak, že `pw.skipped`
+          // znamená „Portos je vypnutý". Bez pw ukáže správne „Výber už
+          // evidovaný".
+          portosWithdraw = null;
+          withdrawal = {
+            created: false,
+            alreadyExists: true,
+            cashflowEntryId: existing.id,
+            amount,
+            paragon: paragonMissing ? 'missing_digital' : 'already_issued',
+          };
+        } else if (existing) {
+          // Dotlač chýbajúceho paragónu: predchádzajúca uzávierka bola
+          // digitálna (alebo vtedy Portos zlyhal/bol vypnutý) a operátor teraz
+          // tlačí papierovú — presne postup, ktorý mu sľubuje potvrdzovacie
+          // okno „Digitálna uzávierka". Cashflow riadok NEduplikujeme, len
+          // doplníme fiškálny paragón a zmažeme marker, aby tretí ťuk už
+          // netlačil znova.
+          portosWithdraw = await issueWithdrawalParagon({ isDigital, amount, date });
+          if (portosWithdraw?.ok) {
+            await db.update(cashflowEntries)
+              .set({
+                note: String(existing.note || '')
+                  .replace(NO_PARAGON_MARK, 'Portos paragón výberu dotlačený dodatočne'),
+              })
+              .where(eq(cashflowEntries.id, existing.id));
+          }
+          withdrawal = {
+            created: false,
+            alreadyExists: true,
+            cashflowEntryId: existing.id,
+            amount,
+            paragon: portosWithdraw?.ok ? 'issued_now' : 'missing',
+          };
+        } else {
+          // (a) Portos výber paragón — best-effort, failure neblokuje cashflow.
+          portosWithdraw = await issueWithdrawalParagon({ isDigital, amount, date });
+
           // occurredAt = 23:59:59 zvoleného dňa v Bratislava → výber sa
           // vždy zoradí na konci dňa, čo je intuitívne pre Z-report uzávierku.
           const occurredAt = new Date(date + 'T23:59:59+02:00');
@@ -122,12 +198,13 @@ export async function zReportHandler(req, res) {
               + (shishaCash > 0
                   ? ' (shisha ' + shishaCash.toFixed(2) + ' € viď samostatnú sekciu)'
                   : '')
-              + (isDigital ? ' [bez papiera, Portos paragón výberu nebol vytvorený]' : ''),
+              // Marker → ďalšia (papierová) uzávierka smie paragón dotlačiť.
+              + (isDigital
+                  ? ` [bez papiera, ${NO_PARAGON_MARK}]`
+                  : (portosWithdraw?.ok ? '' : ` [${NO_PARAGON_MARK} — dotlačí ďalšia uzávierka]`)),
             staffId: req.user.id,
           }).returning({ id: cashflowEntries.id });
           withdrawal = { created: true, amount, cashflowEntryId: row?.id };
-        } else {
-          withdrawal = { created: false, alreadyExists: true, cashflowEntryId: existing.id, amount };
         }
       } else {
         withdrawal = { created: false, amount: 0, reason: 'no_cash' };

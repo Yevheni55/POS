@@ -362,20 +362,52 @@ export async function registerCashDeposit({ cashRegisterCode, amount }) {
  * NineDigit endpoint: POST /api/v1/requests/receipts/withdraw
  * Body shape: { request: { data: { cashRegisterCode, amount } } }
  *
- * @param {{cashRegisterCode?: string, amount: number}} options
+ * `externalId` (voliteľné) je idempotenčný kľúč — Portos podľa neho vie
+ * rozoznať zopakovaný request a nevytlačí druhý paragón. Používa ho Z-report
+ * (`withdraw-<datum>-<kodPokladne>`), aby dva ťuky na tablete neznamenali dva
+ * fiškálne výbery. Ak by ho konkrétna verzia Portosu nepoznala a request
+ * odmietla ako 400 (validácia = nič sa nevytlačilo), zopakujeme volanie bez
+ * neho, nech sa správanie ostrej kasy nezhorší.
+ *
+ * POZOR: retry NESMIE bežať, keď 400 znamená „taký externalId už existuje" —
+ * to je práve úspešná deduplikácia a opakovanie bez kľúča by vytlačilo DRUHÝ
+ * paragón, teda presne to, čomu má externalId zabrániť.
+ *
+ * @param {{cashRegisterCode?: string, amount: number, externalId?: string}} options
  * @returns {Promise<{ok: boolean, status: number, data: any}>}
  */
-export async function registerCashWithdrawal({ cashRegisterCode, amount }) {
+export async function registerCashWithdrawal({ cashRegisterCode, amount, externalId }) {
   const code = cashRegisterCode || getPortosConfig().cashRegisterCode;
-  const body = {
-    request: {
+  const buildBody = (withExternalId) => {
+    const request = {
       data: {
         cashRegisterCode: code,
         amount: Math.round(Number(amount) * 100) / 100,
       },
-    },
+    };
+    if (withExternalId) request.externalId = String(externalId);
+    return { request };
   };
-  const response = await portosRequest('POST', '/api/v1/requests/receipts/withdraw', { body });
+
+  const useExternalId = Boolean(externalId);
+  const response = await portosRequest('POST', '/api/v1/requests/receipts/withdraw', {
+    body: buildBody(useExternalId),
+  });
+  // „Duplicitný externalId" je ÚSPECH deduplikácie, nie neznáme pole.
+  const rejectionText = [
+    response.data?.detail,
+    response.data?.title,
+    typeof response.data === 'string' ? response.data : '',
+  ].filter(Boolean).join(' ');
+  const looksDuplicate = /duplic|already|exist|conflict|rovnak|opakovan/i.test(rejectionText);
+
+  if (useExternalId && response.status === 400 && !looksDuplicate) {
+    console.warn('[Portos] Withdrawal with externalId rejected (400) — retrying without it');
+    const retry = await portosRequest('POST', '/api/v1/requests/receipts/withdraw', {
+      body: buildBody(false),
+    });
+    return { ok: retry.ok, status: retry.status, data: retry.data };
+  }
   return { ok: response.ok, status: response.status, data: response.data };
 }
 
@@ -469,4 +501,87 @@ export async function printCopyByExternalId(externalId, { cashRegisterCode: code
     raw: response.data,
     ok: response.ok,
   };
+}
+
+// ============================ QR PLATBA =====================================
+// NineDigit Portos "PLATBY → QR platba": okamžitá platba prevodom cez PayMe
+// (SBA štandard). Portos vygeneruje platobný QR na merchant IBAN, ktorý je
+// nakonfigurovaný PRIAMO V PORTOS pre daný cashRegisterCode (preto IBAN
+// neukladáme u nás — Portos ho doplní sám). My len:
+//   1. createQrPayment(amount)         → transactionId + links[].url (Payme)
+//   2. zobrazíme QR z links[].url, pooling getQrPaymentStatus(transactionId)
+//   3. po status='paid' spustíme ŠTANDARDNÚ fiškalizáciu (cash_register doklad
+//      s method='prevod') — QR platba sama o sebe fiškálny doklad NEvystaví.
+// Docs: https://ekasa.ninedigit.sk/docs/articles/qr-payments/
+
+// NineDigit `PaymentStatus` enum má PRESNE 5 hodnôt (data-models): pending,
+// partiallyPaid, paid, overpaid, expired. Úspech = paid|overpaid (LEN podľa
+// statusu, nie podľa súm — viď NineDigit DLL GetStatus). Casing kolíše
+// (lowercase v modeli/create vs PascalCase "Expired" v get-status), preto
+// porovnávame cez normalizeQrStatus (lower).
+export const QR_PAID_STATUSES = new Set(['paid', 'overpaid']);
+/** Finálne stavy (await=true na ne čaká): paid, overpaid, expired. */
+export const QR_FINAL_STATUSES = new Set([...QR_PAID_STATUSES, 'expired']);
+
+/** Stav z Portosu môže prísť rôznou veľkosťou písmen (Expired vs expired). */
+export function normalizeQrStatus(raw) {
+  return String(raw ?? '').trim().toLowerCase();
+}
+
+/**
+ * Vytvorí QR platbu v Portos. Vracia surovú Portos odpoveď — handler si z nej
+ * vytiahne transactionId, links (Payme URL na QR) a expiresAt.
+ * NineDigit: POST /api/v1/payments/qr
+ * Body: { amount, cashRegisterCode, comment?, recipientMessage? }
+ */
+export async function createQrPayment({ amount, cashRegisterCode, comment, recipientMessage } = {}) {
+  const code = cashRegisterCode || getPortosConfig().cashRegisterCode;
+  const body = {
+    amount: Math.round(Number(amount) * 100) / 100,
+    cashRegisterCode: code,
+  };
+  if (comment) body.comment = String(comment).slice(0, 140);
+  if (recipientMessage) body.recipientMessage = String(recipientMessage).slice(0, 140);
+  const response = await portosRequest('POST', '/api/v1/payments/qr', { body });
+  return { ok: response.ok, status: response.status, data: response.data };
+}
+
+/**
+ * Získa stav QR platby.
+ * NineDigit: GET /api/v1/payments/qr/{transactionId}?await={bool}
+ *   awaitFinal=false → okamžitý aktuálny stav (na frontend pooling)
+ *   awaitFinal=true  → Portos drží spojenie kým platba nedosiahne finálny stav
+ *                      (paid/overpaid/expired) — kratší timeout nepoužívať.
+ */
+export async function getQrPaymentStatus(transactionId, { awaitFinal = false, timeoutMs } = {}) {
+  const id = encodeURIComponent(String(transactionId || ''));
+  const response = await portosRequest('GET', `/api/v1/payments/qr/${id}`, {
+    query: { await: awaitFinal ? 'true' : 'false' },
+    timeoutMs,
+  });
+  return { ok: response.ok, status: response.status, data: response.data };
+}
+
+/**
+ * Vytlačí QR platbu ako papierový bonček na CHDÚ tlačiarni (alternatíva k
+ * zobrazeniu na obrazovke kasy).
+ * NineDigit: POST /api/v1/payments/qr/{transactionId}/render { rendererName: 'posPrinter' }
+ */
+export async function renderQrPaymentOnPrinter(transactionId) {
+  const id = encodeURIComponent(String(transactionId || ''));
+  const response = await portosRequest('POST', `/api/v1/payments/qr/${id}/render`, {
+    body: { rendererName: 'posPrinter' },
+  });
+  return { ok: response.ok, status: response.status, data: response.data };
+}
+
+/**
+ * Vytlačí "oznámenie o nedoručení potvrdenia platby" — keď notifikácia o úhrade
+ * nedorazí v limite (zákonná stopa pri spornej QR platbe).
+ * NineDigit: POST /api/v1/payments/qr/{transactionId}/print_non_delivery_notice
+ */
+export async function printQrFailureNotice(transactionId) {
+  const id = encodeURIComponent(String(transactionId || ''));
+  const response = await portosRequest('POST', `/api/v1/payments/qr/${id}/print_non_delivery_notice`, {});
+  return { ok: response.ok, status: response.status, data: response.data };
 }

@@ -61,7 +61,8 @@ export async function refiscalizeHandler(req, res) {
   const requestPayload = buildCashRegisterRequestContext({
     orderId: payment.orderId,
     items: orderContext.items,
-    discountAmount: orderContext.discountAmount,
+    // Order-level discount only — per-item discounts ride on items[].discountAmount.
+    discountAmount: orderContext.orderDiscountAmount,
     method: payment.method,
     expectedTotal: orderContext.expectedTotal,
     cashRegisterCode: activeCashRegisterCode,

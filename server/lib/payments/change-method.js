@@ -25,7 +25,7 @@ import {
   resolveFiscalAttempt,
 } from './fiscal-resolve.js';
 import { loadOrderPaymentContext } from './context.js';
-import { STORNO_ELIGIBLE_MODES, parseJsonField } from './shared.js';
+import { STORNO_ELIGIBLE_MODES, fiscalFailureHttpStatus, parseJsonField } from './shared.js';
 
 // POST /api/payments/:id/change-method
 // Zmena spôsobu platby na už vytlačenom doklade. Postup:
@@ -99,7 +99,7 @@ export async function changeMethodHandler(req, res) {
   }
   const STORNO_OK = new Set(['online_success', 'offline_accepted', 'reconciled_online_success', 'reconciled_offline_accepted']);
   if (!STORNO_OK.has(stornoOutcome.resultMode)) {
-    return res.status(stornoOutcome.httpStatus || 503).json({
+    return res.status(fiscalFailureHttpStatus(stornoOutcome, 503)).json({
       error: stornoOutcome.errorDetail || 'STORNO zlyhalo, zmena metódy nemôže pokračovať',
       fiscal: { status: stornoOutcome.resultMode, errorCode: stornoOutcome.errorCode, errorDetail: stornoOutcome.errorDetail },
     });
@@ -123,7 +123,8 @@ export async function changeMethodHandler(req, res) {
   const newSalePayload = buildCashRegisterRequestContext({
     orderId: payment.orderId,
     items: orderContext.items,
-    discountAmount: orderContext.discountAmount,
+    // Order-level discount only — per-item discounts ride on items[].discountAmount.
+    discountAmount: orderContext.orderDiscountAmount,
     method: newMethod,
     expectedTotal: Number(payment.amount),
     cashRegisterCode,
@@ -144,7 +145,7 @@ export async function changeMethodHandler(req, res) {
   if (!STORNO_OK.has(newOutcome.resultMode)) {
     // Pôvodný doklad je vystornovaný, ale nový sa neuložil — operátor musí
     // tlačiť ručne. Vrátime 503 s detailom; storno doc už v DB existuje.
-    return res.status(newOutcome.httpStatus || 503).json({
+    return res.status(fiscalFailureHttpStatus(newOutcome, 503)).json({
       error: 'Storno bolo OK, ale nový doklad zlyhal — vytvor platbu ručne v POS. ' + (newOutcome.errorDetail || ''),
       fiscal: { status: newOutcome.resultMode, errorCode: newOutcome.errorCode, errorDetail: newOutcome.errorDetail },
       stornoFiscal: toFiscalResponse(stornoDoc),

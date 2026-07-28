@@ -25,6 +25,33 @@ function bratislavaDayIso(date) {
   }).format(date || new Date());
 }
 
+// Kalendarna aritmetika nad 'YYYY-MM-DD'. Pocita sa v UTC priestore, takze
+// prechod letneho/zimneho casu ani koniec mesiaca posun nepokazia — na rozdiel
+// od `d.setDate(d.getDate()-n); d.toISOString()`, kde sa lokalna polnoc pri
+// prevode do UTC prepadne o den dozadu.
+function isoAddDays(iso, delta) {
+  var p = String(iso).split('-');
+  var d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]));
+  d.setUTCDate(d.getUTCDate() + delta);
+  return d.toISOString().slice(0, 10);
+}
+
+// Prvy den aktualneho mesiaca v bratislavskom case.
+// `new Date(y, m, 1).toISOString().split('T')[0]` vracia cely letny cas
+// POSLEDNY DEN PREDOSLEHO MESIACA (lokalna polnoc 1. = 22:00 UTC 31. / 30.),
+// takze mesacny report zacinal o den skor a tahal do sumy cudzi den.
+function bratislavaMonthStartIso(date) {
+  return bratislavaDayIso(date).slice(0, 8) + '01';
+}
+
+// Pondelok toho tyzdna, v ktorom lezi bratislavske 'dnes' (ISO: Po=1..Ne=7).
+function bratislavaMondayIso(date) {
+  var iso = bratislavaDayIso(date);
+  var p = iso.split('-');
+  var dow = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2])).getUTCDay(); // Ne=0
+  return isoAddDays(iso, -(dow === 0 ? 6 : dow - 1));
+}
+
 const api = {
   _offline: false,
   _queue: [],
@@ -33,8 +60,26 @@ const api = {
     return navigator.onLine && !this._offline;
   },
 
+  // Fronta sa nesmie donekonečna nafukovať ani prehrať prastaré zápisy:
+  // po dvoch dňoch výpadku by replay založil účty, ktoré nikto nezakladal.
+  _QUEUE_MAX: 200,
+  _QUEUE_TTL_MS: 6 * 60 * 60 * 1000,
+
   _saveQueue() {
-    localStorage.setItem('pos_offline_queue', JSON.stringify(this._queue));
+    try {
+      // Pri prekročení stropu zahadzujeme NAJSTARŠIE — najnovšie zápisy sú
+      // tie, ktoré ešte dávajú prevádzkovo zmysel.
+      if (this._queue.length > this._QUEUE_MAX) {
+        var over = this._queue.length - this._QUEUE_MAX;
+        console.warn('Offline queue over cap — dropping', over, 'oldest ops');
+        this._queue.splice(0, over);
+      }
+      localStorage.setItem('pos_offline_queue', JSON.stringify(this._queue));
+    } catch (e) {
+      // QuotaExceeded / private mode. Predtým to vyhodilo výnimku rovno do
+      // request(), takže z „operácia sa uložila offline" bola nečakaná chyba.
+      console.error('Offline queue save failed:', e && e.message);
+    }
   },
 
   // Clears OFFLINE state + banner once a fetch succeeds. Stale banner stays
@@ -48,7 +93,70 @@ const api = {
       var b = document.querySelector('#offlineBanner, .offline-banner');
       if (b && b.classList) b.classList.remove('show');
       if (document.body) document.body.classList.remove('is-offline');
+      this._stopOfflineHeartbeat();
+      // Fronta sa predtým prehrávala VÝHRADNE na `window 'online'`. Ten event
+      // hlási stav sieťového rozhrania — pri `docker compose up -d --build`
+      // (teda pri každom vlastnom deployi), páde servera alebo reštarte
+      // kontajnera wifi nikdy nespadne, takže sa nevystrelil a zaradené
+      // objednávky viseli vo fronte NAVŽDY: kuchyňa nedostala bon a účet sa
+      // dal medzitým zaplatiť bez nich.
+      this._flushQueueSoon('reconnect');
     }
+  },
+
+  // Reentrancia: syncQueue sa dá spustiť z 'online' eventu aj z _setOnline
+  // naraz — bez guardu by tú istú operáciu poslali dvakrát.
+  _flushing: false,
+  async _flushQueueSoon(reason) {
+    if (this._flushing) return null;
+    if (!this._queue.length) return null;
+    this._flushing = true;
+    try {
+      var result = await this.syncQueue();
+      if (result && result.synced && typeof showToast === 'function') {
+        showToast('Synchronizovaných operácií: ' + result.synced, 'success');
+      }
+      if (result && result.remaining && typeof showToast === 'function') {
+        showToast('Nepodarilo sa odoslať: ' + result.remaining + ' — skúsim znova', 'warning');
+      }
+      return result;
+    } catch (e) {
+      console.error('Queue flush failed (' + reason + '):', e);
+      return null;
+    } finally {
+      this._flushing = false;
+    }
+  },
+
+  // Kým sme offline, ťukáme na /health. Toto je jediný spôsob, ako zistiť, že
+  // sa server vrátil, keď sieťové rozhranie nikdy nespadlo.
+  _hbTimer: null,
+  _startOfflineHeartbeat() {
+    if (this._hbTimer) return;
+    var self = this;
+    this._hbTimer = setInterval(function () {
+      if (!self._offline) { self._stopOfflineHeartbeat(); return; }
+      fetch(API_BASE + '/health', { method: 'GET', cache: 'no-store' })
+        .then(function (r) { if (r && r.ok) self._setOnline(); })
+        .catch(function () { /* stále dole — skúsime o 10 s */ });
+    }, 10000);
+  },
+  _stopOfflineHeartbeat() {
+    if (this._hbTimer) { clearInterval(this._hbTimer); this._hbTimer = null; }
+  },
+
+  // Rozpoznanie výpadku prenosu. Predtým to bolo `err.message.includes('fetch')`,
+  // čo je hláška závislá od prehliadača: Chrome hovorí „Failed to fetch", ale
+  // Safari/iOS „Load failed" a Firefox „NetworkError when attempting to fetch
+  // resource". Na iPhone sa teda POST nezaradil do fronty a spadol ako obyčajná
+  // chyba — čašník videl „Chyba sync: Load failed" a položky zmizli.
+  _isTransportError(err) {
+    if (!err) return false;
+    if (err.name === 'AbortError') return true;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
+    if (err.name !== 'TypeError') return false;
+    // TypeError bez HTTP statusu = fetch sa vôbec nedostal na server.
+    return err.status === undefined;
   },
 
   // Mirror of _setOnline: surface the OFFLINE banner + a one-shot warning
@@ -60,6 +168,7 @@ const api = {
   _setOffline(msg) {
     var wasOffline = this._offline;
     this._offline = true;
+    this._startOfflineHeartbeat();
     var b = document.getElementById('offlineBanner') || document.querySelector('.offline-banner');
     if (b && b.classList) b.classList.add('show');
     if (document.body) document.body.classList.add('is-offline');
@@ -70,7 +179,17 @@ const api = {
 
   _loadQueue() {
     try {
-      this._queue = JSON.parse(localStorage.getItem('pos_offline_queue') || '[]');
+      var raw = JSON.parse(localStorage.getItem('pos_offline_queue') || '[]');
+      if (!Array.isArray(raw)) raw = [];
+      var cutoff = Date.now() - this._QUEUE_TTL_MS;
+      var fresh = raw.filter(function (op) {
+        return op && (!op.timestamp || op.timestamp >= cutoff);
+      });
+      if (fresh.length !== raw.length) {
+        console.warn('Offline queue: dropped', raw.length - fresh.length, 'stale ops (>6h)');
+      }
+      this._queue = fresh.slice(-this._QUEUE_MAX);
+      if (fresh.length !== raw.length || this._queue.length !== fresh.length) this._saveQueue();
     } catch {
       this._queue = [];
     }
@@ -85,6 +204,10 @@ const api = {
     let synced = 0;
     let failed = 0;
     let dropped = 0;
+    let deferred = 0;
+    const currentUser = this.getUser();
+    const currentStaffId = currentUser && currentUser.id != null ? currentUser.id : null;
+
     for (const op of queue) {
       // Defensive: drop any legacy queued fiscal/payment ops left behind from
       // a pre-PR-C client. They must never auto-replay.
@@ -93,14 +216,31 @@ const api = {
         dropped++;
         continue;
       }
+      // Cudzí zápis neposielame pod aktuálnym tokenom — server by ho pripísal
+      // prihlásenému používateľovi. Necháme ho vo fronte, kým sa pôvodný
+      // človek prihlási späť (TTL v _loadQueue ho po 6 h aj tak upratá).
+      if (op && op.staffId != null && currentStaffId != null && op.staffId !== currentStaffId) {
+        this._queue.push(op);
+        deferred++;
+        continue;
+      }
       try {
         const headers = {};
         if (op.idempotencyKey) headers['X-Idempotency-Key'] = op.idempotencyKey;
-        await this.request(op.path, {
+        const res = await this.request(op.path, {
           method: op.method,
           body: op.body ? JSON.stringify(op.body) : undefined,
           headers,
+          // Bez tohto by request() pri opätovnom výpadku zaradil operáciu
+          // späť BEZ idempotency kľúča — a ďalší replay by na serveri založil
+          // duplikát.
+          _idempotencyKey: op.idempotencyKey || null,
         });
+        // request() vracia null, keď sme stále offline — vtedy si operáciu
+        // sám zaradil späť do fronty. Predtým sa to počítalo ako `synced++`,
+        // takže obsluha videla „N operácií synchronizovaných", hoci sa
+        // neodoslalo nič. Znovu ju tu pushovať NESMIEME (duplikát).
+        if (res === null) { failed++; continue; }
         synced++;
       } catch (e) {
         console.error('Sync failed:', op, e);
@@ -109,7 +249,10 @@ const api = {
       }
     }
     this._saveQueue();
-    return { synced, failed, dropped, remaining: this._queue.length };
+    if (deferred) {
+      console.warn('Offline queue: ' + deferred + ' op(s) belong to another staff member — kept for them');
+    }
+    return { synced, failed, dropped, deferred, remaining: this._queue.length };
   },
 
   getToken() {
@@ -138,10 +281,32 @@ const api = {
     window.location.href = '/login.html';
   },
 
+  // Cesty, kde server pri roli 'cisnik' vyžaduje manažérsku eleváciu
+  // (storno UŽ ODOSLANEJ položky). Token razí /auth/verify-manager po zadaní
+  // PINu a platí 120 s; drží sa v pamäti v js/pos-payments.js.
+  _needsManagerElevation(path, method) {
+    if (!method || method === 'GET') return false;
+    var clean = String(path).split('?')[0];
+    // PUT/DELETE /orders/:id/items/:itemId  a  POST /orders/:id/batch
+    return /^\/orders\/\d+\/items(\/|$)/.test(clean) || /^\/orders\/\d+\/batch$/.test(clean);
+  },
+
   async request(path, options = {}) {
     const token = this.getToken();
     const headers = { 'Content-Type': 'application/json', ...options.headers };
     if (token) headers['Authorization'] = 'Bearer ' + token;
+
+    // Elevačný token pripájame LEN na cesty, ktoré ho naozaj potrebujú —
+    // je to kredenciál manažéra a nemá čo chodiť na nesúvisiace endpointy.
+    // Bez tohto by čašník po zadaní SPRÁVNEHO manažérskeho PINu dostal na
+    // storno odoslanej položky 403 (server od 2026-07 eleváciu vyžaduje),
+    // pričom klient je optimistic-local-first — položka by z účtu zmizla
+    // lokálne, ale na serveri by zostala. Presne rozchod POS vs server.
+    if (!headers['X-Manager-Token'] && typeof getManagerElevationToken === 'function'
+        && this._needsManagerElevation(path, options.method)) {
+      const mt = getManagerElevationToken();
+      if (mt) headers['X-Manager-Token'] = mt;
+    }
 
     try {
       const res = await fetch(API_BASE + path, { ...options, headers });
@@ -191,7 +356,7 @@ const api = {
       this._setOnline();
       return data;
     } catch (err) {
-      if (err.name === 'TypeError' && err.message.includes('fetch')) {
+      if (this._isTransportError(err)) {
         this._setOffline();
         if (options.method && options.method !== 'GET') {
           // PR-C: fiscal/payment paths must not be auto-replayed. Refuse at
@@ -205,12 +370,19 @@ const api = {
             console.warn('Offline: refused to queue fiscal op', options.method, path);
             throw offlineErr;
           }
+          var _qUser = this.getUser();
           this._queue.push({
             path,
             method: options.method,
             body: options.body ? JSON.parse(options.body) : null,
             idempotencyKey: options._idempotencyKey || null,
             timestamp: Date.now(),
+            // KTO operáciu zaradil. Tablet je zdieľaný: čašník A zaradí zápis
+            // offline, odhlási sa, prihlási sa čašník B — a replay by prebehol
+            // pod tokenom B, takže server (`staffId: req.user.id`) by tržbu aj
+            // audit pripísal B. To ide priamo do mzdových reportov.
+            staffId: _qUser && _qUser.id != null ? _qUser.id : null,
+            staffName: _qUser && _qUser.name ? _qUser.name : null,
           });
           this._saveQueue();
           console.warn('Offline: queued', options.method, path);
@@ -370,8 +542,12 @@ const api = {
       : Date.now() + '-' + Math.random().toString(36).slice(2);
   },
 
-  post(path, body) {
-    const key = this._genIdempotencyKey();
+  // idempotencyKey (voliteľný) — keď volajúci potrebuje, aby sa OPAKOVANÝ
+  // pokus o tú istú logickú operáciu na serveri zlúčil do jednej. Bez neho
+  // dostane každé volanie nový kľúč, takže offline zaradený POST a neskorší
+  // priamy POST toho istého sú pre server dve rôzne operácie.
+  post(path, body, idempotencyKey) {
+    const key = idempotencyKey || this._genIdempotencyKey();
     return this.request(path, {
       method: 'POST',
       body: JSON.stringify(body),
@@ -442,15 +618,13 @@ const api = {
 };
 
 window.addEventListener('online', async () => {
-  api._offline = false;
-  document.getElementById('offlineBanner')?.classList.remove('show');
-  document.body.classList.remove('is-offline');
-  const result = await api.syncQueue();
-  if (result && result.synced) {
-    if (typeof showToast === 'function') showToast('Online - ' + result.synced + ' operacii synchronizovanych', true);
-  } else {
-    if (typeof showToast === 'function') showToast('Pripojenie obnovene', 'success');
-  }
+  // _setOnline() zhodí banner, zastaví heartbeat a spustí flush fronty.
+  // Flush voláme aj explicitne — keď server nikdy nespadol a offline bola len
+  // wifi, `api._offline` už mohlo byť false a _setOnline() by nespravil nič.
+  // Reentrancia guard v _flushQueueSoon zaručí, že sa fronta nepošle dvakrát.
+  api._setOnline();
+  if (typeof showToast === 'function') showToast('Pripojenie obnovené', 'success');
+  await api._flushQueueSoon('online-event');
 });
 
 window.addEventListener('offline', () => {
@@ -460,6 +634,77 @@ window.addEventListener('offline', () => {
 });
 
 api._loadQueue();
+
+// ── Telemetria klientských chýb ────────────────────────────────────────────
+// Kasa beží na tablete ako fullscreen PWA — nikto tam neotvorí DevTools. Bez
+// tohto sa „kasa nešla" nedalo dohľadať vôbec: v celom projekte nebol jediný
+// window.onerror ani unhandledrejection handler, takže výnimka, ktorá zabije
+// render, zmizla bez stopy. sendBeacon prežije aj zavretie tabu a nikdy
+// neblokuje UI.
+(function () {
+  var SENT_CAP = 20;          // strop na jedno načítanie stránky
+  var sent = 0;
+  var lastKey = '';
+
+  function report(kind, payload) {
+    try {
+      if (sent >= SENT_CAP) return;
+      // Ten istý error v slučke by inak zaplavil sieť aj server.
+      var key = kind + '|' + (payload.message || '') + '|' + (payload.line || '');
+      if (key === lastKey) return;
+      lastKey = key;
+      sent++;
+
+      var user = null;
+      try { user = api.getUser(); } catch (e) {}
+      var body = JSON.stringify({
+        kind: kind,
+        message: payload.message || '',
+        source: payload.source || '',
+        line: payload.line || null,
+        col: payload.col || null,
+        stack: payload.stack || '',
+        url: location.pathname + location.search,
+        staff: user && user.name ? user.name : null,
+      });
+
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon(API_BASE + '/client-errors', new Blob([body], { type: 'application/json' }));
+      } else {
+        fetch(API_BASE + '/client-errors', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: body,
+          keepalive: true,
+        }).catch(function () {});
+      }
+    } catch (e) { /* telemetria nikdy nesmie zhodiť appku */ }
+  }
+
+  window.addEventListener('error', function (e) {
+    report('error', {
+      message: e.message,
+      source: e.filename,
+      line: e.lineno,
+      col: e.colno,
+      stack: e.error && e.error.stack ? e.error.stack : '',
+    });
+  });
+
+  window.addEventListener('unhandledrejection', function (e) {
+    var r = e.reason;
+    report('unhandledrejection', {
+      message: (r && r.message) ? r.message : String(r),
+      stack: (r && r.stack) ? r.stack : '',
+    });
+  });
+
+  // Ručné hlásenie z aplikačného kódu (napr. catch vetva, ktorá by inak
+  // skončila len v console.error).
+  window.reportClientError = function (message, extra) {
+    report('manual', Object.assign({ message: String(message || '') }, extra || {}));
+  };
+})();
 
 const posFullscreen = {
   FS_KEY: 'pos_fullscreen',
