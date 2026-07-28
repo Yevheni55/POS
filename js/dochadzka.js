@@ -62,6 +62,15 @@
   function resetSoon() {
     clearTimeout(resetTimer);
     resetTimer = setTimeout(function () {
+      // Kým je otvorený niektorý overlay, terminál sa NESMIE resetovať.
+      // Zamestnanec práve vypĺňa žiadosť o opravu (alebo si číta smeny) a
+      // reset by mu zmazal PIN — odoslanie by potom tichо nespravilo nič.
+      var busy = (function () {
+        var f = document.getElementById('fixOverlay');
+        var m = document.getElementById('myShiftsOverlay');
+        return (f && !f.hidden) || (m && !m.hidden);
+      })();
+      if (busy) { resetSoon(); return; }
       pin = ''; currentStaff = null; currentState = 'clocked_out';
       renderPin(); renderStatus(null);
     }, 8000);
@@ -289,7 +298,225 @@
   $('myShiftsOverlay').addEventListener('click', scheduleMsAutoClose);
   $('myShiftsOverlay').addEventListener('touchstart', scheduleMsAutoClose, { passive: true });
 
+  // === NAHLÁSENIE OPRAVY DOCHÁDZKY ===
+  //
+  // Terminál vie zapísať len „teraz". Kto príde o 8:00 a PIN stihne zadať až
+  // o 9:30, prišiel o hodinu a pol mzdy; kto sa niektorý deň neoznačí, ten deň
+  // v evidencii nemá. Doteraz to vedel opraviť len manažér — teda len ak mu to
+  // niekto povedal a on si spomenul.
+  //
+  // Žiadosť dochádzku NEMENÍ. Je to návrh, ktorý manažér v admine schváli
+  // alebo zamietne; až schválenie zapíše do attendance_events.
+  var fixAutoClose = null;
+  var REQUEST_MAX_AGE_DAYS = 31;
+
+  function isoDay(offset) {
+    var d = new Date();
+    d.setDate(d.getDate() + (offset || 0));
+    return d.getFullYear() + '-' +
+      String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0');
+  }
+
+  function fmtDayLabel(iso) {
+    var p = iso.split('-');
+    return p[2] + '.' + p[1] + '.';
+  }
+
+  function scheduleFixAutoClose() {
+    clearTimeout(fixAutoClose);
+    // Dlhšie než pri „Moje smeny" — tu sa píše, nie iba pozerá.
+    fixAutoClose = setTimeout(closeFix, 120000);
+  }
+
+  function closeFix() {
+    clearTimeout(fixAutoClose);
+    $('fixOverlay').hidden = true;
+  }
+
+  function setFixError(msg) {
+    var el = $('fixError');
+    if (!msg) { el.hidden = true; el.textContent = ''; return; }
+    el.textContent = msg;
+    el.hidden = false;
+  }
+
+  function selectedFixType() {
+    var checked = document.querySelector('input[name="fixType"]:checked');
+    return checked ? checked.value : 'late_pin';
+  }
+
+  // Pri zabudnutom dni je odchod POVINNÝ — bez neho by vznikla smena, ktorá
+  // sa nikdy neskončí a mzda by sa z nej nedala spočítať.
+  function syncOutRequirement() {
+    var missing = selectedFixType() === 'missing_day';
+    $('fixOut').required = missing;
+    $('fixOutOptional').textContent = missing ? '(povinné)' : '(voliteľné)';
+  }
+
+  function renderFixDays() {
+    var wrap = $('fixDays');
+    var today = isoDay(0);
+    var chips = [
+      { iso: today, label: 'Dnes' },
+      { iso: isoDay(-1), label: 'Včera' },
+      { iso: isoDay(-2), label: fmtDayLabel(isoDay(-2)) },
+    ];
+    wrap.innerHTML = chips.map(function (c) {
+      return '<button type="button" class="doch-fix-day" data-day="' + c.iso + '">' +
+        escapeHtml(c.label) + '</button>';
+    }).join('');
+    wrap.querySelectorAll('.doch-fix-day').forEach(function (b) {
+      b.addEventListener('click', function () {
+        $('fixDate').value = b.dataset.day;
+        wrap.querySelectorAll('.doch-fix-day').forEach(function (x) { x.classList.remove('active'); });
+        b.classList.add('active');
+        setFixError('');
+      });
+    });
+  }
+
+  function openFix() {
+    if (!currentStaff || !pin) return;
+    setFixError('');
+    $('fixForm').hidden = false;
+    $('fixList').hidden = true;
+    $('tabNew').classList.add('active');
+    $('tabNew').setAttribute('aria-selected', 'true');
+    $('tabMine').classList.remove('active');
+    $('tabMine').setAttribute('aria-selected', 'false');
+
+    renderFixDays();
+    var d = $('fixDate');
+    d.max = isoDay(0);
+    d.min = isoDay(-REQUEST_MAX_AGE_DAYS);
+    d.value = isoDay(0);
+    $('fixIn').value = '';
+    $('fixOut').value = '';
+    $('fixNote').value = '';
+    syncOutRequirement();
+    var firstChip = $('fixDays').querySelector('.doch-fix-day');
+    if (firstChip) firstChip.classList.add('active');
+
+    $('fixOverlay').hidden = false;
+    scheduleFixAutoClose();
+  }
+
+  function submitFix(ev) {
+    ev.preventDefault();
+    // Bez PINu sa odoslať nedá — a NESMIE to byť tiché `return`, inak
+    // tlačidlo vyzerá pokazené.
+    if (!pin) {
+      setFixError('Odhlásilo ťa to. Zavri okno a zadaj PIN znova.');
+      return;
+    }
+    setFixError('');
+
+    var type = selectedFixType();
+    var body = {
+      pin: pin,
+      type: type,
+      targetDate: $('fixDate').value,
+      claimedIn: $('fixIn').value,
+      note: $('fixNote').value || '',
+    };
+    var out = $('fixOut').value;
+    if (out) body.claimedOut = out;
+
+    if (!body.targetDate) { setFixError('Vyber deň.'); return; }
+    if (!body.claimedIn) { setFixError('Zadaj čas príchodu.'); return; }
+    if (type === 'missing_day' && !out) { setFixError('Pri zabudnutom dni zadaj aj odchod.'); return; }
+    if (out && out <= body.claimedIn) { setFixError('Odchod musí byť neskôr ako príchod.'); return; }
+
+    var btn = $('fixSubmit');
+    btn.disabled = true;
+    postJson('/api/attendance/requests', body).then(function (res) {
+      btn.disabled = false;
+      if (!res.ok) {
+        setFixError((res.data && res.data.error) || 'Žiadosť sa nepodarilo odoslať.');
+        return;
+      }
+      showToast('Žiadosť odoslaná manažérovi', true);
+      closeFix();
+      resetSoon();
+    }).catch(function () {
+      btn.disabled = false;
+      setFixError('Bez pripojenia sa žiadosť nedá odoslať.');
+    });
+  }
+
+  var FIX_STATUS = {
+    pending:  { label: 'Čaká na schválenie', cls: 'pending' },
+    approved: { label: 'Schválené', cls: 'approved' },
+    rejected: { label: 'Zamietnuté', cls: 'rejected' },
+  };
+
+  function renderFixList(rows) {
+    var el = $('fixList');
+    if (!rows || !rows.length) {
+      el.innerHTML = '<div class="doch-fix-empty">Zatiaľ si nič nenahlásil.</div>';
+      return;
+    }
+    el.innerHTML = rows.map(function (r) {
+      var st = FIX_STATUS[r.status] || FIX_STATUS.pending;
+      var day = String(r.targetDate).slice(0, 10);
+      var times = fmtTime(r.claimedIn) + (r.claimedOut ? ' – ' + fmtTime(r.claimedOut) : '');
+      var typeLabel = r.type === 'missing_day' ? 'Zabudnutý deň' : 'Neskorý PIN';
+      return '<div class="doch-fix-item">' +
+        '<div class="doch-fix-item-head">' +
+          '<span class="doch-fix-item-day">' + escapeHtml(fmtDayLabel(day)) + '</span>' +
+          '<span class="doch-fix-badge ' + st.cls + '">' + escapeHtml(st.label) + '</span>' +
+        '</div>' +
+        '<div class="doch-fix-item-body">' +
+          escapeHtml(typeLabel) + ' · ' + escapeHtml(times) +
+        '</div>' +
+        (r.note ? '<div class="doch-fix-item-note">' + escapeHtml(r.note) + '</div>' : '') +
+        (r.reviewNote ? '<div class="doch-fix-item-review">Manažér: ' + escapeHtml(r.reviewNote) + '</div>' : '') +
+        '</div>';
+    }).join('');
+  }
+
+  function openMyRequests() {
+    if (!pin) return;
+    postJson('/api/attendance/my-requests', { pin: pin }).then(function (res) {
+      if (!res.ok) { showToast((res.data && res.data.error) || 'Chyba', false); return; }
+      renderFixList(res.data.requests);
+      $('fixForm').hidden = true;
+      $('fixList').hidden = false;
+      $('tabMine').classList.add('active');
+      $('tabMine').setAttribute('aria-selected', 'true');
+      $('tabNew').classList.remove('active');
+      $('tabNew').setAttribute('aria-selected', 'false');
+      scheduleFixAutoClose();
+    });
+  }
+
+  $('btnFix').addEventListener('click', openFix);
+  $('fixClose').addEventListener('click', closeFix);
+  $('fixForm').addEventListener('submit', submitFix);
+  $('tabNew').addEventListener('click', function () {
+    $('fixForm').hidden = false;
+    $('fixList').hidden = true;
+    $('tabNew').classList.add('active');
+    $('tabNew').setAttribute('aria-selected', 'true');
+    $('tabMine').classList.remove('active');
+    $('tabMine').setAttribute('aria-selected', 'false');
+    scheduleFixAutoClose();
+  });
+  $('tabMine').addEventListener('click', openMyRequests);
+  document.querySelectorAll('input[name="fixType"]').forEach(function (r) {
+    r.addEventListener('change', function () { syncOutRequirement(); setFixError(''); });
+  });
+  $('fixOverlay').addEventListener('click', scheduleFixAutoClose);
+  $('fixOverlay').addEventListener('touchstart', scheduleFixAutoClose, { passive: true });
+
   document.addEventListener('keydown', function (e) {
+    // Kým je otvorený formulár opravy, číslice patria do políčok, nie do PINu.
+    var fixOpen = !$('fixOverlay').hidden;
+    if (fixOpen) {
+      if (e.key === 'Escape') closeFix();
+      return;
+    }
     if (/^\d$/.test(e.key)) {
       if (pin.length >= 6) return;
       pin += e.key; renderPin();

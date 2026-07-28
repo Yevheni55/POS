@@ -3179,3 +3179,88 @@ select:focus-visible{
 .panel-tabs {
   -webkit-overflow-scrolling: touch;
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   ŽIADOSTI O OPRAVU DOCHÁDZKY
+   ════════════════════════════════════════════════════════════════════════
+   Zamestnanec nahlási na termináli (prišiel skôr než stihol PIN / zabudol sa
+   označiť), manažér tu potvrdí. Karta zámerne ukazuje TVRDÍ vs. V SYSTÉME
+   vedľa seba — bez toho by sa schvaľovalo naslepo. */
+
+.doch-req-panel { border-left: 3px solid var(--accent-amber-text); }
+.doch-req-count {
+  margin-left: 8px;
+  min-width: 24px; height: 24px;
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(184, 124, 26, .16);
+  color: var(--accent-amber-text);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm); font-weight: var(--weight-bold);
+}
+.doch-req-lead {
+  margin: -6px 0 14px;
+  font-size: var(--text-md); line-height: 1.45;
+  color: var(--color-text-sec);
+}
+
+.doch-req-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+}
+.doch-req-card {
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+}
+.doch-req-top {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 10px; margin-bottom: 10px;
+}
+.doch-req-name { font-weight: var(--weight-bold); font-size: var(--text-xl); }
+.doch-req-meta { font-size: var(--text-md); color: var(--color-text-sec); margin-top: 2px; }
+.doch-req-badge {
+  padding: 3px 10px; border-radius: 999px; white-space: nowrap;
+  background: rgba(184, 124, 26, .16);
+  color: var(--accent-amber-text);
+  font-size: var(--text-sm); font-weight: var(--weight-bold);
+}
+
+.doch-req-compare {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+  padding: 10px; margin-bottom: 10px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+}
+.doch-req-col { display: grid; gap: 2px; min-width: 0; }
+.doch-req-col-label {
+  font-size: var(--text-xs); font-weight: var(--weight-bold);
+  letter-spacing: .06em; text-transform: uppercase;
+  color: var(--color-text-sec);
+}
+.doch-req-claim {
+  font-family: var(--font-mono); font-size: var(--text-lg);
+  font-weight: var(--weight-bold); color: var(--color-accent);
+}
+.doch-req-system {
+  font-family: var(--font-mono); font-size: var(--text-md);
+  color: var(--color-text-sec); word-break: break-word;
+}
+.doch-req-note {
+  margin-bottom: 10px; padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  font-size: var(--text-md); line-height: 1.4;
+  color: var(--color-text-sec);
+}
+.doch-req-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.doch-req-actions button { min-height: 44px; }
+
+@media (max-width: 560px) {
+  .doch-req-compare { grid-template-columns: 1fr; }
+  .doch-req-actions { flex-direction: column-reverse; }
+  .doch-req-actions button { width: 100%; }
+}

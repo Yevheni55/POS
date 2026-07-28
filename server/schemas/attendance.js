@@ -32,6 +32,36 @@ export const editEventSchema = z.object({
   note: z.string().max(200).optional().default(''),
 });
 
+// ── Žiadosti o opravu dochádzky ─────────────────────────────────────────────
+// Zamestnanec zadáva DEŇ a ČASY (HH:MM), nie plné timestampy — na termináli
+// klepe do numerickej klávesnice, nie do date-time pickeru. Server si z toho
+// poskladá bratislavský čas, aby sa nestalo, že sa deň prekĺzne cez UTC.
+const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Cas musi byt HH:MM');
+const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Datum musi byt YYYY-MM-DD');
+
+export const attendanceRequestSchema = z.object({
+  pin: pinValue,
+  // 'late_pin'    — bol v praci skor, PIN zadal neskoro (opravuje sa prichod)
+  // 'missing_day' — v ten den sa neoznacil vobec (doplna sa cela smena)
+  type: z.enum(['late_pin', 'missing_day']),
+  targetDate: isoDay,
+  claimedIn: hhmm,
+  // Odchod je povinny pri missing_day (inak by vznikla vecne otvorena smena)
+  // a volitelny pri late_pin, kde sa opravuje len zaciatok.
+  claimedOut: hhmm.optional().nullable(),
+  note: z.string().max(300).optional().default(''),
+}).refine(
+  (r) => r.type !== 'missing_day' || !!r.claimedOut,
+  { message: 'Pri zabudnutom dni treba zadat aj odchod', path: ['claimedOut'] },
+).refine(
+  (r) => !r.claimedOut || r.claimedOut > r.claimedIn,
+  { message: 'Odchod musi byt neskor ako prichod', path: ['claimedOut'] },
+);
+
+export const requestReviewSchema = z.object({
+  note: z.string().max(300).optional().default(''),
+});
+
 export const summaryQuerySchema = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'from musi byt YYYY-MM-DD'),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'to musi byt YYYY-MM-DD'),

@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { db } from '../db/index.js';
-import { staff, attendanceEvents, authAttempts, attendancePayouts, cashflowEntries } from '../db/schema.js';
-import { eq, and, gte, lte, desc, sql, count } from 'drizzle-orm';
+import { staff, attendanceEvents, authAttempts, attendancePayouts, cashflowEntries, attendanceRequests } from '../db/schema.js';
+import { eq, and, gte, lte, desc, asc, sql, count, inArray } from 'drizzle-orm';
 import { validate } from '../middleware/validate.js';
 import { asyncRoute } from '../lib/async-route.js';
 import { requireRole } from '../middleware/requireRole.js';
@@ -12,6 +12,8 @@ import {
   manualEventSchema,
   editEventSchema,
   summaryQuerySchema,
+  attendanceRequestSchema,
+  requestReviewSchema,
 } from '../schemas/attendance.js';
 import {
   pairEventsToShifts,
@@ -303,6 +305,150 @@ publicRouter.post('/my-shifts', validate(pinSchema), asyncRoute(async (req, res)
       hourlyRate: hourlyRate,
     },
   });
+}));
+
+// ===== Žiadosti o opravu dochádzky ========================================
+//
+// Terminál pozná len „teraz". Kto príde o 8:00 a PIN stihne až o 9:30, má
+// v evidencii 9:30 a hodina a pol mzdy zmizne; kto sa niektorý deň neoznačí,
+// ten deň v evidencii vôbec nie je. Doteraz to vedel opraviť len manažér —
+// teda len ak mu to niekto povedal a on si spomenul.
+//
+// Tu si to zamestnanec nahlási sám cez ten istý PIN. Žiadosť je LEN NÁVRH:
+// dochádzku nemení, kým ju manažér neschváli.
+
+// Koľko dní dozadu sa dá žiadosť podať. Bez stropu by sa dala prepisovať
+// dávno vyplatená mzda.
+const REQUEST_MAX_AGE_DAYS = 31;
+
+/**
+ * Poskladá bratislavský timestamp z 'YYYY-MM-DD' + 'HH:MM'.
+ * Cez Postgres, nie cez `new Date(...)`: server beží v UTC kontajneri, takže
+ * ručné skladanie by pri prechode letného času posunulo čas o hodinu a pri
+ * nočných smenách aj deň.
+ */
+async function bratislavaTs(handle, isoDay, hhmm) {
+  const r = await handle.execute(
+    sql`SELECT ((${isoDay} || ' ' || ${hhmm})::timestamp AT TIME ZONE 'Europe/Bratislava') AS ts`
+  );
+  const row = (r.rows || r)[0];
+  return row ? new Date(row.ts) : null;
+}
+
+/** Dnešný bratislavský deň ako 'YYYY-MM-DD'. */
+async function bratislavaToday(handle) {
+  const r = await handle.execute(
+    sql`SELECT to_char(NOW() AT TIME ZONE 'Europe/Bratislava', 'YYYY-MM-DD') AS d`
+  );
+  const row = (r.rows || r)[0];
+  return row ? row.d : null;
+}
+
+/** Hranice bratislavského dňa [od, do) ako UTC inštanty. */
+async function bratislavaDayBounds(handle, isoDay) {
+  const from = await bratislavaTs(handle, isoDay, '00:00');
+  const r = await handle.execute(
+    sql`SELECT ((${isoDay}::date + INTERVAL '1 day')::timestamp AT TIME ZONE 'Europe/Bratislava') AS ts`
+  );
+  const row = (r.rows || r)[0];
+  return { from, to: row ? new Date(row.ts) : null };
+}
+
+async function eventsOnDay(handle, staffId, isoDay) {
+  const { from, to } = await bratislavaDayBounds(handle, isoDay);
+  return handle.select().from(attendanceEvents).where(and(
+    eq(attendanceEvents.staffId, staffId),
+    gte(attendanceEvents.at, from),
+    lte(attendanceEvents.at, to),
+  )).orderBy(asc(attendanceEvents.at), asc(attendanceEvents.id));
+}
+
+// POST /api/attendance/requests — zamestnanec podá žiadosť (PIN, bez JWT).
+publicRouter.post('/requests', validate(attendanceRequestSchema), asyncRoute(async (req, res) => {
+  const ip = req.ip || req.connection?.remoteAddress || '';
+  const found = await findStaffByAttendancePin(req.body.pin);
+
+  // Rovnaký lockout ako /clock — endpoint nesmie byť lacnejšia cesta na
+  // skúšanie PINov.
+  const lockKey = found ? { staffId: found.id, ip: null } : { staffId: null, ip };
+  const failures = await failuresFor(lockKey.staffId, lockKey.ip);
+  if (failures >= PIN_MAX_ATTEMPTS) {
+    res.set('Retry-After', String(Math.ceil(PIN_WINDOW_MS / 1000)));
+    return res.status(429).json({ error: 'Prilis vela pokusov. Skuste neskor.' });
+  }
+  if (!found) {
+    await recordAttempt({ staffId: null, ip, success: false });
+    return res.status(401).json({ error: 'Neplatny PIN' });
+  }
+  await recordAttempt({ staffId: found.id, ip, success: true });
+
+  const { type, targetDate, claimedIn, claimedOut, note } = req.body;
+
+  const today = await bratislavaToday(db);
+  if (targetDate > today) {
+    return res.status(400).json({ error: 'Nedá sa nahlásiť deň v budúcnosti' });
+  }
+  // ::int je nutný — bez neho ide 31 ako netypovaný parameter a Postgres
+  // odmietne `date - $1` s "date/time field value out of range".
+  const oldest = await db.execute(
+    sql`SELECT to_char((NOW() AT TIME ZONE 'Europe/Bratislava')::date - ${REQUEST_MAX_AGE_DAYS}::int, 'YYYY-MM-DD') AS d`
+  );
+  const oldestDay = (oldest.rows || oldest)[0]?.d;
+  if (oldestDay && targetDate < oldestDay) {
+    return res.status(400).json({
+      error: `Nahlásiť sa dá najviac ${REQUEST_MAX_AGE_DAYS} dní dozadu. Starší deň rieš osobne s manažérom.`,
+    });
+  }
+
+  // Jedna otvorená žiadosť na deň — inak by manažér schvaľoval tri varianty
+  // toho istého dňa a každá by pridala ďalšiu smenu.
+  const [dup] = await db.select().from(attendanceRequests).where(and(
+    eq(attendanceRequests.staffId, found.id),
+    eq(attendanceRequests.targetDate, targetDate),
+    eq(attendanceRequests.status, 'pending'),
+  )).limit(1);
+  if (dup) {
+    return res.status(409).json({ error: 'Na tento deň už máš žiadosť, ktorá čaká na schválenie.' });
+  }
+
+  const inTs = await bratislavaTs(db, targetDate, claimedIn);
+  const outTs = claimedOut ? await bratislavaTs(db, targetDate, claimedOut) : null;
+
+  const [created] = await db.insert(attendanceRequests).values({
+    staffId: found.id,
+    type,
+    targetDate,
+    claimedIn: inTs,
+    claimedOut: outTs,
+    note: note || '',
+  }).returning();
+
+  res.status(201).json({ request: created });
+}));
+
+// POST /api/attendance/my-requests — zamestnanec si pozrie vlastné žiadosti.
+publicRouter.post('/my-requests', validate(pinSchema), asyncRoute(async (req, res) => {
+  const ip = req.ip || req.connection?.remoteAddress || '';
+  const found = await findStaffByAttendancePin(req.body.pin);
+
+  const lockKey = found ? { staffId: found.id, ip: null } : { staffId: null, ip };
+  const failures = await failuresFor(lockKey.staffId, lockKey.ip);
+  if (failures >= PIN_MAX_ATTEMPTS) {
+    res.set('Retry-After', String(Math.ceil(PIN_WINDOW_MS / 1000)));
+    return res.status(429).json({ error: 'Prilis vela pokusov. Skuste neskor.' });
+  }
+  if (!found) {
+    await recordAttempt({ staffId: null, ip, success: false });
+    return res.status(401).json({ error: 'Neplatny PIN' });
+  }
+  await recordAttempt({ staffId: found.id, ip, success: true });
+
+  const rows = await db.select().from(attendanceRequests)
+    .where(eq(attendanceRequests.staffId, found.id))
+    .orderBy(desc(attendanceRequests.createdAt))
+    .limit(30);
+
+  res.json({ staff: { id: found.id, name: found.name }, requests: rows });
 }));
 
 // ===== Admin / manager attendance API =====================================
@@ -780,6 +926,209 @@ adminRouter.get('/balance', mgr, asyncRoute(async (req, res) => {
     totalPrepaid: Math.round(totalPrepaid * 100) / 100,
     rows,
   });
+}));
+
+// GET /api/attendance/requests?status=pending — zoznam žiadostí pre manažéra.
+// Ku každej doloží, čo je v ten deň REÁLNE v evidencii, nech sa dá porovnať
+// tvrdenie zamestnanca so systémom bez preklikávania sa do histórie.
+adminRouter.get('/requests', mgr, asyncRoute(async (req, res) => {
+  const status = ['pending', 'approved', 'rejected'].includes(String(req.query.status))
+    ? String(req.query.status)
+    : null;
+
+  const rows = await db.select({
+    id: attendanceRequests.id,
+    staffId: attendanceRequests.staffId,
+    staffName: staff.name,
+    position: staff.position,
+    type: attendanceRequests.type,
+    targetDate: attendanceRequests.targetDate,
+    claimedIn: attendanceRequests.claimedIn,
+    claimedOut: attendanceRequests.claimedOut,
+    note: attendanceRequests.note,
+    status: attendanceRequests.status,
+    reviewedBy: attendanceRequests.reviewedBy,
+    reviewedAt: attendanceRequests.reviewedAt,
+    reviewNote: attendanceRequests.reviewNote,
+    createdAt: attendanceRequests.createdAt,
+  })
+    .from(attendanceRequests)
+    .innerJoin(staff, eq(staff.id, attendanceRequests.staffId))
+    .where(status ? eq(attendanceRequests.status, status) : undefined)
+    .orderBy(desc(attendanceRequests.createdAt))
+    .limit(200);
+
+  // Existujúce eventy v dotknutých dňoch — aby manažér videl „tvrdí 8:00,
+  // systém má 9:30" bez ďalšieho klikania.
+  //
+  // Časy posielame aj ako HOTOVÉ 'HH:MM' v bratislavskom čase, spočítané
+  // v Postgrese. Klient by ich inak musel odvodzovať z ISO reťazca a trafil
+  // by správne len vtedy, keď má prehliadač aj serverový proces rovnakú zónu
+  // (attendance_events.at je `timestamp` BEZ zóny — funguje to len preto, že
+  // kontajner beží v UTC). Toto tú závislosť odstraňuje.
+  const out = [];
+  for (const r of rows) {
+    const existing = await eventsOnDay(db, r.staffId, r.targetDate);
+    const ids = existing.map((e) => e.id);
+    let localById = new Map();
+    if (ids.length) {
+      const lt = await db.execute(sql`
+        SELECT id, to_char(at AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Bratislava', 'HH24:MI') AS t
+          FROM attendance_events WHERE id IN ${ids}
+      `);
+      for (const row of (lt.rows || lt)) localById.set(Number(row.id), row.t);
+    }
+    const times = await db.execute(sql`
+      SELECT to_char(${r.claimedIn}::timestamptz AT TIME ZONE 'Europe/Bratislava', 'HH24:MI') AS in_t,
+             CASE WHEN ${r.claimedOut}::timestamptz IS NULL THEN NULL
+                  ELSE to_char(${r.claimedOut}::timestamptz AT TIME ZONE 'Europe/Bratislava', 'HH24:MI') END AS out_t
+    `);
+    const tRow = (times.rows || times)[0] || {};
+
+    out.push({
+      ...r,
+      claimedInLocal: tRow.in_t || null,
+      claimedOutLocal: tRow.out_t || null,
+      existingEvents: existing.map((e) => ({
+        id: e.id, type: e.type, at: e.at, source: e.source,
+        localTime: localById.get(Number(e.id)) || null,
+      })),
+    });
+  }
+
+  const [{ n: pendingCount } = { n: 0 }] = await db.select({ n: count() })
+    .from(attendanceRequests).where(eq(attendanceRequests.status, 'pending'));
+
+  res.json({ requests: out, pendingCount: Number(pendingCount) || 0 });
+}));
+
+// POST /api/attendance/requests/:id/approve
+//
+// AŽ TOTO mení dochádzku. Zapisuje sa rovnakým audit kontraktom ako manuálna
+// úprava v admine (source='manual', reason, edited_by = schvaľovateľ), takže
+// v histórii je vidieť, že to nebol PIN na termináli.
+adminRouter.post('/requests/:id/approve', mgr, validate(requestReviewSchema), asyncRoute(async (req, res) => {
+  const id = Number.parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Neplatne id' });
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      // FOR UPDATE — dvaja manažéri nesmú schváliť tú istú žiadosť naraz
+      // a založiť smenu dvakrát.
+      const locked = await tx.execute(
+        sql`SELECT * FROM attendance_requests WHERE id = ${id} FOR UPDATE`
+      );
+      const rows = locked.rows || locked;
+      if (!rows || !rows.length) { const e = new Error('not_found'); e.status = 404; throw e; }
+      const reqRow = rows[0];
+      if (reqRow.status !== 'pending') { const e = new Error('already'); e.status = 409; throw e; }
+
+      const staffId = reqRow.staff_id;
+      const targetDate = typeof reqRow.target_date === 'string'
+        ? reqRow.target_date
+        : new Date(reqRow.target_date).toISOString().slice(0, 10);
+      const claimedIn = new Date(reqRow.claimed_in);
+      const claimedOut = reqRow.claimed_out ? new Date(reqRow.claimed_out) : null;
+
+      const dayEvents = await eventsOnDay(tx, staffId, targetDate);
+      const firstIn = dayEvents.find((e) => e.type === 'clock_in');
+      const lastOut = [...dayEvents].reverse().find((e) => e.type === 'clock_out');
+
+      const touched = [];
+
+      if (reqRow.type === 'late_pin') {
+        if (!firstIn) {
+          // Medzitým sa deň vyprázdnil (napr. manažér smenu zmazal) —
+          // z opravy času sa stáva doplnenie celej smeny.
+          const [ins] = await tx.insert(attendanceEvents).values({
+            staffId, type: 'clock_in', at: claimedIn,
+            source: 'manual', reason: 'forgot', editedBy: req.user.id,
+            note: 'Žiadosť #' + id,
+          }).returning();
+          touched.push(ins.id);
+        } else {
+          const [upd] = await tx.update(attendanceEvents).set({
+            at: claimedIn, source: 'manual', reason: 'wrong_time',
+            editedBy: req.user.id, note: 'Žiadosť #' + id,
+          }).where(eq(attendanceEvents.id, firstIn.id)).returning();
+          touched.push(upd.id);
+        }
+        if (claimedOut) {
+          if (lastOut) {
+            const [upd] = await tx.update(attendanceEvents).set({
+              at: claimedOut, source: 'manual', reason: 'wrong_time',
+              editedBy: req.user.id, note: 'Žiadosť #' + id,
+            }).where(eq(attendanceEvents.id, lastOut.id)).returning();
+            touched.push(upd.id);
+          } else {
+            const [ins] = await tx.insert(attendanceEvents).values({
+              staffId, type: 'clock_out', at: claimedOut,
+              source: 'manual', reason: 'forgot', editedBy: req.user.id,
+              note: 'Žiadosť #' + id,
+            }).returning();
+            touched.push(ins.id);
+          }
+        }
+      } else {
+        // missing_day — ak medzitým v ten deň nejaká smena vznikla, radšej
+        // nič nepridávame; manažér nech to dorieši ručne, inak by človek mal
+        // za jeden deň dve smeny.
+        if (dayEvents.length) { const e = new Error('day_not_empty'); e.status = 409; throw e; }
+        const [insIn] = await tx.insert(attendanceEvents).values({
+          staffId, type: 'clock_in', at: claimedIn,
+          source: 'manual', reason: 'forgot', editedBy: req.user.id,
+          note: 'Žiadosť #' + id,
+        }).returning();
+        const [insOut] = await tx.insert(attendanceEvents).values({
+          staffId, type: 'clock_out', at: claimedOut,
+          source: 'manual', reason: 'forgot', editedBy: req.user.id,
+          note: 'Žiadosť #' + id,
+        }).returning();
+        touched.push(insIn.id, insOut.id);
+      }
+
+      const [updatedReq] = await tx.update(attendanceRequests).set({
+        status: 'approved',
+        reviewedBy: req.user.id,
+        reviewedAt: new Date(),
+        reviewNote: req.body.note || '',
+      }).where(eq(attendanceRequests.id, id)).returning();
+
+      return { request: updatedReq, eventIds: touched };
+    });
+
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    if (e && e.status === 404) return res.status(404).json({ error: 'Žiadosť nenájdená' });
+    if (e && e.status === 409 && e.message === 'already') {
+      return res.status(409).json({ error: 'Žiadosť už bola vybavená' });
+    }
+    if (e && e.status === 409 && e.message === 'day_not_empty') {
+      return res.status(409).json({
+        error: 'V ten deň už dochádzka existuje — dorieš ju ručne, nech nevznikne dvojitá smena.',
+      });
+    }
+    throw e;
+  }
+}));
+
+// POST /api/attendance/requests/:id/reject — dochádzku nemení.
+adminRouter.post('/requests/:id/reject', mgr, validate(requestReviewSchema), asyncRoute(async (req, res) => {
+  const id = Number.parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Neplatne id' });
+
+  const [existing] = await db.select().from(attendanceRequests).where(eq(attendanceRequests.id, id));
+  if (!existing) return res.status(404).json({ error: 'Žiadosť nenájdená' });
+  if (existing.status !== 'pending') return res.status(409).json({ error: 'Žiadosť už bola vybavená' });
+
+  const [updated] = await db.update(attendanceRequests).set({
+    status: 'rejected',
+    reviewedBy: req.user.id,
+    reviewedAt: new Date(),
+    reviewNote: req.body.note || '',
+  }).where(eq(attendanceRequests.id, id)).returning();
+
+  res.json({ ok: true, request: updated });
 }));
 
 adminRouter.get('/active', mgr, asyncRoute(async (req, res) => {

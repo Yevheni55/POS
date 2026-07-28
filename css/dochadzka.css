@@ -661,3 +661,201 @@ body::before {
   .doch-stamp-success, .doch-splash-card,
   .doch-pin-display.shake { animation: none !important; }
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   NAHLÁSENIE OPRAVY DOCHÁDZKY
+   ════════════════════════════════════════════════════════════════════════
+   Terminál vie zapísať len „teraz". Kto príde o 8:00 a PIN stihne o 9:30,
+   príde o hodinu a pol mzdy; kto sa niektorý deň neoznačí, ten deň v
+   evidencii nemá. Tu si to zamestnanec nahlási sám, manažér schvaľuje.
+   Rozmery: všetko klepacie má ≥44 px (DESIGN-CODE § tap targets). */
+
+.doch-btn-fix {
+  flex: 1 0 100%;
+  background: var(--color-bg-surface);
+  color: var(--accent-amber-text);
+  border-color: rgba(184, 124, 26, .32);
+  font-size: 15px;
+  padding: 14px 16px;
+  min-height: 52px;
+}
+.doch-btn-fix:hover {
+  background: rgba(184, 124, 26, .10);
+  border-color: var(--accent-amber-text);
+}
+.doch-btn-fix:active { transform: translateY(1px); }
+
+.doch-fix-overlay[hidden] { display: none !important; }
+.doch-fix-overlay {
+  position: fixed; inset: 0;
+  background: rgba(30, 24, 18, .55);
+  backdrop-filter: blur(6px);
+  z-index: 1000;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: 16px;
+  overflow-y: auto;
+}
+.doch-fix-card {
+  width: 100%;
+  max-width: 560px;
+  margin: auto;
+  background: linear-gradient(180deg, var(--color-bg), var(--color-bg-elevated));
+  border: 1px solid var(--color-border-strong);
+  border-radius: 22px;
+  padding: 20px;
+  color: var(--color-text);
+  box-shadow: 0 4px 12px rgba(30, 24, 18, .12), 0 20px 48px -12px rgba(30, 24, 18, .28);
+}
+
+.doch-fix-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 14px;
+}
+.doch-fix-title { font-family: var(--font-display); font-size: 21px; font-weight: 700; }
+.doch-fix-close {
+  min-width: 44px; min-height: 44px;
+  border: none; background: transparent;
+  color: var(--color-text-sec);
+  font-size: 30px; line-height: 1; cursor: pointer;
+  border-radius: 12px;
+}
+.doch-fix-close:hover { background: var(--color-bg-hover); color: var(--color-text); }
+
+.doch-fix-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+.doch-fix-tab {
+  flex: 1; min-height: 44px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-bg-surface);
+  color: var(--color-text-sec);
+  font-family: var(--font-body); font-size: 14px; font-weight: 600;
+  cursor: pointer;
+}
+.doch-fix-tab.active {
+  background: var(--color-accent-bg);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.doch-fix-group { border: none; padding: 0; margin: 0 0 16px; }
+.doch-fix-legend {
+  font-size: 12px; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--color-text-sec);
+  padding: 0; margin-bottom: 8px;
+}
+
+.doch-fix-choice { display: grid; gap: 8px; }
+.doch-fix-opt {
+  display: grid; gap: 2px;
+  padding: 12px 14px; min-height: 44px;
+  border: 1.5px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-bg-surface);
+  cursor: pointer;
+}
+.doch-fix-opt input { position: absolute; opacity: 0; pointer-events: none; }
+.doch-fix-opt:has(input:checked) {
+  border-color: var(--color-accent);
+  background: var(--color-accent-bg);
+}
+/* Fallback pre prehliadače bez :has() — aspoň viditeľný focus ring. */
+.doch-fix-opt:focus-within { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.doch-fix-opt-title { font-size: 15px; font-weight: 700; }
+.doch-fix-opt-sub { font-size: 12.5px; color: var(--color-text-sec); line-height: 1.35; }
+
+.doch-fix-days { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.doch-fix-day {
+  min-height: 44px; padding: 0 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-bg-surface);
+  color: var(--color-text);
+  font-family: var(--font-body); font-size: 14px; font-weight: 600;
+  cursor: pointer;
+}
+.doch-fix-day.active {
+  background: var(--color-accent-bg);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.doch-fix-field { display: grid; gap: 5px; margin-bottom: 12px; }
+.doch-fix-field > span {
+  font-size: 12.5px; font-weight: 600; color: var(--color-text-sec);
+}
+.doch-fix-optional { font-style: normal; font-weight: 500; opacity: .85; }
+.doch-fix-field input {
+  min-height: 48px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body); font-size: 16px;
+}
+.doch-fix-field input[type="time"],
+.doch-fix-field input[type="date"] { font-family: var(--font-mono); }
+.doch-fix-field input:focus-visible {
+  outline: 2px solid var(--color-focus); outline-offset: 1px;
+  border-color: var(--color-accent);
+}
+
+.doch-fix-times { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+.doch-fix-error {
+  margin: 4px 0 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--color-danger-bg);
+  border: 1px solid var(--color-danger-border);
+  color: var(--color-danger);
+  font-size: 13.5px; font-weight: 600;
+}
+.doch-fix-error[hidden] { display: none !important; }
+
+.doch-fix-submit { width: 100%; margin-top: 4px; }
+.doch-fix-hint {
+  margin: 10px 0 0;
+  font-size: 12.5px; line-height: 1.4;
+  color: var(--color-text-sec); text-align: center;
+}
+
+.doch-fix-list[hidden] { display: none !important; }
+.doch-fix-list { display: grid; gap: 10px; }
+.doch-fix-empty {
+  padding: 28px 12px; text-align: center;
+  color: var(--color-text-sec); font-size: 14px;
+}
+.doch-fix-item {
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-bg-surface);
+}
+.doch-fix-item-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-bottom: 4px;
+}
+.doch-fix-item-day { font-family: var(--font-mono); font-size: 15px; font-weight: 700; }
+.doch-fix-item-body { font-size: 13.5px; color: var(--color-text-sec); }
+.doch-fix-item-note,
+.doch-fix-item-review {
+  margin-top: 6px; font-size: 12.5px; line-height: 1.4;
+  color: var(--color-text-sec);
+}
+.doch-fix-item-review { color: var(--color-text); font-weight: 600; }
+
+.doch-fix-badge {
+  padding: 3px 10px; border-radius: 999px;
+  font-size: 11.5px; font-weight: 700; white-space: nowrap;
+}
+.doch-fix-badge.pending  { background: rgba(184, 124, 26, .14); color: var(--accent-amber-text); }
+.doch-fix-badge.approved { background: var(--color-success-bg); color: var(--color-success); }
+.doch-fix-badge.rejected { background: var(--color-danger-bg);  color: var(--color-danger); }
+
+@media (max-width: 420px) {
+  .doch-fix-times { grid-template-columns: 1fr; }
+  .doch-fix-card { padding: 16px; border-radius: 18px; }
+}

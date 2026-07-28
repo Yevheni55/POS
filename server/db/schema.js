@@ -555,6 +555,40 @@ export const attendancePayouts = pgTable('attendance_payouts', {
   index('attendance_payouts_staff_idx').on(t.staffId, t.paidAt),
 ]);
 
+// Žiadosti o opravu dochádzky.
+//
+// PREČO: terminál pozná len „teraz". Keď zamestnanec príde o 8:00 a PIN stihne
+// zadať až o 9:30, systém mu zapíše 9:30 a hodina a pol mzdy zmizne. Keď sa
+// niektorý deň neoznačí vôbec, deň v evidencii jednoducho nie je. Doteraz to
+// vedel opraviť len manažér ručne — teda len ak mu to niekto povedal a on si
+// spomenul. Tu si to zamestnanec nahlási sám a manažér to iba potvrdí.
+//
+// Žiadosť NIKDY nemení dochádzku sama — je to len návrh. Až schválenie
+// vytvorí / upraví attendance_events, a to rovnakým audit kontraktom ako
+// manuálna úprava v admine (source='manual', reason, edited_by = schvaľovateľ).
+export const attendanceRequests = pgTable('attendance_requests', {
+  id: serial('id').primaryKey(),
+  staffId: integer('staff_id').notNull().references(() => staff.id),
+  // 'late_pin'    — bol v práci, PIN zadal neskoro → opravuje sa ČAS príchodu
+  // 'missing_day' — v ten deň sa neoznačil vôbec → dopĺňa sa CELÁ smena
+  type: varchar('type', { length: 20 }).notNull(),
+  // Deň, ktorého sa žiadosť týka (bratislavský kalendárny deň).
+  targetDate: date('target_date').notNull(),
+  claimedIn: timestamp('claimed_in', { withTimezone: true }).notNull(),
+  // NULL keď zamestnanec ešte len opravuje príchod a smenu neukončil.
+  claimedOut: timestamp('claimed_out', { withTimezone: true }),
+  note: varchar('note', { length: 300 }).notNull().default(''),
+  // 'pending' | 'approved' | 'rejected'
+  status: varchar('status', { length: 12 }).notNull().default('pending'),
+  reviewedBy: integer('reviewed_by').references(() => staff.id),
+  reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+  reviewNote: varchar('review_note', { length: 300 }).notNull().default(''),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index('attendance_requests_status_idx').on(t.status, t.createdAt),
+  index('attendance_requests_staff_idx').on(t.staffId, t.targetDate),
+]);
+
 
 // Weather observations — hourly weather samples for Drazdiak (lake in
 // Bratislava-Petrzalka). Source: Open-Meteo forecast API, fetched once

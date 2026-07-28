@@ -617,6 +617,10 @@ async function loadSummary() {
   // nezdržuje render. Dáta sú malé (single-tenant kasa), takže extra all-time
   // query pri filter-change je akceptovateľná cena za garantovanú čerstvosť.
   loadBalance();
+  // Žiadosti o opravu — tiež fire-and-forget, nezávislé od dátumového filtra
+  // (čakajúca žiadosť sa nesmie stratiť len preto, že manažér pozerá iný
+  // týždeň).
+  loadRequests();
 }
 
 // All-time dlžoba na výplatách — /api/attendance/balance ignoruje from/to.
@@ -627,6 +631,135 @@ async function loadBalance() {
     _balance = null; // ticho — panel sa proste nezobrazí, neblokujeme dochádzku
   }
   renderBalancePanel();
+}
+
+// ── Žiadosti o opravu dochádzky ────────────────────────────────────────────
+//
+// Terminál vie zapísať len „teraz". Kto príde o 8:00 a PIN stihne o 9:30, má
+// v evidencii 9:30; kto sa niektorý deň neoznačí, ten deň v evidencii nemá.
+// Zamestnanec si to nahlási na termináli, tu to manažér potvrdí — a AŽ TÝM sa
+// dochádzka zmení (server zapíše event so source='manual' a edited_by).
+let _requests = [];
+
+async function loadRequests() {
+  try {
+    const data = await api.get('/attendance/requests?status=pending');
+    _requests = (data && data.requests) || [];
+  } catch (err) {
+    _requests = []; // ticho — panel sa nezobrazí, dochádzku to neblokuje
+  }
+  renderRequestsPanel();
+}
+
+function reqTypeLabel(t) {
+  return t === 'missing_day' ? 'Zabudnutý deň' : 'Neskorý PIN';
+}
+
+/**
+ * 'HH:MM' v bratislavskom čase.
+ * Preferuje hodnotu spočítanú serverom (Postgres) — attendance_events.at je
+ * `timestamp` BEZ zóny, takže odvodzovanie z ISO reťazca na klientovi sedí len
+ * vtedy, keď má prehliadač rovnakú zónu ako serverový proces. Fallback je tu
+ * len pre istotu, keby prišla staršia odpoveď bez predpočítaného poľa.
+ */
+function reqTime(local, iso) {
+  if (local) return local;
+  if (!iso) return '—';
+  return new Date(iso).toLocaleTimeString('sk-SK', {
+    timeZone: 'Europe/Bratislava', hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+}
+
+function renderRequestsPanel() {
+  if (!_container) return;
+  const host = _container.querySelector('#dRequestsPanel');
+  if (!host) return;
+  if (!_requests.length) { host.innerHTML = ''; return; }
+
+  const cards = _requests.map((r) => {
+    // Čo tvrdí zamestnanec vs. čo je reálne v systéme — bez toho by manažér
+    // schvaľoval naslepo a musel by si históriu dohľadávať sám.
+    const claimed = reqTime(r.claimedInLocal, r.claimedIn)
+      + (r.claimedOut ? ' – ' + reqTime(r.claimedOutLocal, r.claimedOut) : '');
+    const inSystem = (r.existingEvents || []).length
+      ? (r.existingEvents || []).map((e) =>
+          (e.type === 'clock_in' ? 'Príchod ' : 'Odchod ') + reqTime(e.localTime, e.at)).join(' · ')
+      : 'v ten deň nič';
+
+    return '<div class="doch-req-card" data-req="' + r.id + '">' +
+      '<div class="doch-req-top">' +
+        '<div>' +
+          '<div class="doch-req-name">' + escapeHtml(r.staffName || '?') + '</div>' +
+          '<div class="doch-req-meta">' + escapeHtml(reqTypeLabel(r.type)) + ' · ' +
+            escapeHtml(String(r.targetDate).slice(0, 10)) + '</div>' +
+        '</div>' +
+        '<span class="doch-req-badge">Čaká</span>' +
+      '</div>' +
+      '<div class="doch-req-compare">' +
+        '<div class="doch-req-col"><span class="doch-req-col-label">Tvrdí</span>' +
+          '<span class="doch-req-claim">' + escapeHtml(claimed) + '</span></div>' +
+        '<div class="doch-req-col"><span class="doch-req-col-label">V systéme</span>' +
+          '<span class="doch-req-system">' + escapeHtml(inSystem) + '</span></div>' +
+      '</div>' +
+      (r.note ? '<div class="doch-req-note">„' + escapeHtml(r.note) + '"</div>' : '') +
+      '<div class="doch-req-actions">' +
+        '<button type="button" class="btn-secondary doch-req-reject" data-req-reject="' + r.id + '">Zamietnuť</button>' +
+        '<button type="button" class="btn-add doch-req-approve" data-req-approve="' + r.id + '">Schváliť</button>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+
+  host.innerHTML =
+    '<div class="panel doch-req-panel">' +
+      '<div class="panel-title">' +
+        'Žiadosti o opravu dochádzky' +
+        '<span class="doch-req-count">' + _requests.length + '</span>' +
+      '</div>' +
+      '<p class="doch-req-lead">Schválenie zapíše smenu do dochádzky (a teda aj do mzdy). Zamietnutie nemení nič.</p>' +
+      '<div class="doch-req-grid">' + cards + '</div>' +
+    '</div>';
+
+  host.querySelectorAll('[data-req-approve]').forEach((b) => {
+    b.addEventListener('click', () => reviewRequest(b.getAttribute('data-req-approve'), 'approve'));
+  });
+  host.querySelectorAll('[data-req-reject]').forEach((b) => {
+    b.addEventListener('click', () => reviewRequest(b.getAttribute('data-req-reject'), 'reject'));
+  });
+}
+
+function reviewRequest(id, action) {
+  const req = _requests.find((r) => String(r.id) === String(id));
+  if (!req) return;
+  const approving = action === 'approve';
+  const who = req.staffName || 'zamestnanec';
+  const day = String(req.targetDate).slice(0, 10);
+
+  const title = approving ? 'Schváliť opravu dochádzky?' : 'Zamietnuť žiadosť?';
+  const text = approving
+    ? who + ' — ' + day + '. Zapíše sa do dochádzky a započíta do mzdy. '
+      + 'V histórii ostane označené ako manuálna úprava.'
+    : who + ' — ' + day + '. Dochádzka sa nezmení.';
+
+  const run = async () => {
+    try {
+      await api.post('/attendance/requests/' + id + '/' + action, {});
+      showToast(approving ? 'Schválené — dochádzka upravená' : 'Zamietnuté', true);
+      await loadRequests();
+      await loadSummary();   // mzda/hodiny sa mohli zmeniť
+    } catch (err) {
+      showToast((err && err.message) || 'Akcia zlyhala', 'error');
+      await loadRequests();
+    }
+  };
+
+  if (typeof showConfirm === 'function') {
+    showConfirm(title, text, run, {
+      type: approving ? 'info' : 'danger',
+      confirmText: approving ? 'Áno, schváliť' : 'Áno, zamietnuť',
+    });
+  } else {
+    run();
+  }
 }
 
 // Vyrenderuje all-time dlžobu panel do #dBalancePanel. Volané z render()
@@ -773,6 +906,10 @@ function render() {
     // sa nenačíta.
     '<div id="dBalancePanel"></div>' +
 
+    // Žiadosti o opravu dochádzky. Panel sa vykreslí len keď niečo čaká —
+    // keď je prázdno, nezaberá manažérovi miesto ani pozornosť.
+    '<div id="dRequestsPanel"></div>' +
+
     // KPI grid — zúžené na 3 karty čo manažéra reálne zaujímajú za obdobie:
     // koľko sa odpracovalo, koľko sa zarobilo, a koľko smien je otvorených
     // (akčné). Celkový dlh + period-vyplatené sú v hero paneli vyššie, takže
@@ -912,6 +1049,9 @@ function render() {
   // ako prázdny div, takže ho treba znova naplniť). loadBalance() ho potom
   // refreshne ak prišli nové dáta.
   renderBalancePanel();
+  // To isté pre žiadosti — inak by po každom prekreslení (zmena filtra,
+  // presetu) panel zmizol až do ďalšieho fetchu.
+  renderRequestsPanel();
 }
 
 function renderBody() {

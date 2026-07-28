@@ -44,6 +44,10 @@
       <button class="doch-btn doch-btn-in"  id="btnIn"  hidden>Prichod</button>
       <button class="doch-btn doch-btn-out" id="btnOut" hidden>Odchod</button>
       <button class="doch-btn doch-btn-myshifts" id="btnMyShifts">Moje smeny</button>
+      <!-- Terminál pozná len „teraz": kto príde o 8:00 a PIN stihne o 9:30,
+           má v evidencii 9:30. Tu si to zamestnanec nahlási sám a manažér
+           to potvrdí. -->
+      <button class="doch-btn doch-btn-fix" id="btnFix">Nahlásiť opravu</button>
     </section>
 
     <!-- Moje smeny / zárobky overlay — full screen list shown after the
@@ -62,6 +66,77 @@
         </div>
         <div class="doch-myshifts-summary" id="msSummary"></div>
         <div class="doch-myshifts-list" id="msList"></div>
+      </div>
+    </div>
+
+    <!-- Nahlásenie opravy dochádzky + prehľad vlastných žiadostí.
+         Časy sa zadávajú cez natívne <input type="time"> — na tablete otvorí
+         systémový picker, ktorý sa ovláda prstom lepšie než čokoľvek vlastné
+         a je prístupný aj z klávesnice. -->
+    <div class="doch-fix-overlay" id="fixOverlay" hidden>
+      <div class="doch-fix-card">
+        <div class="doch-fix-head">
+          <div class="doch-fix-title">Nahlásiť opravu</div>
+          <button class="doch-fix-close" id="fixClose" aria-label="Zavrieť">×</button>
+        </div>
+
+        <div class="doch-fix-tabs" role="tablist">
+          <button class="doch-fix-tab active" id="tabNew" role="tab" aria-selected="true">Nová žiadosť</button>
+          <button class="doch-fix-tab" id="tabMine" role="tab" aria-selected="false">Moje žiadosti</button>
+        </div>
+
+        <form class="doch-fix-form" id="fixForm">
+          <fieldset class="doch-fix-group">
+            <legend class="doch-fix-legend">Čo sa stalo?</legend>
+            <div class="doch-fix-choice">
+              <label class="doch-fix-opt">
+                <input type="radio" name="fixType" value="late_pin" checked>
+                <span class="doch-fix-opt-title">Prišiel som skôr</span>
+                <span class="doch-fix-opt-sub">PIN som zadal neskoro — treba opraviť čas príchodu</span>
+              </label>
+              <label class="doch-fix-opt">
+                <input type="radio" name="fixType" value="missing_day">
+                <span class="doch-fix-opt-title">Zabudol som sa označiť</span>
+                <span class="doch-fix-opt-sub">V ten deň nemám v systéme nič — treba doplniť celú smenu</span>
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="doch-fix-group">
+            <legend class="doch-fix-legend">Ktorý deň?</legend>
+            <div class="doch-fix-days" id="fixDays"></div>
+            <label class="doch-fix-field">
+              <span>Iný deň</span>
+              <input type="date" id="fixDate" required>
+            </label>
+          </fieldset>
+
+          <fieldset class="doch-fix-group">
+            <legend class="doch-fix-legend">Skutočný čas</legend>
+            <div class="doch-fix-times">
+              <label class="doch-fix-field">
+                <span>Príchod</span>
+                <input type="time" id="fixIn" required step="300">
+              </label>
+              <label class="doch-fix-field" id="fixOutWrap">
+                <span>Odchod <em class="doch-fix-optional" id="fixOutOptional">(voliteľné)</em></span>
+                <input type="time" id="fixOut" step="300">
+              </label>
+            </div>
+          </fieldset>
+
+          <label class="doch-fix-field">
+            <span>Poznámka pre manažéra</span>
+            <input type="text" id="fixNote" maxlength="300" placeholder="napr. bol som v sklade">
+          </label>
+
+          <div class="doch-fix-error" id="fixError" role="alert" hidden></div>
+
+          <button type="submit" class="doch-btn doch-btn-in doch-fix-submit" id="fixSubmit">Odoslať manažérovi</button>
+          <p class="doch-fix-hint">Žiadosť dochádzku hneď nemení — musí ju schváliť manažér.</p>
+        </form>
+
+        <div class="doch-fix-list" id="fixList" hidden></div>
       </div>
     </div>
 
