@@ -90,7 +90,12 @@ else
   # porovnanie s "1"/"0" sa na ňu nedá nachytať.
   MIGRATION_PROBE_SQL='SELECT count(*) FROM information_schema.columns WHERE table_name = $$menu_categories$$ AND column_name = $$default_vat_rate$$'
   DB_PROBE_RAW="$(ssh "$HOST" "docker exec $DB_CONTAINER psql -U pos -d pos -tAc \"$MIGRATION_PROBE_SQL\"" 2>&1 || true)"
-  DB_PROBE="$(printf '%s' "$DB_PROBE_RAW" | tr -d '\r' | tr -d '[:space:]')"
+  # `2>&1` je tu zámerne (chceme vidieť SSH/docker chybu vo výpise), ale znamená to,
+  # že do výstupu spadne aj čokoľvek, čo ssh píše na stderr — napr. banner
+  # „WARNING: connection is not using a post-quantum key exchange algorithm“.
+  # Preto neporovnávame celý výstup, ale vytiahneme z neho JEDINÝ riadok,
+  # ktorý je holé číslo. Bez toho gate spadne do vetvy `*)` aj pri úspešnej migrácii.
+  DB_PROBE="$(printf '%s\n' "$DB_PROBE_RAW" | tr -d '\r' | grep -E '^[0-9]+$' | tail -n 1)"
   case "$DB_PROBE" in
     1)
       echo "  OK — menu_categories.default_vat_rate na kase existuje"
