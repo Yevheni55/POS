@@ -14,7 +14,9 @@ const DEFAULTS = {
   sBranchName: 'Hlavna prevadzka',
   sBranchAddress: 'Hlavna 15, 811 01 Bratislava',
   sCashRegisterCode: '88812345678900001',
-  sVat: 20,
+  // sVat / sShowVat su prec: boli mrtve (nikto ich necital) a default 20 %
+  // je sadzba, ktora v SR od 2025 neexistuje. Realne sadzby su per polozka
+  // v menu_items.vat_rate (Admin -> Menu), rezim platitela urcuje IC DPH.
   sCurrency: 'EUR',
   sRounding: 'centy',
   sTipEnabled: true,
@@ -24,7 +26,6 @@ const DEFAULTS = {
   sReceiptFooter: 'Dakujeme za navstevu!',
   sReceiptFormat: '80mm',
   sAutoPrint: true,
-  sShowVat: true,
   sPrimaryColor: '#b8542a',
   sSecondaryColor: '#1f3a5c',
   hours: [
@@ -123,11 +124,10 @@ function getTemplate() {
         Financne nastavenia
       </div>
       <div class="form-grid">
-        <div class="form-group">
-          <label for="sVat">DPH sadzba</label>
-          <div class="input-suffix">
-            <input class="form-input" id="sVat" type="number" min="0" max="100" data-validate="number" title="Sadzba DPH v percentach">
-            <span class="suffix">%</span>
+        <div class="form-group full">
+          <label>DPH</label>
+          <div id="vatStatusBox" style="padding:10px 12px;border:1px solid var(--color-border);border-radius:var(--radius-sm);background:var(--color-bg-surface);line-height:1.5">
+            <span class="text-muted">Nacitavam rezim DPH...</span>
           </div>
         </div>
         <div class="form-group">
@@ -219,13 +219,10 @@ function getTemplate() {
             <span class="toggle-label">Zapnute</span>
           </div>
         </div>
-        <div class="form-group">
-          <label>Zobrazit DPH rozpis</label>
-          <div class="toggle-row mt-1">
-            <button class="toggle on" id="sShowVat"></button>
-            <span class="toggle-label">Zapnute</span>
-          </div>
-        </div>
+      </div>
+      <div class="text-muted" style="font-size:12px;margin:8px 0 0;line-height:1.5">
+        Nazov a pata uctenky sa zatial na fiskalny doklad NEtlacia — hlavicku
+        aj patu berie eKasa z firemneho profilu v Portose.
       </div>
     </div>
 
@@ -358,6 +355,7 @@ function getTemplate() {
     </div>
 
     <!-- FOOTER -->
+    <div id="profileLoadWarning" style="display:none;color:var(--color-danger);font-size:13px;text-align:right;padding-top:12px;line-height:1.5"></div>
     <div class="settings-footer">
       <button class="btn-reset" id="resetBtn">Obnovit povodne</button>
       <button class="btn-save" id="saveBtn">Ulozit zmeny</button>
@@ -416,7 +414,7 @@ function applyToForm() {
   byId('sBranchName').value = profile.branchName || '';
   byId('sBranchAddress').value = profile.branchAddress || '';
   byId('sCashRegisterCode').value = profile.cashRegisterCode || '';
-  byId('sVat').value = settings.sVat;
+  renderVatStatus();
   byId('sCurrency').value = settings.sCurrency;
   byId('sRounding').value = settings.sRounding;
 
@@ -436,7 +434,6 @@ function applyToForm() {
   byId('sReceiptFooter').value = settings.sReceiptFooter;
   byId('sReceiptFormat').value = settings.sReceiptFormat;
   byId('sAutoPrint').classList.toggle('on', settings.sAutoPrint);
-  byId('sShowVat').classList.toggle('on', settings.sShowVat);
 
   byId('sPrimaryColor').value = settings.sPrimaryColor;
   byId('sSecondaryColor').value = settings.sSecondaryColor;
@@ -444,21 +441,67 @@ function applyToForm() {
   byId('secondaryHex').textContent = settings.sSecondaryColor;
 
   renderHours();
+  renderSaveGuard();
 }
 
+// Read-only stav DPH — jediny zdroj pravdy je company_profiles.ic_dph
+// (to iste cita isVatRegisteredBusiness() na serveri). Sadzby sa NEnastavuju
+// tu, ale per polozka v Admin -> Menu.
+function renderVatStatus() {
+  var el = byId('vatStatusBox');
+  if (!el) return;
+
+  if (!companyProfile) {
+    el.innerHTML = '<span style="color:var(--color-danger)">Rezim DPH sa nenacital</span>'
+      + '<div class="text-muted" style="font-size:12px;margin-top:4px">'
+      + 'Firemny profil sa nepodarilo nacitat zo servera — pouzi „Obnovit udaje z Portos".</div>';
+    return;
+  }
+
+  var icDph = String(companyProfile.icDph || '').trim();
+  var isPayer = icDph.length > 0;
+  var tone = isPayer ? 'var(--color-success)' : 'var(--color-text-sec)';
+  el.innerHTML = '<div style="font-weight:var(--weight-bold);color:' + tone + '">'
+      + 'Platitel DPH: ' + (isPayer ? 'ano' : 'nie') + '</div>'
+    + (isPayer ? '<div class="text-muted" style="font-size:12px;margin-top:2px">IC DPH ' + escapeHtml(icDph) + '</div>' : '')
+    + '<div class="text-muted" style="font-size:12px;margin-top:6px;line-height:1.5">'
+    + 'Sadzby DPH sa nastavuju per polozka v <a href="#menu" style="color:var(--color-accent)">Admin -> Menu</a> (5 / 19 / 23 %). '
+    + (isPayer
+      ? 'Doklady sa fiskalizuju so sadzbou konkretnej polozky.'
+      : 'Kym firma nie je platitel, kazdy doklad ide s 0 % DPH.')
+    + '</div>';
+}
+
+// Identifikacne polia (ICO, DIC, IC DPH, kod pokladnice, nazov/adresa) su
+// vlastnictvo Portosu — do PUT /company-profile posielame IBA kontakty.
+// Readonly inputy sa plnia z fallbacku (localStorage/DEFAULTS), takze pri
+// zlyhanom GET by inak prepisali ic_dph na '' a POS by ticho prepol na
+// rezim neplatitela (0 % DPH na kazdom doklade).
 function gatherCompanyProfile() {
   return {
-    businessName: byId('sName').value.trim(),
-    registeredAddress: byId('sAddress').value.trim(),
     contactPhone: byId('sPhone').value.trim(),
     contactEmail: byId('sEmail').value.trim(),
-    ico: byId('sIco').value.trim(),
-    dic: byId('sDic').value.trim(),
-    icDph: byId('sIcDph').value.trim(),
-    branchName: byId('sBranchName').value.trim(),
-    branchAddress: byId('sBranchAddress').value.trim(),
-    cashRegisterCode: byId('sCashRegisterCode').value.trim(),
   };
+}
+
+// Bez nacitanej identity sa uklada zo slepej fallback hodnoty — radsej
+// zablokujeme tlacidlo, nez by sme poslali stale data na server.
+function renderSaveGuard() {
+  var btn = byId('saveBtn');
+  var warn = byId('profileLoadWarning');
+  var blocked = !companyProfile;
+  if (btn) {
+    btn.disabled = blocked;
+    btn.style.opacity = blocked ? '.45' : '';
+    btn.style.cursor = blocked ? 'not-allowed' : '';
+    btn.setAttribute('aria-disabled', blocked ? 'true' : 'false');
+  }
+  if (warn) {
+    warn.style.display = blocked ? '' : 'none';
+    warn.textContent = blocked
+      ? 'Firemne udaje sa nenacitali — ukladanie je zablokovane, aby sa neprepisala identita firmy. Skus „Obnovit udaje z Portos".'
+      : '';
+  }
 }
 
 function gatherSettings() {
@@ -473,19 +516,22 @@ function gatherSettings() {
   settings.sBranchAddress = byId('sBranchAddress').value;
   settings.sCashRegisterCode = byId('sCashRegisterCode').value;
   settings.sQrPaymentEnabled = byId('sQrPaymentEnabled').classList.contains('on');
-  settings.sVat = parseInt(byId('sVat').value) || 0;
   settings.sCurrency = byId('sCurrency').value;
   settings.sRounding = byId('sRounding').value;
   settings.sReceiptName = byId('sReceiptName').value;
   settings.sReceiptFooter = byId('sReceiptFooter').value;
   settings.sReceiptFormat = byId('sReceiptFormat').value;
   settings.sAutoPrint = byId('sAutoPrint').classList.contains('on');
-  settings.sShowVat = byId('sShowVat').classList.contains('on');
   settings.sPrimaryColor = byId('sPrimaryColor').value;
   settings.sSecondaryColor = byId('sSecondaryColor').value;
 }
 
 async function saveSettingsAction() {
+  if (!companyProfile) {
+    showToast('Firemne udaje sa nenacitali — ulozenie by prepisalo identitu firmy', 'error');
+    renderSaveGuard();
+    return;
+  }
   if (!validateForm(_container)) return;
   var btn = byId('saveBtn');
   if (btn) btnLoading(btn);
@@ -912,6 +958,12 @@ async function loadCompanyProfile(options) {
     syncCompanyProfileToLocalSettings(companyProfile);
     applyToForm();
   } catch (e) {
+    // Identitu z localStorage NEpouzivame ako nahradu — fallback ('' IC DPH,
+    // dummy kod pokladnice) by sa inak dal ulozit do DB a POS by prepol na
+    // rezim neplatitela. Radsej zablokujeme ukladanie.
+    companyProfile = null;
+    renderVatStatus();
+    renderSaveGuard();
     showToast(e.message || 'Chyba nacitania firemnych udajov', 'error');
   }
 }
@@ -1139,8 +1191,8 @@ function onContainerClick(e) {
     return;
   }
 
-  // Simple toggle (autoPrint, showVat)
-  if (target.id === 'sAutoPrint' || target.id === 'sShowVat') {
+  // Simple toggle (autoPrint)
+  if (target.id === 'sAutoPrint') {
     target.classList.toggle('on');
     return;
   }

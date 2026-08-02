@@ -121,6 +121,10 @@ export const menuCategories = pgTable('menu_categories', {
   icon: varchar('icon', { length: 10 }).notNull(),
   sortKey: varchar('sort_key', { length: 5 }).notNull(),
   dest: varchar('dest', { length: 20 }).notNull().default('bar'),
+  // Explicitná predvolená sadzba DPH kategórie (5 / 19 / 23). Nahrádza hádanie podľa slugu —
+  // kategórie z admin UI majú slug `cat_<timestamp>`, ktorý inferencia nikdy nepokryje.
+  // NULL = nezvolená; volajúci potom NESMIE ticho padnúť na 23 %, musí sa spýtať manažéra.
+  defaultVatRate: numeric('default_vat_rate', { precision: 5, scale: 2 }),
 });
 
 export const menuItems = pgTable('menu_items', {
@@ -129,7 +133,11 @@ export const menuItems = pgTable('menu_items', {
   name: varchar('name', { length: 100 }).notNull(),
   emoji: varchar('emoji', { length: 10 }).notNull(),
   price: numeric('price', { precision: 8, scale: 2 }).notNull(),
-  vatRate: numeric('vat_rate', { precision: 5, scale: 2 }).notNull().default('20.00'),
+  // 20 % v SR od 2025 NEEXISTUJE a Portos ju odmietne (validation_error pri platbe).
+  // Default je preto 23.00 = aktuálna základná sadzba. Ideál by bol default žiadny
+  // (raw INSERT bez vat_rate by spadol hlasno), ale server/test/lib/stock.test.js
+  // vkladá menu položky bez `vatRate` — viď crossFileRequests.
+  vatRate: numeric('vat_rate', { precision: 5, scale: 2 }).notNull().default('23.00'),
   desc: varchar('desc', { length: 200 }).notNull().default(''),
   active: boolean('active').notNull().default(true),
   trackMode: varchar('track_mode', { length: 10 }).notNull().default('none'),

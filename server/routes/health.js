@@ -3,8 +3,67 @@ import { db } from '../db/index.js';
 import { sql } from 'drizzle-orm';
 import net from 'net';
 
+import { getPortosConfig, isPortosEnabled } from '../lib/portos.js';
+import { getPortosProfileSyncStats } from '../lib/portos-sync-job.js';
+import { getVatMode } from '../lib/vat-registration.js';
+
 const router = Router();
 const START_TIME = Date.now();
+
+/**
+ * Fiškálna diagnostika — kód pokladne a režim DPH visia na `company_profiles`,
+ * ktorý plní VÝHRADNE Portos profile sync. Kým tento blok neexistoval, zlyhaný
+ * sync bol úplne neviditeľný: POS ďalej razil doklady so starým DKP a s 0 %
+ * DPH a jediná stopa bol jednorazový boot log.
+ *
+ * Čítanie je čisto pasívne (in-memory štatistika + jeden SELECT profilu) —
+ * /health NIKDY nespúšťa Portos sync, nech ho monitoring nemôže rozbehnúť
+ * v prevádzke.
+ */
+async function collectFiscalHealth() {
+  const cfg = getPortosConfig();
+  const sync = getPortosProfileSyncStats();
+
+  const fiscal = {
+    portosEnabled: isPortosEnabled(),
+    profileSync: {
+      lastSyncAt: sync.lastSyncAt,
+      lastError: sync.lastError,
+      running: sync.running,
+      attempts: sync.attempts,
+      intervalMs: sync.intervalMs,
+      trusted: sync.trusted,
+    },
+    // 'unknown' = profil sa nedal prečítať; NIKDY sa to nemá interpretovať
+    // ako „neplatiteľ".
+    vatMode: 'unknown',
+    vatRegistered: null,
+    vatModeMismatch: false,
+    expectedVatRegistered: null,
+    cashRegisterCode: '',
+    envCashRegisterCode: cfg.cashRegisterCode || '',
+    cashRegisterMatchesEnv: null,
+    error: null,
+  };
+
+  try {
+    const mode = await getVatMode();
+    fiscal.vatMode = mode.vatRegistered ? 'registered' : 'non-registered';
+    fiscal.vatRegistered = mode.vatRegistered;
+    fiscal.vatModeMismatch = mode.mismatch;
+    fiscal.expectedVatRegistered = mode.expectedVatRegistered;
+    fiscal.cashRegisterCode = mode.cashRegisterCode;
+    fiscal.cashRegisterMatchesEnv = fiscal.envCashRegisterCode
+      ? fiscal.envCashRegisterCode === mode.cashRegisterCode
+      : null;
+  } catch (error) {
+    // getVatMode() je fail-closed (chybu DB už neprehltáva) — /health ju
+    // ukáže, ale sám kvôli nej nespadne.
+    fiscal.error = error instanceof Error ? error.message : String(error);
+  }
+
+  return fiscal;
+}
 
 function checkPrinter(ip, port) {
   return new Promise(resolve => {
@@ -34,6 +93,8 @@ router.get('/', async (req, res) => {
     },
     db: 'unknown',
     printers: [],
+    // Fiškálny profil (kód pokladne + režim DPH) a stav Portos profile syncu.
+    fiscal: null,
     // Vek poslednej zálohy. Bez tohto sa tichý výpadok záloh (plný disk,
     // chýbajúci pg_dump po rebuilde image) nedal spozorovať inak než SSH
     // na kasu — a zistilo by sa to až vo chvíli, keď treba obnovovať.
@@ -85,6 +146,17 @@ router.get('/', async (req, res) => {
     health.backup = { ok: false, lastDate: null, ageHours: null, sizeMb: 0, count: 0 };
     health.status = health.status === 'ok' ? 'degraded' : health.status;
   }
+
+  // Fiškálny režim. Degradujeme len keď je Portos ZAPNUTÝ a profil sa reálne
+  // nedá potvrdiť — pri PORTOS_ENABLED=false (e2e, dev bez fiškálu) sa
+  // /health správa presne ako doteraz.
+  health.fiscal = await collectFiscalHealth();
+  const fiscalDegraded = health.fiscal.portosEnabled
+    && (!health.fiscal.profileSync.trusted
+      || health.fiscal.vatModeMismatch
+      || health.fiscal.cashRegisterMatchesEnv === false
+      || health.fiscal.error !== null);
+  if (fiscalDegraded && health.status === 'ok') health.status = 'degraded';
 
   res.json(health);
 });

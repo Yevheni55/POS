@@ -12,8 +12,10 @@
 #    alebo: DEPLOY_HOST=moj-host ./scripts/deploy-tailscale-pos.sh
 #
 # Núdzové vypínače (vypisujú varovanie, používaj vedome):
-#   DEPLOY_SKIP_TESTS=1   preskočí `npm test` (syntax check beží vždy)
-#   DEPLOY_ALLOW_DIRTY=1  dovolí deploy s nescommitovanými zmenami
+#   DEPLOY_SKIP_TESTS=1      preskočí `npm test` (syntax check beží vždy)
+#   DEPLOY_ALLOW_DIRTY=1     dovolí deploy s nescommitovanými zmenami
+#   DEPLOY_SKIP_DB_CHECK=1   preskočí kontrolu, či na kase bežali DB migrácie
+#   DEPLOY_DB_CONTAINER=…    názov DB kontajnera na kase (default pos-db-1)
 #
 # ČO SA ZMENILO A PREČO:
 # Skript predtým balil PRACOVNÝ ADRESÁR (`tar -czf ... .`). Na kase preto bežal
@@ -25,6 +27,7 @@
 set -e
 
 HOST="${DEPLOY_HOST:-pos-kasa-tscale}"
+DB_CONTAINER="${DEPLOY_DB_CONTAINER:-pos-db-1}"
 REPO_ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
 TGZ="/tmp/pos-deploy.tgz"
 STAGE="/tmp/pos-deploy-stage"
@@ -32,7 +35,7 @@ STAGE="/tmp/pos-deploy-stage"
 cd "$REPO_ROOT"
 
 # --- Brána 1: pracovný strom musí byť čistý -------------------------------
-echo "=== Gate 1/3: git working tree ==="
+echo "=== Gate 1/4: git working tree ==="
 if [ "${DEPLOY_ALLOW_DIRTY:-0}" = "1" ]; then
   echo "!!! DEPLOY_ALLOW_DIRTY=1 — kontrola preskočená. Na kasu ide kód z HEAD,"
   echo "!!! NIE tvoje lokálne zmeny."
@@ -55,7 +58,7 @@ fi
 # POS načítava js/*.js ako klasické skripty. Syntaktická chyba v jednom súbore
 # ticho zabije všetky jeho globálne funkcie — čašník klikne a nestane sa nič,
 # bez jedinej hlášky v UI. `node --check` to chytí za sekundu.
-echo "=== Gate 2/3: node --check ==="
+echo "=== Gate 2/4: node --check ==="
 SYNTAX_FAIL=0
 for f in js/*.js api.js sw.js components/*.js admin/*.js admin/pages/*.js admin/components/*.js \
          server/*.js server/routes/*.js server/lib/*.js server/lib/*/*.js server/middleware/*.js \
@@ -69,8 +72,54 @@ if [ "$SYNTAX_FAIL" = "1" ]; then
 fi
 echo "  OK"
 
-# --- Brána 3: testy --------------------------------------------------------
-echo "=== Gate 3/3: server tests ==="
+# --- Brána 3: DB migrácie na kase ------------------------------------------
+# PORADIE MIGRÁCIA → KÓD, nie naopak.
+#
+# `menu_categories.default_vat_rate` je deklarovaný v server/db/schema.js, takže
+# drizzle ho pridá do KAŽDÉHO `SELECT ... FROM menu_categories`. Ak sa nasadí
+# kód skôr, než na kase prebehne server/db/migrations/2026-08-01-vat-payer.sql,
+# GET /api/menu spadne na `column "default_vat_rate" does not exist` — kasa
+# nenabehne a čašník to zistí až pri prvom účte. Radšej hlasné zlyhanie deployu.
+echo "=== Gate 3/4: DB migrácie na kase ==="
+if [ "${DEPLOY_SKIP_DB_CHECK:-0}" = "1" ]; then
+  echo "!!! DEPLOY_SKIP_DB_CHECK=1 — nekontrolujem, či na kase bežali migrácie."
+  echo "!!! Ak chýba stĺpec menu_categories.default_vat_rate, /api/menu spadne a KASA NENABEHNE."
+else
+  # Bez apostrofov v SQL (dollar-quoting), aby sa reťazec prežil cez sh -> ssh -> cmd.exe.
+  # Výsledok je ČÍSLO: chybová hláška psql síce zopakuje text dotazu, ale presné
+  # porovnanie s "1"/"0" sa na ňu nedá nachytať.
+  MIGRATION_PROBE_SQL='SELECT count(*) FROM information_schema.columns WHERE table_name = $$menu_categories$$ AND column_name = $$default_vat_rate$$'
+  DB_PROBE_RAW="$(ssh "$HOST" "docker exec $DB_CONTAINER psql -U pos -d pos -tAc \"$MIGRATION_PROBE_SQL\"" 2>&1 || true)"
+  DB_PROBE="$(printf '%s' "$DB_PROBE_RAW" | tr -d '\r' | tr -d '[:space:]')"
+  case "$DB_PROBE" in
+    1)
+      echo "  OK — menu_categories.default_vat_rate na kase existuje"
+      ;;
+    0)
+      echo "CHYBA: na kase NEBEŽALA migrácia server/db/migrations/2026-08-01-vat-payer.sql."
+      echo "       Nasadenie kódu by zhodilo GET /api/menu a kasa by nenabehla."
+      echo ""
+      echo "Pusti NAJPRV migráciu, potom deploy:"
+      echo "  scp server/db/migrations/2026-08-01-vat-payer.sql ${HOST}:C:/POS/"
+      echo "  ssh ${HOST} \"docker cp C:\\POS\\2026-08-01-vat-payer.sql ${DB_CONTAINER}:/tmp/ && docker exec ${DB_CONTAINER} psql -U pos -d pos -v ON_ERROR_STOP=1 -f /tmp/2026-08-01-vat-payer.sql\""
+      exit 1
+      ;;
+    *)
+      echo "CHYBA: kontrolu migrácie sa nepodarilo vykonať (SSH / docker / psql)."
+      echo "       Nasadzovať naslepo sa neoplatí — chýbajúca migrácia = mŕtva kasa."
+      echo ""
+      echo "Výstup:"
+      echo "$DB_PROBE_RAW"
+      echo ""
+      echo "Ak je názov DB kontajnera iný: DEPLOY_DB_CONTAINER=<meno> $0"
+      echo "Ak naozaj vieš, že migrácia bežala: DEPLOY_SKIP_DB_CHECK=1 $0"
+      exit 1
+      ;;
+  esac
+fi
+
+# --- Brána 4: testy --------------------------------------------------------
+echo "=== Gate 4/4: server tests ==="
 if [ "${DEPLOY_SKIP_TESTS:-0}" = "1" ]; then
   echo "!!! DEPLOY_SKIP_TESTS=1 — testy preskočené, nasadzuješ neotestovaný kód."
 else

@@ -34,12 +34,17 @@ let prodDragEl = null;
 let _container = null;
 
 const SUPPORTED_VAT_RATES = [5, 19, 23];
+// MUSI ostat zrkadlom server/lib/menu-vat.js (inferVatRateForCategorySlug).
+// Ked sa rozidu, klient predvyplni inu sadzbu, nez server ulozi.
 const CATEGORY_VAT_DEFAULTS = Object.freeze({
   kava: 19,
   caj: 19,
+  nealko: 19,
   koktaily: 23,
   pivo: 23,
   vino: 23,
+  sekt: 23,
+  destilaty: 23,
   jedlo: 5,
 });
 
@@ -54,12 +59,30 @@ function getCat(id) { return MENU_DATA.find(c => c.id === id); }
 function getActiveCat() { return getCat(activeCatId); }
 function normalizeText(value) { return String(value || '').trim().toLowerCase(); }
 function isSupportedVatRate(value) { return SUPPORTED_VAT_RATES.includes(Number(value)); }
+function findCategory(categoryId) {
+  return getCat(Number(categoryId)) || MENU_DATA.find(c => String(c.id) === String(categoryId)) || null;
+}
+// Predvolena DPH kategorie (menu_categories.default_vat_rate). null = manazer
+// ju este nezvolil — vtedy sa padne na hardcoded mapu slugov.
+function categoryDefaultVatRate(category) {
+  if (!category) return null;
+  const n = parseFloat(category.defaultVatRate);
+  return Number.isFinite(n) ? n : null;
+}
+// Vracia navrhovanu sadzbu alebo NULL, ked ju nevieme odvodit. Ziadny tichy
+// fallback na 23 % — nove kategorie maju slug `cat_<timestamp>`, ktory ziadna
+// mapa nepozna, a jedlo (5 %) by sa tak ticho fiskalizovalo s 23 %.
+// Poradie musi sediet so server/lib/menu-vat.js: nealko pivo -> defaultVatRate
+// kategorie -> mapa slugov.
 function inferVatRateForForm(categoryId, productName) {
-  const category = getCat(Number(categoryId)) || MENU_DATA.find(c => String(c.id) === String(categoryId));
+  const category = findCategory(categoryId);
   const slug = normalizeText(category && category.slug);
   const name = normalizeText(productName);
   if (slug === 'pivo' && /nealko|nealkohol|0[,.]0|alkohol\s*free/.test(name)) return 19;
-  return CATEGORY_VAT_DEFAULTS[slug] || 23;
+  const explicit = categoryDefaultVatRate(category);
+  if (explicit !== null) return explicit;
+  const mapped = CATEGORY_VAT_DEFAULTS[slug];
+  return mapped === undefined ? null : mapped;
 }
 function normalizeVatRate(v) {
   const n = parseFloat(v);
@@ -86,11 +109,45 @@ function normalizeMenuData(menu) {
   });
 }
 function syncVatRateSuggestion(force) {
-  if (!force && vatRateTouched) return;
   const categoryId = byId('fCategory') ? byId('fCategory').value : activeCatId;
   const productName = byId('fName') ? byId('fName').value : '';
-  formVatRate = inferVatRateForForm(categoryId, productName);
-  if (byId('fVatRate')) byId('fVatRate').value = String(formVatRate);
+  const inferred = inferVatRateForForm(categoryId, productName);
+  // Novej polozke sadzbu predvyplnime. Pri UPRAVE existujucej ju nikdy ticho
+  // neprepiseme (moze ist o vedomy override, napr. nealko pivo 19 %) — namiesto
+  // toho vykreslime varovanie s tlacidlom „Pouzit X %".
+  const autofill = force || (editingProductId === null && !vatRateTouched);
+  if (autofill) {
+    formVatRate = inferred;
+    if (byId('fVatRate')) byId('fVatRate').value = inferred === null ? '' : String(inferred);
+  }
+  renderVatRateHint(inferred);
+}
+
+// Inline hlaska pod selectom DPH: bud „kategoria nema sadzbu — vyber rucne",
+// alebo nesulad polozky s kategoriou + jednoklikova oprava.
+function renderVatRateHint(inferred) {
+  const host = byId('fVatRateHint');
+  if (!host) return;
+  const sel = byId('fVatRate');
+  const current = sel ? parseFloat(sel.value) : NaN;
+
+  function hide() { host.style.display = 'none'; host.innerHTML = ''; }
+
+  if (inferred === null) {
+    if (Number.isFinite(current)) return hide();
+    host.style.display = '';
+    host.innerHTML = '<span style="color:var(--color-warning-strong)">Kategoria nema predvolenu DPH — vyber sadzbu rucne.</span>';
+    return;
+  }
+  if (!Number.isFinite(current) || current === inferred) return hide();
+
+  const category = findCategory(byId('fCategory') ? byId('fCategory').value : activeCatId);
+  const catLabel = (category && (category.label || category.slug)) || 'Kategoria';
+  host.style.display = '';
+  host.innerHTML = '<span style="color:var(--color-warning-strong)">Kategoria ' + escapeHtml(catLabel)
+    + ' ocakava ' + formatVatRate(inferred) + ' %, polozka ma ' + formatVatRate(current) + ' %.</span>'
+    + '<button type="button" id="fVatRateApply" class="u-btn u-btn-ghost" data-vat-apply="' + formatVatRate(inferred) + '"'
+    + ' style="margin-left:8px;min-height:44px;padding:6px 12px;font-size:12px">Pouzit ' + formatVatRate(inferred) + ' %</button>';
 }
 
 // === Prompt modal (not available globally in admin SPA) ===
@@ -308,6 +365,14 @@ function openCategoryModal(mode, initial) {
   const initialIcon = current.icon || '\uD83C\uDF7D';
   const initialLabel = current.label || '';
   const initialDest = current.dest || 'bar';
+  // Predvolena DPH kategorie. Prazdna hodnota = manazer ju este nezvolil \u2014
+  // ulozenie bez vedomej volby nedovolime (slug `cat_<timestamp>` ziadna
+  // inferencia nepokryje a polozky by ticho dostali 23 %).
+  const initialVat = categoryDefaultVatRate(current);
+  const vatOptions = SUPPORTED_VAT_RATES.map(function (rate) {
+    const label = rate === 5 ? '5 % - jedlo' : (rate === 19 ? '19 % - nealko napoje' : rate + ' % - alkohol / standard');
+    return '<option value="' + rate + '"' + (initialVat === rate ? ' selected' : '') + '>' + label + '</option>';
+  }).join('');
 
   const ov = document.createElement('div');
   ov.className = 'u-overlay';
@@ -342,6 +407,14 @@ function openCategoryModal(mode, initial) {
     + '<option value="kuchyna"' + (initialDest === 'kuchyna' ? ' selected' : '') + '>Kuchyna</option>'
     + '<option value="all"' + (initialDest === 'all' ? ' selected' : '') + '>Vsetko (bar aj kuchyna)</option>'
     + '</select>'
+    + '</div>'
+    + '<div class="u-modal-field">'
+    + '<label for="fCatVatRate">Predvolena DPH<span class="required-mark" aria-hidden="true"> *</span></label>'
+    + '<select id="fCatVatRate" aria-required="true" data-validate="required">'
+    + '<option value="">Vyber sadzbu DPH</option>'
+    + vatOptions
+    + '</select>'
+    + '<div class="text-muted" style="font-size:12px;margin-top:6px;line-height:1.4">Predvyplni sa kazdej novej polozke v tejto kategorii. Jednotliva polozka moze mat vlastnu sadzbu (napr. nealko pivo 19 %).</div>'
     + '</div>'
     + '</div>'
     + '<div class="u-modal-btns">'
@@ -394,19 +467,25 @@ function openCategoryModal(mode, initial) {
     const label = ov.querySelector('#fCatName').value.trim();
     const icon = (iconInput.value || '').trim() || '\uD83C\uDF7D';
     const dest = ov.querySelector('#fCatDest').value || 'bar';
+    const defaultVatRate = parseFloat(ov.querySelector('#fCatVatRate').value);
     if (!label) {
       showToast('Zadaj nazov kategorie', 'error');
+      return;
+    }
+    if (!isSupportedVatRate(defaultVatRate)) {
+      showToast('Vyber predvolenu DPH kategorie', 'error');
       return;
     }
     btnLoading(saveBtn);
     try {
       if (mode === 'edit' && current.id) {
-        await api.put('/menu/categories/' + current.id, { label: label, icon: icon, dest: dest });
+        await api.put('/menu/categories/' + current.id, { label: label, icon: icon, dest: dest, defaultVatRate: defaultVatRate });
         showToast('Kategoria upravena', true);
       } else {
         const slug = 'cat_' + Date.now();
         const created = await api.post('/menu/categories', {
           slug: slug, label: label, icon: icon, sortKey: String(MENU_DATA.length), dest: dest,
+          defaultVatRate: defaultVatRate,
         });
         activeCatId = (created && created.id) || slug;
         showToast('Kategoria pridana', true);
@@ -758,7 +837,10 @@ function openEditProduct(id) {
   byId('fPrice').value = item.price;
   formAvailable = item.available !== undefined ? item.available : item.active;
   formVatRate = normalizeVatRate(item.vatRate);
-  vatRateTouched = true;
+  // POZOR: `true` tu znamenalo, ze pri zmene kategorie sa sadzba uz nikdy
+  // nepreverila (syncVatRateSuggestion hned vypadla). Ostava false — sadzba sa
+  // ticho neprepise (sme v edit rezime), ale nesulad s kategoriou sa ukaze.
+  vatRateTouched = false;
   resetImageState();
   currentImage = item.imageUrl || null;
   refreshImagePreview();
@@ -767,6 +849,7 @@ function openEditProduct(id) {
   populateCompanionSelect(item.id, item.companionMenuItemId);
   byId('fCategory').value = catId;
   byId('fVatRate').value = String(formVatRate);
+  syncVatRateSuggestion(false);
   // Pre-fill dest override selector. Empty string = inherit category default.
   if (byId('fDestOverride')) {
     byId('fDestOverride').value = item.destOverride || '';
@@ -779,6 +862,12 @@ function closeProductModal() {
   byId('productModal').classList.remove('show');
   editingProductId = null;
   vatRateTouched = false;
+  // Varovanie o nesulade DPH patri k prave zatvorenej polozke.
+  if (byId('fVatRateHint')) {
+    byId('fVatRateHint').style.display = 'none';
+    byId('fVatRateHint').innerHTML = '';
+  }
+  if (byId('fVatRate')) clearFieldError(byId('fVatRate'));
 }
 
 function toggleFormAvail() {
@@ -810,6 +899,12 @@ async function saveProduct() {
   const destOverride = (destOverrideRaw === 'bar' || destOverrideRaw === 'kuchyna') ? destOverrideRaw : null;
   if (!name) { showToast('Zadajte nazov produktu'); return; }
   if (price <= 0) { showToast('Zadajte platnu cenu'); return; }
+  if (!Number.isFinite(vatRate)) {
+    // Neznama kategoria (slug `cat_<timestamp>`) — sadzba sa neda odvodit a
+    // predvyplnit 23 % by pri jedle znamenalo 18 p.b. preplatenu DPH.
+    showToast('Vyber sadzbu DPH — kategoria ju nema nastavenu');
+    return;
+  }
   if (!isSupportedVatRate(vatRate)) {
     showToast('Portos podporuje iba sadzby DPH 5 %, 19 % a 23 %');
     return;
@@ -981,12 +1076,14 @@ export function init(container) {
           </div>
           <div class="u-modal-row">
             <div class="u-modal-field">
-              <label for="fVatRate">DPH sadzba (%)</label>
-              <select id="fVatRate">
+              <label for="fVatRate">DPH sadzba (%)<span class="required-mark" aria-hidden="true"> *</span></label>
+              <select id="fVatRate" aria-required="true" data-validate="required">
+                <option value="">Vyber sadzbu DPH</option>
                 <option value="5">5 % - jedlo</option>
                 <option value="19">19 % - nealko napoje</option>
                 <option value="23">23 % - alkohol</option>
               </select>
+              <div id="fVatRateHint" style="display:none;font-size:12px;margin-top:6px;line-height:1.4"></div>
             </div>
             <div class="u-modal-field">
               <label for="fDestOverride">Tlač do <span style="color:var(--color-text-sec);font-weight:400">(stanica)</span></label>
@@ -1075,8 +1172,24 @@ export function init(container) {
   byId('fName').addEventListener('input', function () { syncVatRateSuggestion(false); });
   byId('fVatRate').addEventListener('change', function () {
     vatRateTouched = true;
-    formVatRate = normalizeVatRate(this.value);
+    formVatRate = this.value === '' ? null : normalizeVatRate(this.value);
+    syncVatRateSuggestion(false);
   });
+  // „Pouzit X %" v inline varovani — hint sa prekresluje cez innerHTML,
+  // preto delegujeme na jeho kontajner.
+  if (byId('fVatRateHint')) {
+    byId('fVatRateHint').addEventListener('click', function (e) {
+      const btn = e.target.closest('[data-vat-apply]');
+      if (!btn) return;
+      const sel = byId('fVatRate');
+      if (!sel) return;
+      sel.value = btn.dataset.vatApply;
+      vatRateTouched = true;
+      formVatRate = normalizeVatRate(sel.value);
+      clearFieldError(sel);
+      syncVatRateSuggestion(false);
+    });
+  }
 
   // Inline validation listeners
   container.querySelectorAll('[data-validate]').forEach(function(input) {

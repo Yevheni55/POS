@@ -2,9 +2,16 @@ import { desc, eq, sql } from 'drizzle-orm';
 
 import { db } from '../../db/index.js';
 import { orders, orderItems, payments, menuItems, menuCategories, shishaSales } from '../../db/schema.js';
+import { getActiveCashRegisterCode } from '../active-cash-register.js';
 import { localYmd } from '../print/format.js';
 
-import { TZ, notStornoedSql } from './shared.js';
+import {
+  TZ,
+  notStornoedSql,
+  notStornoedOrderSql,
+  notForeignCashRegisterSql,
+  notForeignCashRegisterOrderSql,
+} from './shared.js';
 
 // GET /api/reports/z-report?date=2026-03-26
 export async function zReportHandler(req, res) {
@@ -27,20 +34,32 @@ export async function zReportHandler(req, res) {
   const inDayTz = (col) => sql`${col} >= ${fromBoundary} AND ${col} <= ${toBoundary}`;
 
   try {
+    // Na kase sa môže zmeniť daňový subjekt (iné DKP v Portose). Uzávierka
+    // nesmie zúčtovať tržby cudzej firmy — filtrujeme podľa aktívneho kódu
+    // pokladne. Prázdny kód = filter sa neaplikuje (fallback ako history.js).
+    const activeCashRegisterCode = await getActiveCashRegisterCode();
+    const notForeignPayment = sql.raw(notForeignCashRegisterSql('payments', activeCashRegisterCode));
+    const notForeignOrder = sql.raw(notForeignCashRegisterOrderSql('orders', activeCashRegisterCode));
+
     // Total revenue from payments
     const [revenue] = await db.select({
       total: sql`COALESCE(SUM(${payments.amount}::numeric), 0)`,
       count: sql`COUNT(*)`,
     }).from(payments).where(
-      sql`${inDay(payments.createdAt)} AND ${sql.raw(notStornoedSql('payments'))}`   // stornované platby nie sú tržba
+      sql`${inDay(payments.createdAt)} AND ${sql.raw(notStornoedSql('payments'))} AND ${notForeignPayment}`   // stornované platby ani cudzia kasa nie sú tržba
     );
 
-    // Orders count
+    // Orders count. Rovnaké filtre ako pri fiscalRevenue / kategóriách /
+    // topItems — bez nich si uzávierka protirečila: tržba stornovaný účet
+    // odrátala, ale do počtu účtov (a tým do `averageOrder`) ho nechala, a po
+    // prepnutí DKP zarátala aj účty druhej firmy.
     const [orderStats] = await db.select({
       totalOrders: sql`COUNT(*)`,
       cancelled: sql`COUNT(*) FILTER (WHERE ${orders.status} = 'cancelled')`,
     }).from(orders).where(
-      inDay(orders.createdAt)
+      sql`${inDay(orders.createdAt)}
+        AND ${sql.raw(notStornoedOrderSql('orders'))}
+        AND ${notForeignOrder}`
     );
 
     // Total items sold
@@ -50,7 +69,9 @@ export async function zReportHandler(req, res) {
     .from(orderItems)
     .innerJoin(orders, eq(orderItems.orderId, orders.id))
     .where(
-      sql`${inDay(orders.createdAt)} AND ${orders.status} != 'cancelled'`
+      sql`${inDay(orders.createdAt)} AND ${orders.status} != 'cancelled'
+        AND ${sql.raw(notStornoedOrderSql('orders'))}
+        AND ${notForeignOrder}`
     );
 
     // Payment methods breakdown
@@ -59,7 +80,7 @@ export async function zReportHandler(req, res) {
       total: sql`SUM(${payments.amount}::numeric)`,
       count: sql`COUNT(*)`,
     }).from(payments).where(
-      sql`${inDay(payments.createdAt)} AND ${sql.raw(notStornoedSql('payments'))}`
+      sql`${inDay(payments.createdAt)} AND ${sql.raw(notStornoedSql('payments'))} AND ${notForeignPayment}`
     ).groupBy(payments.method);
 
     // Fiskálna hotovosť z payments (potrebné samostatne pre Portos withdraw paragón —
@@ -74,6 +95,41 @@ export async function zReportHandler(req, res) {
       }
     }
 
+    // Rozpad HOTOVOSTI podľa kódu pokladne. Toto je zdroj pravdy pre fiškálny
+    // paragón výberu (server/lib/print/z-report.js) — v deň prepnutia firmy sa
+    // NESMIE z novej pokladne vybrať hotovosť, ktorá do nej nikdy nevstúpila.
+    // LEFT JOIN cez korelovaný sub-SELECT (nie JOIN), aby prípadné dva
+    // predajné doklady na jednu platbu nezdvojili sumu. Prázdny kód = platba
+    // bez fiškálneho dokladu (Portos vypnutý / offline paragón).
+    const cashByRegisterRes = await db.execute(sql`
+      SELECT
+        COALESCE((
+          SELECT TRIM(fd.cash_register_code)
+          FROM fiscal_documents fd
+          WHERE fd.payment_id = p.id AND fd.source_type = 'payment'
+          ORDER BY fd.id DESC
+          LIMIT 1
+        ), '') AS crc,
+        COALESCE(SUM(p.amount::numeric), 0)::float AS total,
+        COUNT(*)::int AS count
+      FROM payments p
+      WHERE ${inDay(sql`p.created_at`)}
+        AND ${sql.raw(notStornoedSql('p'))}
+        AND lower(p.method) IN ('hotovost', 'cash')
+      GROUP BY 1
+      ORDER BY 1
+    `);
+    const cashFiscalByRegister = (cashByRegisterRes.rows || []).map((r) => ({
+      cashRegisterCode: String(r.crc || ''),
+      total: Math.round((Number(r.total) || 0) * 100) / 100,
+      count: Number(r.count) || 0,
+    }));
+    // Viac než jeden NEPRÁZDNY kód za jeden deň = deň prepnutia firmy/pokladne.
+    // Obsluha to musí vidieť — výber sa vtedy zúčtováva na dve pokladne.
+    const mixedRegisters = cashFiscalByRegister
+      .map(r => r.cashRegisterCode)
+      .filter(code => code !== '');
+
     // Category breakdown
     const categoryStats = await db.select({
       category: menuCategories.label,
@@ -84,8 +140,12 @@ export async function zReportHandler(req, res) {
     .innerJoin(orders, eq(orderItems.orderId, orders.id))
     .innerJoin(menuItems, eq(orderItems.menuItemId, menuItems.id))
     .innerJoin(menuCategories, eq(menuItems.categoryId, menuCategories.id))
+    // Fiškálne stornovaný účet nie je predaj — bez tohto filtra ukazovala
+    // uzávierka totalRevenue 0 €, ale kategórie stále plnú sumu.
     .where(
-      sql`${inDay(orders.createdAt)} AND ${orders.status} != 'cancelled'`
+      sql`${inDay(orders.createdAt)} AND ${orders.status} != 'cancelled'
+        AND ${sql.raw(notStornoedOrderSql('orders'))}
+        AND ${notForeignOrder}`
     )
     .groupBy(menuCategories.label)
     .orderBy(desc(sql`SUM(${orderItems.qty} * ${menuItems.price}::numeric)`));
@@ -101,7 +161,9 @@ export async function zReportHandler(req, res) {
     .innerJoin(orders, eq(orderItems.orderId, orders.id))
     .innerJoin(menuItems, eq(orderItems.menuItemId, menuItems.id))
     .where(
-      sql`${inDay(orders.createdAt)} AND ${orders.status} != 'cancelled'`
+      sql`${inDay(orders.createdAt)} AND ${orders.status} != 'cancelled'
+        AND ${sql.raw(notStornoedOrderSql('orders'))}
+        AND ${notForeignOrder}`
     )
     .groupBy(menuItems.name, menuItems.emoji)
     .orderBy(desc(sql`SUM(${orderItems.qty})`))
@@ -145,6 +207,7 @@ export async function zReportHandler(req, res) {
       INNER JOIN menu_items mi ON mi.id = oi.menu_item_id
       WHERE ${inDay(sql`o.created_at`)}
         AND COALESCE(o.closure_type, 'paid') = 'odpis'
+        AND ${sql.raw(notForeignCashRegisterOrderSql('o', activeCashRegisterCode))}
     `);
     const odpisTotal = Number(odpisRes.rows[0] && odpisRes.rows[0].total) || 0;
     const odpisCount = Number(odpisRes.rows[0] && odpisRes.rows[0].count) || 0;
@@ -223,6 +286,13 @@ export async function zReportHandler(req, res) {
       totalRevenue,
       fiscalRevenue,
       cashFiscal,
+      // Rozpad fiškálnej hotovosti podľa kódu pokladne + aktívny kód, aby
+      // tlač uzávierky vedela vybrať LEN vlastnú hotovosť (vlastný kód +
+      // platby bez dokladu). `mixedRegisters` s viac než jedným kódom =
+      // deň prepnutia firmy — treba zúčtovať na dve pokladne.
+      cashFiscalByRegister,
+      activeCashRegisterCode,
+      mixedRegisters,
       totalOrders,
       totalItems,
       paymentMethods: methodStats.map(m => ({

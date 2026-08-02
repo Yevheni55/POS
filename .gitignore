@@ -27,9 +27,16 @@ server/.env.ttlock
 
 # Ad-hoc SQL a jednorazové skripty (tmp/*.sql sa púšťa ručne cez docker exec).
 # Staršie súbory v tmp/ zostávajú trackované, nové sem už nepribúdajú.
+#
+# POZOR: sem patrí LEN jednorazový odpad. Každé SQL, ktoré musí prebehnúť na
+# kase (zmena schémy), patrí do TRACKOVANÉHO `server/db/migrations/` — inak
+# odíde commit bez migrácie, kód začne čítať neexistujúci stĺpec a kasa
+# nenabehne. Presne to sa stalo s `tmp/vat-payer-migration.sql`
+# (menu_categories.default_vat_rate), viď server/db/migrations/README.md.
 /tmp/*.sql
 /tmp/*.csv
 /tmp/*.mjs
+/tmp/*.ps1
 
 # Jednorazové exporty z Comgate (2,5 MB textu, nie zdrojový kód)
 /_comgate_extracted.txt

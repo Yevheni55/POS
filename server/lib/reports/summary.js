@@ -2,7 +2,16 @@ import { desc, eq, sql } from 'drizzle-orm';
 
 import { db } from '../../db/index.js';
 import { orders, orderItems, payments, menuItems, menuCategories, shishaSales } from '../../db/schema.js';
-import { TZ, roundMoney, notStornoedSql } from './shared.js';
+import { getActiveCashRegisterCode } from '../active-cash-register.js';
+import { getVatMode } from '../vat-registration.js';
+import {
+  TZ,
+  roundMoney,
+  notStornoedSql,
+  notStornoedOrderSql,
+  notForeignCashRegisterSql,
+  notForeignCashRegisterOrderSql,
+} from './shared.js';
 
 // GET /api/reports/summary?from=2024-01-01&to=2024-12-31
 // Default: single calendar day (today, Bratislava) so "dashboard today" is
@@ -21,12 +30,34 @@ export async function summaryHandler(req, res) {
   const fromBoundary = sql`(${from + ' 00:00:00'})::timestamp AT TIME ZONE ${TZ}`;
   const toBoundary   = sql`(${to + ' 23:59:59'})::timestamp AT TIME ZONE ${TZ}`;
 
+  // Na kase sa môže zmeniť daňový subjekt (iné DKP v Portose) — reporty nesmú
+  // sčítať tržby dvoch firiem. Prázdny kód = filter sa neaplikuje (rovnaký
+  // fallback ako server/lib/payments/history.js).
+  const activeCashRegisterCode = await getActiveCashRegisterCode();
+  const notForeignPayment = sql.raw(notForeignCashRegisterSql('payments', activeCashRegisterCode));
+  const notForeignPaymentP = sql.raw(notForeignCashRegisterSql('p', activeCashRegisterCode));
+  const notForeignOrderO = sql.raw(notForeignCashRegisterOrderSql('o', activeCashRegisterCode));
+
+  // Režim DPH — u PLATITEĽA nie je daň na výstupe príjmom firmy, takže zisk
+  // sa NESMIE počítať z brutto tržby proti netto nákladom. U neplatiteľa
+  // ostáva všetko presne ako doteraz (`netFactor` = 1).
+  // Report je len na čítanie: keď sa režim nedá zistiť, radšej vrátime staré
+  // (brutto) čísla + `vatModeError`, než aby padla celá stránka reportov.
+  let vatRegistered = false;
+  let vatModeError = null;
+  try {
+    ({ vatRegistered } = await getVatMode());
+  } catch (err) {
+    vatModeError = err?.message || String(err);
+    console.error('[reports/summary] nepodarilo sa zistiť režim DPH:', vatModeError);
+  }
+
   // Total revenue
   const [revenue] = await db.select({
     total: sql`COALESCE(SUM(${payments.amount}::numeric), 0)`,
     count: sql`COUNT(*)`,
   }).from(payments).where(
-    sql`${payments.createdAt} >= ${fromBoundary} AND ${payments.createdAt} <= ${toBoundary} AND ${sql.raw(notStornoedSql('payments'))}`
+    sql`${payments.createdAt} >= ${fromBoundary} AND ${payments.createdAt} <= ${toBoundary} AND ${sql.raw(notStornoedSql('payments'))} AND ${notForeignPayment}`
   );
 
   // Orders count
@@ -44,7 +75,7 @@ export async function summaryHandler(req, res) {
     total: sql`SUM(${payments.amount}::numeric)`,
     count: sql`COUNT(*)`,
   }).from(payments).where(
-    sql`${payments.createdAt} >= ${fromBoundary} AND ${payments.createdAt} <= ${toBoundary} AND ${sql.raw(notStornoedSql('payments'))}`
+    sql`${payments.createdAt} >= ${fromBoundary} AND ${payments.createdAt} <= ${toBoundary} AND ${sql.raw(notStornoedSql('payments'))} AND ${notForeignPayment}`
   ).groupBy(payments.method);
 
   // All items sold in the period — used by the Reports/Produkty tab which
@@ -66,12 +97,20 @@ export async function summaryHandler(req, res) {
     dest: sql`COALESCE(${menuItems.destOverride}, ${menuCategories.dest})`,
     qty: sql`SUM(${orderItems.qty})`,
     revenue: sql`SUM(${orderItems.qty} * ${menuItems.price}::numeric)`,
+    // Sadzba DPH položky pre netto maržu v Produktoch. Zámerne agregát
+    // MAX(...) a NIE ďalší GROUP BY kľúč — pridanie do GROUP BY by rozbilo
+    // riadok na dva, keby dve položky s rovnakým názvom mali inú sadzbu.
+    vatRate: sql`MAX(COALESCE(${menuItems.vatRate}::numeric, 0))`,
   })
   .from(orderItems)
   .innerJoin(menuItems, eq(orderItems.menuItemId, menuItems.id))
   .innerJoin(menuCategories, eq(menuItems.categoryId, menuCategories.id))
   .innerJoin(orders, eq(orderItems.orderId, orders.id))
-  .where(sql`${orders.createdAt} >= ${fromBoundary} AND ${orders.createdAt} <= ${toBoundary} AND ${orders.status} != 'cancelled' AND COALESCE(${orders.closureType}, 'paid') != 'staff_meal'`)
+  // Fiškálne stornovaný účet nie je predaj — bez tohto filtra ukazovala tržba
+  // 0 €, ale "Produkty"/kategórie stále plnú sumu.
+  .where(sql`${orders.createdAt} >= ${fromBoundary} AND ${orders.createdAt} <= ${toBoundary} AND ${orders.status} != 'cancelled' AND COALESCE(${orders.closureType}, 'paid') != 'staff_meal'
+    AND ${sql.raw(notStornoedOrderSql('orders'))}
+    AND ${sql.raw(notForeignCashRegisterOrderSql('orders', activeCashRegisterCode))}`)
   .groupBy(menuItems.name, menuItems.emoji, menuCategories.label, menuItems.destOverride, menuCategories.dest)
   .orderBy(desc(sql`SUM(${orderItems.qty})`));
 
@@ -97,9 +136,33 @@ export async function summaryHandler(req, res) {
     WHERE o.created_at >= ${fromBoundary} AND o.created_at <= ${toBoundary}
       AND o.status != 'cancelled'
       AND COALESCE(o.closure_type, 'paid') != 'staff_meal'
+      AND ${sql.raw(notStornoedOrderSql('o'))}
+      AND ${notForeignOrderO}
     GROUP BY 1, mi.name, mc.label, mi.dest_override, mc.dest
     ORDER BY 1, mi.name
   `);
+
+  // Rozpad BRUTTO tržby predaných položiek podľa sadzby DPH, po dňoch.
+  // Slúži LEN na odvodenie netto tržby (základ dane) u platiteľa DPH —
+  // u neplatiteľa sa query vôbec nespúšťa a všetky čísla ostávajú brutto.
+  // Odpis a staff_meal sú mimo (odpis nejde cez fiškál a rátame ho brutto,
+  // staff_meal nie je predaj). Pomer sadzieb sa potom aplikuje na REÁLNE
+  // zaplatenú sumu (`dailyRows`), aby zľavy aj zaokrúhlenia sedeli.
+  const vatMixRows = vatRegistered ? await db.execute(sql`
+    SELECT
+      to_char((o.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ})::date, 'YYYY-MM-DD') AS date,
+      COALESCE(mi.vat_rate::numeric, 0)::float AS vat_rate,
+      COALESCE(SUM(oi.qty * mi.price::numeric), 0)::float AS gross
+    FROM order_items oi
+    INNER JOIN orders o ON o.id = oi.order_id
+    INNER JOIN menu_items mi ON mi.id = oi.menu_item_id
+    WHERE o.created_at >= ${fromBoundary} AND o.created_at <= ${toBoundary}
+      AND o.status != 'cancelled'
+      AND COALESCE(o.closure_type, 'paid') NOT IN ('staff_meal', 'odpis')
+      AND ${sql.raw(notStornoedOrderSql('o'))}
+      AND ${notForeignOrderO}
+    GROUP BY 1, 2
+  `) : { rows: [] };
 
   // Shisha — internal off-fiscal counter; rolled into the total so the dashboard
   // and weekly chart show real-world business revenue including shisha.
@@ -129,6 +192,7 @@ export async function summaryHandler(req, res) {
       AND COALESCE(o.closure_type, 'paid') != 'staff_meal'
       AND mc.slug = 'burgre'
       AND mi.name NOT ILIKE 'Omáčka%'
+      AND ${notForeignOrderO}
   `);
   const burgersSold = Number(burgersRes.rows[0] && burgersRes.rows[0].qty) || 0;
 
@@ -147,7 +211,8 @@ export async function summaryHandler(req, res) {
       COUNT(DISTINCT p.order_id)::int AS orders,
       COALESCE(SUM(p.amount::numeric), 0)::float AS revenue
     FROM payments p
-    WHERE p.created_at >= ${fromBoundary} AND p.created_at <= ${toBoundary} AND NOT EXISTS (SELECT 1 FROM fiscal_documents fd WHERE fd.payment_id = p.id AND fd.source_type = 'storno' AND fd.result_mode IN ('online_success','offline_accepted','reconciled_online_success','reconciled_offline_accepted'))
+    WHERE p.created_at >= ${fromBoundary} AND p.created_at <= ${toBoundary} AND ${sql.raw(notStornoedSql('p'))}
+      AND ${notForeignPaymentP}
     GROUP BY 1
     ORDER BY 1
   `);
@@ -169,6 +234,7 @@ export async function summaryHandler(req, res) {
     WHERE o.created_at >= ${fromBoundary} AND o.created_at <= ${toBoundary}
       AND o.status != 'cancelled'
       AND COALESCE(o.closure_type, 'paid') != 'staff_meal'
+      AND ${notForeignOrderO}
     GROUP BY 1
     ORDER BY 1
   `);
@@ -208,6 +274,7 @@ export async function summaryHandler(req, res) {
     INNER JOIN menu_items mi ON mi.id = oi.menu_item_id
     WHERE o.created_at >= ${fromBoundary} AND o.created_at <= ${toBoundary}
       AND COALESCE(o.closure_type, 'paid') = 'odpis'
+      AND ${notForeignOrderO}
     GROUP BY 1
     ORDER BY 1
   `);
@@ -224,6 +291,7 @@ export async function summaryHandler(req, res) {
     INNER JOIN menu_items mi ON mi.id = oi.menu_item_id
     WHERE o.created_at >= ${fromBoundary} AND o.created_at <= ${toBoundary}
       AND COALESCE(o.closure_type, 'paid') = 'odpis'
+      AND ${notForeignOrderO}
     GROUP BY 1
   `);
   const odpisHourMap = {};
@@ -242,6 +310,7 @@ export async function summaryHandler(req, res) {
     INNER JOIN staff s ON s.id = o.staff_id
     WHERE o.created_at >= ${fromBoundary} AND o.created_at <= ${toBoundary}
       AND COALESCE(o.closure_type, 'paid') = 'odpis'
+      AND ${notForeignOrderO}
     GROUP BY s.id, s.name
   `);
   const odpisStaffMap = {};
@@ -323,6 +392,7 @@ export async function summaryHandler(req, res) {
     WHERE o.created_at >= ${fromBoundary} AND o.created_at <= ${toBoundary}
       AND o.status != 'cancelled'
       AND COALESCE(o.closure_type, 'paid') != 'staff_meal'
+      AND ${notForeignOrderO}
     GROUP BY mi.name
   `);
 
@@ -401,7 +471,8 @@ export async function summaryHandler(req, res) {
       COUNT(DISTINCT p.order_id)::int AS orders,
       COALESCE(SUM(p.amount::numeric), 0)::float AS revenue
     FROM payments p
-    WHERE p.created_at >= ${fromBoundary} AND p.created_at <= ${toBoundary} AND NOT EXISTS (SELECT 1 FROM fiscal_documents fd WHERE fd.payment_id = p.id AND fd.source_type = 'storno' AND fd.result_mode IN ('online_success','offline_accepted','reconciled_online_success','reconciled_offline_accepted'))
+    WHERE p.created_at >= ${fromBoundary} AND p.created_at <= ${toBoundary} AND ${sql.raw(notStornoedSql('p'))}
+      AND ${notForeignPaymentP}
     GROUP BY 1
     ORDER BY 1
   `);
@@ -423,6 +494,7 @@ export async function summaryHandler(req, res) {
     WHERE o.created_at >= ${fromBoundary} AND o.created_at <= ${toBoundary}
       AND o.status != 'cancelled'
       AND COALESCE(o.closure_type, 'paid') != 'staff_meal'
+      AND ${notForeignOrderO}
     GROUP BY 1, COALESCE(mi.dest_override, c.dest)
   `);
   const hourlyDestMap = {};
@@ -445,7 +517,8 @@ export async function summaryHandler(req, res) {
     FROM payments p
     INNER JOIN orders o ON o.id = p.order_id
     INNER JOIN staff s ON s.id = o.staff_id
-    WHERE p.created_at >= ${fromBoundary} AND p.created_at <= ${toBoundary} AND NOT EXISTS (SELECT 1 FROM fiscal_documents fd WHERE fd.payment_id = p.id AND fd.source_type = 'storno' AND fd.result_mode IN ('online_success','offline_accepted','reconciled_online_success','reconciled_offline_accepted'))
+    WHERE p.created_at >= ${fromBoundary} AND p.created_at <= ${toBoundary} AND ${sql.raw(notStornoedSql('p'))}
+      AND ${notForeignPaymentP}
     GROUP BY s.id, s.name
     ORDER BY revenue DESC
   `);
@@ -467,6 +540,7 @@ export async function summaryHandler(req, res) {
     WHERE o.created_at >= ${fromBoundary} AND o.created_at <= ${toBoundary}
       AND o.status != 'cancelled'
       AND COALESCE(o.closure_type, 'paid') != 'staff_meal'
+      AND ${notForeignOrderO}
     GROUP BY COALESCE(mi.dest_override, c.dest)
   `);
   const destAcc = { bar: { revenue: 0, items: 0 }, kuchyna: { revenue: 0, items: 0 } };
@@ -517,19 +591,60 @@ export async function summaryHandler(req, res) {
     revenueByDate[r.date] = Number(r.revenue) || 0;
     ordersByDate[r.date] = Number(r.orders) || 0;
   }
+
+  // ── DPH na výstupe ────────────────────────────────────────────────────────
+  // U PLATITEĽA nie je daň na výstupe príjmom firmy — proti NETTO nákladom
+  // (ingredients.cost_per_unit sa zadáva BEZ DPH) sa preto nesmie stavať
+  // BRUTTO tržba. Postup: z položiek dňa vezmeme len POMER sadzieb a ten
+  // aplikujeme na REÁLNE zaplatenú sumu (`revenueByDate`), takže zľavy aj
+  // zaokrúhlenia ostanú konzistentné a Σ netto = fiškálna tržba − DPH.
+  // Odpis a shisha ostávajú BRUTTO — cez fiškál vôbec neprešli.
+  // U NEPLATITEĽA je `vatMixByDate` prázdna, `netFactorFor()` vracia 1 a
+  // všetky čísla sú bajt-identické s pôvodným kódom.
+  const vatMixByDate = {};
+  for (const r of (vatMixRows.rows || [])) {
+    const gross = Number(r.gross) || 0;
+    if (gross <= 0) continue;
+    (vatMixByDate[r.date] ??= []).push({ vatRate: Number(r.vat_rate) || 0, gross });
+  }
+  /** Podiel základu dane na brutto tržbe daného dňa (1 = žiadna DPH). */
+  function netFactorFor(date) {
+    const mix = vatMixByDate[date];
+    if (!mix || !mix.length) return 1;
+    const grossSum = mix.reduce((s, g) => s + g.gross, 0);
+    if (!(grossSum > 0)) return 1;
+    return mix.reduce((s, g) => s + (g.gross / grossSum) / (1 + (g.vatRate / 100)), 0);
+  }
+  // Brutto tržba per sadzba (už premietnutá na skutočne zaplatené sumy).
+  const vatGrossByRate = new Map();
+
   const dailyArr = Array.from(dailyDateSet).sort().map((date) => {
     const odpis = roundMoney(odpisByDate[date] || 0);
     // Odpis sa rata ako bezny predaj → pripocitavame ho do trzby aj do poctu
     // uctov (kvoli avgCheck). Fiskalna trzba (platby) + odpis.
     const orders = (ordersByDate[date] || 0) + (odpisOrdersByDate[date] || 0);
-    const revenue = roundMoney((revenueByDate[date] || 0) + odpis);
+    const fiscalDay = revenueByDate[date] || 0;
+    const revenue = roundMoney(fiscalDay + odpis);
     const cogs = roundMoney(cogsByDate[date] || 0);
     const labor = roundMoney(laborByDate[date] || 0);
     const staffMeal = roundMoney(staffMealByDate[date] || 0);
+    // Netto (bez DPH) fiškálna tržba dňa + brutto odpis.
+    const revenueNet = roundMoney((fiscalDay * netFactorFor(date)) + odpis);
+    const mix = vatMixByDate[date];
+    if (mix && fiscalDay > 0) {
+      const grossSum = mix.reduce((s, g) => s + g.gross, 0);
+      if (grossSum > 0) {
+        for (const g of mix) {
+          vatGrossByRate.set(g.vatRate, (vatGrossByRate.get(g.vatRate) || 0) + (fiscalDay * (g.gross / grossSum)));
+        }
+      }
+    }
     return {
       date,
       orders,
       revenue,
+      // Tržba bez DPH (základ dane). U neplatiteľa === revenue.
+      revenueNet,
       avgCheck: orders > 0 ? roundMoney(revenue / orders) : 0,
       peakHours: '',
       cogs,
@@ -539,10 +654,11 @@ export async function summaryHandler(req, res) {
       // ZAHRNUTY vo `revenue` vyssie (rata sa ako bezny predaj); tu ho vraciame
       // samostatne len ako informativny podiel "z toho odpis".
       odpis,
-      // Zisk = trzby (vratane odpisu) − suroviny predaneho (cogs zahrna odpis)
-      // − mzdy − suroviny zamestnaneckej spotreby. staff_meal nie je v trzbe,
-      // ale je nakladom na suroviny, takze ide do minusu.
-      profit: roundMoney(revenue - cogs - labor - staffMeal),
+      // Zisk = trzby BEZ DPH (vratane odpisu) − suroviny predaneho (cogs zahrna
+      // odpis) − mzdy − suroviny zamestnaneckej spotreby. staff_meal nie je
+      // v trzbe, ale je nakladom na suroviny, takze ide do minusu.
+      // U neplatitela je revenueNet === revenue → cislo je nezmenene.
+      profit: roundMoney(revenueNet - cogs - labor - staffMeal),
     };
   });
   // Union the hour buckets from both queries so an hour that had only
@@ -600,7 +716,12 @@ export async function summaryHandler(req, res) {
   const totalOrders = parseInt(orderStats.total) || 0;
   const avgCheck = totalOrders > 0 ? roundMoney(totalRevenue / totalOrders) : 0;
   const topRevenue = staffArr.length ? staffArr[0].revenue : 0;
-  const topItemsArr = topItems.map(i => ({ ...i, qty: parseInt(i.qty), revenue: parseFloat(i.revenue) }));
+  const topItemsArr = topItems.map(i => ({
+    ...i,
+    qty: parseInt(i.qty),
+    revenue: parseFloat(i.revenue),
+    vatRate: parseFloat(i.vatRate) || 0,
+  }));
 
   // Period totals — sum the per-day arrays so the dashboard "Spolu" row
   // and the new "Výsledok" stat card always agree with the table. Profit
@@ -611,10 +732,31 @@ export async function summaryHandler(req, res) {
   const totalCogs = roundMoney(dailyArr.reduce((s, d) => s + (d.cogs || 0), 0));
   const totalLabor = roundMoney(dailyArr.reduce((s, d) => s + (d.labor || 0), 0));
   const totalStaffMeal = roundMoney(dailyArr.reduce((s, d) => s + (d.staffMeal || 0), 0));
-  // Zisk = trzby (vratane odpisu) − suroviny predaneho (totalCogs uz zahrna
-  // odpis) − mzdy − suroviny zamestnaneckej spotreby. totalOdpis je uz
+
+  // Netto (bez DPH) fiškálna tržba = Σ denných netto tržieb mínus brutto odpis,
+  // ktorý je v `d.revenueNet` už započítaný. Shisha je off-fiscal → brutto.
+  // U neplatiteľa vychádza netFiscalTotal === fiscalTotal a všetko nižšie je
+  // bajt-identické s pôvodným kódom.
+  // Pri neplatiteľovi vynucujeme rovnosť explicitne (žiadny priestor na
+  // centový float drift) — čísla musia byť bajt-identické s dneškom.
+  const netFiscalTotal = vatRegistered
+    ? roundMoney(dailyArr.reduce((s, d) => s + ((d.revenueNet || 0) - (d.odpis || 0)), 0))
+    : fiscalTotal;
+  const totalVatOutput = roundMoney(fiscalTotal - netFiscalTotal);
+  const totalRevenueNet = roundMoney(totalRevenue - totalVatOutput);
+  // Rozpad DPH po sadzbách — podklad pre účtovníčku aj Google Sheets P&L.
+  const vatByRate = Array.from(vatGrossByRate.entries())
+    .map(([vatRate, gross]) => {
+      const base = roundMoney(gross / (1 + (vatRate / 100)));
+      return { vatRate, gross: roundMoney(gross), base, amount: roundMoney(roundMoney(gross) - base) };
+    })
+    .sort((a, b) => a.vatRate - b.vatRate);
+
+  // Zisk = trzby BEZ DPH (vratane odpisu) − suroviny predaneho (totalCogs uz
+  // zahrna odpis) − mzdy − suroviny zamestnaneckej spotreby. totalOdpis je uz
   // zahrnuty v totalRevenue; vykazuje sa samostatne len ako podiel "z toho".
-  const totalProfit = roundMoney(totalRevenue - totalCogs - totalLabor - totalStaffMeal);
+  // DPH na vystupe nie je prijmom firmy, preto ide zo zakladu prec.
+  const totalProfit = roundMoney(totalRevenueNet - totalCogs - totalLabor - totalStaffMeal);
 
   res.json({
     period: { from, to },
@@ -635,6 +777,22 @@ export async function summaryHandler(req, res) {
     totalStaffMeal,
     totalOdpis,
     totalProfit,
+    // ── DPH ────────────────────────────────────────────────────────────────
+    // `totalRevenue` ostáva BRUTTO (KPI „Celkové tržby" musí sedieť so
+    // zásuvkou). Pre maržu a P&L použi `totalRevenueNet`.
+    // U neplatiteľa: vatRegistered=false, totalVatOutput=0,
+    // totalRevenueNet === totalRevenue, vat.byRate = [].
+    vatRegistered,
+    // Nenulové len ak sa režim DPH nedal zistiť — čísla sú vtedy počítané
+    // ako u neplatiteľa (brutto) a NESMÚ slúžiť ako podklad pre priznanie.
+    vatModeError,
+    totalRevenueNet,
+    totalVatOutput,
+    vat: {
+      amount: totalVatOutput,
+      base: netFiscalTotal,
+      byRate: vatByRate,
+    },
     burgersSold,
     staffMealByPerson: staffMealByPersonRows.rows.map(r => ({
       name: r.person_name,
@@ -664,6 +822,12 @@ export async function summaryHandler(req, res) {
     },
     products: topItemsArr.map((it) => {
       const cogs = roundMoney(cogsByMenuName[it.name] || 0);
+      // Food cost aj marža sa musia počítať na ROVNAKOM základe ako COGS
+      // (ingredients.cost_per_unit je BEZ DPH). U neplatiteľa je
+      // revenueNet === revenue a číslo je nezmenené.
+      const revenueNet = vatRegistered
+        ? roundMoney(it.revenue / (1 + ((it.vatRate || 0) / 100)))
+        : it.revenue;
       return {
         name: it.name,
         emoji: it.emoji || '',
@@ -671,8 +835,10 @@ export async function summaryHandler(req, res) {
         dest: it.dest || 'bar', // 'bar' | 'kuchyna'
         qty: it.qty,
         revenue: it.revenue,
+        revenueNet,
+        vatRate: it.vatRate || 0,
         cogs,
-        profit: roundMoney(it.revenue - cogs),
+        profit: roundMoney(revenueNet - cogs),
       };
     }),
     // Per-day per-product matrix — frontend pivotuje na rendering.

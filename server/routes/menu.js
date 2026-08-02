@@ -65,6 +65,27 @@ function normalizeMenuItem(item) {
   };
 }
 
+// menu_categories.default_vat_rate je numeric → drizzle ho vracia ako string.
+// Admin UI (aj Android) z neho predvyplna select DPH, preto ho vraciame ako cislo.
+// null = manazer sadzbu este nezvolil — UI ju MUSI vypytat, nikdy tiche 23 %.
+function normalizeCategory(category) {
+  if (!category) return category;
+  const defaultVatRate = Number.parseFloat(category.defaultVatRate);
+  return {
+    ...category,
+    defaultVatRate: Number.isFinite(defaultVatRate) ? defaultVatRate : null,
+  };
+}
+
+// Numeric stlpec drzime pri zapise ako string (rovnaky pattern ako menuItems.vatRate).
+function categoryWriteValues(body) {
+  const values = { ...body };
+  if (values.defaultVatRate !== undefined) {
+    values.defaultVatRate = values.defaultVatRate === null ? null : String(values.defaultVatRate);
+  }
+  return values;
+}
+
 async function getMenuItemById(id) {
   const [item] = await db.select(menuItemSelect).from(menuItems).where(eq(menuItems.id, id)).limit(1);
   return item ? normalizeMenuItem(item) : null;
@@ -72,7 +93,18 @@ async function getMenuItemById(id) {
 
 async function getMenuCategoryById(id) {
   const [category] = await db.select().from(menuCategories).where(eq(menuCategories.id, id)).limit(1);
-  return category || null;
+  return category ? normalizeCategory(category) : null;
+}
+
+// Kategoria bez explicitnej sadzby a so slugom mimo hardcoded mapy (typicky
+// `cat_<timestamp>` z admin UI) — hlaska musi povedat PRAVDU, nie zavadzat
+// zoznamom podporovanych sadzieb.
+function respondCategoryVatRateMissing(res, category) {
+  return res.status(400).json({
+    error: `Kategoria "${category.label}" nema definovanu DPH sadzbu. Nastav ju v uprave kategorie alebo posli vatRate spolu s polozkou.`,
+    code: 'CATEGORY_VAT_RATE_MISSING',
+    categoryId: category.id,
+  });
 }
 
 // GET /api/menu - full menu with categories and items
@@ -84,7 +116,7 @@ router.get('/', async (req, res) => {
   ]);
 
   const menu = cats.map(cat => ({
-    ...cat,
+    ...normalizeCategory(cat),
     items: items.filter(i => i.categoryId === cat.id).map(normalizeMenuItem),
   }));
 
@@ -134,14 +166,14 @@ router.get('/top', async (req, res) => {
 
 // POST /api/menu/categories (manazer/admin only)
 router.post('/categories', requireRole('manazer', 'admin'), validate(createCategorySchema), async (req, res) => {
-  const result = await db.insert(menuCategories).values(req.body).returning();
-  res.status(201).json(result[0]);
+  const result = await db.insert(menuCategories).values(categoryWriteValues(req.body)).returning();
+  res.status(201).json(normalizeCategory(result[0]));
 });
 
 // PUT /api/menu/categories/:id (manazer/admin only)
 router.put('/categories/:id', requireRole('manazer', 'admin'), validate(updateCategorySchema), async (req, res) => {
-  const result = await db.update(menuCategories).set(req.body).where(eq(menuCategories.id, +req.params.id)).returning();
-  res.json(result[0]);
+  const result = await db.update(menuCategories).set(categoryWriteValues(req.body)).where(eq(menuCategories.id, +req.params.id)).returning();
+  res.json(normalizeCategory(result[0]));
 });
 
 // DELETE /api/menu/categories/:id (manazer/admin only)
@@ -166,7 +198,16 @@ router.post('/items', requireRole('manazer', 'admin'), validate(createMenuItemSc
   const category = await getMenuCategoryById(values.categoryId);
   if (!category) return res.status(404).json({ error: 'Kategoria neexistuje' });
 
-  const resolvedVatRate = vatRate ?? inferVatRateForMenuItem({ categorySlug: category.slug, name: values.name });
+  // Explicitna sadzba kategorie ma prednost pred hadanim podla slugu — slug
+  // `cat_<timestamp>` z admin UI inferencia nikdy nepokryje.
+  const resolvedVatRate = vatRate ?? inferVatRateForMenuItem({
+    categorySlug: category.slug,
+    name: values.name,
+    categoryDefaultVatRate: category.defaultVatRate,
+  });
+  if (resolvedVatRate === null || resolvedVatRate === undefined) {
+    return respondCategoryVatRateMissing(res, category);
+  }
   if (!isSupportedVatRate(resolvedVatRate)) {
     return res.status(400).json({ error: `Portos podporuje iba sadzby DPH ${formatSupportedVatRates()}` });
   }
@@ -190,7 +231,46 @@ router.put('/items/:id', requireRole('manazer', 'admin'), validate(updateMenuIte
     values.active = resolvedActive;
   }
   if (vatRate !== undefined) {
+    // Re-check aj ked schema uz sadzbu overila — POST ho ma, PUT ho doteraz nemal.
+    if (!isSupportedVatRate(vatRate)) {
+      return res.status(400).json({ error: `Portos podporuje iba sadzby DPH ${formatSupportedVatRates()}` });
+    }
     values.vatRate = String(vatRate);
+  }
+
+  // Presun polozky do inej kategorie doteraz sadzbu ani neprepocital, ani neskontroloval
+  // (napr. Cheesecake 5 % presunuty do Koktailov ostal na 5 %). Ked klient sadzbu
+  // neposle, prepocitame ju; ked posle inu, povolime ju (legitimne overridy ako
+  // nealko pivo), ale nesulad vratime v odpovedi, nech UI vie varovat.
+  let vatRateMismatch = null;
+  if (values.categoryId !== undefined) {
+    const existing = await getMenuItemById(id);
+    if (!existing) return res.status(404).json({ error: 'Polozka nenajdena' });
+
+    const category = await getMenuCategoryById(values.categoryId);
+    if (!category) return res.status(404).json({ error: 'Kategoria neexistuje' });
+
+    const inferredVatRate = inferVatRateForMenuItem({
+      categorySlug: category.slug,
+      name: values.name ?? existing.name,
+      categoryDefaultVatRate: category.defaultVatRate,
+    });
+
+    if (vatRate === undefined) {
+      // Sadzbu prepisujeme IBA pri skutocnej zmene kategorie — inak by sme
+      // vedomy per-item override zmazali pri kazdom ulozeni formulara.
+      if (category.id !== existing.categoryId) {
+        if (inferredVatRate === null) return respondCategoryVatRateMissing(res, category);
+        values.vatRate = String(inferredVatRate);
+      }
+    } else if (inferredVatRate !== null && Math.round(Number(vatRate) * 100) / 100 !== inferredVatRate) {
+      vatRateMismatch = {
+        expected: inferredVatRate,
+        actual: Math.round(Number(vatRate) * 100) / 100,
+        categoryId: category.id,
+        categoryLabel: category.label,
+      };
+    }
   }
 
   if (Object.keys(values).length) {
@@ -198,6 +278,7 @@ router.put('/items/:id', requireRole('manazer', 'admin'), validate(updateMenuIte
   }
 
   const item = await getMenuItemById(id);
+  if (vatRateMismatch) return res.json({ ...item, vatRateMismatch });
   res.json(item);
 });
 

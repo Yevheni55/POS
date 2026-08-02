@@ -44,6 +44,24 @@ function orderItemsDiscountTotal() {
   return Math.round(getOrder().reduce(function (s, o) { return s + itemLineDiscount(o); }, 0) * 100) / 100;
 }
 
+// Zľava na CELÝ účet (bez per-item zliav) po rovnakom clampe, aký robí server
+// v loadOrderPaymentContext (server/lib/payments/context.js:68): order-level +
+// per-item zľavy spolu nikdy neprekročia medzisúčet.
+//
+// Fiškálny builder potrebuje obe zložky ODDELENE — per-item zľavy idú ako
+// vlastné riadky (items[].discountAmount), order-level sa rozpočítava cez DPH
+// skupiny. Poslať súčet oboch by zľavu ZDVOJIL (viď komentár
+// server/lib/fiscal-payment.js:250-253).
+function orderLevelDiscountAmount() {
+  var order = getOrder();
+  var subtotal = Math.round(order.reduce(function (s, o) { return s + o.price * o.qty; }, 0) * 100) / 100;
+  var currentOrd = tableOrdersList.find(function (o) { return o.id === currentOrderId; });
+  var raw = currentOrd && currentOrd.discountAmount ? parseFloat(currentOrd.discountAmount) : 0;
+  if (!(raw > 0)) return 0;
+  var capacity = Math.max(0, Math.round((subtotal - orderItemsDiscountTotal()) * 100) / 100);
+  return Math.min(raw, capacity);
+}
+
 function getOrderTotal() {
   var order = getOrder();
   var subtotal = order.reduce(function (s, o) { return s + o.price * o.qty; }, 0);
@@ -1322,9 +1340,36 @@ async function offerParagonFallback(reason) {
           var items = order
             .filter(function (o) { return o && o.name && o.name !== 'Omáčka (combo)'; })
             .map(function (it) {
-              return { id: it.id, name: it.name, qty: it.qty, price: it.price, vatRate: it.vatRate || 0, note: it.note || '' };
+              // Položky v order[] pole `vatRate` NIKDY nenesú (skladajú sa v
+              // js/pos-orders.js iba z {name, emoji, price, qty, note,
+              // menuItemId, id}) — pôvodné `it.vatRate || 0` preto dávalo VŽDY
+              // 0 a u platiteľa DPH by sa paragón zmrazil s nulovou daňou.
+              // Sadzbu dohľadáme v menu; server si ju aj tak prepíše z
+              // menu_items podľa menuItemId, takže toto je len fallback /
+              // cross-check — `menuItemId` je POVINNÝ. Keď sa sadzba nedá
+              // rozlúštiť, posielame null (nie 0), nech ju server odmietne
+              // nahlas namiesto tichej nuly.
+              var mi = (typeof MENU_ITEM_BY_ID !== 'undefined' && it.menuItemId)
+                ? MENU_ITEM_BY_ID.get(it.menuItemId)
+                : null;
+              var rate = (mi && Number.isFinite(Number(mi.vatRate))) ? Number(mi.vatRate) : null;
+              return {
+                id: it.id,
+                menuItemId: it.menuItemId || null,
+                name: it.name,
+                qty: it.qty,
+                price: it.price,
+                vatRate: rate,
+                note: it.note || '',
+                // Per-item zľava (mirror server lineDiscountAmount). Order-level
+                // zľava ide zvlášť v tele requestu — súčet oboch by sa zdvojil.
+                discountAmount: itemLineDiscount(it),
+                discountType: it.discountType || null,
+                discountValue: it.discountValue == null ? null : it.discountValue,
+              };
             });
           var total = getOrderTotal();
+          var orderDiscount = orderLevelDiscountAmount();
           var method = pendingPaymentMethod || 'hotovost';
 
           var issueRes = await api.post('/paragons', {
@@ -1332,6 +1377,9 @@ async function offerParagonFallback(reason) {
             items: items,
             paymentMethod: method,
             totalAmount: total,
+            // Bez zľavy sa súčet položiek rozíde so sumou platby a Portos
+            // paragón NIKDY nezaregistruje (100 pokusov → status 'failed').
+            discountAmount: orderDiscount,
             reason: reason || 'portos_unavailable',
           });
 
@@ -1352,8 +1400,14 @@ async function offerParagonFallback(reason) {
               items: items,
               total: total,
               method: method,
-              vatRate: null, // non-payer DPH (forceZeroVat) → no VAT row
-              companyName: null,
+              // Rovnaké rozdelenie zľavy ako v POST /paragons: order-level tu,
+              // per-item na items[].discountAmount — aby sa riadky na papieri
+              // sčítali na SPOLU.
+              discountAmount: orderDiscount,
+              // `vatRate` ani `companyName` sa už NEposielajú — boli to natvrdo
+              // zadrátované predpoklady neplatiteľa DPH. Rekapituláciu DPH aj
+              // hlavičku predávajúceho (IČO / DIČ / IČ DPH) si server odvodí sám
+              // z company_profiles, nech je papier rovnaký pre všetkých klientov.
             });
           } catch (printErr) {
             console.warn('paragon print failed:', printErr);

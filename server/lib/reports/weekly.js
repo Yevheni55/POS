@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 
 import { db } from '../../db/index.js';
+import { getVatMode } from '../vat-registration.js';
 import { TZ, roundMoney } from './shared.js';
 
 // Lokálny (Europe/Bratislava) dátum + hodina pre daný instant. Ručne
@@ -66,6 +67,21 @@ export async function weeklyHandler(req, res) {
   const fromBoundary = sql`(${from + ' 00:00:00'})::timestamp AT TIME ZONE ${TZ}`;
   const toBoundary   = sql`(${to + ' 23:59:59'})::timestamp AT TIME ZONE ${TZ}`;
 
+  // COGS ide z `ingredients.cost_per_unit`, kam sa cena zadáva BEZ DPH
+  // (admin/pages/purchase-orders.js). U PLATITEĽA teda musí byť aj tržba
+  // NETTO, inak marža aj €/hod efektivita kuchára klamú o celú sadzbu DPH.
+  // U neplatiteľa sa použije brutto stĺpec a čísla ostávajú bajt-identické.
+  // Report je len na čítanie — pri nedostupnom režime radšej ostaneme na
+  // starom (brutto) základe než by padla stránka.
+  let vatRegistered = false;
+  let vatModeError = null;
+  try {
+    ({ vatRegistered } = await getVatMode());
+  } catch (err) {
+    vatModeError = err?.message || String(err);
+    console.error('[reports/weekly] nepodarilo sa zistiť režim DPH:', vatModeError);
+  }
+
   // Hour × weekday × dest aggregation. dest='kuchyna' alebo 'bar'.
   // Pridávame aj cogs (food cost cez recepty × ingredient cost) aby
   // sme mohli počítať zisk kuchyne, nie len tržby.
@@ -81,6 +97,7 @@ export async function weeklyHandler(req, res) {
       to_char((o.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ})::date, 'YYYY-MM-DD') AS date,
       c.dest AS dest,
       COALESCE(SUM(oi.qty * mi.price::numeric), 0)::float AS revenue,
+      COALESCE(SUM(oi.qty * mi.price::numeric / (1 + COALESCE(mi.vat_rate::numeric, 0) / 100)), 0)::float AS revenue_net,
       COALESCE(SUM(oi.qty * COALESCE(uc.uc, 0)), 0)::float AS cogs,
       COUNT(DISTINCT o.id)::int AS orders,
       COALESCE(SUM(oi.qty), 0)::int AS items
@@ -139,12 +156,15 @@ export async function weeklyHandler(req, res) {
       cellMap.set(key, cell);
     }
     const dest = String(r.dest || 'bar');
+    // U platiteľa DPH je celá stránka na NETTO základe (`vatExclusive: true`
+    // v odpovedi), aby tržba a COGS sedeli na rovnakej báze.
+    const revenue = vatRegistered ? (Number(r.revenue_net) || 0) : (Number(r.revenue) || 0);
     if (dest === 'kuchyna'){
-      cell.kitchenRevenue += Number(r.revenue) || 0;
+      cell.kitchenRevenue += revenue;
       cell.kitchenCogs    += Number(r.cogs) || 0;
       cell.kitchenItems   += Number(r.items) || 0;
     } else {
-      cell.barRevenue += Number(r.revenue) || 0;
+      cell.barRevenue += revenue;
       cell.barCogs    += Number(r.cogs) || 0;
       cell.barItems   += Number(r.items) || 0;
     }
@@ -459,6 +479,10 @@ export async function weeklyHandler(req, res) {
 
   res.json({
     period: { from, to },
+    // true = všetky tržby/zisky/marže v tejto odpovedi sú BEZ DPH (základ
+    // dane), aby sedeli s netto COGS. false = brutto, presne ako doteraz.
+    vatExclusive: vatRegistered,
+    vatModeError,
     byHour: byHourFinal,
     heatmap,
     cooks: cookList,

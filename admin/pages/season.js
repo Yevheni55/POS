@@ -50,6 +50,27 @@ function escapeHtml(v) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+// U platiteľa DPH nie je daň na výstupe príjmom firmy — marža sa preto ráta
+// zo základu dane (totalRevenueNet / revenueNet), nie z brutto tržby. Keď
+// server pole neposiela (neplatiteľ), padáme späť na brutto a čísla ostávajú
+// bit-identické s doterajším stavom.
+function netOr(value, fallback){
+  const n = Number(value);
+  return Number.isFinite(n) && value !== null && value !== undefined ? n : (Number(fallback) || 0);
+}
+// Rozpad DPH ukazujeme LEN platiteľovi (server posiela vatRegistered).
+// U neplatiteľa je totalRevenueNet === totalRevenue, takže aj keby pole
+// prišlo, čísla ostávajú rovnaké — len sa nezobrazí zbytočný riadok.
+function hasNetRevenue(d){
+  return !!(d && d.vatRegistered === true
+    && d.totalRevenueNet !== null && d.totalRevenueNet !== undefined
+    && Number.isFinite(Number(d.totalRevenueNet)));
+}
+function productNetRevenue(p){
+  const net = Number(p && p.revenueNet);
+  return Number.isFinite(net) && net > 0 ? net : (Number(p && p.revenue) || 0);
+}
+
 const DAY_LABEL_SK = ['Ne','Po','Ut','St','Št','Pi','So'];
 const DAY_FULL_SK  = ['Nedeľa','Pondelok','Utorok','Streda','Štvrtok','Piatok','Sobota'];
 const MONTH_FULL_SK = ['januára','februára','marca','apríla','mája','júna','júla','augusta','septembra','októbra','novembra','decembra'];
@@ -75,7 +96,12 @@ function render(){
   const cogs     = Number(d.totalCogs) || 0;
   const mzdy     = Number(d.totalLabor) || 0;
   const vysledok = Number(d.totalProfit) || 0;
-  const vysledokPct = trzba > 0 ? (vysledok / trzba) * 100 : 0;
+  // Základ dane: pri neplatiteľovi === brutto tržba (netVat = false).
+  const netVat   = hasNetRevenue(d);
+  const trzbaNet = netOr(d.totalRevenueNet, trzba);
+  const dphOdvod = netVat ? netOr(d.totalVatOutput, trzba - trzbaNet) : 0;
+  const zaklad   = netVat ? ' bez DPH' : '';
+  const vysledokPct = trzbaNet > 0 ? (vysledok / trzbaNet) * 100 : 0;
   const avgDaily = daysActual > 0 ? trzba / daysActual : 0;
 
   const dailySorted = (d.daily || []).slice().sort((a,b) => b.revenue - a.revenue);
@@ -108,6 +134,7 @@ function render(){
           <div class="stat-label">Celkové tržby</div>
           <div class="stat-value">${fmtEur(trzba)}</div>
           <div class="stat-change neutral">${fmtEur(avgDaily)} priemer/deň · ${fmtInt(d.totalOrders)} obj.</div>
+          ${netVat ? `<div class="stat-change neutral">z toho DPH na odvod ${fmtEur(dphOdvod)} · základ dane ${fmtEur(trzbaNet)}</div>` : ''}
         </div>
       </div>
 
@@ -118,7 +145,7 @@ function render(){
         <div class="stat-info">
           <div class="stat-label">Náklady na výrobu</div>
           <div class="stat-value">${fmtEur(cogs)}</div>
-          <div class="stat-change neutral">${trzba>0 ? fmtPct(cogs/trzba*100) + ' z tržieb' : '—'}</div>
+          <div class="stat-change neutral">${trzbaNet>0 ? fmtPct(cogs/trzbaNet*100) + ' z tržieb' + zaklad : '—'}</div>
         </div>
       </div>
 
@@ -129,7 +156,7 @@ function render(){
         <div class="stat-info">
           <div class="stat-label">Mzdy</div>
           <div class="stat-value">${fmtEur(mzdy)}</div>
-          <div class="stat-change neutral">${trzba>0 ? fmtPct(mzdy/trzba*100) + ' z tržieb' : '—'}</div>
+          <div class="stat-change neutral">${trzbaNet>0 ? fmtPct(mzdy/trzbaNet*100) + ' z tržieb' + zaklad : '—'}</div>
         </div>
       </div>
 
@@ -140,7 +167,7 @@ function render(){
         <div class="stat-info">
           <div class="stat-label">Výsledok</div>
           <div class="stat-value" style="color:${profitColor}">${profitSign}${fmtEur(vysledok)}</div>
-          <div class="stat-change ${profitClass}">${vysledokPct.toFixed(1)} % marža</div>
+          <div class="stat-change ${profitClass}">${vysledokPct.toFixed(1)} % marža${netVat ? ' zo základu dane' : ''}</div>
         </div>
       </div>
     </div>
@@ -263,26 +290,29 @@ function renderCategoryBreakdown(products, totalRev){
   for (const p of products) {
     const cat = p.category || 'Bez kategórie';
     if (!byCategory.has(cat)) {
-      byCategory.set(cat, { name: cat, qty: 0, revenue: 0, cogs: 0, profit: 0 });
+      byCategory.set(cat, { name: cat, qty: 0, revenue: 0, revenueNet: 0, cogs: 0, profit: 0 });
     }
     const agg = byCategory.get(cat);
     agg.qty += Number(p.qty) || 0;
     agg.revenue += Number(p.revenue) || 0;
+    agg.revenueNet += productNetRevenue(p);
     agg.cogs += Number(p.cogs) || 0;
     agg.profit += Number(p.profit) || 0;
   }
   const rows = Array.from(byCategory.values()).sort((a,b) => b.revenue - a.revenue);
   const maxRev = Math.max(...rows.map(r => r.revenue), 1);
 
-  let totalQty = 0, totalRevSum = 0, totalCogs = 0, totalProfit = 0;
+  let totalQty = 0, totalRevSum = 0, totalRevNetSum = 0, totalCogs = 0, totalProfit = 0;
   const tbody = rows.map(r => {
     totalQty += r.qty;
     totalRevSum += r.revenue;
+    totalRevNetSum += r.revenueNet;
     totalCogs += r.cogs;
     totalProfit += r.profit;
     const w = (r.revenue / maxRev) * 100;
     const pct = totalRev > 0 ? (r.revenue / totalRev) * 100 : 0;
-    const margin = r.revenue > 0 ? (r.profit / r.revenue) * 100 : 0;
+    // Marža = zisk / tržba bez DPH (u neplatiteľa je revenueNet === revenue).
+    const margin = r.revenueNet > 0 ? (r.profit / r.revenueNet) * 100 : 0;
     const profitColor = r.profit >= 0 ? 'var(--color-success)' : 'var(--color-danger)';
     return `<tr>
       <td class="td-name" style="font-weight:var(--weight-semibold)">${escapeHtml(r.name)}</td>
@@ -298,7 +328,7 @@ function renderCategoryBreakdown(products, totalRev){
     </tr>`;
   }).join('');
 
-  const totalMargin = totalRevSum > 0 ? (totalProfit / totalRevSum) * 100 : 0;
+  const totalMargin = totalRevNetSum > 0 ? (totalProfit / totalRevNetSum) * 100 : 0;
   return `<div class="table-scroll-wrap">
     <table class="data-table">
       <thead>
@@ -344,7 +374,9 @@ function renderTopProducts(products){
       ${top.map((p, i) => {
         const w = max > 0 ? (p.revenue / max) * 100 : 0;
         const profit = Number(p.profit) || 0;
-        const margin = p.revenue > 0 ? (profit / p.revenue) * 100 : 0;
+        // Marža proti tržbe bez DPH (u neplatiteľa === brutto tržba).
+        const netRev = productNetRevenue(p);
+        const margin = netRev > 0 ? (profit / netRev) * 100 : 0;
         const cogs = Number(p.cogs) || 0;
         let rankStyle = '';
         if (i === 0) rankStyle = 'color:var(--color-accent);font-weight:700';

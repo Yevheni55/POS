@@ -2,6 +2,10 @@ import { and, desc, eq, inArray } from 'drizzle-orm';
 
 import { db } from '../../db/index.js';
 import { fiscalDocuments, orders, payments, tables } from '../../db/schema.js';
+import {
+  buildPaymentStornoExternalId,
+  parsePaymentExternalIdSalt,
+} from '../fiscal-payment.js';
 import { getActiveCashRegisterCode } from '../active-cash-register.js';
 import { isPortosEnabled } from '../portos.js';
 
@@ -77,11 +81,32 @@ export async function historyHandler(req, res) {
     // (legacy `order-N-payment` vs nový `order-N-pay-<salt>`) a dvojitý
     // formátový lookup by mohol minúť doc od starej eKasy.
     const saleDoc = related.find((d) => d.sourceType === 'payment') || null;
-    const stornoDoc = related.find((d) => d.sourceType === 'storno') || null;
+    // Storno musí patriť PRÁVE TOMUTO predajnému dokladu. Po `change-method`
+    // ostáva na platbe aj starý (vystornovaný) doklad ako 'payment_superseded'
+    // — jeho storno nesmie zhasnúť tlačidlo pri novom, platnom doklade.
+    // Fallback na `sourceType` je pre staré riadky s odlišným formátom
+    // externalId, ale len keď žiadny superseded doklad neexistuje.
+    const expectedStornoExternalId = saleDoc
+      ? buildPaymentStornoExternalId(row.orderId, { salt: parsePaymentExternalIdSalt(saleDoc.externalId) })
+      : null;
+    const stornoDoc = (expectedStornoExternalId
+      && related.find((d) => d.sourceType === 'storno' && d.externalId === expectedStornoExternalId))
+      || (related.some((d) => d.sourceType === 'payment_superseded')
+        ? null
+        : related.find((d) => d.sourceType === 'storno'))
+      || null;
 
     const referenceReceiptId = saleDoc ? saleDoc.receiptId || saleDoc.okp : null;
+    // Doklad z PREDCHÁDZAJÚCEJ identity (iný kód pokladne / DKP) sa už nedá
+    // stornovať — Portos ten alias nepozná. UI má zobraziť disabled stav
+    // s vysvetlením namiesto tlačidla, ktoré vždy skončí chybou certifikátu.
+    const docCashRegisterCode = saleDoc ? String(saleDoc.cashRegisterCode || '').trim() : '';
+    const foreignCashRegister = Boolean(
+      docCashRegisterCode && activeCashRegisterCode && docCashRegisterCode !== activeCashRegisterCode,
+    );
     const stornoEligible = Boolean(
-      isPortosEnabled() && saleDoc && STORNO_ELIGIBLE_MODES.has(saleDoc.resultMode) && referenceReceiptId && !stornoDoc,
+      isPortosEnabled() && saleDoc && STORNO_ELIGIBLE_MODES.has(saleDoc.resultMode)
+      && referenceReceiptId && !stornoDoc && !foreignCashRegister,
     );
 
     return {
@@ -112,6 +137,12 @@ export async function historyHandler(req, res) {
         processDate: stornoDoc.processDate ? new Date(stornoDoc.processDate).toISOString() : null,
       } : null,
       stornoEligible,
+      // 'foreign_cash_register' = jediný dôvod, ktorý UI vie vysvetliť textom;
+      // ostatné (už stornované / nevhodný resultMode) sa dajú odvodiť z payloadu.
+      stornoBlockedReason: !stornoEligible && foreignCashRegister ? 'foreign_cash_register' : null,
+      cashRegisterCode: docCashRegisterCode || null,
+      // Dotlač kópie necháme povolenú aj pre cudzí kód — Portos môže mať
+      // certifikát pre starý alias ešte nahraný; UI nech na to upozorní.
       copyAvailable: Boolean(saleDoc && saleDoc.externalId),
     };
   });

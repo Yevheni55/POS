@@ -7,6 +7,7 @@ import { logEvent } from '../lib/audit.js';
 import { buildPaymentStornoExternalId, buildStornoCashRegisterRequestContext, parsePaymentExternalIdSalt } from '../lib/fiscal-payment.js';
 import { getActiveCashRegisterCode } from '../lib/active-cash-register.js';
 import {
+  explainPortosCertificateError,
   findReceiptByExternalIdWithRetry,
   isPortosEnabled,
   PortosTransportError,
@@ -278,6 +279,26 @@ async function runFiscalStorno({ document, staffId }) {
     };
   }
 
+  // Doklad vystavený pod PREDCHÁDZAJÚCOU identitou (iný kód pokladne / DKP):
+  // Portos ten alias už nepozná, request by skončil na „certifikát s aliasom …
+  // nebol nájdený". Radšej jasná hláška než odsúdený request do eKasy.
+  // Rovnaký guard ako v lib/payments/fiscal-storno.js. Keď jedna zo strán kód
+  // nemá (prázdny), správanie ostáva pôvodné.
+  const activeCashRegisterCode = await getActiveCashRegisterCode();
+  const docCashRegisterCode = String(document.cashRegisterCode || '').trim();
+  if (docCashRegisterCode && activeCashRegisterCode && docCashRegisterCode !== activeCashRegisterCode) {
+    return {
+      status: 409,
+      body: {
+        error: `Doklad patrí predchádzajúcej firme (kód pokladne ${docCashRegisterCode}) — storno treba vystaviť v jej eKase`,
+        stornoBlockedReason: 'foreign_cash_register',
+        cashRegisterCode: docCashRegisterCode,
+        activeCashRegisterCode,
+        fiscal: toFiscalResponse(document),
+      },
+    };
+  }
+
   const referenceReceiptId = document.receiptId || document.okp;
   if (!referenceReceiptId) {
     return {
@@ -295,7 +316,7 @@ async function runFiscalStorno({ document, staffId }) {
       originalRequestPayload: parseJsonField(document.requestJson),
       referenceReceiptId,
       orderId: document.orderId,
-      cashRegisterCode: document.cashRegisterCode || (await getActiveCashRegisterCode()),
+      cashRegisterCode: docCashRegisterCode || activeCashRegisterCode,
       externalIdSalt: saleSalt,
     });
   } catch (error) {
@@ -336,6 +357,13 @@ async function runFiscalStorno({ document, staffId }) {
       outcome: fiscalOutcome,
     }));
 
+    // Po zmene firmy je najčastejšia príčina chýbajúci certifikát pre starý
+    // alias — surové Portos hlásenie to obsluhe nepovie. Rovnaké poradie ako
+    // v create.js / lib/payments/fiscal-storno.js: hint pred surovým detailom.
+    const certificateHint = explainPortosCertificateError({
+      detail: fiscalOutcome.errorDetail,
+      errorDetail: fiscalOutcome.errorDetail,
+    });
     return {
       // Portos httpStatus preberáme len ak je sám chybový. Pri outcome, kde
       // Portos vrátil 2xx ale MY doklad odmietame, by `httpStatus || 503`
@@ -344,12 +372,14 @@ async function runFiscalStorno({ document, staffId }) {
       // lib/payments/fiscal-storno.js a lib/payments/create.js.
       status: fiscalFailureHttpStatus(fiscalOutcome, 503),
       body: {
-        error: fiscalOutcome.errorDetail || 'Storno doklad bol odmietnuty alebo zlyhal',
+        error: certificateHint || fiscalOutcome.errorDetail || 'Storno doklad bol odmietnuty alebo zlyhal',
         fiscal: {
           status: fiscalOutcome.resultMode,
           externalId: requestPayload.request.externalId,
           errorCode: fiscalOutcome.errorCode,
           errorDetail: fiscalOutcome.errorDetail,
+          certificateIssue: Boolean(certificateHint),
+          cashRegisterCodeUsed: requestPayload.request.data.cashRegisterCode,
         },
       },
     };
@@ -471,6 +501,14 @@ async function loadDocumentMeta(document) {
   }
 
   const referenceReceiptId = document.receiptId || document.okp;
+  // Doklad z PREDCHÁDZAJÚCEJ identity (iný kód pokladne / DKP) sa už nedá
+  // stornovať — Portos ten alias nepozná a request by skončil na chybe
+  // certifikátu. UI má zobraziť disabled stav s vysvetlením.
+  const activeCashRegisterCode = await getActiveCashRegisterCode();
+  const docCashRegisterCode = String(document.cashRegisterCode || '').trim();
+  const foreignCashRegister = Boolean(
+    docCashRegisterCode && activeCashRegisterCode && docCashRegisterCode !== activeCashRegisterCode,
+  );
   const stornoEligible = Boolean(
     isPortosEnabled()
     && document.sourceType === 'payment'
@@ -478,10 +516,13 @@ async function loadDocumentMeta(document) {
     && STORNO_ELIGIBLE_MODES.has(document.resultMode)
     && referenceReceiptId
     && !stornoDone
+    && !foreignCashRegister
   );
 
   return {
     stornoEligible,
+    stornoBlockedReason: !stornoEligible && foreignCashRegister ? 'foreign_cash_register' : null,
+    activeCashRegisterCode,
     stornoDone,
     stornoExternalId,
   };

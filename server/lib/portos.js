@@ -1,5 +1,4 @@
 const DEFAULT_BASE_URL = 'http://localhost:3010';
-const DEFAULT_CASH_REGISTER_CODE = '88812345678900001';
 /** Nie názov tlačiarne vo Windows — NineDigit API: `pos` = papier/CHDU, `pdf`, `email`. */
 const DEFAULT_PRINTER_NAME = 'pos';
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -34,11 +33,49 @@ function toInt(value, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+let warnedMissingCashRegisterCode = false;
+
+/**
+ * Kód pokladne VÝHRADNE z `PORTOS_CASH_REGISTER_CODE`. Bez hodnoty vráti prázdny reťazec.
+ *
+ * Predtým tu bol hardcoded fallback `88812345678900001` — kód, ktorý patrí CUDZIEMU
+ * daňovému subjektu (predchádzajúca identita na dev PC). Ak by na kase chýbal riadok
+ * v `company_profiles` A ZÁROVEŇ v `.env` ten kľúč, `getActiveCashRegisterCode()` by
+ * vrátil cudzí kód a reporty (server/lib/reports/shared.js) by sa naň oscopovali —
+ * teda by SCHOVALI všetky vlastné tržby a majiteľ by videl nuly bez jedinej hlášky.
+ *
+ * Prázdna hodnota je bezpečnejšia: `notForeignCashRegisterSql()` pri prázdnom kóde
+ * filter NEAPLIKUJE (rovnaká sémantika ako `server/lib/payments/history.js`), takže
+ * report ukáže všetko namiesto ničoho. Fiškálne cesty prázdny kód nezakryje —
+ * `isVatModeIdentityConfirmed()` (payments/create.js) pri prázdnom `.env` kóde vráti
+ * false a platba ide cez plný `assertVatModeTrusted()` gate.
+ *
+ * Trim + BOM + úvodzovky: `.env` na Windows kase ich reálne obsahuje (rovnako ako
+ * `isTruthy()` vyššie) a kód s medzerou by v Portose nenašiel certifikát.
+ */
+function resolveCashRegisterCode() {
+  const code = String(process.env.PORTOS_CASH_REGISTER_CODE ?? '')
+    .replace(/^\uFEFF/, '')
+    .trim()
+    .replace(/^["']|["']$/g, '')
+    .trim();
+  if (code) return code;
+  if (!warnedMissingCashRegisterCode) {
+    warnedMissingCashRegisterCode = true;
+    console.warn(
+      '[Portos] PORTOS_CASH_REGISTER_CODE nie je nastavený — kód pokladne beriem iba z '
+      + 'company_profiles (Portos sync). Kým tam nie je, reporty sa NEfiltrujú podľa kasy '
+      + 'a fiškálne volania bez kódu z dokladu zlyhajú. Doplň ho do server/.env.',
+    );
+  }
+  return '';
+}
+
 export function getPortosConfig() {
   return {
     enabled: isTruthy(process.env.PORTOS_ENABLED),
     baseUrl: process.env.PORTOS_BASE_URL || DEFAULT_BASE_URL,
-    cashRegisterCode: process.env.PORTOS_CASH_REGISTER_CODE || DEFAULT_CASH_REGISTER_CODE,
+    cashRegisterCode: resolveCashRegisterCode(),
     printerName: normalizeReceiptOutputChannel(process.env.PORTOS_PRINTER_NAME || DEFAULT_PRINTER_NAME),
     timeoutMs: toInt(process.env.PORTOS_TIMEOUT_MS, DEFAULT_TIMEOUT_MS),
   };

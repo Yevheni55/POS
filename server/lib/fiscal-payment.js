@@ -170,6 +170,27 @@ export function validateReceiptMatchesRequest(receipt, requestPayload) {
   return { ok: true };
 }
 
+/**
+ * Rozpočíta zľavu NA ÚČET medzi DPH skupiny.
+ *
+ * Skupina sa váži svojím **netto** základom — teda tým, čo z riadku reálne
+ * zostalo po per-item zľave (`item.discountAmount`), ktorú `buildItemDiscountLines`
+ * už emitovala ako samostatný záporný riadok s tou istou sadzbou. Váženie brutto
+ * cenou robilo to, že skupina dostala viac zľavy, než v nej po per-item zľavách
+ * ostalo, a jej základ v `vatRatesTaxSummary` išiel do mínusu (kým bol
+ * forceZeroVat=true, všetko padlo do jedinej 0 % skupiny a nebolo to vidieť).
+ *
+ * Alokácia je preto **kapacitne obmedzená**: žiadna skupina nedostane viac než
+ * svoj netto základ a prebytok sa iteratívne prerozdelí medzi skupiny, ktoré
+ * ešte majú voľnú kapacitu — vrátane dorovnania zaokrúhľovacieho zvyšku.
+ *
+ * Invarianty: súčet riadkov === zľava (resp. celková kapacita, ak by zľava bola
+ * väčšia než všetky netto základy dokopy) a žiadna skupina nejde pod nulu.
+ *
+ * Pozn.: keď položky nenesú `discountAmount` (accounting export volá helper
+ * s poolovanou zľavou nad holými {name, qty, price, vatRate}), netto === brutto
+ * a výsledok je bit-po-bite rovnaký ako pred touto zmenou.
+ */
 export function allocateDiscountAcrossVatGroups(items, discountAmount) {
   const normalizedDiscount = roundMoney(discountAmount || 0);
   if (normalizedDiscount <= 0) return [];
@@ -178,26 +199,60 @@ export function allocateDiscountAcrossVatGroups(items, discountAmount) {
   for (const item of items) {
     const vatRate = normalizeVatRate(item.vatRate);
     const current = groups.get(vatRate) || { vatRate, subtotal: 0 };
-    current.subtotal = roundMoney(current.subtotal + roundMoney(item.price * item.qty));
+    // Netto základ riadku = brutto − per-item zľava, ktorá už na ňom visí.
+    // Clamp na >= 0: per-item zľava je capnutá na vlastný riadok, ale keby
+    // niekedy nebola, skupina nesmie ísť do mínusu už na vstupe.
+    const lineNet = Math.max(0, roundMoney(
+      roundMoney(item.price * item.qty) - roundMoney(item.discountAmount || 0),
+    ));
+    current.subtotal = roundMoney(current.subtotal + lineNet);
     groups.set(vatRate, current);
   }
 
   const entries = Array.from(groups.values()).filter((entry) => entry.subtotal > 0);
   if (!entries.length) return [];
 
-  const total = roundMoney(entries.reduce((sum, entry) => sum + entry.subtotal, 0));
+  const capacity = roundMoney(entries.reduce((sum, entry) => sum + entry.subtotal, 0));
+  // Viac než celková voľná kapacita rozdeliť fyzicky nejde — inak by niektorá
+  // skupina musela ísť do mínusu. Volajúci na platobnej ceste to nikdy
+  // nedosiahne (context.js clampuje orderDiscountAmount <= subtotal − itemDiscountTotal).
+  const distributable = Math.min(normalizedDiscount, capacity);
+
   const allocations = entries.map((entry) => ({
     vatRate: entry.vatRate,
     subtotal: entry.subtotal,
-    amount: roundMoney((normalizedDiscount * entry.subtotal) / total),
+    amount: Math.min(roundMoney((distributable * entry.subtotal) / capacity), entry.subtotal),
   }));
 
   const allocated = roundMoney(allocations.reduce((sum, entry) => sum + entry.amount, 0));
-  const remainder = roundMoney(normalizedDiscount - allocated);
+  let remainder = roundMoney(distributable - allocated);
 
-  if (remainder !== 0) {
-    allocations.sort((left, right) => right.subtotal - left.subtotal);
-    allocations[0].amount = roundMoney(allocations[0].amount + remainder);
+  if (remainder > 0) {
+    // Zvyšok (zaokrúhlenie + to, čo sa orezalo o cap) doplň do skupín s najväčšou
+    // voľnou kapacitou. Keď žiadny cap nezasiahol, voľná kapacita je proporcionálna
+    // k základu, takže to je tá istá skupina ako pri pôvodnom `sort by subtotal`.
+    const byFreeCapacity = allocations.slice().sort((left, right) => (
+      ((right.subtotal - right.amount) - (left.subtotal - left.amount))
+      || (right.subtotal - left.subtotal)
+    ));
+    for (const allocation of byFreeCapacity) {
+      if (remainder <= 0) break;
+      const free = roundMoney(allocation.subtotal - allocation.amount);
+      if (free <= 0) continue;
+      const add = Math.min(free, remainder);
+      allocation.amount = roundMoney(allocation.amount + add);
+      remainder = roundMoney(remainder - add);
+    }
+  } else if (remainder < 0) {
+    // Zaokrúhlenie prestrelilo — uber z najväčšej skupiny, nikdy nie pod nulu.
+    const byAmount = allocations.slice().sort((left, right) => right.amount - left.amount);
+    for (const allocation of byAmount) {
+      if (remainder >= 0) break;
+      const take = Math.min(allocation.amount, -remainder);
+      if (take <= 0) continue;
+      allocation.amount = roundMoney(allocation.amount - take);
+      remainder = roundMoney(remainder + take);
+    }
   }
 
   return allocations

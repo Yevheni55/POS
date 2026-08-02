@@ -68,6 +68,29 @@ async function loadProfileRow() {
   return row || null;
 }
 
+/**
+ * Zmena režimu DPH je udalosť, ktorá nesmie byť neviditeľná: keď z profilu
+ * zmizne IČ DPH, `isVatRegisteredBusiness()` začne vracať false a KAŽDÝ ďalší
+ * doklad ide s vatRate 0. Logujeme oba smery, nech je v `docker logs` presný
+ * čas prepnutia.
+ */
+function warnOnVatIdentityChange(existingRow, nextRow, source) {
+  const before = normalizeText(existingRow?.icDph);
+  const after = normalizeText(nextRow?.icDph);
+  if (before === after) return;
+
+  if (before && !after) {
+    console.warn(
+      `[VAT] IČ DPH sa MAŽE z profilu firmy (${source}): "${before}" → "" — ` +
+      'POS od tejto chvíle fiškalizuje ako NEPLATITEĽ (všetky položky vatRate=0).',
+    );
+    return;
+  }
+  console.warn(
+    `[VAT] IČ DPH sa mení v profile firmy (${source}): "${before || '(prázdne)'}" → "${after || '(prázdne)'}".`,
+  );
+}
+
 function buildComparison(local, portos) {
   const fields = [
     'businessName',
@@ -118,22 +141,48 @@ router.get('/', async (req, res) => {
   }
 });
 
+/**
+ * PUT je ZÁMERNE contact-only. Identita firmy (IČ DPH, kód pokladne, názov,
+ * adresy) sa NIKDY nepreberá z tela requestu — vlastní ju Portos a zapisuje ju
+ * iba `runPortosProfileSync` / POST /sync-from-portos.
+ *
+ * Bez tohto guardu stačilo, aby manažér uložil Nastavenia v momente, keď GET
+ * profilu zlyhal: admin UI poslalo icDph:'' a dummy cashRegisterCode
+ * z localStorage DEFAULTS, POS prepol na 0 % DPH a razil na neexistujúci DKP.
+ * Schéma tie kľúče už zahadzuje (.strip()), toto je druhá vrstva — route
+ * skladá update-set explicitne, takže ani rozšírená schéma sa sem nepretlačí.
+ */
 router.put('/', mgr, validate(updateCompanyProfileSchema), async (req, res) => {
-  const existing = await loadProfileRow();
+  const contacts = {
+    contactPhone: normalizeText(req.body.contactPhone),
+    contactEmail: normalizeText(req.body.contactEmail),
+  };
 
-  if (!existing) {
-    const [created] = await db.insert(companyProfiles)
-      .values(req.body)
+  try {
+    const existing = await loadProfileRow();
+
+    if (!existing) {
+      // Identifikačné stĺpce majú v schéme NOT NULL DEFAULT '' — riadok vznikne
+      // s prázdnou identitou a doplní ju najbližší Portos profile sync.
+      const [created] = await db.insert(companyProfiles)
+        .values({ ...contacts, updatedAt: new Date() })
+        .returning();
+      return res.json(serializeProfile(created));
+    }
+
+    const [updated] = await db.update(companyProfiles)
+      .set({ ...contacts, updatedAt: new Date() })
+      .where(eq(companyProfiles.id, existing.id))
       .returning();
-    return res.json(serializeProfile(created));
+
+    return res.json(serializeProfile(updated));
+  } catch (error) {
+    console.error('Company profile update error:', error);
+    return res.status(503).json({
+      error: 'Nepodarilo sa uložiť kontakty na doklade',
+      detail: error instanceof Error ? error.message : String(error),
+    });
   }
-
-  const [updated] = await db.update(companyProfiles)
-    .set({ ...req.body, updatedAt: new Date() })
-    .where(eq(companyProfiles.id, existing.id))
-    .returning();
-
-  res.json(serializeProfile(updated));
 });
 
 /** Prepíše identifikačné polia z aktuálneho Portos (po zmene firmy / eKasa). Kontakty z DB ponechá. */
@@ -150,6 +199,7 @@ router.post('/sync-from-portos', mgr, async (req, res) => {
     const portosFields = mapPortosIdentityFromStatus(status);
     const existing = await loadProfileRow();
     const merged = mergePortosIdentityIntoProfileRow(portosFields, existing);
+    warnOnVatIdentityChange(existing, merged, 'POST /company-profile/sync-from-portos');
 
     if (!existing) {
       const [created] = await db.insert(companyProfiles)

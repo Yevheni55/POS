@@ -76,25 +76,48 @@ function fiscalCell(item) {
   return statusBadge(s, tone) + (meta ? '<div class="text-muted" style="font-size:12px;margin-top:2px">' + meta + '</div>' : '');
 }
 
+// Doklad vystavený pod iným kódom pokladnice (predchádzajúca firma / stará
+// eKasa) — Portos preň už nemá certifikát, takže storno ani dotlač neprejdú.
+// Server to hlási cez `stornoBlockedReason`; fallback porovnáva kód dokladu
+// s aktívnym kódom, aby to fungovalo aj v scope=all pohľade.
+function foreignCashRegisterCode(item) {
+  if (item.stornoBlockedReason && item.stornoBlockedReason !== 'foreign_cash_register') return '';
+  var docCode = String((item.fiscal && item.fiscal.cashRegisterCode) || '').trim();
+  if (!docCode) return '';
+  if (item.stornoBlockedReason === 'foreign_cash_register') return docCode;
+  var activeCode = String(lastMeta.activeCashRegisterCode || '').trim();
+  if (!activeCode) return '';
+  return docCode === activeCode ? '' : docCode;
+}
+
 function actionsCell(item) {
   var html = '';
+  var foreignCode = foreignCashRegisterCode(item);
   if (item.orderId) {
     var isOpen = !!expanded[item.id];
     html += '<button class="btn-save btn-sm" data-payment-items="' + item.id + '">'
           + (isOpen ? 'Skryť položky' : 'Položky') + '</button>';
   }
   if (item.copyAvailable) {
-    html += '<button class="btn-save btn-sm" data-payment-copy="' + item.id + '">Kópia dokladu</button>';
+    var copyTitle = foreignCode
+      ? 'Doklad patrí predchádzajúcej firme (kód ' + foreignCode + ') — dotlač prejde iba ak Portos ešte má certifikát pre starý alias.'
+      : 'Vytlačí kópiu dokladu na CHDU';
+    html += '<button class="btn-save btn-sm" data-payment-copy="' + item.id + '" title="' + escapeHtml(copyTitle) + '">Kópia dokladu</button>';
   }
   // Re-fiškalizácia: pre prípady keď doklad v Portos nezodpovedá objednávke
   // (mismatch_rejected) alebo keď cashier hlási že blok nevyšiel / vyšiel cudzí.
   // Pošle nový request s reálnymi položkami pod novým unique externalId
   // a hneď vytlačí kópiu. Vyžaduje manazer/admin role.
+  // Tlačidlo renderujeme IBA keď doklad refiškalizáciu naozaj potrebuje —
+  // pre platne zaevidovaný doklad server vracia 409 (inak by v eKase vznikli
+  // DVA doklady na tú istú tržbu, po prepnutí na platiteľa navyše s inou
+  // sadzbou DPH); správna cesta je STORNO.
   if (item.fiscal) {
     var fiscalStatus = String(item.fiscal.status || '');
     var needsRefiscalize = fiscalStatus === 'mismatch_rejected' || fiscalStatus === 'ambiguous' || fiscalStatus === 'rejected';
-    var btnTone = needsRefiscalize ? 'background:var(--color-warning,#E0A830)' : '';
-    html += '<button class="btn-save btn-sm" data-payment-refiscalize="' + item.id + '" style="' + btnTone + '" title="Pošle nový fiškálny request a vytlačí blok">Re-fiškalizovať</button>';
+    if (needsRefiscalize) {
+      html += '<button class="btn-save btn-sm" data-payment-refiscalize="' + item.id + '" style="background:var(--color-warning,#E0A830)" title="Pošle nový fiškálny request a vytlačí blok">Re-fiškalizovať</button>';
+    }
   }
   // Zmena sposobu platby — dostupna iba ak je platba storno-eligible
   // (= povodny doklad je v stave kde sa da storno + nie je uz stornovany).
@@ -106,6 +129,13 @@ function actionsCell(item) {
   }
   if (item.stornoEligible) {
     html += '<button class="btn-save btn-sm" data-payment-storno="' + item.id + '" style="background:var(--color-danger,#c44)">STORNO</button>';
+  } else if (foreignCode && !item.storno) {
+    // Storno by v Portose skončilo na „certifikát s aliasom … nebol nájdený".
+    html += '<button class="btn-save btn-sm" disabled aria-disabled="true"'
+          + ' style="background:var(--color-text-dim);opacity:.55;cursor:not-allowed"'
+          + ' title="Storno treba vystaviť v eKase pôvodnej firmy">STORNO</button>'
+          + '<div class="text-muted" style="font-size:12px;margin-top:2px">Doklad patrí predchádzajúcej firme (kód '
+          + escapeHtml(foreignCode) + ') — storno treba vystaviť v jej eKase.</div>';
   } else if (item.storno) {
     html += '<span class="text-muted" style="font-size:12px">Už stornované</span>';
   } else if (!item.fiscal) {

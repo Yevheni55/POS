@@ -2,9 +2,10 @@ import { eq, sql } from 'drizzle-orm';
 
 import { db } from '../../db/index.js';
 import { orders, orderItems, payments, staff } from '../../db/schema.js';
+import { getActiveCashRegisterCode } from '../active-cash-register.js';
 import { localYmd } from '../print/format.js';
 
-import { TZ, notStornoedSql } from './shared.js';
+import { TZ, notStornoedSql, notForeignCashRegisterSql } from './shared.js';
 
 // GET /api/reports/staff?from=&to=
 export async function staffHandler(req, res) {
@@ -23,6 +24,11 @@ export async function staffHandler(req, res) {
   const inRange = (col) => sql`(${col} AT TIME ZONE 'UTC') >= ${fromBoundary} AND (${col} AT TIME ZONE 'UTC') <= ${toBoundary}`;
 
   try {
+    // Tržby dvoch daňových subjektov sa nesmú miešať — platba, ktorej PREDAJNÝ
+    // doklad patrí cudziemu kódu pokladne, sem nepatrí. Prázdny kód = filter
+    // sa neaplikuje (rovnaký fallback ako server/lib/payments/history.js).
+    const activeCashRegisterCode = await getActiveCashRegisterCode();
+
     // Pocty objednavok a poloziek. Platby sa tu UZ NEJOINUJU: join na
     // order_items robil fan-out (jeden riadok platby na kazdu polozku) a
     // povodny `SUM(DISTINCT payments.amount)` to riesil tak, ze dve rozne
@@ -54,7 +60,9 @@ export async function staffHandler(req, res) {
     .innerJoin(orders, eq(payments.orderId, orders.id))
     .innerJoin(staff, eq(orders.staffId, staff.id))
     .where(
-      sql`${inRange(payments.createdAt)} AND ${sql.raw(notStornoedSql('payments'))}`   // stornované platby nie sú tržba
+      sql`${inRange(payments.createdAt)}
+        AND ${sql.raw(notStornoedSql('payments'))}
+        AND ${sql.raw(notForeignCashRegisterSql('payments', activeCashRegisterCode))}`   // stornované platby nie sú tržba, cudzia kasa tiež nie
     )
     .groupBy(staff.id, payments.method);
 

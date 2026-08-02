@@ -220,10 +220,49 @@ export function buildReceiptTicket({ tableName, staffName, items, total, method,
   return ticket;
 }
 
+// Zalomenie voľného textu (adresa predávajúceho) na šírku ESC/POS riadku.
+// Zvyšok tiketu si šírku stráži cez padLine / pevné reťazce; adresa je jediný
+// dlhý užívateľský text, ktorý by tlačiareň zlomila uprostred slova.
+function wrapAscii(text, width) {
+  const w = width || 32;
+  const words = String(text || '').split(/\s+/).filter(Boolean);
+  const lines = [];
+  let line = '';
+  for (const word of words) {
+    if (!line.length) line = word;
+    else if (line.length + 1 + word.length <= w) line += ' ' + word;
+    else { lines.push(line); line = word; }
+    // Jedno slovo dlhšie než riadok — tvrdo rozseknúť, nech nepretečie.
+    while (line.length > w) { lines.push(line.slice(0, w)); line = line.slice(w); }
+  }
+  if (line.length) lines.push(line);
+  return lines;
+}
+
+// Sadzba DPH ako text pre doklad: 23 → "23", 12,5 → "12,5" (sk-SK čiarka).
+function vatRateLabel(rate) {
+  const value = Number(rate) || 0;
+  return Number.isInteger(value) ? String(value) : String(value).replace('.', ',');
+}
+
 // Paragón ticket — manuálny náhradný doklad pri výpadku ERP / Portos.
 // § 10 z. 289/2008: musí obsahovať slovo "PARAGÓN" + povinné náležitosti
 // + poznámku že doklad bude dodatočne zaregistrovaný v eKasa systéme.
-export function buildParagonTicket({ paragonNumber, tableName, staffName, items, total, vatRate, method, time, dateStr, companyName }) {
+//
+// Kontrakt (server je jediný zdroj pravdy — traja klienti web/Android/Windows
+// by inak driftovali, viď audit [21][28]):
+//   - `seller`     { businessName, ico, dic, icDph, registeredAddress } z
+//                  company_profiles. `icDph` sa vypĺňa LEN pre platiteľa DPH.
+//   - `vatSummary` pole `{ rate, base, vat }` — rekapitulácia DPH po sadzbách,
+//                  zostavená zo zmrazeného Portos payloadu paragónu. Neplatiteľ
+//                  posiela prázdne pole / undefined → nevytlačí sa NIČ (rovnako
+//                  ako doteraz).
+//   - `vatRate`    skalár, DEPRECATED — akceptovaný len kvôli spätnej
+//                  kompatibilite starých klientov / offline print queue.
+//   - `discount`   zľava na účet (kladné číslo). Ak chýba, dopočíta sa ako
+//                  rozdiel súčtu položiek a `total`, aby sa riadky sčítali
+//                  na SPOLU (audit [29]).
+export function buildParagonTicket({ paragonNumber, tableName, staffName, items, total, subtotal, discount, vatSummary, seller, vatRate, method, time, dateStr, companyName }) {
   let ticket = '';
   ticket += CMD.INIT;
 
@@ -237,8 +276,27 @@ export function buildParagonTicket({ paragonNumber, tableName, staffName, items,
   ticket += CMD.BOLD_OFF;
   ticket += CMD.LINE;
 
-  if (companyName) {
-    ticket += s(companyName) + '\n';
+  // Identifikácia predávajúceho. § 10 z. 289/2008 vyžaduje obchodné meno,
+  // sídlo a DIČ; PLATITEĽ DPH navyše IČ DPH — bez neho nie je náhradný doklad
+  // platiteľa platný. Údaje idú z company_profiles (server), nie z tela
+  // requestu — klient posiela `companyName: null` a ostal by prázdny hlavičkový
+  // blok. `companyName` ostáva ako fallback pre starých klientov.
+  const sellerName = (seller && seller.businessName) || companyName || '';
+  const sellerDetails = [];
+  if (seller) {
+    if (seller.registeredAddress) {
+      wrapAscii(s(seller.registeredAddress), 32).forEach((line) => sellerDetails.push(line));
+    }
+    if (seller.ico) sellerDetails.push('ICO: ' + s(seller.ico));
+    if (seller.dic) sellerDetails.push('DIC: ' + s(seller.dic));
+    if (seller.icDph) sellerDetails.push('IC DPH: ' + s(seller.icDph));
+  }
+  if (sellerName) ticket += s(sellerName) + '\n';
+  if (sellerDetails.length) {
+    sellerDetails.forEach((line) => { ticket += line + '\n'; });
+    // Oddeľovač LEN pod plným blokom predávajúceho. Pri starom kontrakte
+    // (iba `companyName`) sa netlačí, aby výstup ostal ako doteraz.
+    ticket += CMD.LINE;
   }
 
   // Meta — paragón číslo, dátum, čas, stôl, čašník
@@ -252,9 +310,11 @@ export function buildParagonTicket({ paragonNumber, tableName, staffName, items,
   ticket += CMD.LINE;
 
   // Items
+  let itemsSubtotal = 0;
   items.forEach((item) => {
     if (item.name === 'Omáčka (combo)') return;
     const lineTotal = item.price * item.qty;
+    itemsSubtotal += lineTotal;
     const price = lineTotal.toFixed(2).replace('.', ',') + ' E';
     const line = ' ' + item.qty + 'x ' + s(item.name);
     const pad = 32 - line.length - price.length;
@@ -262,6 +322,34 @@ export function buildParagonTicket({ paragonNumber, tableName, staffName, items,
   });
 
   ticket += CMD.LINE;
+
+  // Zľava — riadky sa tlačia v PLNÝCH cenách, ale SPOLU je suma PO zľave,
+  // takže bez tohto bloku sa položky na SPOLU nesčítajú (audit [29]).
+  // Ak volajúci zľavu neposlal, dopočítame ju z rozdielu (starí klienti
+  // neposielajú `discountAmount` vôbec).
+  // POZOR na `null`: `Number(null) === 0` je finite, takže bez explicitnej
+  // kontroly by sa dopočet zľavy nikdy nespustil.
+  const hasNumber = (value) => value != null && Number.isFinite(Number(value));
+  const shownSubtotal = hasNumber(subtotal)
+    ? Number(subtotal)
+    : Math.round(itemsSubtotal * 100) / 100;
+  const impliedDiscount = Math.round((shownSubtotal - total) * 100) / 100;
+  const explicitDiscount = hasNumber(discount) ? Number(discount) : null;
+  // Invariant papiera: Medzisucet − Zlava === SPOLU. Keby odovzdaná zľava
+  // (zo zmrazeného payloadu) nesedela s vytlačenými riadkami — napr. server
+  // vyskladal položky paragónu z objednávky inak, než ich poslal klient —
+  // radšej zľavu dopočítame, nech doklad nikdy neukazuje tri čísla, ktoré sa
+  // nesčítajú.
+  const shownDiscount = (explicitDiscount != null
+    && Math.abs(shownSubtotal - explicitDiscount - total) <= 0.005)
+    ? explicitDiscount
+    : impliedDiscount;
+  if (shownDiscount > 0.005) {
+    ticket += CMD.ALIGN_LEFT;
+    ticket += padLine('Medzisucet:', shownSubtotal.toFixed(2).replace('.', ',') + ' EUR') + '\n';
+    ticket += padLine('Zlava:', '-' + shownDiscount.toFixed(2).replace('.', ',') + ' EUR') + '\n';
+    ticket += CMD.LINE;
+  }
 
   // Total + VAT note
   ticket += CMD.ALIGN_CENTER;
@@ -271,7 +359,29 @@ export function buildParagonTicket({ paragonNumber, tableName, staffName, items,
   ticket += CMD.NORMAL_SIZE;
   ticket += CMD.BOLD_OFF;
 
-  if (typeof vatRate === 'number') {
+  // Rekapitulácia DPH po sadzbách. Menu má súčasne 5 / 19 / 23 %, takže jeden
+  // skalárny riadok „DPH X %" bol pre platiteľa nereprezentovateľný (audit [28]).
+  // NEPLATITEĽ: `vatSummary` je prázdne → nevytlačí sa nič, presne ako doteraz.
+  const vatGroups = (Array.isArray(vatSummary) ? vatSummary : [])
+    .map((g) => ({ rate: Number(g && g.rate) || 0, base: Number(g && g.base) || 0, vat: Number(g && g.vat) || 0 }))
+    .filter((g) => Math.abs(g.base) > 0.005 || Math.abs(g.vat) > 0.005);
+  if (vatGroups.length) {
+    ticket += CMD.ALIGN_LEFT;
+    ticket += CMD.LINE;
+    ticket += 'Rekapitulacia DPH:\n';
+    let vatTotal = 0;
+    vatGroups.forEach((g) => {
+      vatTotal += g.vat;
+      const label = vatRateLabel(g.rate) + '%';
+      ticket += padLine('  Zaklad ' + label + ':', formatEur(g.base) + ' E') + '\n';
+      ticket += padLine('  DPH ' + label + ':', formatEur(g.vat) + ' E') + '\n';
+    });
+    ticket += CMD.BOLD_ON;
+    ticket += padLine('DPH spolu:', formatEur(Math.round(vatTotal * 100) / 100) + ' E') + '\n';
+    ticket += CMD.BOLD_OFF;
+    ticket += CMD.ALIGN_CENTER;
+  } else if (typeof vatRate === 'number') {
+    // DEPRECATED skalárny kontrakt — ponechaný kvôli starým klientom / queue.
     ticket += 'DPH ' + vatRate.toFixed(0) + '% zapocitana v cene\n';
   }
   ticket += 'Sposob platby: ' + s(method).toUpperCase() + '\n';
@@ -333,6 +443,31 @@ export function buildZReportTicket(data) {
     t += padLine(label, formatEur(pm.total) + ' EUR') + '\n';
   });
   t += CMD.LINE;
+
+  // DEŇ PREPNUTIA DAŇOVÉHO SUBJEKTU — hotovosť tohto dňa patrí VIACERÝM
+  // pokladniam (starý + nový kód). Fiškálny výber pri uzávierke ide LEN za
+  // aktuálnu pokladňu; zvyšok musí obsluha zúčtovať v eKase pôvodnej firmy.
+  // Pole plní server/lib/print/z-report.js; bežný deň ho nemá → tiket
+  // ostáva nezmenený (audit [27]).
+  const foreignRegisters = Array.isArray(data.foreignCashRegisters) ? data.foreignCashRegisters : [];
+  if (foreignRegisters.length) {
+    t += '\n';
+    t += CMD.BOLD_ON;
+    t += 'POZOR: VIAC POKLADNI\n';
+    t += CMD.BOLD_OFF;
+    t += CMD.LINE;
+    t += 'Hotovost tohto dna patri aj\n';
+    t += 'inej pokladni (zmena subjektu).\n';
+    if (data.activeCashRegisterCode) {
+      t += padLine('Tato kasa:', s(data.activeCashRegisterCode)) + '\n';
+    }
+    foreignRegisters.forEach((reg) => {
+      const amount = (reg && reg.amount != null) ? formatEur(Number(reg.amount) || 0) + ' EUR' : '';
+      t += padLine(s((reg && reg.code) || '?'), amount) + '\n';
+    });
+    t += 'Vyber ide LEN za tuto kasu.\n';
+    t += CMD.LINE;
+  }
 
   // SHISHA section — samostatne, off-fiscal. Cash zo shisha sa zúčtuje
   // mimo Portos uzávierky, operátor podľa tejto sekcie spočíta drawer.

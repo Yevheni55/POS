@@ -5,14 +5,16 @@ import {
   generatePaymentExternalIdSalt,
   parsePaymentExternalIdSalt,
 } from '../fiscal-payment.js';
-import { formatSupportedVatRates, isSupportedVatRate } from '../menu-vat.js';
+import { assertSupportedVatRates } from '../menu-vat.js';
 import { getActiveCashRegisterCode } from '../active-cash-register.js';
 import {
   explainPortosCertificateError,
+  getPortosConfig,
   isPortosEnabled,
   PortosTransportError,
 } from '../portos.js';
-import { isVatRegisteredBusiness } from '../vat-registration.js';
+import { getPortosProfileSyncStats } from '../portos-sync-job.js';
+import { assertVatModeTrusted, getVatMode } from '../vat-registration.js';
 
 import {
   buildFiscalDocumentValues,
@@ -31,6 +33,54 @@ import {
   loadOrderPaymentContext,
 } from './context.js';
 import { fiscalFailureHttpStatus } from './shared.js';
+
+/**
+ * Druhý nezávislý zdroj, ktorý potvrdí, že uložený profil firmy patrí PRÁVE TEJTO kase:
+ * `company_profiles.cash_register_code` (píše ho výhradne Portos sync) sa musí zhodovať
+ * s `PORTOS_CASH_REGISTER_CODE` zo `.env` (nastavuje ho obsluha pri inštalácii).
+ *
+ * Prečo to stačí: kód pokladne aj `ic_dph` zapísal do riadku ten istý Portos sync z tej istej
+ * identity. Ak riadok popisuje identitu, na ktorú je kasa nakonfigurovaná, jeho režim DPH je
+ * dôveryhodný aj bez ČERSTVÉHO syncu v tomto behu procesu.
+ *
+ * Prečo to NEZAKRÝVA nález [17]: presne v migračnom okne (kasa reštartovaná po prepnutí firmy,
+ * v DB ešte visí riadok PREDCHÁDZAJÚCEJ identity) sa kódy NEzhodujú → potvrdenie neplatí
+ * a `assertVatModeTrusted()` platbu zablokuje 503 namiesto vystavenia dokladu s 0 % DPH.
+ * Rovnako neplatí pri prázdnom profile (sync nikdy neprebehol) a pri rozpore so
+ * `.env POS_VAT_REGISTERED` (`mode.mismatch`).
+ *
+ * Dôvod existencie: bez tejto skratky by PRODUKČNÁ kasa neplatiteľa DPH začala na KAŽDEJ platbe
+ * vracať 503, kedykoľvek zlyhá Portos profile sync — čo je zmena správania pre neplatiteľa.
+ */
+function isVatModeIdentityConfirmed(mode) {
+  if (mode.mismatch) return false;
+  const envCode = String(getPortosConfig().cashRegisterCode || '').trim();
+  const profileCode = String(mode.cashRegisterCode || '').trim();
+  if (!envCode || !profileCode) return false;
+  return envCode === profileCode;
+}
+
+let warnedSyncSchedulerMissing = false;
+
+/**
+ * Profil sa nedá vyhlásiť za „nedôveryhodný, lebo sync zlyhal", keď sa sync v tomto procese
+ * ANI RAZ nespustil. `startPortosProfileSync()` volá `runPortosProfileSync()` synchrónne
+ * (portos-sync-job.js:141), takže na reálnom serveri je `attempts >= 1` skôr, než príde prvý
+ * HTTP request — táto vetva tam nikdy neplatí. Platí len v procesoch, ktoré plánovač vôbec
+ * nespúšťajú (integračné testy, jednorazové skripty), kde by inak gate zablokoval každú platbu.
+ */
+function isProfileSyncSchedulerMissing() {
+  const stats = getPortosProfileSyncStats();
+  const missing = stats.attempts === 0 && stats.lastSyncAt === null && !stats.lastError;
+  if (missing && !warnedSyncSchedulerMissing) {
+    warnedSyncSchedulerMissing = true;
+    console.warn(
+      '[VAT] Portos profile sync sa v tomto procese nikdy nespustil — gate režimu DPH je neaktívny. '
+      + 'Na serveri musí byť startPortosProfileSync() zavolaný pri štarte.',
+    );
+  }
+  return missing;
+}
 
 export async function createPaymentHandler(req, res) {
   const { orderId, method, amount } = req.body;
@@ -91,24 +141,39 @@ export async function createPaymentHandler(req, res) {
     }
   }
 
-  const vatRegistered = await isVatRegisteredBusiness();
-  if (vatRegistered) {
-    const unsupportedVatItems = orderContext.items.filter((item) => !isSupportedVatRate(item.vatRate));
-    if (unsupportedVatItems.length) {
-      const itemList = unsupportedVatItems
-        .map((item) => `${item.name} (${Number(item.vatRate).toFixed(2)}%)`)
-        .join(', ');
-      const errorDetail = `Portos podporuje iba sadzby DPH ${formatSupportedVatRates()}. Skontroluj polozky: ${itemList}`;
+  // Poradie je zámerné:
+  //   1) sadzby DPH validujeme LOKÁLNE — chybné menu nemá dôvod chodiť po sieti
+  //      a obsluha dostane presnú hlášku bez jediného requestu do Portosu;
+  //   2) až potom overíme dôveryhodnosť režimu DPH. Režim smie rozhodovať IBA
+  //      profil, ktorý bol v tomto behu naozaj potvrdený z Portosu (alebo
+  //      druhým zdrojom — .env POS_VAT_REGISTERED). Inak radšej 503 než doklad
+  //      s tichou 0 % DPH — spätne sa to nedá opraviť inak než storno + nový
+  //      doklad pre každý účet.
+  let vatMode = await getVatMode();
+  try {
+    if (vatMode.vatRegistered) assertSupportedVatRates(orderContext.items);
 
-      return res.status(400).json({
-        error: errorDetail,
-        fiscal: {
-          status: 'validation_error',
-          errorDetail,
-        },
-      });
+    // Skratky, aby sa NEZMENILO správanie neplatiteľa DPH: profil potvrdený `.env` kódom
+    // pokladne, resp. proces, ktorý profil-sync vôbec neplánuje. Migračné okno (starý riadok
+    // z predchádzajúcej identity / prázdny profil / rozpor s POS_VAT_REGISTERED) nimi neprejde.
+    if (
+      !vatMode.trusted
+      && !isVatModeIdentityConfirmed(vatMode)
+      && !isProfileSyncSchedulerMissing()
+    ) {
+      const trustedVatMode = await assertVatModeTrusted();
+      // Inline sync mohol profil prepnúť neplatiteľ→platiteľ — vtedy sadzby ešte
+      // kontrolované neboli, tak to doháňame teraz (stále pred fiškalizáciou).
+      if (trustedVatMode.vatRegistered && !vatMode.vatRegistered) {
+        assertSupportedVatRates(orderContext.items);
+      }
+      vatMode = trustedVatMode;
     }
+  } catch (error) {
+    if (error && error.status) return res.status(error.status).json(error.body);
+    throw error;
   }
+  const vatRegistered = vatMode.vatRegistered;
 
   const activeCashRegisterCode = await getActiveCashRegisterCode();
 

@@ -15,7 +15,8 @@ import assert from 'node:assert/strict';
 import supertest from 'supertest';
 
 import { app } from '../../app.js';
-import { closeDb, seed, truncateAll } from '../helpers/setup.js';
+import * as schema from '../../db/schema.js';
+import { closeDb, seed, testDb, truncateAll } from '../helpers/setup.js';
 import { tokens } from '../helpers/auth.js';
 
 app.set('io', { emit: () => {} });
@@ -29,6 +30,29 @@ function mockJsonResponse(status, body) {
     ok: status >= 200 && status < 300,
     text: async () => JSON.stringify(body),
   });
+}
+
+/**
+ * Identitu firmy vlastní Portos — do DB sa dostane IBA cez `runPortosProfileSync`
+ * alebo POST /sync-from-portos. Testy si ju preto sejú priamo, nie cez PUT:
+ * PUT je zámerne contact-only (nález [18]/[14] auditu).
+ */
+async function seedProfile(overrides = {}) {
+  await testDb.delete(schema.companyProfiles);
+  const [row] = await testDb.insert(schema.companyProfiles).values({
+    businessName: 'Surf Coffee s.r.o.',
+    ico: '12345678',
+    dic: '2023456789',
+    icDph: 'SK2023456789',
+    registeredAddress: 'Hlavna 15, 811 01 Bratislava',
+    branchName: 'Surf Coffee Eurovea',
+    branchAddress: 'Pribinova 8, 811 09 Bratislava',
+    cashRegisterCode: '88812345678900001',
+    contactPhone: '',
+    contactEmail: '',
+    ...overrides,
+  }).returning();
+  return row;
 }
 
 describe('company profile routes', () => {
@@ -52,36 +76,118 @@ describe('company profile routes', () => {
     await closeDb();
   });
 
-  it('allows manager to save and load company profile from the server', async () => {
-    const payload = {
-      businessName: 'Surf Coffee s.r.o.',
-      ico: '12345678',
-      dic: '2023456789',
-      icDph: 'SK2023456789',
-      registeredAddress: 'Hlavna 15, 811 01 Bratislava',
-      branchName: 'Surf Coffee Eurovea',
-      branchAddress: 'Pribinova 8, 811 09 Bratislava',
-      cashRegisterCode: '88812345678900001',
-      contactPhone: '+421900123456',
-      contactEmail: 'manager@surf.sk',
-    };
+  it('allows manager to save and load contact details from the server', async () => {
+    await seedProfile();
 
     const saveRes = await request
       .put('/api/company-profile')
       .set('Authorization', `Bearer ${tokens.manazer()}`)
-      .send(payload);
+      .send({ contactPhone: '+421900123456', contactEmail: 'manager@surf.sk' });
 
     assert.equal(saveRes.status, 200);
-    assert.equal(saveRes.body.businessName, payload.businessName);
+    assert.equal(saveRes.body.contactPhone, '+421900123456');
+    assert.equal(saveRes.body.contactEmail, 'manager@surf.sk');
+    // Identita sa uložením kontaktov nesmie ani dotknúť.
+    assert.equal(saveRes.body.businessName, 'Surf Coffee s.r.o.');
+    assert.equal(saveRes.body.icDph, 'SK2023456789');
+    assert.equal(saveRes.body.cashRegisterCode, '88812345678900001');
 
     const getRes = await request
       .get('/api/company-profile')
       .set('Authorization', `Bearer ${tokens.cisnik()}`);
 
     assert.equal(getRes.status, 200);
-    assert.equal(getRes.body.businessName, payload.businessName);
-    assert.equal(getRes.body.branchName, payload.branchName);
-    assert.equal(getRes.body.cashRegisterCode, payload.cashRegisterCode);
+    assert.equal(getRes.body.contactPhone, '+421900123456');
+    assert.equal(getRes.body.contactEmail, 'manager@surf.sk');
+    assert.equal(getRes.body.businessName, 'Surf Coffee s.r.o.');
+    assert.equal(getRes.body.branchName, 'Surf Coffee Eurovea');
+    assert.equal(getRes.body.cashRegisterCode, '88812345678900001');
+  });
+
+  // Nález [18]/[14]: admin UI posielalo pri KAŽDOM uložení Nastavení celý
+  // profil z readonly inputov. Keď GET /company-profile predtým zlyhal (503),
+  // ostali naplnené z localStorage DEFAULTS — icDph:'' + dummy kód pokladne.
+  // Taký payload ticho prepol POS na neplatiteľa DPH (forceZeroVat=true)
+  // a razil na neexistujúci DKP. Server to teraz musí ignorovať.
+  it('PUT s prazdnym icDph a cudzim cashRegisterCode NEPREPISE ulozenu identitu', async () => {
+    await seedProfile({
+      businessName: 'SL management, s.r.o.',
+      ico: '54588481',
+      dic: '2121741842',
+      icDph: 'SK2121741842',
+      cashRegisterCode: '88821217418420001',
+      contactPhone: '+421900111222',
+      contactEmail: 'stary@sl.sk',
+    });
+
+    const res = await request
+      .put('/api/company-profile')
+      .set('Authorization', `Bearer ${tokens.manazer()}`)
+      .send({
+        // Presne to, čo posielalo stale admin UI z localStorage DEFAULTS.
+        businessName: '',
+        ico: '',
+        dic: '',
+        icDph: '',
+        registeredAddress: '',
+        branchName: '',
+        branchAddress: '',
+        cashRegisterCode: '88812345678900001',
+        contactPhone: '+421905999888',
+        contactEmail: 'novy@sl.sk',
+      });
+
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+
+    // 1) Identita ostala nedotknutá — v odpovedi aj v DB.
+    for (const body of [res.body, (await request
+      .get('/api/company-profile')
+      .set('Authorization', `Bearer ${tokens.cisnik()}`)).body]) {
+      assert.equal(body.icDph, 'SK2121741842', 'IČ DPH sa NESMIE vymazať');
+      assert.equal(body.cashRegisterCode, '88821217418420001', 'kód pokladne sa NESMIE prepísať');
+      assert.equal(body.businessName, 'SL management, s.r.o.');
+      assert.equal(body.ico, '54588481');
+      assert.equal(body.dic, '2121741842');
+      assert.equal(body.branchName, 'Surf Coffee Eurovea');
+      assert.equal(body.registeredAddress, 'Hlavna 15, 811 01 Bratislava');
+      assert.equal(body.branchAddress, 'Pribinova 8, 811 09 Bratislava');
+    }
+
+    // 2) Kontakty sa naopak uložiť MUSIA — inak by bol PUT úplne mŕtvy.
+    assert.equal(res.body.contactPhone, '+421905999888');
+    assert.equal(res.body.contactEmail, 'novy@sl.sk');
+
+    // 3) Ani jeden riadok navyše (route nesmie insertnúť druhý profil).
+    const rows = await testDb.select().from(schema.companyProfiles);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].icDph, 'SK2121741842');
+    assert.equal(rows[0].cashRegisterCode, '88821217418420001');
+  });
+
+  it('PUT bez existujuceho profilu zalozi riadok s kontaktmi a PRAZDNOU identitou', async () => {
+    // Prázdna DB (truncate v beforeEach). Identitu doplní až Portos sync —
+    // klientsky payload ju sem nesmie prepašovať ani cez insert vetvu.
+    const res = await request
+      .put('/api/company-profile')
+      .set('Authorization', `Bearer ${tokens.admin()}`)
+      .send({
+        icDph: 'SK9999999999',
+        cashRegisterCode: '99912345678900001',
+        businessName: 'Podvrh s.r.o.',
+        contactPhone: '+421911000000',
+        contactEmail: 'kontakt@test.sk',
+      });
+
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(res.body.contactPhone, '+421911000000');
+    assert.equal(res.body.contactEmail, 'kontakt@test.sk');
+    assert.equal(res.body.icDph, '', 'identita nesmie prist z tela requestu');
+    assert.equal(res.body.cashRegisterCode, '');
+    assert.equal(res.body.businessName, '');
+
+    const [row] = await testDb.select().from(schema.companyProfiles);
+    assert.equal(row.icDph, '');
+    assert.equal(row.cashRegisterCode, '');
   });
 
   it('rejects company profile updates for cisnik', async () => {
@@ -101,19 +207,7 @@ describe('company profile routes', () => {
   });
 
   it('returns read-only comparison between local company profile and Portos identity', async () => {
-    await request
-      .put('/api/company-profile')
-      .set('Authorization', `Bearer ${tokens.admin()}`)
-      .send({
-        businessName: 'Surf Coffee s.r.o.',
-        ico: '12345678',
-        dic: '2023456789',
-        icDph: 'SK2023456789',
-        registeredAddress: 'Hlavna 15, 811 01 Bratislava',
-        branchName: 'Surf Coffee Eurovea',
-        branchAddress: 'Pribinova 8, 811 09 Bratislava',
-        cashRegisterCode: '88812345678900001',
-      });
+    await seedProfile();
 
     global.fetch = async (url) => {
       const target = String(url);
@@ -173,21 +267,19 @@ describe('company profile routes', () => {
   });
 
   it('manager sync-from-portos overwrites company profile from Portos identity', async () => {
-    await request
-      .put('/api/company-profile')
-      .set('Authorization', `Bearer ${tokens.admin()}`)
-      .send({
-        businessName: 'Stara Test s.r.o.',
-        ico: '11111111',
-        dic: '2021111111',
-        icDph: 'SK2021111111',
-        registeredAddress: 'Stara 1',
-        branchName: 'Pobocka Stara',
-        branchAddress: 'Stara 2',
-        cashRegisterCode: '11111111111111111',
-        contactPhone: '+421911111111',
-        contactEmail: 'stary@test.sk',
-      });
+    // Starú identitu sejeme priamo — PUT ju (správne) zapísať nevie.
+    await seedProfile({
+      businessName: 'Stara Test s.r.o.',
+      ico: '11111111',
+      dic: '2021111111',
+      icDph: 'SK2021111111',
+      registeredAddress: 'Stara 1',
+      branchName: 'Pobocka Stara',
+      branchAddress: 'Stara 2',
+      cashRegisterCode: '11111111111111111',
+      contactPhone: '+421911111111',
+      contactEmail: 'stary@test.sk',
+    });
 
     global.fetch = async (url) => {
       const target = String(url);
@@ -247,21 +339,18 @@ describe('company profile routes', () => {
   });
 
   it('GET /api/company-profile?refresh=1 syncs Portos identity for cisnik', async () => {
-    await request
-      .put('/api/company-profile')
-      .set('Authorization', `Bearer ${tokens.admin()}`)
-      .send({
-        businessName: 'Stara Test s.r.o.',
-        ico: '11111111',
-        dic: '2021111111',
-        icDph: 'SK2021111111',
-        registeredAddress: 'Stara 1',
-        branchName: 'Pobocka Stara',
-        branchAddress: 'Stara 2',
-        cashRegisterCode: '11111111111111111',
-        contactPhone: '+421911111111',
-        contactEmail: 'stary@test.sk',
-      });
+    await seedProfile({
+      businessName: 'Stara Test s.r.o.',
+      ico: '11111111',
+      dic: '2021111111',
+      icDph: 'SK2021111111',
+      registeredAddress: 'Stara 1',
+      branchName: 'Pobocka Stara',
+      branchAddress: 'Stara 2',
+      cashRegisterCode: '11111111111111111',
+      contactPhone: '+421911111111',
+      contactEmail: 'stary@test.sk',
+    });
 
     global.fetch = async (url) => {
       const target = String(url);

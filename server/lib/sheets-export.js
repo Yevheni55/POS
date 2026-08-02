@@ -61,6 +61,12 @@ async function fetchSummary(from, to) {
   let payload = null;
   await summaryHandler({ query: { from, to } }, { json: (b) => { payload = b; } });
   if (!payload) throw new Error('summaryHandler nevrátil dáta');
+  // Keď sa nepodarilo zistiť režim DPH, summary počíta brutto (ako neplatiteľ).
+  // Taký P&L sa do sheetu NESMIE zapísať — prepísal by správne čísla nesprávnymi
+  // a cron by to zopakoval každý deň. Radšej necháme sheet nezmenený.
+  if (payload.vatModeError) {
+    throw new Error('Režim DPH sa nepodarilo overiť — sheet nezapisujem: ' + payload.vatModeError);
+  }
   return payload;
 }
 
@@ -71,28 +77,52 @@ async function fetchSummary(from, to) {
  * žiadne locale parsovanie).
  */
 export function buildSheetValues(d, { from, to, updatedAt }) {
-  const pct = (v) => d.totalRevenue > 0 ? (v / d.totalRevenue * 100).toFixed(1) + ' %' : '—';
+  // U PLATITEĽA DPH nie je daň na výstupe príjmom firmy — percentá aj VÝSLEDOK
+  // sa musia počítať zo základu dane, nie z brutto tržby. U neplatiteľa je
+  // `vatRegistered` false, žiadne DPH riadky nepribudnú a sheet je bajt-identický.
+  const isVatPayer = d.vatRegistered === true;
+  const base = isVatPayer ? d.totalRevenueNet : d.totalRevenue;
+  const pct = (v) => base > 0 ? (v / base * 100).toFixed(1) + ' %' : '—';
   const rows = [];
 
   rows.push([`SurfSpirit — Sezóna ${from.slice(0, 4)} (${fmtDateSk(from)} – ${fmtDateSk(to)})`]);
-  rows.push([`Automaticky aktualizované ${updatedAt} · zdroj: report Sezóna (tržby = fiškálne platby + shisha + odpis; výsledok = tržby − výroba − mzdy − zam. spotreba)`]);
+  rows.push([isVatPayer
+    ? `Automaticky aktualizované ${updatedAt} · zdroj: report Sezóna (tržby bez DPH = fiškálne platby − DPH na výstupe + shisha + odpis; výsledok = tržby bez DPH − výroba − mzdy − zam. spotreba; % sú z tržieb bez DPH). Shisha a odpis cez eKasu neprešli, DPH nenesú. Mesačné aj denné riadky sú TIEŽ bez DPH, aby riadok vychádzal.`
+    : `Automaticky aktualizované ${updatedAt} · zdroj: report Sezóna (tržby = fiškálne platby + shisha + odpis; výsledok = tržby − výroba − mzdy − zam. spotreba)`]);
   rows.push([]);
 
-  rows.push(['SÚHRN ZA SEZÓNU', '€', '% z tržieb']);
+  rows.push(['SÚHRN ZA SEZÓNU', '€', isVatPayer ? '% z tržieb bez DPH' : '% z tržieb']);
   rows.push(['Celkové tržby', d.totalRevenue, '', `z toho odpis ${d.totalOdpis} €, shisha ${d.shisha.revenue} €`]);
+  if (isVatPayer) {
+    rows.push(['z toho DPH (odvod štátu)', d.totalVatOutput, '', (d.vat?.byRate || [])
+      .map(r => `${r.vatRate} %: ${r.amount} €`).join(', ')]);
+    rows.push(['Tržby bez DPH (základ dane)', d.totalRevenueNet, '', 'podklad pre maržu aj priznanie DPH']);
+  }
   rows.push(['Náklady na výrobu', d.totalCogs, pct(d.totalCogs), 'suroviny podľa receptúr']);
   rows.push(['Mzdy', d.totalLabor, pct(d.totalLabor), 'dochádzka × hodinovka']);
   rows.push(['Zamestnanecká spotreba', d.totalStaffMeal, pct(d.totalStaffMeal), 'suroviny staff meals']);
   rows.push(['VÝSLEDOK', d.totalProfit, pct(d.totalProfit) + ' marža']);
   rows.push([]);
 
-  rows.push(['PO MESIACOCH', 'Tržby', 'Výroba', 'Mzdy', 'Zam. spotreba', 'Výsledok', 'Aktívnych dní']);
+  // Tržba denného/mesačného riadku musí stáť na ROVNAKOM základe ako jeho
+  // Výsledok (ten je od auditu [09] netto), inak riadok „Tržby − náklady"
+  // nevychádza. U neplatiteľa je `revenueNet` bit-identické s `revenue`
+  // (summary.js ho počíta rovnakým výrazom s faktorom 1), takže sheet ostáva
+  // nezmenený. `?? r.revenue` chráni pred starším payloadom bez tohto poľa.
+  const dayRevenue = (r) => {
+    if (!isVatPayer) return r.revenue;
+    const net = Number(r.revenueNet);
+    return Number.isFinite(net) ? net : r.revenue;
+  };
+  const revenueHeader = isVatPayer ? 'Tržby bez DPH' : 'Tržby';
+
+  rows.push(['PO MESIACOCH', revenueHeader, 'Výroba', 'Mzdy', 'Zam. spotreba', 'Výsledok', 'Aktívnych dní']);
   const months = {};
   for (const r of d.daily) {
     const k = r.date.slice(0, 7);
     months[k] ??= { rev: 0, cogs: 0, labor: 0, sm: 0, profit: 0, dni: 0 };
     const m = months[k];
-    m.rev += r.revenue; m.cogs += r.cogs; m.labor += r.labor;
+    m.rev += dayRevenue(r); m.cogs += r.cogs; m.labor += r.labor;
     m.sm += r.staffMeal; m.profit += r.profit;
     if (r.revenue > 0) m.dni++;
   }
@@ -113,11 +143,12 @@ export function buildSheetValues(d, { from, to, updatedAt }) {
   rows.push([]);
 
   rows.push(['PO DŇOCH']);
-  rows.push(['Dátum', 'Deň', 'Účty', 'Tržby', 'Výroba', 'Mzdy', 'Zam. spotreba', 'Výsledok']);
+  rows.push(['Dátum', 'Deň', 'Účty', revenueHeader, 'Výroba', 'Mzdy', 'Zam. spotreba', 'Výsledok']);
   const sum = { orders: 0, revenue: 0, cogs: 0, labor: 0, staffMeal: 0, profit: 0 };
   for (const r of d.daily) {
-    rows.push([fmtDateSk(r.date), weekdaySk(r.date), r.orders, r.revenue, r.cogs, r.labor, r.staffMeal, r.profit]);
-    for (const k of Object.keys(sum)) sum[k] += r[k] || 0;
+    const rev = dayRevenue(r);
+    rows.push([fmtDateSk(r.date), weekdaySk(r.date), r.orders, rev, r.cogs, r.labor, r.staffMeal, r.profit]);
+    for (const k of Object.keys(sum)) sum[k] += (k === 'revenue' ? (rev || 0) : (r[k] || 0));
   }
   rows.push(['SPOLU (bez shisha)', '', sum.orders, roundMoney(sum.revenue), roundMoney(sum.cogs),
     roundMoney(sum.labor), roundMoney(sum.staffMeal), roundMoney(sum.profit)]);

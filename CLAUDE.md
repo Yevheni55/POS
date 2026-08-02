@@ -31,11 +31,38 @@ motion). PIN pady cez `ui/components/PinPad.kt`, toasty cez `LocalToast`
 
 ## Deploy flow
 
+### KROK 0 — migrácia DB IDE VŽDY PRED KÓDOM
+
+Schéma sa na kase mení **ručne**; migračné SQL žije v trackovanom
+`server/db/migrations/` (nie v `tmp/`, to je gitignorované — pozri
+`server/db/migrations/README.md`).
+
+Drizzle dáva každý stĺpec zo `server/db/schema.js` do **každého** SELECTu nad tou
+tabuľkou. Ak sa nasadí kód skôr než SQL, endpoint spadne na
+`column "…" does not exist` a **kasa nenabehne** (napr.
+`menu_categories.default_vat_rate` → GET `/api/menu` = 500).
+
 ```sh
-# Lokálne zmeny → kasa
+# 1) migrácia NA KASU (Docker) — najprv nahrať, potom pustiť v kontajneri
+scp server/db/migrations/2026-08-01-vat-payer.sql surfs@100.95.64.38:C:/POS/
+ssh surfs@100.95.64.38 "docker cp C:\POS\2026-08-01-vat-payer.sql pos-db-1:/tmp/ && \
+  docker exec pos-db-1 psql -U pos -d pos -v ON_ERROR_STOP=1 -f /tmp/2026-08-01-vat-payer.sql"
+
+# 2) overenie, že stĺpec naozaj existuje (musí vypísať 1)
+ssh surfs@100.95.64.38 "docker exec pos-db-1 psql -U pos -d pos -tAc \
+  \"SELECT count(*) FROM information_schema.columns WHERE table_name = \$\$menu_categories\$\$ AND column_name = \$\$default_vat_rate\$\$\""
+```
+
+Deploy skript to kontroluje sám (`Gate 3/4`) a bez migrácie **odmietne** nasadiť.
+Núdzový obchvat `DEPLOY_SKIP_DB_CHECK=1` používaj len keď vieš, že migrácia bežala.
+
+### KROK 1 — kód
+
+```sh
+# Lokálne zmeny → kasa (brány: čistý strom, node --check, DB migrácia, testy)
 DEPLOY_HOST=surfs@100.95.64.38 bash scripts/deploy-tailscale-pos.sh
 
-# Sklad / DB SQL
+# Ad-hoc / jednorazové SQL (sklad, opravy dát) — NIE zmeny schémy
 ssh surfs@100.95.64.38 "docker cp tmp/X.sql pos-db-1:/tmp/ && docker exec pos-db-1 psql -U pos -d pos -f /tmp/X.sql"
 
 # Webka (surfspirit.sk)
@@ -45,6 +72,18 @@ bash scripts/sync-pos-to-neon.sh                  # menu DB sync
 # Commit + push
 git push origin HEAD:main                         # branch tracks main
 ```
+
+### KROK 2 — overenie po nasadení
+
+```sh
+ssh surfs@100.95.64.38 "docker logs --tail 80 pos-app-1"   # [Portos] VAT mode, [migrations] …
+curl -s http://100.95.64.38:3080/api/health | head -40      # fiscal.profileSync.trusted
+```
+
+Server po štarte **nečaká** na Portos (`listen()` ide hneď, profile sync beží na
+pozadí) — fiškálne endpointy si dôveryhodnosť profilu strážia samy cez
+`assertVatModeTrusted()`. Ak sa v logu objaví `[migrations] CHÝBA stĺpec …`,
+migrácia z KROKU 0 nebežala.
 
 ## Štruktúra
 

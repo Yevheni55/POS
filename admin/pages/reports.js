@@ -138,6 +138,7 @@ function renderStats(data) {
                 : 'var(--color-text-sec, #94a3b8)';
     statValues[7].innerHTML = '<span style="color:' + color + '">' + fmtEur(v) + '</span>';
   }
+  renderVatSplit(data);
   // Predané burgery — počet kusov (4 burgery + 4 combá dokopy) za obdobie.
   if (data.burgersSold !== undefined && statValues[8]) {
     statValues[8].textContent = data.burgersSold;
@@ -147,6 +148,38 @@ function renderStats(data) {
   // Výsledku. Index 9 = posledná karta v hlavnom KPI gride.
   if (data.totalOdpis !== undefined && statValues[9]) {
     statValues[9].innerHTML = fmtEur(data.totalOdpis);
+  }
+}
+
+// DPH rozpad + marža zo základu dane. Zobrazí sa LEN platiteľovi
+// (data.vatRegistered === true). U neplatiteľa je totalRevenueNet zhodné
+// s totalRevenue, obidva riadky ostanú skryté a karty vyzerajú ako doteraz.
+function renderVatSplit(data) {
+  const vatNote = $('#statVatNote');
+  const marginNote = $('#statProfitMargin');
+  const hasNet = !!(data && data.vatRegistered === true
+    && data.totalRevenueNet !== null && data.totalRevenueNet !== undefined
+    && Number.isFinite(Number(data.totalRevenueNet)));
+
+  if (!hasNet) {
+    if (vatNote) { vatNote.style.display = 'none'; vatNote.textContent = ''; }
+    if (marginNote) { marginNote.style.display = 'none'; marginNote.textContent = ''; }
+    return;
+  }
+
+  const gross = Number(data.totalRevenue) || 0;
+  const net = Number(data.totalRevenueNet) || 0;
+  const vat = Number.isFinite(Number(data.totalVatOutput)) ? Number(data.totalVatOutput) : (gross - net);
+
+  if (vatNote) {
+    vatNote.style.display = '';
+    vatNote.textContent = 'z toho DPH na odvod ' + fmtEur(vat) + ' · zaklad dane ' + fmtEur(net);
+  }
+  if (marginNote) {
+    const profit = Number(data.totalProfit) || 0;
+    const pct = net > 0 ? (profit / net) * 100 : 0;
+    marginNote.style.display = '';
+    marginNote.textContent = pct.toFixed(1) + ' % marza zo zakladu dane';
   }
 }
 
@@ -1191,6 +1224,9 @@ const TEMPLATE = `
       <div class="stat-info">
         <div class="stat-label">Celkove trzby</div>
         <div class="stat-value">-- &euro;</div>
+        <!-- Rozpad DPH sa zobrazi len ked je firma platitel (server posle
+             totalRevenueNet). U neplatitela ostava karta nezmenena. -->
+        <div class="stat-change neutral" id="statVatNote" style="display:none"></div>
       </div>
     </div>
     <div class="stat-card">
@@ -1263,6 +1299,7 @@ const TEMPLATE = `
       <div class="stat-info">
         <div class="stat-label">Vysledok</div>
         <div class="stat-value">-- &euro;</div>
+        <div class="stat-change neutral" id="statProfitMargin" style="display:none"></div>
       </div>
     </div>
     <!-- Predane burgery — pocet kusov (4 burgery + 4 comba dokopy, bez

@@ -112,7 +112,124 @@ process.on('unhandledRejection', (err) => {
 process.on('SIGTERM', () => { logCrash('SIGNAL', new Error('SIGTERM')); process.exit(0); });
 process.on('SIGINT', () => { logCrash('SIGNAL', new Error('SIGINT')); process.exit(0); });
 
-httpServer.listen(PORT, () => {
+// Portos profil pri štarte — NA POZADÍ, nie pred `listen()`.
+//
+// História: pôvodne sa prvý profile sync spúšťal až po tom, čo server začal
+// obsluhovať requesty — prvá platba po reštarte išla so STARÝM kódom pokladne
+// a starým režimom DPH z `company_profiles`. Oprava to otočila a na sync sa
+// ČAKALO pred `listen()` s tvrdým stropom 12 s.
+//
+// Lenže to čakanie robí z mŕtveho Portosu mŕtvu kasu: keď Portos nebeží alebo
+// (horšie) zahadzuje pakety, `getStatus()` visí do fetch timeoutu a port 3080
+// až 12 s vôbec nepočúva. Čašník po deployi / výpadku prúdu dostane „server
+// nedostupný" a nevie ani otvoriť účet, hoci s fiškálom to nemá nič spoločné.
+//
+// Teraz: `startPortosProfileSync()` sa zavolá SYNCHRÓNNE (takže `attempts >= 1`
+// skôr, než príde prvý HTTP request — `isProfileSyncSchedulerMissing()`
+// v lib/payments/create.js sa nesmie nachytať, že plánovač nebeží), server
+// hneď počúva a na výsledok syncu sa už len pozerá na pozadí.
+//
+// Prečo je to bezpečné: nepotvrdený profil BLOKUJE fiškálne cesty aj tak —
+// `assertVatModeTrusted()` v lib/payments/create.js a routes/paragons.js vráti
+// 503, kým profil nie je dôveryhodný. Gate teda ostáva na úrovni PLATBY, kam
+// patrí; nefiškálne veci (login, menu, objednávky, dochádzka) nemajú dôvod
+// čakať na Portos.
+//
+// PORTOS_BOOT_SYNC_MS (default 12000) už neblokuje `listen()`, iba hovorí,
+// po akom čase sa má do logu vypísať varovanie, že boot sync ešte neprešiel.
+// 0 = žiadne varovanie.
+const BOOT_PROFILE_SYNC_MS = (() => {
+  const raw = Number.parseInt(process.env.PORTOS_BOOT_SYNC_MS ?? '12000', 10);
+  return Number.isFinite(raw) && raw >= 0 ? raw : 12000;
+})();
+
+/** Dočká promise, ale najviac `ms` — potom pokračuje a nechá ho dobehnúť na pozadí. */
+function withDeadline(promise, ms) {
+  let timer = null;
+  const deadline = new Promise((resolve) => {
+    timer = setTimeout(() => resolve({ ok: false, error: `boot deadline ${ms} ms` }), ms);
+    if (timer.unref) timer.unref();
+  });
+  return Promise.race([promise, deadline]).finally(() => { if (timer) clearTimeout(timer); });
+}
+
+/**
+ * Spustí prvý profile sync. Volá sa SYNCHRÓNNE pred `listen()` —
+ * `startPortosProfileSync()` interne rozbehne `runPortosProfileSync()` hneď,
+ * takže počítadlo pokusov je nenulové skôr, než príde prvý request.
+ * Vracia promise s diagnostikou, na ktorý sa ZÁMERNE nečaká.
+ */
+function kickOffPortosProfileSync(pc) {
+  if (!isPortosEnabled()) return Promise.resolve();
+
+  // `startPortosProfileSync()` spustí PRVÝ sync a naplánuje ďalšie; následné
+  // `runPortosProfileSync()` sa vďaka `syncInFlight` pripojí na TEN ISTÝ beh,
+  // takže sa Portosu pri štarte pýtame presne raz.
+  startPortosProfileSync();
+
+  return (async () => {
+    if (BOOT_PROFILE_SYNC_MS > 0) {
+      const result = await withDeadline(
+        runPortosProfileSync().catch((e) => ({ ok: false, error: e?.message || String(e) })),
+        BOOT_PROFILE_SYNC_MS,
+      );
+      if (!result || result.ok !== true) {
+        console.warn(
+          `[Portos] Boot profile sync NEPREŠIEL (${result?.error || 'unknown'}) — ` +
+          'kód pokladne a režim DPH môžu byť zastarané. Fiškálne endpointy blokujú, kým sa profil nepotvrdí. ' +
+          'Sync sa opakuje na pozadí (15/30/60 s).',
+        );
+      }
+    }
+
+    try {
+      const activeCode = await getActiveCashRegisterCode();
+      const envCode = pc.cashRegisterCode;
+      const matches = envCode && envCode === activeCode;
+      console.log(
+        `[Portos] Active cash register = ${activeCode || '(none)'}${envCode ? ` | .env = ${envCode}${matches ? ' (match)' : ' (MISMATCH)'}` : ''}`,
+      );
+      const vatRegistered = await isVatRegisteredBusiness();
+      console.log(
+        `[Portos] VAT mode = ${vatRegistered ? 'registered (IC DPH present, menu VAT rates used)' : 'NON-REGISTERED (no IC DPH, all receipt items forced to vatRate=0)'}`,
+      );
+    } catch (error) {
+      // isVatRegisteredBusiness() je fail-closed a pri chybe DB hodí — boot
+      // kvôli diagnostickému logu nepadá.
+      console.warn(`[Portos] Diagnostika profilu zlyhala: ${error?.message || error}`);
+    }
+  })().catch((error) => {
+    console.warn(`[Portos] Boot profile sync (pozadie) zlyhal: ${error?.message || error}`);
+  });
+}
+
+/**
+ * Migrácie schémy sa na kase púšťajú RUČNE (server/db/migrations/, viď CLAUDE.md
+ * → Deploy flow). Keď sa poradie otočí a kód pôjde pred SQL, drizzle začne pýtať
+ * stĺpec, ktorý v DB nie je, a KAŽDÝ `SELECT ... FROM menu_categories` (teda aj
+ * GET /api/menu) skončí 500-kou. Bez tohto logu to vyzerá ako náhodný pád appky.
+ *
+ * Zámerne NEZHADZUJE boot: zvyšok kasy (dochádzka, staré účty) beží ďalej a
+ * majiteľ potrebuje presnú vetu, čo dopustiť.
+ */
+async function warnOnMissingMigrations() {
+  try {
+    const r = await db.execute(sql`
+      SELECT count(*)::int AS n FROM information_schema.columns
+       WHERE table_name = 'menu_categories' AND column_name = 'default_vat_rate'`);
+    if (Number(r.rows?.[0]?.n ?? 0) === 0) {
+      console.error(
+        '[migrations] CHÝBA stĺpec menu_categories.default_vat_rate — GET /api/menu bude vracať 500. '
+        + 'Na kase pusti: docker cp server/db/migrations/2026-08-01-vat-payer.sql pos-db-1:/tmp/ '
+        + '&& docker exec pos-db-1 psql -U pos -d pos -v ON_ERROR_STOP=1 -f /tmp/2026-08-01-vat-payer.sql',
+      );
+    }
+  } catch (error) {
+    console.warn(`[migrations] kontrolu schémy sa nepodarilo spustiť: ${error?.message || error}`);
+  }
+}
+
+function onHttpListening() {
   const msg = `[${new Date().toISOString()}] Server started on port ${PORT}\n`;
   fs.appendFileSync(LOG_FILE, msg);
   const loginUrl = `http://localhost:${PORT}/login.html`;
@@ -121,10 +238,6 @@ httpServer.listen(PORT, () => {
   if (Number(PORT) !== 3000) {
     console.log('(If http://localhost:3000 shows 404, another app is using port 3000 — use the URL above.)');
   }
-  const pc = getPortosConfig();
-  console.log(
-    `[Portos] Fiscal integration ${isPortosEnabled() ? 'ENABLED' : 'DISABLED'} | PORTOS_BASE_URL=${pc.baseUrl} | cashRegister=${pc.cashRegisterCode}`,
-  );
   startIdempotencyCleanup();
   startPrintQueue();
   // Keep-alive — drzi tlaciarne prebudene (žiadny 2-3s wake-up delay pri Send)
@@ -143,30 +256,35 @@ httpServer.listen(PORT, () => {
   // auto-close zmien, aby včerajšie mzdy boli uzavreté). Bez SHEETS_EXPORT_URL
   // v .env sa iba zaloguje "disabled".
   startSheetsExportCron();
-  if (isPortosEnabled()) {
-    startPortosProfileSync();
-    runPortosProfileSync({ timeoutMs: 12000 })
-      .then(async () => {
-        const activeCode = await getActiveCashRegisterCode();
-        const envCode = pc.cashRegisterCode;
-        const matches = envCode && envCode === activeCode;
-        console.log(
-          `[Portos] Active cash register = ${activeCode || '(none)'}${envCode ? ` | .env = ${envCode}${matches ? ' (match)' : ' (MISMATCH)'}` : ''}`,
-        );
-        const vatRegistered = await isVatRegisteredBusiness();
-        console.log(
-          `[Portos] VAT mode = ${vatRegistered ? 'registered (IC DPH present, menu VAT rates used)' : 'NON-REGISTERED (no IC DPH, all receipt items forced to vatRate=0)'}`,
-        );
-      })
-      .catch(() => { /* sync error already logged */ });
-  }
-});
-
-if (httpsServer) {
-  httpsServer.listen(HTTPS_PORT, () => {
-    console.log(`POS HTTPS running on https://localhost:${HTTPS_PORT}`);
-  });
 }
+
+async function bootstrap() {
+  const pc = getPortosConfig();
+  console.log(
+    `[Portos] Fiscal integration ${isPortosEnabled() ? 'ENABLED' : 'DISABLED'} | PORTOS_BASE_URL=${pc.baseUrl} | cashRegister=${pc.cashRegisterCode || '(none)'}`,
+  );
+
+  // Sync sa MUSÍ rozbehnúť pred `listen()` (aby gate režimu DPH v payments/create.js
+  // vedel, že plánovač beží), ale NEČAKÁ sa naň — inak mŕtvy Portos = mŕtva kasa.
+  // Identitu firmy si pred prvým dokladom vypýta `assertVatModeTrusted()`.
+  kickOffPortosProfileSync(pc);
+
+  // Diagnostika chýbajúcej migrácie, tiež na pozadí — nesmie zdržať `listen()`.
+  warnOnMissingMigrations();
+
+  httpServer.listen(PORT, onHttpListening);
+
+  if (httpsServer) {
+    httpsServer.listen(HTTPS_PORT, () => {
+      console.log(`POS HTTPS running on https://localhost:${HTTPS_PORT}`);
+    });
+  }
+}
+
+bootstrap().catch((error) => {
+  logCrash('BOOTSTRAP_FAILED', error instanceof Error ? error : new Error(String(error)));
+  process.exit(1);
+});
 
 // Daily auto-close: at 04:00 Europe/Bratislava we close any shift that
 // crossed midnight without a clock_out. Without this, one forgotten

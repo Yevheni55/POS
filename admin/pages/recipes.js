@@ -9,8 +9,36 @@ let activeFilter = 'all';
 let searchQuery = '';
 let recipeSummary = {}; // menuItemId -> ingredient count
 let salesByMenu = {};   // menuItemId -> soldQty (od začiatku sezóny)
+let vatPayer = false;   // odvodené z company_profiles.ic_dph
 let _container = null;
 let _escHandler = null;
+
+// Food cost % a marža sa musia rátať proti cene BEZ DPH: cost_per_unit
+// surovín sa zadáva netto (admin/pages/purchase-orders.js to výslovne
+// prikazuje), takže brutto menu cena posúva prahy (zelená <30 %, amber
+// 30–35 %, červená >35 %) až o faktor 1,23.
+// U NEPLATITEĽA vraciame cenu nezmenenú — správanie ostáva bit-identické.
+function netBase(item, price) {
+  var p = Number(price) || 0;
+  if (!vatPayer) return p;
+  var rate = parseFloat(item && item.vatRate);
+  if (!Number.isFinite(rate) || rate <= 0) return p;
+  return p / (1 + rate / 100);
+}
+
+function vatNote() {
+  return vatPayer ? ' bez DPH' : '';
+}
+
+async function loadVatMode() {
+  try {
+    var profile = await api.getCompanyProfile();
+    vatPayer = String((profile && profile.icDph) || '').trim().length > 0;
+  } catch (_) {
+    // Fail-safe: bez profilu sa správame ako neplatiteľ, teda ako doteraz.
+    vatPayer = false;
+  }
+}
 
 // Slovak diacritic-fold for search ('cesnak' matches 'česnak'; 'maso' matches 'mäso').
 function _foldDia(s) {
@@ -248,14 +276,15 @@ function renderItemList() {
       // zelená < 30 %, amber 30-35 %, červená > 35 %.
       var foodCostBadge = '';
       if (count > 0 && foodCost > 0) {
-        var pct = (price > 0) ? (foodCost / price) * 100 : 0;
+        var netPrice = netBase(item, price);
+        var pct = (netPrice > 0) ? (foodCost / netPrice) * 100 : 0;
         var fcColor;
         if (pct === 0) fcColor = 'background:rgba(255,255,255,.06);color:var(--color-text-dim)';
         else if (pct < 30) fcColor = 'background:rgba(34,197,94,.15);color:#22c55e';
         else if (pct < 35) fcColor = 'background:rgba(245,158,11,.15);color:#f59e0b';
         else fcColor = 'background:rgba(239,68,68,.18);color:#ef4444';
-        var pctLabel = (price > 0) ? ' · ' + pct.toFixed(0) + '%' : '';
-        foodCostBadge = '<span title="Food cost na 1 porciu (' + (price>0?(pct.toFixed(1)+'% z ceny ' + fmtCost(price) + '€'):'cena 0') + ')"'
+        var pctLabel = (netPrice > 0) ? ' · ' + pct.toFixed(0) + '%' : '';
+        foodCostBadge = '<span title="Food cost na 1 porciu (' + (netPrice>0?(pct.toFixed(1)+'% z ceny' + vatNote() + ' ' + fmtCost(netPrice) + '€'):'cena 0') + ')"'
           + ' style="margin-left:6px;font-size:11px;padding:1px 6px;border-radius:4px;font-weight:700;'
           + fcColor + '">' + fmtCost(foodCost) + ' €' + pctLabel + '</span>';
       }
@@ -343,7 +372,8 @@ function renderEditor() {
   } else if (recipeSummary[item.id] && recipeSummary[item.id].cost) {
     liveFoodCost = recipeSummary[item.id].cost;
   }
-  var fcPct = (price > 0 && liveFoodCost > 0) ? (liveFoodCost / price) * 100 : 0;
+  var netPrice = netBase(item, price);
+  var fcPct = (netPrice > 0 && liveFoodCost > 0) ? (liveFoodCost / netPrice) * 100 : 0;
   var fcColor = fcPct === 0 ? 'var(--color-text-dim)'
     : fcPct < 30 ? '#22c55e'
     : fcPct < 35 ? '#f59e0b'
@@ -352,16 +382,20 @@ function renderEditor() {
   html += '<div class="prod-header" style="border-bottom:1px solid rgba(255,255,255,.05);display:flex;flex-direction:column;gap:8px">';
   html += '<div class="prod-header-title">' + (item.emoji || '') + ' ' + escHtml(item.name) + '</div>';
   html += '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:13px">';
-  html += '<span style="color:var(--color-text-sec)">Cena: <strong style="color:var(--color-text)">' + fmtCost(price) + ' €</strong></span>';
+  html += '<span style="color:var(--color-text-sec)">Cena: <strong style="color:var(--color-text)">' + fmtCost(price) + ' €</strong>'
+    + (vatPayer && netPrice > 0 && netPrice !== price
+      ? '<span style="color:var(--color-text-dim);font-size:12px"> (bez DPH ' + fmtCost(netPrice) + ' €)</span>'
+      : '')
+    + '</span>';
   if (liveFoodCost > 0) {
     html += '<span style="color:var(--color-text-sec)">Food cost: <strong style="color:' + fcColor + '">' + fmtCost(liveFoodCost) + ' €</strong></span>';
     if (fcPct > 0) {
       html += '<span style="padding:3px 10px;border-radius:6px;font-weight:700;background:' + fcColor + '22;color:' + fcColor + '">'
-        + fcPct.toFixed(1) + ' % z ceny</span>';
+        + fcPct.toFixed(1) + ' % z ceny' + vatNote() + '</span>';
     }
-    if (price > 0) {
-      var marza = price - liveFoodCost;
-      html += '<span style="color:var(--color-text-sec)">Marža: <strong style="color:var(--color-text)">+' + fmtCost(marza) + ' €</strong></span>';
+    if (netPrice > 0) {
+      var marza = netPrice - liveFoodCost;
+      html += '<span style="color:var(--color-text-sec)">Marža' + vatNote() + ': <strong style="color:var(--color-text)">+' + fmtCost(marza) + ' €</strong></span>';
     }
   } else {
     html += '<span style="color:var(--color-text-dim);font-style:italic">Food cost: nie je recept</span>';
@@ -935,7 +969,15 @@ export function init(container) {
   };
   document.addEventListener('keydown', _escHandler);
 
-  // Load data in parallel
+  // Load data in parallel. Režim DPH beží samostatne — keď dorazí neskôr než
+  // položky, prekreslíme, aby food cost % sedelo na správnom základe.
+  loadVatMode().then(function () {
+    // _container === null => stránka sa medzitým opustila (destroy).
+    if (_container && menuItems.length) {
+      renderItemList();
+      renderEditor();
+    }
+  });
   Promise.all([loadIngredients(), loadMenuItems()]);
 }
 

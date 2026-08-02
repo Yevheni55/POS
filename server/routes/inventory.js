@@ -316,6 +316,9 @@ router.get('/menu-items', asyncRoute(async (req, res) => {
   const { menuCategories } = await import('../db/schema.js');
   const rows = await db.select({
     id: menuItems.id, name: menuItems.name, emoji: menuItems.emoji, price: menuItems.price,
+    // Sadzba DPH — Recepty ju potrebujú, aby food cost % a marža počítali
+    // proti cene BEZ DPH (ingredients.cost_per_unit je netto).
+    vatRate: menuItems.vatRate,
     trackMode: menuItems.trackMode, stockQty: menuItems.stockQty, minStockQty: menuItems.minStockQty,
     categoryId: menuItems.categoryId, categoryLabel: menuCategories.label, categorySlug: menuCategories.slug,
   })
@@ -325,6 +328,7 @@ router.get('/menu-items', asyncRoute(async (req, res) => {
   .orderBy(asc(menuCategories.sortKey), asc(menuItems.name));
   res.json(rows.map(m => ({
     ...m, price: parseFloat(m.price), stockQty: parseFloat(m.stockQty), minStockQty: parseFloat(m.minStockQty),
+    vatRate: parseFloat(m.vatRate) || 0,
   })));
 }));
 

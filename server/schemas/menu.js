@@ -1,9 +1,28 @@
 import { z } from 'zod';
-import { formatSupportedVatRates, isSupportedVatRate } from '../lib/menu-vat.js';
+import { formatSupportedVatRates, isSupportedVatRate, SUPPORTED_VAT_RATES } from '../lib/menu-vat.js';
 
 const supportedVatRateSchema = z.coerce.number().refine(isSupportedVatRate, {
   message: `Povolene sadzby DPH: ${formatSupportedVatRates()}`,
 });
+
+// Predvolena DPH kategorie (menu_categories.default_vat_rate). 0 % je legalna iba
+// na urovni DOKLADU pre neplatitela (forceZeroVat), NIE ako vlastnost kategorie —
+// inak by sa po registracii k DPH nula tichuckom preniesla na kazdu novu polozku.
+const CATEGORY_VAT_RATES = SUPPORTED_VAT_RATES.filter((rate) => rate > 0);
+
+function isCategoryVatRate(value) {
+  const rate = Math.round(Number.parseFloat(value) * 100) / 100;
+  return isSupportedVatRate(rate) && rate > 0;
+}
+
+// null = manazer sadzbu (este) nezvolil; prazdny string z <select> na null normalizujeme.
+// Chybajuci kluc ostava `undefined`, aby PUT bez tohto pola ulozenu sadzbu NEprepisal.
+const categoryDefaultVatRateSchema = z.preprocess(
+  (value) => (value === '' ? null : value),
+  z.coerce.number().refine(isCategoryVatRate, {
+    message: `Povolene sadzby DPH kategorie: ${CATEGORY_VAT_RATES.map((rate) => `${rate}%`).join(', ')}`,
+  }).nullable(),
+).optional();
 
 export const createCategorySchema = z.object({
   slug: z.string().min(1).max(50),
@@ -11,6 +30,7 @@ export const createCategorySchema = z.object({
   icon: z.string().min(1).max(10),
   sortKey: z.string().min(1).max(5),
   dest: z.string().max(20).default('bar'),
+  defaultVatRate: categoryDefaultVatRateSchema,
 });
 
 export const updateCategorySchema = z.object({
@@ -19,6 +39,7 @@ export const updateCategorySchema = z.object({
   icon: z.string().min(1).max(10).optional(),
   sortKey: z.string().min(1).max(5).optional(),
   dest: z.string().max(20).optional(),
+  defaultVatRate: categoryDefaultVatRateSchema,
 });
 
 // Companion link: null unsets it, positive int references another menu item.

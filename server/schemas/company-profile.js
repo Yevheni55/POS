@@ -1,19 +1,20 @@
 import { z } from 'zod';
 
 /**
- * Identifikačné polia sa synchronizujú z Portos a môžu prísť prázdne
- * (napr. organizationUnitName = null). POS nesmie zlyhať na PUT profilu
- * len preto, že Portos nevrátil vedľajšie pole — uloží to, čo je.
+ * PUT /api/company-profile smie meniť IBA kontakty tlačené na doklade.
+ *
+ * Identifikačné polia (businessName, ico, dic, icDph, adresy, cashRegisterCode)
+ * sú Portos-owned — jediní legitímni zapisovači sú `runPortosProfileSync`
+ * (server/lib/portos-sync-job.js) a POST /api/company-profile/sync-from-portos.
+ *
+ * PREČO: admin UI posielalo celý profil pri KAŽDOM uložení Nastavení a keď
+ * GET /company-profile zlyhal, readonly inputy ostali naplnené z localStorage
+ * DEFAULTS (icDph='' + dummy kód pokladne 88812345678900001). Taký payload
+ * ticho prepol POS do režimu neplatiteľa DPH (forceZeroVat=true) a razil na
+ * neexistujúci DKP. `.strip()` zahodí všetky ostatné kľúče ešte pred routou,
+ * takže stale klientsky payload nemá ako dosiahnuť DB.
  */
 export const updateCompanyProfileSchema = z.object({
-  businessName: z.string().trim().max(150).default(''),
-  ico: z.string().trim().max(32).default(''),
-  dic: z.string().trim().max(32).default(''),
-  icDph: z.string().trim().max(32).default(''),
-  registeredAddress: z.string().trim().max(250).default(''),
-  branchName: z.string().trim().max(150).default(''),
-  branchAddress: z.string().trim().max(250).default(''),
-  cashRegisterCode: z.string().trim().max(32).default(''),
   contactPhone: z.string().trim().max(50).default(''),
   contactEmail: z.string().trim().max(120).default(''),
-});
+}).strip();

@@ -4,7 +4,8 @@ import { and, desc, eq, gte, lte, sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { cashflowEntries, payments, shishaSales, suppliers } from '../db/schema.js';
 import { requireRole } from '../middleware/requireRole.js';
-import { notStornoedSql } from '../lib/reports/shared.js';
+import { getActiveCashRegisterCode } from '../lib/active-cash-register.js';
+import { notStornoedSql, notForeignCashRegisterSql } from '../lib/reports/shared.js';
 import { validate } from '../middleware/validate.js';
 import { asyncRoute } from '../lib/async-route.js';
 import { createCashflowSchema, updateCashflowSchema } from '../schemas/cashflow.js';
@@ -154,10 +155,16 @@ router.get('/summary', mgr, asyncRoute(async (req, res) => {
     and(gte(cashflowEntries.occurredAt, fromBoundary), lte(cashflowEntries.occurredAt, toBoundary)),
   ).groupBy(cashflowEntries.type, cashflowEntries.category);
 
+  // POS tržba do cashflow — bez stornovaných platieb a bez platieb, ktorých
+  // predajný doklad patrí CUDZIEMU kódu pokladne (na kase sa môže zmeniť daňový
+  // subjekt). Prázdny kód = filter sa neaplikuje (fallback ako v history.js).
+  const activeCashRegisterCode = await getActiveCashRegisterCode();
   const [posAgg] = await db.select({
     total: sql`COALESCE(SUM(${payments.amount}::numeric), 0)`,
   }).from(payments).where(
-    sql`${payments.createdAt} >= ${fromBoundary} AND ${payments.createdAt} <= ${toBoundary} AND ${sql.raw(notStornoedSql('payments'))}`,
+    sql`${payments.createdAt} >= ${fromBoundary} AND ${payments.createdAt} <= ${toBoundary}
+      AND ${sql.raw(notStornoedSql('payments'))}
+      AND ${sql.raw(notForeignCashRegisterSql('payments', activeCashRegisterCode))}`,
   );
 
   const [shishaAgg] = await db.select({

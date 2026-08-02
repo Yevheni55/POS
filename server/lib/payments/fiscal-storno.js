@@ -9,7 +9,7 @@ import {
   parsePaymentExternalIdSalt,
 } from '../fiscal-payment.js';
 import { getActiveCashRegisterCode } from '../active-cash-register.js';
-import { isPortosEnabled, PortosTransportError } from '../portos.js';
+import { explainPortosCertificateError, isPortosEnabled, PortosTransportError } from '../portos.js';
 
 import {
   buildFiscalDocumentValues,
@@ -65,6 +65,22 @@ export async function fiscalStornoHandler(req, res) {
     });
   }
 
+  // Doklad vystavený pod PREDCHÁDZAJÚCOU identitou (iný kód pokladne / DKP):
+  // Portos ten alias už nepozná, takže request by skončil na „certifikát s
+  // aliasom … nebol nájdený". Radšej jasná hláška než odsúdený request do
+  // eKasy. Keď jedna zo strán kód nemá (prázdny), správanie ostáva pôvodné.
+  const activeCashRegisterCode = await getActiveCashRegisterCode();
+  const docCashRegisterCode = String(saleDoc.cashRegisterCode || '').trim();
+  if (docCashRegisterCode && activeCashRegisterCode && docCashRegisterCode !== activeCashRegisterCode) {
+    return res.status(409).json({
+      error: `Doklad patrí predchádzajúcej firme (kód pokladne ${docCashRegisterCode}) — storno treba vystaviť v jej eKase`,
+      stornoBlockedReason: 'foreign_cash_register',
+      cashRegisterCode: docCashRegisterCode,
+      activeCashRegisterCode,
+      fiscal: toFiscalResponse(saleDoc),
+    });
+  }
+
   const referenceReceiptId = saleDoc.receiptId || saleDoc.okp;
   if (!referenceReceiptId) {
     return res.status(400).json({
@@ -80,7 +96,7 @@ export async function fiscalStornoHandler(req, res) {
       originalRequestPayload: rawPayload,
       referenceReceiptId,
       orderId: payment.orderId,
-      cashRegisterCode: saleDoc.cashRegisterCode || (await getActiveCashRegisterCode()),
+      cashRegisterCode: docCashRegisterCode || activeCashRegisterCode,
       externalIdSalt: saltFromSale,
     });
   } catch (err) {
@@ -145,13 +161,22 @@ export async function fiscalStornoHandler(req, res) {
       staffId: req.user.id,
     }).catch((e) => console.error('[Portos] storno-failed audit log error:', e?.message || e));
 
+    // Po zmene firmy je najčastejšia príčina chýbajúci certifikát pre starý
+    // alias — surové Portos hlásenie to obsluhe nepovie. Rovnaké poradie ako
+    // v create.js: hint má prednosť pred surovým detailom.
+    const certificateHint = explainPortosCertificateError({
+      detail: fiscalOutcome.errorDetail,
+      errorDetail: fiscalOutcome.errorDetail,
+    });
     return res.status(fiscalFailureHttpStatus(fiscalOutcome, 503)).json({
-      error: fiscalOutcome.errorDetail || 'Storno doklad bol odmietnuty alebo zlyhal — skús znova',
+      error: certificateHint || fiscalOutcome.errorDetail || 'Storno doklad bol odmietnuty alebo zlyhal — skús znova',
       fiscal: {
         status: fiscalOutcome.resultMode,
         externalId: requestPayload.request.externalId,
         errorCode: fiscalOutcome.errorCode,
         errorDetail: fiscalOutcome.errorDetail,
+        certificateIssue: Boolean(certificateHint),
+        cashRegisterCodeUsed: requestPayload.request.data.cashRegisterCode,
       },
     });
   }
