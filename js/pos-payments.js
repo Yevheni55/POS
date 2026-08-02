@@ -1006,22 +1006,27 @@ function _setupCashHelper(method, total) {
     });
   });
 
-  // Vlastn\u00FD numpad 3\u00D74. Posledn\u00FD riadok: \u232B (backspace) | 0 | C (clear all).
-  // Backspace zma\u017Ee posledn\u00FA \u010D\u00EDslicu, clear vynuluje na pr\u00E1zdny stav.
+  // Vlastn\u00FD numpad 3\u00D74. Posledn\u00FD riadok: C (clear all) | 0 | \u232B (backspace).
+  // Poradie MUS\u00CD sedie\u0165 s POS_NUMPAD_KEYS v js/pos-ui.js a s login.html \u2014
+  // predt\u00FDm mal tento pad C a \u232B PREHODEN\u00C9 oproti ostatn\u00FDm padom v appke,
+  // tak\u017Ee \u010D\u00ED\u0161nik, ktor\u00FD si polohu zapam\u00E4tal na PIN pade, tu maz al cel\u00FA sumu.
   var keys = [
     { k: '1' }, { k: '2' }, { k: '3' },
     { k: '4' }, { k: '5' }, { k: '6' },
     { k: '7' }, { k: '8' }, { k: '9' },
-    { k: '\u232B', special: 'back' }, { k: '0' }, { k: 'C', special: 'clear' },
+    { k: 'C', special: 'clear' }, { k: '0' }, { k: '\u232B', special: 'back' },
   ];
-  // Styling teraz cez .cash-numpad-btn v css/pos.css aby @media
-  // (pointer:coarse) mohol bumpovat hodnoty pre tablet. Special keys
-  // (backspace, clear) dostavaju .is-special variantu s amber tintom.
+  // Styling cez .cash-numpad-btn v css/pos.css, aby @media (pointer:coarse)
+  // mohol bumpovat hodnoty pre tablet. C a \u232B sa NESM\u00DA l\u00ED\u0161i\u0165 iba farbou \u2014
+  // rozli\u0161uje ich glyf, aria-label aj .is-clear / .is-back variant.
+  var LABELS = { clear: 'Vymazat celu sumu', back: 'Zmazat poslednu cifru' };
   numpad.innerHTML = keys.map(function (kk) {
+    var label = kk.special ? LABELS[kk.special] : ('Cislica ' + kk.k);
     return '<button type="button" class="cash-numpad-btn'
-      + (kk.special ? ' is-special' : '') + '"'
+      + (kk.special ? ' is-special is-' + kk.special : '') + '"'
       + ' data-key="' + kk.k + '"'
       + (kk.special ? ' data-special="' + kk.special + '"' : '')
+      + ' aria-label="' + label + '"'
       + '>' + kk.k + '</button>';
   }).join('');
   Array.prototype.forEach.call(numpad.querySelectorAll('.cash-numpad-btn'), function (b) {

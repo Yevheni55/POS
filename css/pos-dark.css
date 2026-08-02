@@ -243,6 +243,17 @@
   }
 }
 
+/* F2. chip-minutes — badge zabudnutého stola. Sémantické výplne sú v tmavom
+   režime ZOSVETLENÉ (danger #b03830 → #e8675c, amber #b87c1a → #e0a83c), lebo
+   sú ladené ako text na tmavom pozadí. Ako výplň pod bielym textom to padne
+   pod AA: #fff na #e8675c dá 3,22:1 a na #e0a83c dokonca 2,14:1.
+   Preto sa v tmavom obracia polarita — tmavá kanva ako text na svetlej výplni:
+   5,53:1 pre rust a 8,34:1 pre jantár. Neutrálny stupeň a .chip-accounts
+   override nepotrebujú, tie idú cez --color-bg-elevated/--color-text, ktoré
+   sa v tmavom preklápajú spolu (13,73:1). */
+:root[data-theme="dark"] .table-chip .chip-minutes.grade-2,
+:root[data-theme="dark"] .table-chip .chip-minutes.grade-3 { color: var(--color-bg); }
+
 /* G. qty-popup — už je tmavý navy popup, ale má takmer čierny ink text
    (latentný bug aj v svetlom). Na tmavom ho spravíme čitateľným. */
 :root[data-theme="dark"] .qty-popup-title { color: var(--color-text-sec); }

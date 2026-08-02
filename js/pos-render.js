@@ -300,6 +300,66 @@ function _tableCustomName(tableId){
   return null;
 }
 
+// Zoznam otvorených účtov stola — JEDINÝ zdroj pravdy pre všetko, čo sa na
+// chipe počíta „per účet". Je to ten istý zdroj, z ktorého sa plní
+// accountPicker (showAccountPicker číta tableOrdersList): pre VYBRANÝ stôl je
+// autoritatívny tableOrdersList (loadTableOrder ho drží aktuálny), pre ostatné
+// allOrdersCache. tableOrders[id] sa tu použiť NEDÁ — pre vybraný stôl v ňom
+// leží len AKTUÁLNY účet, takže rozdelený stôl by vyzeral ako jednoúčtový.
+function _tableOrdersFor(tableId){
+  if (typeof selectedTableId !== 'undefined' && tableId === selectedTableId
+      && typeof tableOrdersList !== 'undefined' && tableOrdersList && tableOrdersList.length) {
+    return tableOrdersList;
+  }
+  return (typeof allOrdersCache !== 'undefined' && allOrdersCache[tableId]) || [];
+}
+
+// Počet otvorených účtov na stole. 1 (alebo 0) = nič sa nevykresľuje — prázdny
+// pill by na malom chipe len zožral miesto.
+function _tableAccountCount(tableId){
+  return _tableOrdersFor(tableId).length;
+}
+
+// Server beží v Docker UTC. Keď timestamp dorazí BEZ zónového sufixu
+// („2026-08-01 18:23:45"), prehliadač ho naparsuje ako LOKÁLNY čas a vek účtu
+// sa posunie o 1-2 hodiny (v lete +2) — čerstvo otvorený stôl by hneď svietil
+// ako zabudnutý. Naivný tvar preto explicitne dorovnávame na UTC.
+function _parseServerTs(v){
+  if (!v) return NaN;
+  if (v instanceof Date) return v.getTime();
+  var s = String(v).trim();
+  if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?(\.\d+)?$/.test(s)) {
+    s = s.replace(' ', 'T') + 'Z';
+  }
+  return new Date(s).getTime();
+}
+
+// Minúty od otvorenia NAJSTARŠIEHO účtu na stole (null keď stôl nemá účet).
+// Rozdiel dvoch absolútnych časov je sám o sebe nezávislý od zóny — jediné, čo
+// treba ustrážiť, je správne naparsovanie createdAt (viď _parseServerTs), preto
+// tu žiadny Intl netreba a lokálny čas prehliadača sa nikde nečíta.
+function _tableOpenMinutes(tableId){
+  var list = _tableOrdersFor(tableId);
+  var oldest = NaN;
+  for (var i = 0; i < list.length; i++){
+    var ms = _parseServerTs(list[i] && list[i].createdAt);
+    if (!isFinite(ms)) continue;
+    if (!isFinite(oldest) || ms < oldest) oldest = ms;
+  }
+  if (!isFinite(oldest)) return null;
+  var mins = Math.floor((Date.now() - oldest) / 60000);
+  return mins > 0 ? mins : 0;
+}
+
+// Hranica „zabudnutého" stola + stupne naliehavosti pre badge.
+// grade-1 20-40 min, grade-2 40-60, grade-3 60+ — farbu rieši css/pos.css.
+const FORGOTTEN_MIN = 20;
+function _forgottenGrade(mins){
+  if (mins >= 60) return 3;
+  if (mins >= 40) return 2;
+  return 1;
+}
+
 // Pomenovať aktuálny otvorený účet (napr. menom hosťa) — aby sa dal ľahko nájsť
 // na podlaží. Po zaplatení sa účet zatvorí, takže názov sa „vráti" sám.
 function renameCurrentOrder(){
@@ -375,23 +435,17 @@ function renderFloor(){
   canvas.style.minWidth=Math.max(maxX+170,600)+'px';
   canvas.style.minHeight=Math.max(maxY+140,400)+'px';
 
-  // Detect "forgotten" tables — occupied for > 20 min without payment activity
-  // (we use createdAt of the first open order on this table to compute age).
-  // Useful signal: čašníčka vie ktorý stôl chce platiť ale „zabudnutý". Tu len
-  // jednoduchá heuristika podľa časového trvania objednávky.
-  function isForgottenTable(tableId){
-    var orders = (typeof allOrdersCache !== 'undefined' && allOrdersCache[tableId]) || [];
-    if (!orders.length) return false;
-    var oldest = orders[0];
-    if (!oldest || !oldest.createdAt) return false;
-    var age = Date.now() - new Date(oldest.createdAt).getTime();
-    return age > 20 * 60 * 1000; // 20 min
-  }
-
+  // "Forgotten" stôl — obsadený > 20 min bez platobnej aktivity (vek počítame
+  // z createdAt najstaršieho otvoreného účtu, viď _tableOpenMinutes).
+  // Užitočný signál: čašníčka vidí, ktorý stôl už dávno len sedí. Namiesto
+  // binárneho príznaku nesieme rovno počet minút — chip ho zobrazí gradovane.
   canvas.innerHTML=filtered.map(t=>{
     const total=_tableNetTotal(t.id);
     const isSel=t.id===selectedTableId;
-    const isForgotten = t.status==='occupied' && isForgottenTable(t.id);
+    // null = stôl nemá otvorený účet (alebo nemá použiteľný timestamp)
+    const openMins = t.status==='occupied' ? _tableOpenMinutes(t.id) : null;
+    const isForgotten = openMins !== null && openMins >= FORGOTTEN_MIN;
+    const accountCount = _tableAccountCount(t.id);
     const shapeClass=t.shape==='round'?'round':t.shape==='large'?'large':'';
     // Per-table size override (null/undefined → fallback na CSS default ze shape).
     // Manazer ich nastavi v edit mode dragom za pravy dolny roh — savePositions
@@ -404,7 +458,8 @@ function renderFloor(){
     const ariaParts=[escHtml(t.name),sl[t.status]||t.status,t.seats+' miest'];
     if(t.status==='occupied'&&total>0)ariaParts.push(fmt(total));
     if(t.status==='reserved'&&t.time)ariaParts.push(t.time);
-    if(isForgotten)ariaParts.push('zabudnuty - cas > 20 min');
+    if(accountCount>1)ariaParts.push(accountCount+' uctov');
+    if(isForgotten)ariaParts.push('zabudnuty - otvoreny '+openMins+' min');
     const ariaLabel=ariaParts.join(', ');
 
     // Information hierarchy — top: name + status dot, mid: amount/time, bottom: seats.
@@ -424,6 +479,19 @@ function renderFloor(){
       +   '<div class="chip-name">' + escHtml(t.name) + '</div>'
       + '</div>';
 
+    // Rozdelený stôl — počet účtov. Pri jednom účte nevykresľujeme nič, inak by
+    // pill na každom obsadenom chipe len uberal miesto pre sumu.
+    if (accountCount > 1) {
+      // 2-4 „účty", 5+ „účtov" — slovenská plurálová forma.
+      var accWord = accountCount < 5 ? 'účty' : 'účtov';
+      var accTitle = accountCount + ' ' + accWord + ' na stole';
+      bodyHtml += '<span class="chip-accounts"'
+        + ' title="' + escAttr(accTitle) + '"'
+        + ' aria-label="' + escAttr(accTitle) + '">'
+        + accountCount
+        + '</span>';
+    }
+
     // Vlastný názov účtu (meno hosťa) — aby sa stôl ľahko našiel pri platbe.
     var custName = _tableCustomName(t.id);
     if (custName) {
@@ -441,6 +509,21 @@ function renderFloor(){
       bodyHtml += '<div class="chip-state-label">otvorený</div>';
     }
     // status === 'free' → no label, status dot color suffices
+
+    // Gradovaný badge minút na zabudnutom stole. Číslo hovorí čašníkovi presne,
+    // ako veľmi stôl „hnije" — grade rieši farbu v css/pos.css. Nad 99 min už
+    // presná hodnota nič nemení a na chip sa nezmestí, preto „99+".
+    if (isForgotten) {
+      var minsText = openMins > 99 ? '99+' : String(openMins);
+      var minsTitle = 'Účet otvorený ' + minsText + ' min — bez platby';
+      bodyHtml += '<span class="chip-minutes grade-' + _forgottenGrade(openMins) + '"'
+        + ' title="' + escAttr(minsTitle) + '"'
+        // Celý chip má vlastný aria-label s tou istou informáciou — badge preto
+        // pred čítačkou skrývame, nech sa údaj nečíta dvakrát.
+        + ' aria-hidden="true">'
+        + minsText + ' min'
+        + '</span>';
+    }
 
     // Capacity (seat count) only when chip is occupied/reserved/dirty AND in
     // edit mode — for empty tables the number is noise. In edit mode it's

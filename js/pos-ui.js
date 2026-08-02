@@ -400,6 +400,118 @@ function showSauceSelector(comboName, callback) {
   });
 }
 
+// ─── Jednotny numericky pad ──────────────────────────────────────────────────
+// JEDINY zdroj poradia klaves pre vsetky numericke pady v POS. Spodny rad je
+// vsade rovnaky:  [C] [0] [⌫]
+//
+//   C  = DESTRUKTIVNA — zmaze cely zadany obsah (PIN / suma od zakaznika)
+//   ⌫  = OPRAVNA      — zmaze IBA poslednu cifru
+//
+// UX audit: pokladnik si tie dve klavesy mysli. Preto ich rozlisujeme
+// TROMA nezavislymi kanalmi, nie iba farbou (slnko na terase + daltonizmus
+// urobia z akehokolvek tintu jednu sedu plochu):
+//   1. glyf     — pismeno „C" vs. backspace „⌫"
+//   2. aria-label — „Vymazat cely PIN" vs. „Zmazat poslednu cifru"
+//   3. hook trieda .is-clear / .is-back pre farebne odlisenie v css/pos.css
+//      (.is-clear = --color-danger, .is-back ostava amber/neutral)
+//
+// POZOR: cash pad v js/pos-payments.js (_setupCashHelper) ma dodnes OPACNE
+// poradie [⌫] [0] [C] a ziadne aria-labely — mal by prejst na tento helper.
+var POS_NUMPAD_KEYS = [
+  { k: '1' }, { k: '2' }, { k: '3' },
+  { k: '4' }, { k: '5' }, { k: '6' },
+  { k: '7' }, { k: '8' }, { k: '9' },
+  { k: 'C',      special: 'clear', cls: 'is-clear' },
+  { k: '0' },
+  { k: '⌫', special: 'back',  cls: 'is-back'  },
+];
+
+// Vykresli pad do `container`. Velkost klaves riesi .cash-numpad-btn v
+// css/pos.css — na (pointer:coarse) je to min-height 64px, teda nad 44px
+// minimom aj pri vlhkom prste.
+//   opts.clearLabel / opts.backLabel — slovenske aria-labely (musia zostat
+//   rozlisitelne, cita ich TalkBack/VoiceOver nahlas)
+//   opts.onKey(key, special)         — handler; special je 'clear' | 'back' | ''
+function buildPosNumpad(container, opts) {
+  if (!container) return;
+  opts = opts || {};
+  var clearLabel = opts.clearLabel || 'Vymazat vsetko';
+  var backLabel  = opts.backLabel  || 'Zmazat poslednu cifru';
+
+  container.innerHTML = POS_NUMPAD_KEYS.map(function (kk) {
+    var label = kk.special === 'clear' ? clearLabel
+              : kk.special === 'back'  ? backLabel
+              : 'Cislica ' + kk.k;
+    return '<button type="button" class="cash-numpad-btn'
+      + (kk.special ? ' is-special ' + kk.cls : '') + '"'
+      + ' data-key="' + kk.k + '"'
+      + (kk.special ? ' data-special="' + kk.special + '"' : '')
+      + ' aria-label="' + label + '">'
+      + kk.k
+      + '</button>';
+  }).join('');
+
+  // Delegovany listener na kontajneri — buildPosNumpad sa moze volat
+  // opakovane (rebuild), ale listener sa viaze len raz.
+  if (typeof opts.onKey === 'function' && !container._posNumpadBound) {
+    container._posNumpadBound = true;
+    container.addEventListener('click', function (e) {
+      var b = e.target.closest ? e.target.closest('[data-key]') : null;
+      if (!b || !container.contains(b)) return;
+      opts.onKey(b.getAttribute('data-key'), b.getAttribute('data-special') || '');
+    });
+  }
+}
+if (typeof window !== 'undefined') {
+  window.buildPosNumpad = buildPosNumpad;
+  window.POS_NUMPAD_KEYS = POS_NUMPAD_KEYS;
+}
+
+// Zapis jednej klavesy do manazerskeho PIN pola. Drzi max 4 cifry (maxlength
+// na inpute neplati ked hodnotu nastavuje JS) a po kazdom stlaceni schova
+// chybovu hlasku, nech „Nespravny PIN" nevisi nad prave prepisovanym kodom.
+function _managerPinKey(key, special) {
+  var input = document.getElementById('managerPinInput');
+  if (!input) return;
+  var v = String(input.value || '');
+  if (special === 'clear') v = '';
+  else if (special === 'back') v = v.slice(0, -1);
+  else if (/^[0-9]$/.test(key)) { if (v.length >= 4) return; v = v + key; }
+  else return;
+  input.value = v;
+  var err = document.getElementById('managerPinError');
+  if (err) err.classList.add('pos-hidden');
+}
+
+// Pad je pre DOTYK. Na desktope s myskou a fyzickou klavesnicou je to len
+// prekazka navyse a `readonly` input tam znemoznuje aj vlozenie zo schranky,
+// preto sa tam pad vobec nevykresli a input sa odomkne. Rozhoduje pointer,
+// nie sirka okna — kasa je tablet aj ked ma velke rozlisenie.
+function _initManagerPinPad() {
+  var pad = document.getElementById('managerPinPad');
+  if (!pad || pad._posNumpadBound) return;
+  var coarse = typeof matchMedia === 'function' && matchMedia('(pointer:coarse)').matches;
+  if (!coarse) {
+    pad.hidden = true;
+    var input = document.getElementById('managerPinInput');
+    if (input) {
+      input.removeAttribute('readonly');
+      input.removeAttribute('inputmode');
+    }
+    return;
+  }
+  buildPosNumpad(pad, {
+    clearLabel: 'Vymazat cely PIN',
+    backLabel:  'Zmazat poslednu cifru PIN',
+    onKey: _managerPinKey,
+  });
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', _initManagerPinPad);
+} else {
+  _initManagerPinPad();
+}
+
 // Manager-PIN wrapper that surfaces WHAT the cashier is about to authorise
 // (e.g. "Storno: 3× Cola (4.50 €)") above the PIN input. Without this header
 // the manager sees the same generic prompt for every storno and has to take
@@ -646,8 +758,16 @@ document.addEventListener('keydown',function(e){
   if(moveMode){
     if(e.key==='Escape'){e.preventDefault();exitMoveMode()}return}
   // Manager PIN modal
+  // #managerPinInput je readonly (nativna klavesnica na tablete by prekryla
+  // pad aj chybovu hlasku), takze cifry z FYZICKEJ klavesnice na kase musime
+  // prepisat sami — inak by manazer na desktope nemal ako PIN zadat.
   if(document.getElementById('managerPinModal').classList.contains('show')){
-    if(e.key==='Escape'){e.preventDefault();closeManagerPinModal()}if(e.key==='Enter'){e.preventDefault();verifyManagerPin()}return}
+    if(e.key==='Escape'){e.preventDefault();closeManagerPinModal()}
+    else if(e.key==='Enter'){e.preventDefault();verifyManagerPin()}
+    else if(/^[0-9]$/.test(e.key)&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault();_managerPinKey(e.key,'')}
+    else if(e.key==='Backspace'){e.preventDefault();_managerPinKey('','back')}
+    else if(e.key==='Delete'){e.preventDefault();_managerPinKey('','clear')}
+    return}
   // Logout modal
   if(document.getElementById('logoutModal').classList.contains('show')){
     if(e.key==='Escape'){e.preventDefault();closeLogoutModal()}return}

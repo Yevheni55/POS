@@ -632,6 +632,84 @@ body::after{
 }
 .table-chip .chip-guests svg{opacity:.7}
 
+/* === CHIP BADGES — pocet uctov + zabudnuty stol =============================
+   Renderuje ich pos-render.js do dlazdice stola. Bazove pravidla su tu (nie
+   len v tabletovej vrstve), lebo bez nich by boli nestylovane na kazdom
+   breakpointe — nejde o zmenu desktopu, ale o prve oblecenie noveho markupu.
+
+   Obe znacky su PLNE VYFARBENE, nie tintovane. Tint by musel pocitat kontrast
+   voci podkladu, ktory sa lisi podla stavu stola (s-occupied ma terra gradient,
+   tabletovy perf blok ho plosti na --color-bg-elevated). Solidna vypln s bielym
+   textom drzi kontrast konstantny bez ohladu na dlazdicu — a operator ju
+   precita aj na terase v slnku.
+   ========================================================================== */
+.table-chip .chip-accounts,
+.table-chip .chip-minutes{
+  align-self:flex-start;
+  flex-shrink:0;
+  max-width:100%;
+  display:inline-flex;
+  align-items:center;
+  padding:0 var(--space-2);
+  border-radius:var(--radius-full);
+  font-family:var(--font-body);
+  font-size:var(--text-sm);
+  font-weight:var(--weight-bold);
+  line-height:var(--leading-snug);
+  letter-spacing:var(--tracking-wide);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+/* Pocet uctov na rozdelenom stole — informacia, nie alarm. Neutralny pill,
+   ziadna semanticka farba.
+   Vypln je NEPRIEHLADNA (--color-bg-elevated), nie tint. --color-bg-active je
+   rgba(30,24,18,.12), teda len ztmavenie podkladu: na terakotovom s-occupied
+   chipe by badge splynul a kontrast by spadol pod AA. Nepriehladna krem drzi
+   espresso text na ~13:1 nezavisle od stavu dlazdice. */
+.table-chip .chip-accounts{
+  background:var(--color-bg-elevated);
+  border:1px solid var(--color-border);
+  color:var(--color-text);
+}
+/* Zabudnuty stol — gradovana naliehavost. DESIGN-CODE §1.3 zakazuje miesat
+   dve semanticke farby na jednom prvku, takze kazdy stupen nesie prave jednu:
+     grade-1 (20-40 min) neutralny — "vsimni si", nie "kon"
+     grade-2 (40-60 min) jantar   — varovanie
+     grade-3 (60+ min)   rust     — alarm
+   Vsetky tri stupne maju NEPRIEHLADNU vypln — badge sedi na s-occupied dlazdici
+   s terakotovym gradientom, takze tint by mal kontrast zavisly od stavu stola.
+   Kontrast na svojej vyplni: 13:1 / 5.7:1 / 6.1:1 (vsetky nad AA 4.5:1). */
+.table-chip .chip-minutes{
+  background:var(--color-bg-elevated);
+  border:1px solid var(--color-border);
+  color:var(--color-text);
+}
+.table-chip .chip-minutes.grade-1{
+  background:var(--color-bg-elevated);
+  border-color:var(--color-border);
+  color:var(--color-text);
+}
+.table-chip .chip-minutes.grade-2{
+  background:var(--accent-amber-text);
+  color:#fff;
+}
+.table-chip .chip-minutes.grade-3{
+  background:var(--color-danger);
+  color:#fff;
+}
+/* Dlazdica ma pevnu vysku (96px desktop / 100px tablet) a `overflow:hidden`.
+   Dve nove znacky pridavaju ~32px obsahu — bez uvolnenia miesta by z chipu
+   vypadol spodny riadok. Pocet miest je pritom najmenej dolezity udaj
+   (operator ho pri obsluhe nepotrebuje, viz priority: sklad ani kapacita ho
+   nezaujimaju), takze ked je stol rozdeleny alebo zabudnuty, ustupi.
+
+   V EDIT MODE sa pocet miest NEskryva — tam manazer rozklada stoly a kapacita
+   je presne to, podla coho sa rozhoduje (viz js/pos-render.js, kde sa v edit
+   mode vykresluje zamerne). */
+body:not(.edit-mode) .table-chip:has(.chip-minutes, .chip-accounts) .chip-guests{display:none}
+.table-chip:has(.chip-minutes, .chip-accounts) .chip-customer{margin-top:0}
+
 /* === EMPTY ZONE STATE === */
 .floor-empty{
   display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -1115,8 +1193,14 @@ body::after{
 .move-count-badge{position:absolute;top:-4px;right:-4px;min-width:16px;height:16px;border-radius:8px;background:var(--color-success);color:#fff;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 4px}
 
 /* === Table Picker Overlay — Daylight refined (cross-table move) === */
-.table-picker-overlay{position:fixed;inset:0;z-index:150;background:var(--color-overlay);backdrop-filter:blur(3px) saturate(1.05);-webkit-backdrop-filter:blur(3px) saturate(1.05);display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .22s ease}
-.table-picker-overlay.show{opacity:1;pointer-events:all}
+/* `opacity:0;pointer-events:none` schova overlay len pre MYS. Pre klavesnicu
+   a citacku obrazovky ostal `display:flex` = tlacidlo "Zavriet" chytalo Tab
+   a cely picker maskoval zvysok appky v strome pristupnosti aj ked ho nikto
+   neotvoril. `visibility:hidden` prvok z oboch stromov vyradi; je v transition
+   spolu s opacity, takze zmizne az na konci fade-outu (visibility sa prepina
+   diskretne na konci intervalu) a otvaranie ostava plynule. */
+.table-picker-overlay{position:fixed;inset:0;z-index:150;background:var(--color-overlay);backdrop-filter:blur(3px) saturate(1.05);-webkit-backdrop-filter:blur(3px) saturate(1.05);display:flex;align-items:center;justify-content:center;opacity:0;visibility:hidden;pointer-events:none;transition:opacity .22s ease, visibility .22s ease}
+.table-picker-overlay.show{opacity:1;visibility:visible;pointer-events:all}
 .table-picker{
   position:relative;display:flex;flex-direction:column;
   background:linear-gradient(180deg, var(--color-bg-elevated), var(--color-bg-sunken));
@@ -1194,13 +1278,18 @@ body::after{
 .btn-move:active{transform:translateY(1px)}
 
 /* Account Picker */
+/* Rovnaky problem ako pri .table-picker-overlay — zatvoreny sheet ostaval
+   `display:flex`, takze jeho tlacidla drzali tab-poradie a prekryvali appku
+   pre citacky obrazovky. `visibility` v transition = fade ostane plynuly,
+   prvok zmizne az ked dobehne. */
 .ap-overlay{
   position:fixed;inset:0;z-index:200;
   background:rgba(8,14,20,.85);
   display:flex;align-items:flex-end;justify-content:center;
-  opacity:0;pointer-events:none;transition:opacity .25s var(--ease-soft);
+  opacity:0;visibility:hidden;pointer-events:none;
+  transition:opacity .25s var(--ease-soft), visibility .25s var(--ease-soft);
 }
-.ap-overlay.show{opacity:1;pointer-events:all}
+.ap-overlay.show{opacity:1;visibility:visible;pointer-events:all}
 .ap-sheet{
   width:100%;max-width:480px;max-height:85vh;
   background:linear-gradient(180deg,rgba(12,26,36,.97) 0%,rgba(8,14,20,.99) 100%);
@@ -2292,6 +2381,16 @@ body::after{
   color:var(--accent-amber-text);
 }
 .cash-numpad-btn.is-special:active{background:rgba(245,158,11,.20)}
+/* C a ⌫ mali doteraz IDENTICKÝ amber tint, hoci robia veľmi rozdielne veci:
+   C zmaže celú sumu, ⌫ jednu číslicu. Pri rýchlom účtovaní sa to pletie a
+   pokladník príde o celý zadaný obnos. Rozlíšenie je trojkanálové (glyf +
+   aria-label v js/pos-payments.js, farba tu) — nikdy iba farbou.
+   C = destruktívna → danger, ⌫ = opravná → ostáva neutrálna amber. */
+.cash-numpad-btn.is-clear{
+  background:rgba(176,56,48,.10);border-color:rgba(176,56,48,.32);
+  color:var(--color-danger);
+}
+.cash-numpad-btn.is-clear:active{background:rgba(176,56,48,.20)}
 /* Tablet bump — 14/8 padding → 18/12, 20px font → 26px, gap 6 → 10. */
 @media (pointer:coarse){
   .cash-numpad-btn{min-height:64px;padding:18px 12px;font-size:26px}
@@ -2464,7 +2563,15 @@ body::after{
   .floor-stat,.legend-item{font-size:17px}
   .floor-legend{display:flex}
   /* Stoly na tablete — pebble shape, organic feel. Compact aby fitlo viac
-     stolov v zóne bez scrollu. */
+     stolov v zóne bez scrollu.
+
+     HUSTOTA: 108×100 zostava. Dlazdice su `position:absolute` s left/top
+     priamo z tables.x / tables.y (pos-render.js ~riadok 457), takze pocet
+     stolov viditelnych bez scrollu urcuje ROZLOZENIE V DB, nie velkost chipu.
+     Zmensenie chipu by len nechalo vacsie diery medzi ulozenymi suradnicami;
+     zvacsenie by naopak zaclo prekryvat susedov, lebo manazer rozmiestnoval
+     stoly prave voci tejto 100px vyske. Ak zona pri 1280×800 scrolluje,
+     riesenim je presun stolov v edit mode, nie CSS. */
   .table-chip{width:108px;height:100px;padding:9px 11px;gap:0}
   .table-chip.large{width:140px;height:100px;border-radius:22px 16px 20px 14px}
   .chip-name{font-size:20px}
@@ -2473,6 +2580,25 @@ body::after{
   .chip-state-label{font-size:11px}
   .chip-guests{font-size:12px}
   .chip-status-dot{width:8px;height:8px}
+  /* Volny stol — citatelnost z dlzky ruky.
+     Zamer "free ustupuje do pozadia" ostava, ale realizovany bol cez
+     opacity:.72 NAD sekundarnym textom: efektivny kontrast nazvu klesol z
+     ~7:1 na ~3.4:1, cize pod AA. Na 10.1" tablete drzanom v ruke bolo cislo
+     stola necitatelne. Utlm presuvame na povrch (prerusovany ramik, ziadny
+     tien, priehladne pozadie ostavaju) a TEXT vraciame na plnu espresso
+     farbu. Stav ostava rozlisitelny cez .chip-status-dot.free (zelena). */
+  .table-chip.s-free{opacity:.92}
+  .table-chip.s-free .chip-name{
+    color:var(--color-text);
+    font-weight:var(--weight-bold);
+  }
+  /* Znacky na dlazdici — rovnaka velkost ako v baze. Vyskovy rozpocet chipu:
+     9+9 padding + 20 nazov + 14 meno hosta + 16 suma + 2×15 znacky = 98px
+     pri 100px vyske, cize sa vojde aj najhorsi stav (obsadeny + pomenovany
+     + rozdeleny + zabudnuty). Preto sa tu font NEbumpuje — solidna vypln
+     nesie citatelnost namiesto velkosti. */
+  .table-chip .chip-accounts,
+  .table-chip .chip-minutes{padding:1px var(--space-2);font-size:var(--text-sm)}
   /* Floor summary bigger on tablet */
   .floor-summary{padding:14px 20px;min-width:200px}
   .fs-label{font-size:11px}
@@ -2513,7 +2639,10 @@ body::after{
   .u-modal-icon{font-size:64px}
   .u-modal-amount{font-size:74px}
   .storno-reason-btn{padding:21px 23px;font-size:20px}
-  .admin-btn,.logout-btn{font-size:17px;padding:12px 18px;min-height:51px}
+  /* .admin-btn / .logout-btn tu BYVALI, ale bazove pravidla su az nizsie v
+     subore (~riadok 2600) a maju rovnaku specificitu — poradie zdroja ich
+     prebilo a hlavicka ostala na 36px. Presunute za bazove definicie, viz
+     blok "HLAVICKA NA DOTYK". */
   /* Footer action row (Zlava / Rozdelit / Presun) — bigger touch targets */
   .extra-row{gap:14px}
   .extra-row .btn-discount,
@@ -2593,6 +2722,32 @@ body::after{
   cursor:pointer;transition:all var(--transition-fast);min-height:var(--btn-h-sm);
 }
 .logout-btn:hover{background:rgba(224,112,112,.14);border-color:rgba(224,112,112,.25)}
+
+/* === HLAVICKA NA DOTYK — tablet landscape ==================================
+   MUSI stat AZ TU, za bazovymi .admin-btn/.logout-btn pravidlami. Media query
+   nepridava specificitu, takze predchadzajuci pokus vnutri tabletovej vrstvy
+   (~riadok 2516) prehraval s neskorsim bazovym `min-height:var(--btn-h-sm)`
+   a hlavicka na kase realne merala 36px — pod 44px dotykovym minimom.
+
+   Tlacidla su ikonove (Theme / Fullscreen / Zamok / Admin / Odhlasit), casnik
+   ich trafi palcom pri drzani tabletu za okraj. --btn-h-md je minimum z
+   DESIGN-CODE §5.1; vyssie nejdeme, lebo .header nema fixnu vysku a kazdy px
+   navyse berie miesto zone stolov ("vidno vsetko bez scroll" je prioritnejsie).
+   Vysledna hlavicka: 44px tlacidlo + 2×5px padding = 54px, cize sa do
+   povodnych ~56px zmesti bez zvysovania.
+   ========================================================================== */
+@media (min-width:769px) and (max-width:1366px) and (pointer:coarse){
+  .admin-btn,.logout-btn{
+    min-height:var(--btn-h-md);
+    padding:var(--space-2) var(--space-4);
+    font-size:var(--text-md);
+  }
+  /* .header-avatar je dekoracia vnutri neklikatelneho .header-user divu
+     (pos-enterprise.html), takze 44px tu netreba. 36px je len opticka
+     rovnovaha, aby pill nevyzeral prazdny vedla vyssich tlacidiel. */
+  .header-avatar{width:36px;height:36px;font-size:var(--text-md)}
+  .header-user{padding:var(--space-1) var(--space-3) var(--space-1) var(--space-1)}
+}
 
 /* logout-btn kept, modal uses unified .u-overlay/.u-modal */
 
@@ -3262,6 +3417,52 @@ body::after{
    tablet directly — single source of truth. Order panel width is also
    canonical (360px from base rule, Spec 1.2) — previous 480px tablet override
    was reconciled away so 1280×800 landscape fits 9 rows @ 56px. */
+
+/* --- Riadok uctu — ergonomia na tablete v landscape -------------------------
+   Musi stat AZ TU, za bazovymi .qty-btn / .order-item-remove pravidlami —
+   media query nepridava specificitu, takze o vitazovi rozhoduje poradie.
+
+   PRECO: +/- a × sa tuka POCAS obsluhy, casto naslepo a jednou rukou (druha
+   drzi tacku). 44px je absolutne minimum z DESIGN-CODE §5.1; pri opakovanom
+   tukani na to iste miesto sa oplati primarna velkost --btn-h-lg.
+
+   Vyska riadku sa NEZVYSUJE — 20px navyse na stepperi vykupime zo zvislej
+   vypln riadku (8px → 4px). Aritmetika: 4 + 32 (riadok nazvu) + 4 (gap)
+   + 52 (stepper) + 4 = 96px, presne tolko co dnes. Operator ma "vidno vsetko
+   naraz bez scroll" nad vizualnou vzdusnostou, takze ziadny riadok navyse
+   neobetujeme. */
+@media (min-width:769px) and (max-width:1366px) and (pointer:coarse){
+  .order-item-inner{padding:var(--space-1) var(--space-3);min-height:96px}
+  .qty-btn,
+  .order-item-remove{width:var(--btn-h-lg);height:var(--btn-h-lg)}
+  .qty-btn{font-size:var(--text-5xl)}
+  .qty-val{min-width:40px;font-size:var(--text-3xl)}
+
+  /* Ceruzka na poznamku (a % zlava) ostava VIZUALNE mala — Spec 1.1 hovori
+     "tlacidlo Poznamka NESMIE byt velke". Dotykove plece ale musi mat 44px,
+     inak ho casnik netrafi. Riesime ::before overlayom: ikona ostane 32px,
+     aktivna plocha je 44px. Pseudo je position:absolute, takze vypadne z
+     flex layoutu rodica a nic neposunie. */
+  .order-item-note-btn,
+  .order-item-disc-btn{position:relative}
+  .order-item-note-btn::before,
+  .order-item-disc-btn::before{
+    content:'';
+    position:absolute;
+    top:50%;left:50%;
+    width:var(--btn-h-md);height:var(--btn-h-md);
+    transform:translate(-50%,-50%);
+  }
+  /* Plece presahuje ikonu o 6px na kazdu stranu, takze zospodu zasahuje do
+     riadku s × (odobrat polozku) — gap medzi nimi je len 4px. Omylom zmazana
+     polozka je horsia chyba nez netrafena ceruzka, preto × vyhrava hit-test:
+     vlastny stacking context ho polozi NAD cudzie pseudo-plece. */
+  .order-item-remove{position:relative;z-index:1}
+  /* Dve ceruzky vedla seba maju 32px ikony a 44px plecia — pri gap 6px by sa
+     plecia prekryvali o 6px a tap na hranici by padol nahodne. 12px gap da
+     stredy presne 44px od seba = plecia sa dotykaju, nikdy neprekryvaju. */
+  .order-item-name-row{gap:var(--space-3)}
+}
 
 /* Floor edit mode — make it obvious a tap will drag, not select */
 body.edit-mode .table-chip {
