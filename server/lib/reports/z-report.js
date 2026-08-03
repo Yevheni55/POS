@@ -2,7 +2,6 @@ import { desc, eq, sql } from 'drizzle-orm';
 
 import { db } from '../../db/index.js';
 import { orders, orderItems, payments, menuItems, menuCategories, shishaSales } from '../../db/schema.js';
-import { getActiveCashRegisterCode } from '../active-cash-register.js';
 import { localYmd } from '../print/format.js';
 
 import {
@@ -11,9 +10,10 @@ import {
   notStornoedOrderSql,
   notForeignCashRegisterSql,
   notForeignCashRegisterOrderSql,
+  resolveScope,
 } from './shared.js';
 
-// GET /api/reports/z-report?date=2026-03-26
+// GET /api/reports/z-report?date=2026-03-26&scope=active|all
 export async function zReportHandler(req, res) {
   // Default = DNESNY lokalny den (nie UTC den — ten sa po polnoci lisi).
   const date = req.query.date || localYmd();
@@ -35,11 +35,15 @@ export async function zReportHandler(req, res) {
 
   try {
     // Na kase sa môže zmeniť daňový subjekt (iné DKP v Portose). Uzávierka
-    // nesmie zúčtovať tržby cudzej firmy — filtrujeme podľa aktívneho kódu
-    // pokladne. Prázdny kód = filter sa neaplikuje (fallback ako history.js).
-    const activeCashRegisterCode = await getActiveCashRegisterCode();
-    const notForeignPayment = sql.raw(notForeignCashRegisterSql('payments', activeCashRegisterCode));
-    const notForeignOrder = sql.raw(notForeignCashRegisterOrderSql('orders', activeCashRegisterCode));
+    // nesmie zúčtovať tržby cudzej firmy — default `scope=active` preto
+    // filtruje podľa aktívneho kódu pokladne. `scope=all` filter uvoľní
+    // (historický pohľad majiteľa); `cashFiscalByRegister` aj
+    // `activeCashRegisterCode` ostávajú nezmenené, lebo tlač výberu hotovosti
+    // sa musí VŽDY riadiť aktívnou pokladňou.
+    const { scope, cashRegisterCode, filterCode } = await resolveScope(req);
+    const activeCashRegisterCode = cashRegisterCode;
+    const notForeignPayment = sql.raw(notForeignCashRegisterSql('payments', filterCode));
+    const notForeignOrder = sql.raw(notForeignCashRegisterOrderSql('orders', filterCode));
 
     // Total revenue from payments
     const [revenue] = await db.select({
@@ -207,7 +211,7 @@ export async function zReportHandler(req, res) {
       INNER JOIN menu_items mi ON mi.id = oi.menu_item_id
       WHERE ${inDay(sql`o.created_at`)}
         AND COALESCE(o.closure_type, 'paid') = 'odpis'
-        AND ${sql.raw(notForeignCashRegisterOrderSql('o', activeCashRegisterCode))}
+        AND ${sql.raw(notForeignCashRegisterOrderSql('o', filterCode))}
     `);
     const odpisTotal = Number(odpisRes.rows[0] && odpisRes.rows[0].total) || 0;
     const odpisCount = Number(odpisRes.rows[0] && odpisRes.rows[0].count) || 0;
@@ -283,6 +287,11 @@ export async function zReportHandler(req, res) {
     // vidí čo má v zásuvke z hotovostných platieb a čo zo shisha predajov.
     res.json({
       date,
+      // Rozsah, ktorý sa REÁLNE použil + aktívny kód pokladne. `scope='all'`
+      // znamená, že čísla obsahujú aj tržby predchádzajúcich daňových
+      // subjektov — NIE je to podklad pre uzávierku ani pre DPH.
+      scope,
+      cashRegisterCode,
       totalRevenue,
       fiscalRevenue,
       cashFiscal,

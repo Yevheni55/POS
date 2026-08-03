@@ -22,6 +22,35 @@ let _productByDayLimit = 20;
 let _productByDayMetric = 'qty';
 let _productByDayGroup = 'item';
 
+// === Rozsah dát ===
+// Reporty štandardne filtrujú platby na cash_register_code aktívnej kasy
+// ('active'). Na tejto kase sa vystriedali tri daňové subjekty, takže bez
+// filtra by sa ich tržby sčítali dokopy — čo je pri platiteľovi DPH zlý
+// základ dane. 'all' filter vypne a ukáže celú históriu (len na prehľad).
+// Voľba je zdieľaná so stránkou Sezóna cez rovnaký localStorage kľúč.
+const SCOPE_KEY = 'pos_reports_scope';
+function normalizeScope(v) { return v === 'all' ? 'all' : 'active'; }
+function readScope() {
+  // localStorage môže hodiť (private mode, zakázané cookies) — nesmie to
+  // zhodiť celú stránku, default je bezpečnejší 'active'.
+  try { return normalizeScope(localStorage.getItem(SCOPE_KEY)); }
+  catch (e) { return 'active'; }
+}
+function writeScope(v) {
+  const s = normalizeScope(v);
+  try { localStorage.setItem(SCOPE_KEY, s); } catch (e) { /* ignore */ }
+  return s;
+}
+let _scope = readScope();
+function scopeQuery() { return '&scope=' + encodeURIComponent(_scope); }
+// Čo server reálne použil. Keď pole `scope` v odpovedi (ešte) nie je,
+// padáme na lokálnu voľbu — chýbajúce pole nesmie stránku rozbiť.
+function effectiveScope(data) {
+  const fromApi = data && data.scope;
+  if (fromApi === 'all' || fromApi === 'active') return fromApi;
+  return _scope;
+}
+
 function $(sel) {
   return _container.querySelector(sel);
 }
@@ -59,8 +88,10 @@ async function loadReports() {
   const activeTabContent = _container.querySelector('.tab-content.active');
   if (activeTabContent) showLoading(activeTabContent, 'Nacitavam reporty...');
   try {
-    const data = await api.get('/reports/summary?from=' + from + '&to=' + to);
+    const data = await api.get('/reports/summary?from=' + from + '&to=' + to + scopeQuery());
     if (activeTabContent) hideLoading(activeTabContent);
+    // Aj pri prázdnej odpovedi — pás musí zodpovedať zvolenému rozsahu.
+    renderScopeNotice(data);
     if (data) {
       renderStats(data);
       renderDestSplit(data);
@@ -148,6 +179,47 @@ function renderStats(data) {
   // Výsledku. Index 9 = posledná karta v hlavnom KPI gride.
   if (data.totalOdpis !== undefined && statValues[9]) {
     statValues[9].innerHTML = fmtEur(data.totalOdpis);
+  }
+}
+
+// Rozsah dát — pás nad reportom pri „Celá história“ + nenápadná poznámka
+// pri celkovej tržbe v default režime. Bez toho majiteľ vidí buď nafúknuté
+// čísla bez vysvetlenia, alebo „prepad tržieb“ a nevie prečo.
+function renderScopeNotice(data) {
+  const banner = $('#scopeNotice');
+  const hint = $('#statScopeNote');
+  const eff = effectiveScope(data);
+
+  if (banner) {
+    if (eff === 'all') {
+      banner.style.display = '';
+      banner.innerHTML = '<span>Zobrazenie zahŕňa aj obdobia predchádzajúcich '
+        + 'daňových subjektov, ktoré na tejto kase pracovali pred aktuálnym. '
+        + 'Súčty sú preto prehľadové a <strong>nie sú podkladom pre priznanie '
+        + 'DPH</strong>. Pre daňové účely prepnite späť na rozsah '
+        + '„Táto kasa“.</span>';
+    } else {
+      banner.style.display = 'none';
+      banner.innerHTML = '';
+    }
+  }
+
+  // Uzávierka ide vždy v rozsahu aktuálnej kasy — pri 'all' na to upozorni,
+  // nech sa rozdiel voči ostatným záložkám nečíta ako chyba.
+  const zNote = $('#zScopeNote');
+  if (zNote) zNote.style.display = eff === 'all' ? '' : 'none';
+
+  if (hint) {
+    if (eff === 'active') {
+      const code = data && data.cashRegisterCode ? String(data.cashRegisterCode) : '';
+      hint.style.display = '';
+      hint.textContent = 'obdobie začína prvým dokladom aktuálnej kasy'
+        + (code ? ' · DKP ' + code : '')
+        + ' — staršie subjekty cez „Celá história“';
+    } else {
+      hint.style.display = 'none';
+      hint.textContent = '';
+    }
   }
 }
 
@@ -818,7 +890,7 @@ async function loadStaffReport() {
   const tabContent = _container.querySelector('#tab-cisnicky');
   if (tabContent) showLoading(tabContent, 'Nacitavam cisnicky...');
   try {
-    const data = await api.get('/reports/staff?from=' + from + '&to=' + to);
+    const data = await api.get('/reports/staff?from=' + from + '&to=' + to + scopeQuery());
     if (tabContent) hideLoading(tabContent);
     if (!data || data.length === 0) {
       $('#staffTableBody').innerHTML = '<tr><td colspan="9" class="td-empty">Ziadne data</td></tr>';
@@ -1030,7 +1102,7 @@ function exportAPI() {
   const to = $('#dateTo').value;
   const format = $('#exportFormat').value;
   const token = api.getToken();
-  const url = '/api/reports/export?from=' + from + '&to=' + to + '&format=' + format;
+  const url = '/api/reports/export?from=' + from + '&to=' + to + '&format=' + format + scopeQuery();
   const btn = $('#btnExportAPI');
   if (btn) btnLoading(btn);
 
@@ -1050,6 +1122,16 @@ function exportAPI() {
     })
     .catch(err => showToast('Chyba exportu: ' + err.message, 'error'))
     .finally(() => { if (btn) btnReset(btn); });
+}
+
+// Aktívny stav prepínača rozsahu. TEMPLATE je statický (default 'active'),
+// takže po init() aj po každom prepnutí ho treba zosúladiť s _scope.
+function syncScopeButtons() {
+  $$('.scope-btn').forEach(b => {
+    const on = b.dataset.scope === _scope;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', String(on));
+  });
 }
 
 // ===== BIND EVENTS =====
@@ -1086,6 +1168,21 @@ function bindEvents() {
         dateFrom.value = monthStartStr();
       }
       if (btn.dataset.period !== 'custom') loadReports();
+    });
+  });
+
+  // Rozsah dát — prepnutie znamená nový request (filter je na strane servera),
+  // nie len re-render cache-u ako pri dest chipoch.
+  $$('.scope-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const next = normalizeScope(btn.dataset.scope);
+      if (next === _scope) return;
+      _scope = writeScope(next);
+      syncScopeButtons();
+      loadReports();
+      if (_container.querySelector('.tab-btn[data-tab="cisnicky"]').classList.contains('active')) {
+        loadStaffReport();
+      }
     });
   });
 
@@ -1191,6 +1288,13 @@ const TEMPLATE = `
       <button class="period-btn" data-period="month">Tento mesiac</button>
       <button class="period-btn" data-period="custom">Vlastne obdobie</button>
     </div>
+    <!-- Rozsah dat — 'active' (default, len aktualna kasa) vs 'all' (cela
+         historia vratane predoslych danovych subjektov). Aktivny stav sa
+         nastavuje v init() podla localStorage. -->
+    <div class="scope-switch" role="group" aria-label="Rozsah dát">
+      <button type="button" class="scope-btn active" data-scope="active" aria-pressed="true">Táto kasa</button>
+      <button type="button" class="scope-btn" data-scope="all" aria-pressed="false">Celá história</button>
+    </div>
     <div class="date-single" id="dateSingle">
       <input type="date" class="date-input" id="dateSingleInput">
     </div>
@@ -1215,6 +1319,9 @@ const TEMPLATE = `
     </div>
   </div>
 
+  <!-- Vysvetlujuci pas — zobrazi sa len pri rozsahu 'all' (renderScopeNotice) -->
+  <div class="scope-note" id="scopeNotice" role="note" style="display:none"></div>
+
   <!-- STAT CARDS -->
   <div class="stat-grid">
     <div class="stat-card">
@@ -1227,6 +1334,9 @@ const TEMPLATE = `
         <!-- Rozpad DPH sa zobrazi len ked je firma platitel (server posle
              totalRevenueNet). U neplatitela ostava karta nezmenena. -->
         <div class="stat-change neutral" id="statVatNote" style="display:none"></div>
+        <!-- Rozsah 'active': zobrazene obdobie zacina prvym dokladom
+             aktualnej kasy — inak vyzeraju starsie subjekty ako prepad trzieb. -->
+        <div class="stat-change neutral" id="statScopeNote" style="display:none"></div>
       </div>
     </div>
     <div class="stat-card">
@@ -1606,6 +1716,16 @@ const TEMPLATE = `
       </button>
     </div>
 
+    <!-- Uzávierka zámerne NEreaguje na prepínač rozsahu: je to fiškálny
+         doklad aktuálnej pokladne a tlačová cesta (POST /print/z-report)
+         rozsah neprijíma. Keby preview bežal v 'all', papier a obrazovka
+         by si protirečili. -->
+    <div class="scope-note" id="zScopeNote" role="note" style="display:none">
+      <span>Uzávierka sa vždy počíta len za aktuálnu kasu, aj keď je zapnutý
+      rozsah „Celá história“. Je to fiškálny doklad jedného daňového subjektu,
+      preto sa čísla tu môžu líšiť od ostatných záložiek.</span>
+    </div>
+
     <div id="zReportContent" style="display:none">
       <div class="stat-grid">
         <div class="stat-card">
@@ -1712,10 +1832,37 @@ export function init(container) {
     document.head.appendChild(st);
   }
 
+  // Prepínač rozsahu + vysvetľujúci pás. Vizuálne rodina .period-btn
+  // (existujúci prepínač obdobia), len min-height na plný 44 px tap target.
+  if (!document.getElementById('reports-scope-style')) {
+    const ss = document.createElement('style');
+    ss.id = 'reports-scope-style';
+    ss.textContent =
+      '.scope-switch{display:flex;gap:4px}'
+      + '.scope-btn{padding:var(--space-2) var(--space-4);border-radius:var(--radius-sm);'
+      + 'border:1px solid var(--color-border);background:transparent;color:var(--color-text-sec);'
+      + 'font-family:var(--font-body);font-size:var(--text-base);font-weight:var(--weight-semibold);'
+      + 'cursor:pointer;transition:all var(--transition-fast);min-height:var(--btn-h-md)}'
+      + '.scope-btn:hover{color:var(--color-text);background:var(--color-bg-hover)}'
+      + '.scope-btn.active{color:var(--color-accent);background:var(--color-accent-bg);border-color:var(--color-accent-border)}'
+      + '.scope-btn:focus-visible{outline:none;border-color:var(--color-focus);box-shadow:0 0 0 3px var(--border-focus)}'
+      + '.scope-note{padding:var(--space-3) var(--space-4);margin-bottom:var(--space-4);'
+      + 'border:1px solid var(--color-accent-border);border-left:3px solid var(--color-accent);'
+      + 'border-radius:var(--radius-sm);background:var(--color-accent-bg);color:var(--color-text-sec);'
+      + 'font-size:var(--text-md);line-height:1.5}'
+      + '.scope-note strong{color:var(--color-text);font-weight:var(--weight-semibold)}'
+      + '@media (max-width:640px){.scope-switch{flex:1 1 100%}.scope-btn{flex:1 1 0;text-align:center}}';
+    document.head.appendChild(ss);
+  }
+
   // Set default dates
   $('#dateFrom').value = weekAgoStr();
   $('#dateTo').value = todayStr();
   $('#zReportDate').value = todayStr();
+
+  // Obnov zapamätanú voľbu rozsahu (TEMPLATE má natvrdo 'active').
+  _scope = readScope();
+  syncScopeButtons();
 
   bindEvents();
   loadReports();

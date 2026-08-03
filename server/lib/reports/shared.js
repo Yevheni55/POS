@@ -2,6 +2,8 @@
 // server/lib/reports/. Extracted from the original monolithic reports.js
 // route so each handler can sit in its own file.
 
+import { getActiveCashRegisterCode } from '../active-cash-register.js';
+
 export const TZ = 'Europe/Bratislava';
 
 export function roundMoney(value) {
@@ -124,3 +126,39 @@ export const notForeignCashRegisterOrderSql = (ordersAlias = 'orders', activeCod
     AND COALESCE(TRIM(fd_crc.cash_register_code), '') <> '${sqlLiteral(code)}'
 )`;
 };
+
+// ── Rozsah reportu (`?scope=`) ───────────────────────────────────────────────
+// Na kase sa vystriedali TRI daňové subjekty. Default `active` = filter podľa
+// AKTÍVNEHO kódu pokladne (jediný správny podklad pre DPH — nemieša firmy).
+// `all` = bez filtra kasy, teda celá história všetkých subjektov; slúži
+// majiteľovi na porovnanie sezón, NIE ako podklad pre priznanie.
+//
+// POZOR: `all` uvoľňuje IBA filter pokladne. Storno filter (`notStornoedSql`)
+// platí VŽDY — vystornovaný predaj nie je tržba v žiadnom pohľade.
+export const REPORT_SCOPE_ACTIVE = 'active';
+export const REPORT_SCOPE_ALL = 'all';
+
+/**
+ * Prečíta `?scope=` a vráti, čo sa má reálne použiť.
+ *
+ * Neznáma / chýbajúca hodnota => `active` (fail-safe, NIE 400): report je len
+ * na čítanie a v pochybnostiach je bezpečnejšie ukázať užší, daňovo správny
+ * pohľad než ticho zmiešať tržby dvoch firiem.
+ *
+ * @param {{ query?: Record<string, unknown> }} req
+ * @returns {Promise<{ scope: 'active'|'all', cashRegisterCode: string, filterCode: string }>}
+ *   `cashRegisterCode` = aktívny kód (vždy, nech UI vie čo je „vlastné"),
+ *   `filterCode` = to, čo sa posiela do `notForeignCashRegisterSql()` /
+ *   `notForeignCashRegisterOrderSql()`. Pri `all` je prázdny → helper vráti
+ *   `'TRUE'` a filter sa neaplikuje.
+ */
+export async function resolveScope(req) {
+  const raw = String(req?.query?.scope ?? '').trim().toLowerCase();
+  const scope = raw === REPORT_SCOPE_ALL ? REPORT_SCOPE_ALL : REPORT_SCOPE_ACTIVE;
+  const cashRegisterCode = await getActiveCashRegisterCode();
+  return {
+    scope,
+    cashRegisterCode,
+    filterCode: scope === REPORT_SCOPE_ALL ? '' : cashRegisterCode,
+  };
+}

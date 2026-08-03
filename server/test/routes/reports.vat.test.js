@@ -5,6 +5,8 @@
 //   [09] zisk platiteľa stojí na tržbe BEZ DPH; u neplatiteľa sa nič nemení
 //   [Z2] kategórie a topItems v uzávierke musia odpočítať fiškálne storno
 //   [27] uzávierka vracia rozpad hotovosti podľa kódu pokladne
+//   [08b] `?scope=all` prepne report na celú históriu (všetky daňové subjekty),
+//         ale storno filter platí aj tam a default sa nemení
 //
 // Pripúšťa aj paralelné worker DB (pos_test_w1..w6) — rovnaký guard ako
 // v ostatných test súboroch, nech sa testy nikdy netrafia do živej `pos`.
@@ -171,7 +173,9 @@ describe('reports — režim platiteľa DPH', () => {
 
     const csv = await auth(request.get(`/api/reports/export?from=${DAY}&to=${DAY}&format=csv`));
     assert.match(csv.text, /Zdroj DPH/);
-    assert.match(csv.text, /;odhad\r?\n/);
+    // Za „Zdroj DPH" pribudli stĺpce „Kod pokladne;Firma", takže `odhad` už nie
+    // je posledná hodnota riadku.
+    assert.match(csv.text, /;odhad;/);
   });
 
   // ── [08] oddelenie firiem ──────────────────────────────────────────────
@@ -264,6 +268,155 @@ describe('reports — režim platiteľa DPH', () => {
       Math.abs(expDph - sum.body.totalVatOutput) <= 0.02,
       `export DPH ${expDph} vs summary totalVatOutput ${sum.body.totalVatOutput}`,
     );
+  });
+
+  // ── [08b] prepínač rozsahu ?scope= ─────────────────────────────────────
+  // Filter podľa aktívnej kasy je správny podklad pre DPH, ale majiteľovi tým
+  // zmizla celá história (86 142 € → 4 686 €). Prepínač ju vracia späť —
+  // ako VEDOMÝ, explicitný krok, nie ako nový default.
+
+  /** Vlastná (10 €) + cudzia (55 €) + bez dokladu (3 €) platba v jeden deň. */
+  async function seedTwoSubjects() {
+    await setCompanyProfile({ icDph: '', cashRegisterCode: OWN_CODE });
+    const mine = await makeSale({ amount: '10.00', items: [{ menuItemId: fixtures.itemPivo.id, qty: 4 }] });
+    await makeFiscalDoc({ ...mine, cashRegisterCode: OWN_CODE, lines: [{ name: 'Pivo', price: 10, vatRate: 0 }] });
+    const theirs = await makeSale({ amount: '55.00', items: [{ menuItemId: fixtures.itemPivo.id, qty: 22 }] });
+    await makeFiscalDoc({ ...theirs, cashRegisterCode: FOREIGN_CODE, lines: [{ name: 'Pivo', price: 55, vatRate: 0 }] });
+    const noDoc = await makeSale({ amount: '3.00', items: [{ menuItemId: fixtures.itemPivo.id, qty: 1 }] });
+    return { mine, theirs, noDoc };
+  }
+
+  it('[08b] BEZ ?scope sa nič nemení — reporty vidia len aktívnu kasu', async () => {
+    await seedTwoSubjects();
+
+    const sum = await auth(request.get(`/api/reports/summary?from=${DAY}&to=${DAY}`));
+    assert.equal(sum.status, 200);
+    assert.equal(sum.body.revenue.fiscal, 13, '10 + 3 (bez cudzej kasy)');
+    assert.equal(sum.body.scope, 'active', 'default rozsahu je "active"');
+    assert.equal(sum.body.cashRegisterCode, OWN_CODE);
+
+    const z = await auth(request.get(`/api/reports/z-report?date=${DAY}`));
+    assert.equal(z.body.fiscalRevenue, 13);
+    assert.equal(z.body.scope, 'active');
+    assert.equal(z.body.cashRegisterCode, OWN_CODE);
+    // Starý kľúč pre tlač uzávierky musí ostať nedotknutý.
+    assert.equal(z.body.activeCashRegisterCode, OWN_CODE);
+
+    const exp = await auth(request.get(`/api/reports/export?from=${DAY}&to=${DAY}&format=json`));
+    assert.deepEqual(exp.body.map((r) => r.celkom).sort((a, b) => a - b), [3, 10]);
+    assert.ok(exp.body.every((r) => r.scope === 'active'));
+    assert.ok(exp.body.every((r) => r.firma !== 'CUDZIA'), 'vo vlastnom rozsahu nesmie byť cudzí riadok');
+
+    const st = await auth(request.get(`/api/reports/staff?from=${DAY}&to=${DAY}`));
+    assert.equal(st.body.reduce((s, r) => s + r.revenue, 0), 13);
+    assert.equal(st.body[0].scope, 'active');
+
+    const cf = await auth(request.get(`/api/cashflow/summary?from=${DAY}&to=${DAY}`));
+    assert.equal(cf.body.posRevenue, 13);
+    assert.equal(cf.body.scope, 'active');
+  });
+
+  it('[08b] ?scope=all započíta aj platby s CUDZÍM kódom pokladne', async () => {
+    await seedTwoSubjects();
+
+    const sum = await auth(request.get(`/api/reports/summary?from=${DAY}&to=${DAY}&scope=all`));
+    assert.equal(sum.status, 200);
+    assert.equal(sum.body.revenue.fiscal, 68, '10 + 55 + 3 — celá história');
+    assert.equal(sum.body.scope, 'all');
+    assert.equal(sum.body.cashRegisterCode, OWN_CODE, 'aktívny kód sa vracia aj v rozsahu "all"');
+
+    const z = await auth(request.get(`/api/reports/z-report?date=${DAY}&scope=all`));
+    assert.equal(z.body.fiscalRevenue, 68);
+    assert.equal(z.body.scope, 'all');
+
+    const exp = await auth(request.get(`/api/reports/export?from=${DAY}&to=${DAY}&format=json&scope=all`));
+    assert.deepEqual(exp.body.map((r) => r.celkom).sort((a, b) => a - b), [3, 10, 55]);
+    const byAmount = Object.fromEntries(exp.body.map((r) => [r.celkom, r]));
+    assert.equal(byAmount[55].firma, 'CUDZIA', 'cudzí subjekt musí byť v CSV označený');
+    assert.equal(byAmount[55].kasa, FOREIGN_CODE);
+    assert.equal(byAmount[10].firma, 'vlastna');
+    assert.equal(byAmount[3].firma, 'bez dokladu', 'paragón bez dokladu nemá kód pokladne');
+
+    const csv = await auth(request.get(`/api/reports/export?from=${DAY}&to=${DAY}&format=csv&scope=all`));
+    assert.match(csv.text, /Kod pokladne;Firma/);
+    assert.match(csv.text, new RegExp(`;${FOREIGN_CODE};CUDZIA`));
+
+    const st = await auth(request.get(`/api/reports/staff?from=${DAY}&to=${DAY}&scope=all`));
+    assert.equal(st.body.reduce((s, r) => s + r.revenue, 0), 68);
+    assert.equal(st.body[0].scope, 'all');
+
+    const cf = await auth(request.get(`/api/cashflow/summary?from=${DAY}&to=${DAY}&scope=all`));
+    assert.equal(cf.body.posRevenue, 68);
+    assert.equal(cf.body.scope, 'all');
+  });
+
+  it('[08b] neznámy ?scope sa správa ako "active" (fail-safe, nie 400)', async () => {
+    await seedTwoSubjects();
+
+    for (const bogus of ['nezmysel', 'aktivny', '', 'all; DROP TABLE payments', 'ALLL']) {
+      const sum = await auth(request.get(`/api/reports/summary?from=${DAY}&to=${DAY}&scope=${encodeURIComponent(bogus)}`));
+      assert.equal(sum.status, 200, `scope=${bogus} nesmie skončiť chybou`);
+      assert.equal(sum.body.scope, 'active', `scope=${bogus} musí padnúť na "active"`);
+      assert.equal(sum.body.revenue.fiscal, 13, `scope=${bogus} nesmie pustiť cudziu kasu`);
+    }
+
+    // Tolerancia je len na obal hodnoty (veľkosť písmen + medzery), nie na
+    // preklepy — `ALL ` je stále vedomé „chcem celú históriu".
+    const loose = await auth(request.get(`/api/reports/summary?from=${DAY}&to=${DAY}&scope=${encodeURIComponent(' ALL ')}`));
+    assert.equal(loose.body.scope, 'all');
+    assert.equal(loose.body.revenue.fiscal, 68);
+
+    // Aj z-report / export / staff / cashflow držia rovnaký fail-safe.
+    const z = await auth(request.get(`/api/reports/z-report?date=${DAY}&scope=nezmysel`));
+    assert.equal(z.status, 200);
+    assert.equal(z.body.scope, 'active');
+    assert.equal(z.body.fiscalRevenue, 13);
+
+    const exp = await auth(request.get(`/api/reports/export?from=${DAY}&to=${DAY}&format=json&scope=nezmysel`));
+    assert.equal(exp.status, 200);
+    assert.deepEqual(exp.body.map((r) => r.celkom).sort((a, b) => a - b), [3, 10]);
+
+    const st = await auth(request.get(`/api/reports/staff?from=${DAY}&to=${DAY}&scope=nezmysel`));
+    assert.equal(st.status, 200);
+    assert.equal(st.body.reduce((s, r) => s + r.revenue, 0), 13);
+
+    const cf = await auth(request.get(`/api/cashflow/summary?from=${DAY}&to=${DAY}&scope=nezmysel`));
+    assert.equal(cf.status, 200);
+    assert.equal(cf.body.posRevenue, 13);
+  });
+
+  it('[08b] ?scope=all NEZAPOČÍTA fiškálne stornovanú platbu — uvoľňuje sa LEN filter kasy', async () => {
+    await setCompanyProfile({ icDph: '', cashRegisterCode: OWN_CODE });
+    // Vlastná platná platba.
+    const mine = await makeSale({ amount: '10.00', items: [{ menuItemId: fixtures.itemPivo.id, qty: 4 }] });
+    await makeFiscalDoc({ ...mine, cashRegisterCode: OWN_CODE });
+    // Vlastná, ale vystornovaná.
+    const mineStornoed = await makeSale({ amount: '33.00', items: [{ menuItemId: fixtures.itemPivo.id, qty: 13 }] });
+    await makeFiscalDoc({ ...mineStornoed, cashRegisterCode: OWN_CODE });
+    await makeFiscalDoc({ ...mineStornoed, sourceType: 'storno', cashRegisterCode: OWN_CODE });
+    // CUDZIA a zároveň vystornovaná — historický pohľad ju tiež nesmie zarátať.
+    const foreignStornoed = await makeSale({ amount: '77.00', items: [{ menuItemId: fixtures.itemPivo.id, qty: 30 }] });
+    await makeFiscalDoc({ ...foreignStornoed, cashRegisterCode: FOREIGN_CODE });
+    await makeFiscalDoc({ ...foreignStornoed, sourceType: 'storno', cashRegisterCode: FOREIGN_CODE });
+    // CUDZIA a platná — jediné, čo `all` pridáva.
+    const foreignOk = await makeSale({ amount: '55.00', items: [{ menuItemId: fixtures.itemPivo.id, qty: 22 }] });
+    await makeFiscalDoc({ ...foreignOk, cashRegisterCode: FOREIGN_CODE });
+
+    const sum = await auth(request.get(`/api/reports/summary?from=${DAY}&to=${DAY}&scope=all`));
+    assert.equal(sum.body.revenue.fiscal, 65, '10 + 55; obe stornované (33 aj 77) sú mimo');
+    assert.equal(sum.body.totalRevenue, 65);
+
+    const z = await auth(request.get(`/api/reports/z-report?date=${DAY}&scope=all`));
+    assert.equal(z.body.fiscalRevenue, 65);
+
+    const exp = await auth(request.get(`/api/reports/export?from=${DAY}&to=${DAY}&format=json&scope=all`));
+    assert.deepEqual(exp.body.map((r) => r.celkom).sort((a, b) => a - b), [10, 55]);
+
+    const st = await auth(request.get(`/api/reports/staff?from=${DAY}&to=${DAY}&scope=all`));
+    assert.equal(st.body.reduce((s, r) => s + r.revenue, 0), 65);
+
+    const cf = await auth(request.get(`/api/cashflow/summary?from=${DAY}&to=${DAY}&scope=all`));
+    assert.equal(cf.body.posRevenue, 65);
   });
 
   // ── [Z2] storno v item-agregátoch ──────────────────────────────────────

@@ -2,12 +2,11 @@ import { eq, sql } from 'drizzle-orm';
 
 import { db } from '../../db/index.js';
 import { orders, orderItems, payments, staff } from '../../db/schema.js';
-import { getActiveCashRegisterCode } from '../active-cash-register.js';
 import { localYmd } from '../print/format.js';
 
-import { TZ, notStornoedSql, notForeignCashRegisterSql } from './shared.js';
+import { TZ, notStornoedSql, notForeignCashRegisterSql, resolveScope } from './shared.js';
 
-// GET /api/reports/staff?from=&to=
+// GET /api/reports/staff?from=&to=&scope=active|all
 export async function staffHandler(req, res) {
   // Defaultny rozsah = poslednych 30 LOKALNYCH dni (UTC den sa po polnoci lisi).
   const from = req.query.from || localYmd(new Date(Date.now() - 30 * 86400000));
@@ -25,9 +24,10 @@ export async function staffHandler(req, res) {
 
   try {
     // Tržby dvoch daňových subjektov sa nesmú miešať — platba, ktorej PREDAJNÝ
-    // doklad patrí cudziemu kódu pokladne, sem nepatrí. Prázdny kód = filter
-    // sa neaplikuje (rovnaký fallback ako server/lib/payments/history.js).
-    const activeCashRegisterCode = await getActiveCashRegisterCode();
+    // doklad patrí cudziemu kódu pokladne, sem default (`scope=active`)
+    // nepatrí. `scope=all` pošle do helpera prázdny kód → filter sa neaplikuje
+    // a čísla čašníkov pokryjú celú históriu všetkých subjektov.
+    const { scope, cashRegisterCode, filterCode } = await resolveScope(req);
 
     // Pocty objednavok a poloziek. Platby sa tu UZ NEJOINUJU: join na
     // order_items robil fan-out (jeden riadok platby na kazdu polozku) a
@@ -62,7 +62,7 @@ export async function staffHandler(req, res) {
     .where(
       sql`${inRange(payments.createdAt)}
         AND ${sql.raw(notStornoedSql('payments'))}
-        AND ${sql.raw(notForeignCashRegisterSql('payments', activeCashRegisterCode))}`   // stornované platby nie sú tržba, cudzia kasa tiež nie
+        AND ${sql.raw(notForeignCashRegisterSql('payments', filterCode))}`   // stornované platby nie sú tržba, cudzia kasa tiež nie (pri scope=all sa filter kasy neaplikuje)
     )
     .groupBy(staff.id, payments.method);
 
@@ -92,6 +92,11 @@ export async function staffHandler(req, res) {
         staffId: s.staffId,
         name: s.name,
         role: s.role,
+        // Rozsah nesie KAŽDÝ riadok — odpoveď je historicky ploché pole
+        // (admin/pages/reports.js:821 aj testy s ním tak pracujú), takže sa
+        // tvar nemení. Rovnaká dvojica je aj v hlavičkách odpovede.
+        scope,
+        cashRegisterCode,
         ordersCount,
         itemsCount: parseInt(s.itemsCount),
         revenue,
@@ -105,6 +110,9 @@ export async function staffHandler(req, res) {
     // teraz je trzba pocitana v JS, takze sa triedi tu.
     result.sort((a, b) => b.revenue - a.revenue);
 
+    // Aj pre prázdne pole musí byť rozsah čitateľný.
+    res.setHeader('X-Report-Scope', scope);
+    res.setHeader('X-Cash-Register-Code', cashRegisterCode || '');
     res.json(result);
   } catch (err) {
     console.error('Staff report error:', err);

@@ -2,12 +2,11 @@ import { desc, eq, sql } from 'drizzle-orm';
 
 import { db } from '../../db/index.js';
 import { orders, orderItems, payments, menuItems, staff } from '../../db/schema.js';
-import { getActiveCashRegisterCode } from '../active-cash-register.js';
 import { allocateDiscountAcrossVatGroups } from '../fiscal-payment.js';
 import { lineDiscountAmount } from '../payments/shared.js';
 import { localDateSK, localTimeHHMM, localYmd } from '../print/format.js';
 
-import { TZ, roundMoney, notStornoedSql, notForeignCashRegisterSql } from './shared.js';
+import { TZ, roundMoney, notStornoedSql, notForeignCashRegisterSql, resolveScope } from './shared.js';
 
 // Doklad je právoplatne zaevidovaný v rovnakých `result_mode` ako pri
 // `notStornoedSql` (server/lib/reports/shared.js) — offline akceptovaný doklad
@@ -66,7 +65,24 @@ function vatSplitFromFiscalRequest(requestJson) {
   return { zaklad, dph, gross };
 }
 
-// GET /api/reports/export?from=2026-03-01&to=2026-03-26&format=csv
+/**
+ * Príznak firmy pre riadok exportu.
+ *
+ * Pri `scope=all` sa do CSV dostanú doklady CUDZÍCH daňových subjektov — pre
+ * účtovníčku je to nebezpečné, preto musí byť na prvý pohľad vidno, ktorý
+ * riadok nepatrí aktuálnej firme. Rovnaký vzor pomenovania ako stĺpec
+ * „Zdroj DPH" (`doklad` / `odhad`): krátke lowercase hodnoty, cudzí riadok
+ * navyše VEĽKÝMI písmenami, aby v tabuľke bil do očí.
+ */
+function companyFlag(rowCashRegisterCode, activeCashRegisterCode) {
+  const code = String(rowCashRegisterCode || '').trim();
+  const active = String(activeCashRegisterCode || '').trim();
+  if (!code) return 'bez dokladu';        // paragón / lokálny režim — kasu nemá
+  if (!active) return 'neznama';          // nevieme, čo je „vlastné"
+  return code === active ? 'vlastna' : 'CUDZIA';
+}
+
+// GET /api/reports/export?from=2026-03-01&to=2026-03-26&format=csv&scope=active|all
 export async function exportHandler(req, res) {
   // Defaultny rozsah = poslednych 30 LOKALNYCH dni (UTC den sa po polnoci lisi).
   const from = req.query.from || localYmd(new Date(Date.now() - 30 * 86400000));
@@ -83,10 +99,12 @@ export async function exportHandler(req, res) {
   const inRange = (col) => sql`(${col} AT TIME ZONE 'UTC') >= ${fromBoundary} AND (${col} AT TIME ZONE 'UTC') <= ${toBoundary}`;
 
   try {
-    // Na kase sa môže zmeniť daňový subjekt — účtovný export nesmie miešať
-    // tržby dvoch firiem. Prázdny kód = filter sa neaplikuje (rovnaký fallback
-    // ako server/lib/payments/history.js).
-    const activeCashRegisterCode = await getActiveCashRegisterCode();
+    // Na kase sa môže zmeniť daňový subjekt — účtovný export default (`active`)
+    // NESMIE miešať tržby dvoch firiem. `scope=all` filter uvoľní; vtedy sa do
+    // exportu dostanú aj cudzie doklady, preto každý riadok nesie kód pokladne
+    // a príznak firmy (stĺpce „Kod pokladne" / „Firma").
+    const { scope, cashRegisterCode, filterCode } = await resolveScope(req);
+    const activeCashRegisterCode = cashRegisterCode;
 
     // Get all closed orders with payments, items, and staff
     const rawOrders = await db.select({
@@ -116,6 +134,17 @@ export async function exportHandler(req, res) {
         ORDER BY fd.id DESC
         LIMIT 1
       )`,
+      // Kód pokladne z PREDAJNÉHO dokladu — pri `scope=all` je to jediné, čím
+      // účtovníčka rozozná riadok cudzieho subjektu. Zámerne BEZ filtra na
+      // `result_mode`, nech sa vzor zhoduje s `notForeignCashRegisterSql()`.
+      fiscalCashRegisterCode: sql`(
+        SELECT TRIM(fd_crc.cash_register_code)
+        FROM fiscal_documents fd_crc
+        WHERE fd_crc.payment_id = ${payments.id}
+          AND fd_crc.source_type = 'payment'
+        ORDER BY fd_crc.id DESC
+        LIMIT 1
+      )`,
     })
     .from(payments)
     .innerJoin(orders, eq(payments.orderId, orders.id))
@@ -127,7 +156,7 @@ export async function exportHandler(req, res) {
     // zrušeného predaja (a CSV si protirečilo s uzávierkou aj so Sezónou).
     .where(sql`${inRange(payments.createdAt)}
       AND ${sql.raw(notStornoedSql('payments'))}
-      AND ${sql.raw(notForeignCashRegisterSql('payments', activeCashRegisterCode))}`)
+      AND ${sql.raw(notForeignCashRegisterSql('payments', filterCode))}`)
     .orderBy(desc(payments.createdAt));
 
     // Group by payment (orderId + paymentMethod as key)
@@ -144,6 +173,7 @@ export async function exportHandler(req, res) {
           discountAmount: parseFloat(row.orderDiscountAmount),
           itemDiscountTotal: 0,
           fiscalRequestJson: row.fiscalRequestJson || null,
+          fiscalCashRegisterCode: row.fiscalCashRegisterCode || '',
           _seenItemIds: new Set(),
           items: [],
         };
@@ -182,6 +212,10 @@ export async function exportHandler(req, res) {
       const timeStr = localTimeHHMM(dt);
       const itemsList = g.items.map(i => i.qty + 'x ' + i.name).join(', ');
       const celkom = g.paymentAmount;
+      // Identita subjektu riadku — pri `scope=active` je vždy 'vlastna' alebo
+      // 'bez dokladu', pri `scope=all` sa objaví aj 'CUDZIA'.
+      const kasa = String(g.fiscalCashRegisterCode || '');
+      const firma = companyFlag(kasa, activeCashRegisterCode);
 
       // 1) PRIMÁRNY zdroj = zmrazený fiškálny doklad. Berieme ho len vtedy, keď
       //    jeho súčet riadkov sedí s reálne zaplatenou sumou — inak by CSV
@@ -202,6 +236,10 @@ export async function exportHandler(req, res) {
           platba: g.paymentMethod,
           cisnik: g.staffName,
           zdroj: 'doklad',
+          kasa,
+          firma,
+          scope,
+          cashRegisterCode: activeCashRegisterCode,
         };
       }
 
@@ -255,8 +293,19 @@ export async function exportHandler(req, res) {
         platba: g.paymentMethod,
         cisnik: g.staffName,
         zdroj: 'odhad',
+        kasa,
+        firma,
+        scope,
+        cashRegisterCode: activeCashRegisterCode,
       };
     });
+
+    // Rozsah nesú OBE varianty. JSON ostáva zámerne PLOCHÉ POLE (mení sa len
+    // obsah riadkov, nie tvar odpovede) — `scope`/`cashRegisterCode` sú preto
+    // na každom riadku aj v hlavičkách, nech ich vie prečítať aj klient, ktorý
+    // sťahuje CSV ako blob.
+    res.setHeader('X-Report-Scope', scope);
+    res.setHeader('X-Cash-Register-Code', activeCashRegisterCode || '');
 
     if (format === 'csv') {
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -266,9 +315,12 @@ export async function exportHandler(req, res) {
       // Stĺpec "Zdroj DPH": `doklad` = Základ/DPH sú z fiškálneho dokladu
       // (immutable, presne to čo je v eKase), `odhad` = platba fiškálny doklad
       // nemá a čísla sú dopočítané zo živého menu.
-      csv += 'Cislo;Datum;Cas;Polozky;Zaklad;DPH;Celkom;Platba;Cisnik;Zdroj DPH\n';
+      // Stĺpce "Kod pokladne" / "Firma": pri `scope=all` je v exporte aj cudzí
+      // daňový subjekt — `CUDZIA` znamená, že riadok NEPATRÍ aktuálnej firme
+      // a do jej priznania sa nesmie dostať.
+      csv += 'Cislo;Datum;Cas;Polozky;Zaklad;DPH;Celkom;Platba;Cisnik;Zdroj DPH;Kod pokladne;Firma\n';
       for (const r of rows) {
-        csv += [r.cislo, r.datum, r.cas, '"' + r.polozky.replace(/"/g, '""') + '"', r.zaklad.toFixed(2), r.dph.toFixed(2), r.celkom.toFixed(2), r.platba, r.cisnik, r.zdroj].join(';') + '\n';
+        csv += [r.cislo, r.datum, r.cas, '"' + r.polozky.replace(/"/g, '""') + '"', r.zaklad.toFixed(2), r.dph.toFixed(2), r.celkom.toFixed(2), r.platba, r.cisnik, r.zdroj, r.kasa, r.firma].join(';') + '\n';
       }
       res.send(csv);
     } else {

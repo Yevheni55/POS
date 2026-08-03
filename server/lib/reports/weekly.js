@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm';
 
 import { db } from '../../db/index.js';
 import { getVatMode } from '../vat-registration.js';
-import { TZ, roundMoney } from './shared.js';
+import { TZ, roundMoney, resolveScope } from './shared.js';
 
 // Lokálny (Europe/Bratislava) dátum + hodina pre daný instant. Ručne
 // počítaný `offsetMs` cez `toLocaleString` dával nesprávne hranice — na
@@ -46,7 +46,7 @@ export function localHourSlices(inAt, outAt){
   return slices;
 }
 
-// GET /api/reports/weekly?from=YYYY-MM-DD&to=YYYY-MM-DD
+// GET /api/reports/weekly?from=YYYY-MM-DD&to=YYYY-MM-DD&scope=active|all
 // Detailný týždenný breakdown — hodina × deň-v-týždni × destinácia
 // (bar/kuchyna), plus cook-shifts pre per-hour výpočet kuchárskej
 // efektivity. Slúži novej admin stránke "Týždeň".
@@ -66,6 +66,14 @@ export async function weeklyHandler(req, res) {
   })();
   const fromBoundary = sql`(${from + ' 00:00:00'})::timestamp AT TIME ZONE ${TZ}`;
   const toBoundary   = sql`(${to + ' 23:59:59'})::timestamp AT TIME ZONE ${TZ}`;
+
+  // POZOR: tento report NIKDY nefiltroval podľa kódu pokladne — fix [08] ho
+  // vynechal, takže „Týždeň" dodnes ukazuje zlúčené čísla všetkých daňových
+  // subjektov. `scope` sa tu preto len vracia (nemení výsledok) a
+  // `cashRegisterFiltered: false` to hovorí nahlas, nech UI nepredstiera
+  // prepínač, ktorý nič nerobí. Dofiltrovanie by zmenilo dnešné čísla, čo je
+  // samostatné rozhodnutie pre majiteľa — nie tichý side-effect tejto zmeny.
+  const { scope, cashRegisterCode } = await resolveScope(req);
 
   // COGS ide z `ingredients.cost_per_unit`, kam sa cena zadáva BEZ DPH
   // (admin/pages/purchase-orders.js). U PLATITEĽA teda musí byť aj tržba
@@ -479,6 +487,13 @@ export async function weeklyHandler(req, res) {
 
   res.json({
     period: { from, to },
+    // Rozsah, ktorý sa REÁLNE použil, + aktívny kód pokladne.
+    scope,
+    cashRegisterCode,
+    // false = čísla NIE SÚ filtrované podľa kódu pokladne (viď komentár vyššie),
+    // takže pri viacerých daňových subjektoch obsahujú všetky. `scope` tu
+    // výsledok nemení.
+    cashRegisterFiltered: false,
     // true = všetky tržby/zisky/marže v tejto odpovedi sú BEZ DPH (základ
     // dane), aby sedeli s netto COGS. false = brutto, presne ako doteraz.
     vatExclusive: vatRegistered,

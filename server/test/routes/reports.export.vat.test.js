@@ -544,7 +544,9 @@ describe('reports export VAT breakdown', () => {
 
     const csv = await get('csv');
     assert.match(csv.text, /Cislo;Datum;Cas;Polozky;Zaklad;DPH;Celkom;Platba;Cisnik;Zdroj DPH/);
-    assert.match(csv.text, /;odhad\r?\n/);
+    // Za „Zdroj DPH" pribudli stĺpce „Kod pokladne;Firma" (prepínač ?scope=),
+    // takže `odhad` už nie je posledná hodnota riadku.
+    assert.match(csv.text, /;odhad;/);
 
     try {
       await testDb.update(schema.menuItems)

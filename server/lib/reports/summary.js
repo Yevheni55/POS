@@ -2,7 +2,6 @@ import { desc, eq, sql } from 'drizzle-orm';
 
 import { db } from '../../db/index.js';
 import { orders, orderItems, payments, menuItems, menuCategories, shishaSales } from '../../db/schema.js';
-import { getActiveCashRegisterCode } from '../active-cash-register.js';
 import { getVatMode } from '../vat-registration.js';
 import {
   TZ,
@@ -11,9 +10,10 @@ import {
   notStornoedOrderSql,
   notForeignCashRegisterSql,
   notForeignCashRegisterOrderSql,
+  resolveScope,
 } from './shared.js';
 
-// GET /api/reports/summary?from=2024-01-01&to=2024-12-31
+// GET /api/reports/summary?from=2024-01-01&to=2024-12-31&scope=active|all
 // Default: single calendar day (today, Bratislava) so "dashboard today" is
 // not merged with yesterday. All date/hour aggregates and boundary
 // comparisons use Europe/Bratislava — payments.created_at is stored UTC,
@@ -31,12 +31,14 @@ export async function summaryHandler(req, res) {
   const toBoundary   = sql`(${to + ' 23:59:59'})::timestamp AT TIME ZONE ${TZ}`;
 
   // Na kase sa môže zmeniť daňový subjekt (iné DKP v Portose) — reporty nesmú
-  // sčítať tržby dvoch firiem. Prázdny kód = filter sa neaplikuje (rovnaký
-  // fallback ako server/lib/payments/history.js).
-  const activeCashRegisterCode = await getActiveCashRegisterCode();
-  const notForeignPayment = sql.raw(notForeignCashRegisterSql('payments', activeCashRegisterCode));
-  const notForeignPaymentP = sql.raw(notForeignCashRegisterSql('p', activeCashRegisterCode));
-  const notForeignOrderO = sql.raw(notForeignCashRegisterOrderSql('o', activeCashRegisterCode));
+  // sčítať tržby dvoch firiem. Default `scope=active` filtruje podľa aktívneho
+  // kódu pokladne; `scope=all` pošle do helpera prázdny kód → filter sa
+  // neaplikuje a vidno celú históriu všetkých subjektov. Storno filter platí
+  // v OBOCH prípadoch.
+  const { scope, cashRegisterCode, filterCode } = await resolveScope(req);
+  const notForeignPayment = sql.raw(notForeignCashRegisterSql('payments', filterCode));
+  const notForeignPaymentP = sql.raw(notForeignCashRegisterSql('p', filterCode));
+  const notForeignOrderO = sql.raw(notForeignCashRegisterOrderSql('o', filterCode));
 
   // Režim DPH — u PLATITEĽA nie je daň na výstupe príjmom firmy, takže zisk
   // sa NESMIE počítať z brutto tržby proti netto nákladom. U neplatiteľa
@@ -110,7 +112,7 @@ export async function summaryHandler(req, res) {
   // 0 €, ale "Produkty"/kategórie stále plnú sumu.
   .where(sql`${orders.createdAt} >= ${fromBoundary} AND ${orders.createdAt} <= ${toBoundary} AND ${orders.status} != 'cancelled' AND COALESCE(${orders.closureType}, 'paid') != 'staff_meal'
     AND ${sql.raw(notStornoedOrderSql('orders'))}
-    AND ${sql.raw(notForeignCashRegisterOrderSql('orders', activeCashRegisterCode))}`)
+    AND ${sql.raw(notForeignCashRegisterOrderSql('orders', filterCode))}`)
   .groupBy(menuItems.name, menuItems.emoji, menuCategories.label, menuItems.destOverride, menuCategories.dest)
   .orderBy(desc(sql`SUM(${orderItems.qty})`));
 
@@ -760,6 +762,11 @@ export async function summaryHandler(req, res) {
 
   res.json({
     period: { from, to },
+    // Rozsah, ktorý sa REÁLNE použil (neznáma hodnota padá na 'active') +
+    // aktívny kód pokladne, nech UI vie napísať, či ide o vlastnú firmu alebo
+    // o zlúčenú históriu všetkých subjektov.
+    scope,
+    cashRegisterCode,
     // Nested shape (modern callers).
     revenue: { total: totalRevenue, fiscal: fiscalTotal, payments: parseInt(revenue.count) },
     shisha: { count: shishaCount, revenue: shishaRevenue },

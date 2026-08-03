@@ -9,6 +9,34 @@ let _container = null;
 let _data = null;
 const SEASON_START = '2026-04-25';
 
+// === Rozsah dát ===
+// Reporty štandardne filtrujú platby na cash_register_code aktívnej kasy
+// ('active'). Na tejto kase sa vystriedali tri daňové subjekty, takže bez
+// filtra by sa ich tržby sčítali dokopy — čo je pri platiteľovi DPH zlý
+// základ dane. 'all' filter vypne a ukáže celú históriu (len na prehľad).
+// Voľba je zdieľaná so stránkou Reporty cez rovnaký localStorage kľúč.
+const SCOPE_KEY = 'pos_reports_scope';
+function normalizeScope(v){ return v === 'all' ? 'all' : 'active'; }
+function readScope(){
+  // localStorage môže hodiť (private mode, zakázané cookies) — nesmie to
+  // zhodiť celú stránku, default je bezpečnejší 'active'.
+  try { return normalizeScope(localStorage.getItem(SCOPE_KEY)); }
+  catch (e) { return 'active'; }
+}
+function writeScope(v){
+  const s = normalizeScope(v);
+  try { localStorage.setItem(SCOPE_KEY, s); } catch (e) { /* ignore */ }
+  return s;
+}
+let _scope = readScope();
+// Čo server reálne použil. Keď pole `scope` v odpovedi (ešte) nie je,
+// padáme na lokálnu voľbu — chýbajúce pole nesmie stránku rozbiť.
+function effectiveScope(d){
+  const fromApi = d && d.scope;
+  if (fromApi === 'all' || fromApi === 'active') return fromApi;
+  return _scope;
+}
+
 function $(s){ return _container.querySelector(s); }
 
 function fmtEur(n, opts){
@@ -71,17 +99,60 @@ function productNetRevenue(p){
   return Number.isFinite(net) && net > 0 ? net : (Number(p && p.revenue) || 0);
 }
 
+// Segmentovaný prepínač rozsahu — rovnaká vizuálna rodina ako .period-btn
+// (prepínač obdobia), len s väčším tap targetom.
+function renderScopeSwitch(){
+  const isActive = _scope === 'active';
+  return `<div class="scope-switch" role="group" aria-label="Rozsah dát">
+    <button type="button" class="scope-btn${isActive ? ' active' : ''}" data-scope="active" aria-pressed="${isActive}">Táto kasa</button>
+    <button type="button" class="scope-btn${isActive ? '' : ' active'}" data-scope="all" aria-pressed="${!isActive}">Celá história</button>
+  </div>`;
+}
+
+// Vysvetľujúci pás pri „Celá história“ — bez neho majiteľ nevie, prečo sú
+// čísla iné než v daňovom podklade.
+function renderScopeBanner(d){
+  if (effectiveScope(d) !== 'all') return '';
+  return `<div class="scope-note" role="note">
+    <span>Zobrazenie zahŕňa aj obdobia predchádzajúcich daňových subjektov,
+    ktoré na tejto kase pracovali pred aktuálnym. Súčty sú preto prehľadové a
+    <strong>nie sú podkladom pre priznanie DPH</strong>. Pre daňové účely
+    prepnite späť na rozsah „Táto kasa“.</span>
+  </div>`;
+}
+
+// Nenápadná poznámka v default režime — inak majiteľ vidí „prepad tržieb“
+// a nevie, že staršie obdobia patria inému daňovému subjektu.
+function renderScopeHint(d){
+  if (effectiveScope(d) !== 'active') return '';
+  const code = d && d.cashRegisterCode ? String(d.cashRegisterCode) : '';
+  return `<div class="stat-change neutral">obdobie začína prvým dokladom aktuálnej kasy${code ? ' · DKP ' + escapeHtml(code) : ''} — staršie subjekty cez „Celá história“</div>`;
+}
+
 const DAY_LABEL_SK = ['Ne','Po','Ut','St','Št','Pi','So'];
 const DAY_FULL_SK  = ['Nedeľa','Pondelok','Utorok','Streda','Štvrtok','Piatok','Sobota'];
 const MONTH_FULL_SK = ['januára','februára','marca','apríla','mája','júna','júla','augusta','septembra','októbra','novembra','decembra'];
 
+// Poradové číslo requestu. „Celá história“ ťahá rádovo viac riadkov než
+// „Táto kasa“, takže pri rýchlom preklikaní môže pomalšia odpoveď doraziť
+// ako posledná a prepísať render novšou-staršou dvojicou. Zahodíme ju.
+let _loadSeq = 0;
+
 async function load(){
+  const seq = ++_loadSeq;
   try {
-    const data = await api.get('/reports/summary?from=' + SEASON_START + '&to=' + todayStr());
+    const data = await api.get('/reports/summary?from=' + SEASON_START + '&to=' + todayStr()
+      + '&scope=' + encodeURIComponent(_scope));
+    if (seq !== _loadSeq) return;
     _data = data;
     render();
   } catch (err) {
-    $('#seasonContent').innerHTML = '<div class="empty-state" style="padding:60px;text-align:center"><div class="empty-state-title" style="color:var(--color-danger)">Chyba načítania</div><div class="empty-state-text">' + (err.message || 'API zlyhalo') + '</div></div>';
+    if (seq !== _loadSeq) return;
+    // Prepínač rozsahu vykresli aj do chybového stavu — inak by sa používateľ
+    // pri zlyhaní requestu nemal ako prepnúť späť.
+    $('#seasonContent').innerHTML =
+      '<div class="filter-bar">' + renderScopeSwitch() + '</div>'
+      + '<div class="empty-state" style="padding:60px;text-align:center"><div class="empty-state-title" style="color:var(--color-danger)">Chyba načítania</div><div class="empty-state-text">' + escapeHtml(err.message || 'API zlyhalo') + '</div></div>';
   }
 }
 
@@ -115,14 +186,17 @@ function render(){
   const html = `
     <!-- Filter bar — perioda info, no editable dates (sezóna je fixná) -->
     <div class="filter-bar">
-      <div class="period-btns" style="margin-right:auto">
+      <div class="period-btns">
         <span class="period-btn active" style="cursor:default">Sezóna</span>
       </div>
-      <div style="font-size:13px;color:var(--color-text-sec)">
+      ${renderScopeSwitch()}
+      <div style="font-size:var(--text-md);color:var(--color-text-sec);margin-left:auto">
         ${formatDateSk(SEASON_START)} – ${formatDateSk(todayStr())} ·
         <strong style="color:var(--color-text)">${daysActual}</strong>/${days} aktívnych dní
       </div>
     </div>
+
+    ${renderScopeBanner(d)}
 
     <!-- 4 main stat cards — same structure as Reporty page -->
     <div class="stat-grid">
@@ -135,6 +209,7 @@ function render(){
           <div class="stat-value">${fmtEur(trzba)}</div>
           <div class="stat-change neutral">${fmtEur(avgDaily)} priemer/deň · ${fmtInt(d.totalOrders)} obj.</div>
           ${netVat ? `<div class="stat-change neutral">z toho DPH na odvod ${fmtEur(dphOdvod)} · základ dane ${fmtEur(trzbaNet)}</div>` : ''}
+          ${renderScopeHint(d)}
         </div>
       </div>
 
@@ -463,6 +538,53 @@ function renderDowHeatmap(daily){
 //     Dodržuje DESIGN-CODE.md: tokens-first, mobile-first, motion-safe. ===
 const PAGE_CSS = `
 <style>
+  /* Prepínač rozsahu — vizuálne rodina .period-btn (prepínač obdobia),
+     len min-height na plný tap target 44 px. */
+  .scope-switch{ display:flex; gap:4px }
+  .scope-btn{
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--color-border);
+    background: transparent;
+    color: var(--color-text-sec);
+    font-family: var(--font-body);
+    font-size: var(--text-base);
+    font-weight: var(--weight-semibold);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    min-height: var(--btn-h-md);
+  }
+  .scope-btn:hover{ color: var(--color-text); background: var(--color-bg-hover) }
+  .scope-btn.active{
+    color: var(--color-accent);
+    background: var(--color-accent-bg);
+    border-color: var(--color-accent-border);
+  }
+  .scope-btn:focus-visible{
+    outline: none;
+    border-color: var(--color-focus);
+    box-shadow: 0 0 0 3px var(--border-focus);
+  }
+
+  /* Vysvetľujúci pás nad reportom pri „Celá história“ */
+  .scope-note{
+    padding: var(--space-3) var(--space-4);
+    margin-bottom: var(--space-4);
+    border: 1px solid var(--color-accent-border);
+    border-left: 3px solid var(--color-accent);
+    border-radius: var(--radius-sm);
+    background: var(--color-accent-bg);
+    color: var(--color-text-sec);
+    font-size: var(--text-md);
+    line-height: 1.5;
+  }
+  .scope-note strong{ color: var(--color-text); font-weight: var(--weight-semibold) }
+
+  @media (max-width: 640px){
+    .scope-switch{ flex: 1 1 100% }
+    .scope-btn{ flex: 1 1 0; text-align: center }
+  }
+
   /* Best/worst panel accent — left border in semantic color */
   .season-day-success{ border-left: 3px solid var(--color-success); }
   .season-day-danger { border-left: 3px solid var(--color-danger);  }
@@ -616,15 +738,36 @@ const TEMPLATE = PAGE_CSS + `
 </div>
 `;
 
+// Delegovaný listener — render() prepisuje #seasonContent, takže priame
+// binding na tlačidlá by po prvom prekreslení zaniklo.
+function onScopeClick(e){
+  if (!_container) return;
+  const btn = e.target.closest && e.target.closest('.scope-btn');
+  if (!btn || !_container.contains(btn)) return;
+  const next = normalizeScope(btn.dataset.scope);
+  if (next === _scope) return;
+  _scope = writeScope(next);
+  // Aktívny stav prepni hneď, nech tlačidlo nereaguje až po odpovedi API.
+  Array.from(_container.querySelectorAll('.scope-btn')).forEach(b => {
+    const on = b.dataset.scope === _scope;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', String(on));
+  });
+  load();
+}
+
 export function init(container){
   _container = container;
+  _scope = readScope();
   container.innerHTML = TEMPLATE;
   // Apply 2-col stack class to row grids so mobile collapses cleanly
   Array.from(container.querySelectorAll('.row')).forEach(el => el.classList.add('season-page-grid-2col'));
+  container.addEventListener('click', onScopeClick);
   load();
 }
 
 export function destroy(){
+  if (_container) _container.removeEventListener('click', onScopeClick);
   _container = null;
   _data = null;
 }
