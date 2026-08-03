@@ -20,6 +20,7 @@ let editingProductId = null;
 let formAvailable = true;
 let formVatRate = 23;
 let vatRateTouched = false;
+let companionTouched = false;
 // Photo upload state for the product modal:
 //   pendingImage  — data URL chosen by user, pending POST after Uložiť
 //   currentImage  — already-saved image_url shown in preview when editing
@@ -779,6 +780,39 @@ function populateCompanionSelect(selfId, selectedId) {
   sel.innerHTML = options.join('');
 }
 
+// Kategória, ktorej položky sa predávajú vo vratnom obale. Zálohu k nim treba
+// pripnúť VŽDY — inak sa pri predaji nenaúčtuje a podnik ju platí zo svojho.
+// Presne to sa stalo položkám 128-132: pribudli neskôr a companion im nikto
+// nenastavil, takže Rajec, Targa, Dilmah, Vinea ani Thomas Henry zálohu
+// neúčtovali vôbec. Preto sa pri NOVEJ položke v tejto kategórii predvyplní.
+const DEPOSIT_CATEGORY_SLUG = 'nealko';
+const DEPOSIT_NAME_PREFIX = 'záloha';
+
+function findDepositItemId() {
+  for (const cat of MENU_DATA) {
+    if (String(cat.slug || '').toLocaleLowerCase('sk-SK') !== DEPOSIT_CATEGORY_SLUG) continue;
+    for (const it of cat.items) {
+      if (String(it.name || '').toLocaleLowerCase('sk-SK').startsWith(DEPOSIT_NAME_PREFIX)) return it.id;
+    }
+  }
+  return null;
+}
+
+// Predvyplní zálohu len pri ZAKLADANI novej položky. Pri editácii sa voľby
+// manažéra nedotýkame — a keď si ju vedome prepne, `companionTouched` to drží.
+function syncCompanionSuggestion(force) {
+  const sel = byId('fCompanion');
+  if (!sel) return;
+  if (!force && (editingProductId !== null || companionTouched)) return;
+  const category = findCategory(byId('fCategory') ? byId('fCategory').value : activeCatId);
+  const slug = String((category && category.slug) || '').toLocaleLowerCase('sk-SK');
+  if (slug !== DEPOSIT_CATEGORY_SLUG) return;
+  const depositId = findDepositItemId();
+  // Záloha samej sebe companionom byť nemôže.
+  if (depositId == null || depositId === editingProductId) return;
+  sel.value = String(depositId);
+}
+
 function resetImageState() {
   pendingImage = null;
   currentImage = null;
@@ -816,7 +850,9 @@ function openAddProduct() {
   refreshImagePreview();
   updateFormToggle();
   populateCategorySelect();
+  companionTouched = false;
   populateCompanionSelect(null, null);
+  syncCompanionSuggestion(true);
   syncVatRateSuggestion(true);
   if (byId('fDestOverride')) byId('fDestOverride').value = ''; // default (inherit kategória)
   const wrap = byId('fEmojiGridWrap');
@@ -1168,8 +1204,9 @@ export function init(container) {
   }
   byId('fAvailToggleWrap').addEventListener('click', toggleFormAvail);
   byId('productModal').addEventListener('click', function (e) { if (e.target === this) closeProductModal(); });
-  byId('fCategory').addEventListener('change', function () { syncVatRateSuggestion(false); });
+  byId('fCategory').addEventListener('change', function () { syncVatRateSuggestion(false); syncCompanionSuggestion(false); });
   byId('fName').addEventListener('input', function () { syncVatRateSuggestion(false); });
+  byId('fCompanion').addEventListener('change', function () { companionTouched = true; });
   byId('fVatRate').addEventListener('change', function () {
     vatRateTouched = true;
     formVatRate = this.value === '' ? null : normalizeVatRate(this.value);
