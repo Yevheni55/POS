@@ -236,6 +236,44 @@ export async function summaryHandler(req, res) {
       AND ${notForeignPaymentP}
   `) : { rows: [] };
 
+  // Rozpad podľa DAŇOVÉHO SUBJEKTU. Na tejto kase sa vystriedali tri (každý má
+  // vlastný kód pokladne a vlastný režim DPH) a ich súčet NIE JE obratom
+  // žiadneho z nich — bez tohto rozpadu sa to z reportu nedá vyčítať.
+  //
+  // Sú to tržby CEZ eKASU: shisha a odpis fiškálny doklad nemajú, takže sa
+  // k subjektu priradiť nedajú a tento blok sa zámerne NEROVNÁ `totalRevenue`.
+  // Mzdy sa podľa DKP nedelia vôbec — sú to náklady prevádzky viazané na
+  // miesto, nie na predaj konkrétnej firmy.
+  //
+  // DPH sa berie z NEMENNÉHO dokladu (rovnako ako `vatMixRows`), takže obdobie
+  // neplatiteľa vyjde 0 — a je to vidieť ako fakt, nie ako chýbajúci údaj.
+  const subjectRows = await db.execute(sql`
+    SELECT
+      COALESCE(NULLIF(TRIM(fd.cash_register_code), ''), '') AS cash_register_code,
+      MIN(fd.response_json::jsonb #>> '{request,data,ico}') AS ico,
+      COUNT(DISTINCT p.id)::int AS orders,
+      COALESCE(SUM(p.amount::numeric), 0)::float AS revenue,
+      MIN((p.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ})::date)::text AS first_day,
+      MAX((p.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ})::date)::text AS last_day,
+      COALESCE(SUM((
+        SELECT SUM((it->>'price')::numeric
+                   - (it->>'price')::numeric / (1 + (it->>'vatRate')::numeric / 100))
+        FROM jsonb_array_elements((fd.request_json::jsonb->'request'->'data'->'items')) AS it
+      )), 0)::float AS vat
+    FROM payments p
+    INNER JOIN orders o ON o.id = p.order_id
+    INNER JOIN fiscal_documents fd ON fd.payment_id = p.id
+                                  AND fd.source_type = 'payment'
+                                  AND fd.result_mode IN (${sql.raw(ACCEPTED_FISCAL_MODES)})
+    WHERE p.created_at >= ${fromBoundary} AND p.created_at <= ${toBoundary}
+      AND o.status != 'cancelled'
+      AND COALESCE(o.closure_type, 'paid') NOT IN ('staff_meal', 'odpis')
+      AND ${sql.raw(notStornoedSql('p'))}
+      AND ${notForeignPaymentP}
+    GROUP BY 1
+    ORDER BY 5
+  `);
+
   // Shisha — internal off-fiscal counter; rolled into the total so the dashboard
   // and weekly chart show real-world business revenue including shisha.
   const [shisha] = await db.select({
@@ -906,6 +944,21 @@ export async function summaryHandler(req, res) {
       base: netFiscalTotal,
       byRate: vatByRate,
     },
+    // Tržby cez eKasu rozpadnuté podľa daňového subjektu. Súčet sa ZÁMERNE
+    // nerovná `totalRevenue` — shisha ani odpis doklad nemajú, takže sa
+    // k firme priradiť nedajú. Mzdy sa podľa DKP nedelia vôbec.
+    bySubject: subjectRows.rows.map(r => ({
+      cashRegisterCode: r.cash_register_code || '',
+      ico: r.ico || '',
+      orders: Number(r.orders) || 0,
+      revenue: roundMoney(Number(r.revenue) || 0),
+      // DPH má zmysel len keď je firma platiteľ — u neplatiteľa je odvod 0
+      // bez ohľadu na to, čo je v payloade dokladu. Držíme tým aj invariant,
+      // že u neplatiteľa zdroj sadzieb neovplyvní ani jedno číslo odpovede.
+      vat: vatRegistered ? roundMoney(Number(r.vat) || 0) : 0,
+      firstDay: r.first_day,
+      lastDay: r.last_day,
+    })),
     burgersSold,
     staffMealByPerson: staffMealByPersonRows.rows.map(r => ({
       name: r.person_name,

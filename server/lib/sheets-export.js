@@ -25,6 +25,15 @@ import { TZ, roundMoney } from './reports/shared.js';
 
 const SEASON_START_DEFAULT = '2026-04-25';
 
+// Kase sa vystriedali tri danove subjekty; company_profiles drzi len ten
+// aktualny, takze historicke nazvy sa inde v systeme nedaju dohladat — ICO sa
+// da vycitat len z fiskalneho dokladu. Mapa je preto tu, s fallbackom na ICO.
+const SUBJECT_NAMES = {
+  '54588481': 'SL management, s.r.o.',
+  '57513708': 'Švískej s. r. o.',
+  '57307512': 'Prvý subjekt',
+};
+
 const DAY_SK = ['Ne', 'Po', 'Ut', 'St', 'Št', 'Pi', 'So'];
 const MONTH_SK = ['Január', 'Február', 'Marec', 'Apríl', 'Máj', 'Jún', 'Júl',
   'August', 'September', 'Október', 'November', 'December'];
@@ -136,6 +145,33 @@ export function buildSheetValues(d, { from, to, updatedAt }) {
   rows.push(['Zamestnanecká spotreba', d.totalStaffMeal, pct(d.totalStaffMeal), 'suroviny staff meals']);
   rows.push(['VÝSLEDOK', d.totalProfit, pct(d.totalProfit) + ' marža']);
   rows.push([]);
+
+  // Rozpad podľa daňového subjektu. Na kase sa vystriedali tri firmy a bez
+  // tohto bloku sa z tabuľky nedá vyčítať, ktorá časť sezóny komu patrí —
+  // účtovníčka by celý súčet omylom vzala ako obrat jednej z nich.
+  // Zámerne sa NEROVNÁ „Celkové tržby": shisha a odpis doklad nemajú.
+  const subjects = Array.isArray(d.bySubject) ? d.bySubject : [];
+  if (subjects.length) {
+    rows.push(['PO FIRMÁCH (tržby cez eKasu)', 'Tržby', 'DPH odvedená', 'Účty',
+      'IČO', 'Obdobie']);
+    for (const s of subjects) {
+      rows.push([
+        SUBJECT_NAMES[s.ico] || (s.ico ? `IČO ${s.ico}` : 'Bez dokladu'),
+        s.revenue,
+        s.vat,
+        s.orders,
+        s.ico || '',
+        `${fmtDateSk(s.firstDay)} – ${fmtDateSk(s.lastDay)}`,
+      ]);
+    }
+    rows.push(['SPOLU (cez eKasu)',
+      roundMoney(subjects.reduce((a, s) => a + s.revenue, 0)),
+      roundMoney(subjects.reduce((a, s) => a + s.vat, 0)),
+      subjects.reduce((a, s) => a + s.orders, 0)]);
+    rows.push(['', '', '', '', '',
+      'Bez shishy a odpisu — tie doklad nemajú. Mzdy sa podľa firmy nedelia.']);
+    rows.push([]);
+  }
 
   // Tržba denného/mesačného riadku musí stáť na ROVNAKOM základe ako jeho
   // Výsledok (ten je od auditu [09] netto), inak riadok „Tržby − náklady"
