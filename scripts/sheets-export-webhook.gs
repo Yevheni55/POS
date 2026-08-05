@@ -164,24 +164,65 @@ function styleSheet(sheet, rows, cols) {
   }
   applied.push('sections');
 
-  // --- čísla ---
-  // Stĺpec B je vždy peňažný (súhrn aj mesiace aj dni). Ďalšie stĺpce sú
-  // peňažné len tam, kde blok má viac číselných stĺpcov.
-  sheet.getRange(3, 2, n - 2, Math.max(cols - 1, 1)).setHorizontalAlignment('right');
-  sheet.getRange(3, 2, n - 2, 1).setNumberFormat(F_EUR);
-  if (cols >= 6) sheet.getRange(3, 3, n - 2, 4).setNumberFormat(F_EUR);
-  if (cols >= 7) sheet.getRange(3, 7, n - 2, 1).setNumberFormat(F_INT);
-  applied.push('numbers');
+  // --- čísla: KAŽDÝ BLOK MÁ INÝ VÝZNAM STĹPCOV ------------------------
+  // Plošné „B..F = eurá" bolo nesprávne: v bloku PO FIRMÁCH je D počet účtov
+  // a E je IČO, v mesiacoch je G počet dní. Menový formát na nich vyrábal
+  // nezmysly typu „4 951,00 €" a „57 307 512,00 €". Formát sa preto priraďuje
+  // podľa toho, KTORÝ blok práve formátujeme.
+  //
+  // Kľúč = číslo stĺpca (1-based), hodnota = 'eur' | 'int' | 'text'.
+  var SPEC = {
+    suhrn:   { 2: 'eur', 3: 'text', 4: 'text' },
+    firmy:   { 2: 'eur', 3: 'eur', 4: 'int', 5: 'text', 6: 'text' },
+    mesiace: { 2: 'eur', 3: 'eur', 4: 'eur', 5: 'eur', 6: 'eur', 7: 'int' },
+    dni:     { 1: 'text', 2: 'text', 3: 'int', 4: 'eur', 5: 'eur', 6: 'eur',
+               7: 'eur', 8: 'eur' },
+  };
 
-  // Denný blok: Účty su kusy, nie eurá; dátum a deň vľavo.
+  function blockKind(label) {
+    if (/^SÚHRN/.test(label)) return 'suhrn';
+    if (/^PO FIRMÁCH/.test(label)) return 'firmy';
+    if (/^PO MESIACOCH/.test(label)) return 'mesiace';
+    if (label === 'Dátum') return 'dni';   // hlavička denného bloku
+    return null;
+  }
+
+  // Hranice blokov: blok začína svojou hlavičkou a končí tesne pred ďalšou.
+  var blocks = [];
+  for (var b = 0; b < n; b++) {
+    var kind = blockKind(labelAt(rows, b));
+    if (!kind) continue;
+    if (blocks.length) blocks[blocks.length - 1].end = b;   // 0-based, exkluzívne
+    blocks.push({ kind: kind, header: b, start: b + 1, end: n });
+  }
+
+  for (var k = 0; k < blocks.length; k++) {
+    var blk = blocks[k];
+    var count = blk.end - blk.start;
+    if (count <= 0) continue;
+    var spec = SPEC[blk.kind];
+    for (var col = 1; col <= cols; col++) {
+      var how = spec[col];
+      var rng = sheet.getRange(blk.start + 1, col, count, 1);
+      if (how === 'eur') {
+        rng.setNumberFormat(F_EUR).setHorizontalAlignment('right');
+      } else if (how === 'int') {
+        rng.setNumberFormat(F_INT).setHorizontalAlignment('right');
+      } else {
+        // Aj bez formátu: '@' zabráni tomu, aby Sheets spravil z IČO číslo
+        // s oddeľovačmi tisícov.
+        rng.setNumberFormat('@').setHorizontalAlignment('left');
+      }
+    }
+  }
+  applied.push('numbers:' + blocks.length + 'blocks');
+
+  // Denný blok — pruhovanie a zmrazená hlavička.
   if (firstDayRow) {
     var endDay = lastDayRow || n;
     var cntDay = Math.max(endDay - firstDayRow + 1, 1);
-    sheet.getRange(firstDayRow, 1, cntDay, 2).setHorizontalAlignment('left');
-    sheet.getRange(firstDayRow, 3, cntDay, 1).setNumberFormat(F_INT);
-    sheet.getRange(firstDayRow, 4, cntDay, Math.max(cols - 3, 1)).setNumberFormat(F_EUR);
 
-    // Jemné pruhovanie — 93 riadkov sa bez neho číta ťažko.
+    // Jemné pruhovanie — 90+ riadkov sa bez neho číta ťažko.
     if (cntDay > 3) {
       var band = sheet.getRange(firstDayRow, 1, cntDay, cols)
         .applyRowBanding(SpreadsheetApp.BandingTheme.LIGHT_GREY, false, false);
@@ -201,8 +242,12 @@ function styleSheet(sheet, rows, cols) {
   }
 
   // --- šírky ---
-  sheet.setColumnWidth(1, 260);
-  for (var c = 2; c <= cols; c++) sheet.setColumnWidth(c, c === 4 ? 230 : 110);
+  sheet.setColumnWidth(1, 250);
+  for (var c = 2; c <= cols; c++) {
+    // D nesie v SUHRNe dlhu poznamku (rozpis DPH), inde je to cislo —
+    // sirku volime podla toho najsirsieho pouzitia.
+    sheet.setColumnWidth(c, c === 4 ? 200 : (c === 6 ? 150 : 105));
+  }
   applied.push('widths');
 
   return applied.join(',');
