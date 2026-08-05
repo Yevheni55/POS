@@ -8,6 +8,12 @@
 //
 // Bez jsdom v repe sa netestuje render — testuje sa reálny zdroj helperov
 // (vytiahnutý zo súboru a spustený vo `vm`) plus statické invarianty volaní.
+//
+// Rovnaký prepínač má aj serverový konzument reportu — denný export do Google
+// Sheets (server/lib/sheets-export.js). Ten musí bežať v `scope: 'all'`, inak
+// postaví celosezónne mzdy proti tržbe posledného subjektu. Testy toho volania
+// sú na konci súboru, aby kontrakt „kto aký rozsah posiela" žil na jednom
+// mieste.
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -25,6 +31,7 @@ function readSrc(rel) {
 }
 const REPORTS_SRC = readSrc('admin/pages/reports.js');
 const SEASON_SRC = readSrc('admin/pages/season.js');
+const SHEETS_SRC = readSrc('server/lib/sheets-export.js');
 
 // Texty pre používateľa sú v zdroji zreťazené cez `'a ' + 'b'`. Na kontrolu
 // obsahu spoj literály dokopy, nech sa fráza dá hľadať ako súvislý text.
@@ -33,6 +40,7 @@ function joinedLiterals(src) {
 }
 const REPORTS_TEXT = joinedLiterals(REPORTS_SRC);
 const SEASON_TEXT = joinedLiterals(SEASON_SRC);
+const SHEETS_TEXT = joinedLiterals(SHEETS_SRC);
 
 /**
  * Vytiahne blok scope helperov zo zdroja stránky a spustí ho vo `vm`, takže
@@ -184,6 +192,63 @@ test('v default rozsahu je poznámka o začiatku obdobia', () => {
   for (const [label, text] of [['reports.js', REPORTS_TEXT], ['season.js', SEASON_TEXT]]) {
     assert.match(text, /obdobie začína prvým dokladom aktuálnej kasy/, `${label}: chýba poznámka`);
   }
+});
+
+// ── Sezónny P&L do Google Sheets (server/lib/sheets-export.js) ──────────────
+// Cron 05:10 prepisuje celý list. Keby bežal v default rozsahu 'active',
+// tržba by bola za posledný daňový subjekt, ale mzdy, zamestnanecká spotreba
+// a shisha za celú sezónu (podľa DKP sa deliť nedajú) — na živých dátach
+// 2026-08-05 to robilo tržbu 11 021,89 namiesto 95 466,80 a fiktívnu stratu
+// −9 159,38 €. Zapisovalo by sa to majiteľovi do tabuľky každé ráno.
+
+test('sheets-export: fetchSummary posiela scope=all', () => {
+  const call = SHEETS_SRC.match(/await summaryHandler\(\{[\s\S]{0,200}?\}\s*,/);
+  assert.ok(call, 'volanie summaryHandler() sa nenašlo — presunulo sa?');
+  assert.match(call[0], /scope:\s*'all'/,
+    'export musí ísť v rozsahu „all" — inak stoja celosezónne mzdy proti '
+    + 'tržbe jediného subjektu a P&L vykáže fiktívnu stratu');
+  // Poistka proti „opravím to na default, veď reporty tak bežia".
+  assert.doesNotMatch(call[0], /scope:\s*'active'/);
+});
+
+test('sheets-export: pri zdroji volania je vysvetlené PREČO je rozsah all', () => {
+  // Bez dôvodu v komentári to vyzerá ako preklep a niekto to „opraví" späť.
+  const fnIdx = SHEETS_SRC.indexOf('async function fetchSummary');
+  assert.notEqual(fnIdx, -1, 'fetchSummary sa nenašla');
+  const prevBlank = SHEETS_SRC.lastIndexOf('\n\n', fnIdx);
+  const doc = SHEETS_SRC.slice(prevBlank === -1 ? 0 : prevBlank, fnIdx);
+  assert.match(doc, /rozdeliť\s+NEDAJÚ/i,
+    'chýba dôvod: náklady sa podľa DKP rozdeliť nedajú');
+  assert.match(doc, /PREVÁDZKY/i, 'chýba, že P&L je výkaz prevádzky, nie daňový podklad');
+});
+
+test('sheets-export: hlavička sheetu priznáva zlúčené subjekty a nie je podklad pre DPH', () => {
+  // Riadok 2 je jediné miesto, kde to majiteľ aj účtovníčka uvidia.
+  assert.match(SHEETS_TEXT, /VŠETKY daňové subjekty/, 'chýba veta o všetkých subjektoch');
+  assert.match(SHEETS_TEXT, /NIE je podkladom\s+pre priznanie DPH|NIE je podkladom pre priznanie DPH/,
+    'chýba varovanie, že to nie je podklad pre priznanie DPH');
+  // A musí to naozaj skončiť v maticovom riadku 2, nie iba v komentári.
+  const header = SHEETS_SRC.match(/rows\.push\(\[\(isVatPayer[\s\S]*?\]\);/);
+  assert.ok(header, 'riadok 2 hlavičky sa nenašiel');
+  assert.match(header[0], /SCOPE_NOTE/,
+    'poznámka o rozsahu sa nepripája k hlavičke — platiteľ aj neplatiteľ ju musia mať');
+});
+
+test('sheets-export: prázdny report sa do sheetu NEZAPÍŠE (full-rewrite)', () => {
+  const fn = SHEETS_SRC.match(/export async function runSheetsExportOnce\(\)[\s\S]*?\n\}/);
+  assert.ok(fn, 'runSheetsExportOnce() sa nenašla');
+  const body = fn[0];
+  const guardIdx = body.search(/data\.daily/);
+  const postIdx = body.search(/fetch\(cfg\.url/);
+  assert.notEqual(guardIdx, -1, 'chýba guard na prázdne `daily`');
+  assert.notEqual(postIdx, -1, 'POST na webhook sa nenašiel');
+  assert.ok(guardIdx < postIdx, 'guard musí byť PRED odoslaním na webhook');
+  const guardBlock = body.slice(guardIdx, postIdx);
+  // Nulová/záporná tržba je rovnako výpadok, nie deň bez predaja.
+  assert.match(guardBlock, /totalRevenue/, 'chýba guard na nulovú tržbu');
+  // Guard musí hádzať (cron to zaloguje a sheet ostane nezmenený), nie ticho
+  // pokračovať — `return { ok: true }` by tvárilo výpadok ako úspešný export.
+  assert.match(guardBlock, /throw new Error/, 'guard musí vyhodiť chybu, nie pokračovať');
 });
 
 test('prepínač spĺňa DESIGN-CODE: 44px tap target, focus ring, žiadne hex', () => {

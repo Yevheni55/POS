@@ -1,7 +1,8 @@
 // Denný export sezónneho P&L do Google Sheets.
 //
 // Čísla idú z summaryHandler (rovnaký kód ako admin stránka Sezóna/Reporty),
-// takže sheet vždy sedí 1:1 s reportom. Zápis do tabuľky robí Google Apps
+// takže sheet vždy sedí 1:1 s reportom — konkrétne s reportom prepnutým na
+// rozsah „Celá história" (`scope=all`, dôvod v `fetchSummary`). Zápis robí Apps
 // Script webhook (scripts/sheets-export-webhook.gs) nasadený ako Web App —
 // server mu POSTne hotovú 2D maticu hodnôt a script prepíše celý list.
 // Full-rewrite namiesto append: idempotentné, a spätné opravy (storno,
@@ -57,9 +58,20 @@ function weekdaySk(iso) {
 
 // summaryHandler je Express handler, ale používa iba req.query a res.json —
 // zavoláme ho s mock objektmi namiesto duplikovania jeho SQL logiky.
+//
+// `scope: 'all'` je ZÁMER, nie nedopatrenie. Default `active` filtruje tržbu na
+// aktívny cash_register_code, lenže na kase sa počas sezóny vystriedalo viac
+// daňových subjektov — a náklady (mzdy z dochádzky, zamestnanecká spotreba,
+// shisha) sa podľa DKP rozdeliť NEDAJÚ, lebo sú viazané na prevádzku, nie na
+// predaj konkrétneho subjektu. V rozsahu `active` by tak celosezónne mzdy stáli
+// proti tržbe posledného subjektu a P&L by vykázal fiktívnu stratu (na živých
+// dátach 2026-08-05: tržba 11 021,89 namiesto 95 466,80 → VÝSLEDOK −9 159,38).
+// Sezónny P&L je výkaz PREVÁDZKY za celé obdobie; keď sa náklady nedelia podľa
+// DKP, nesmie sa deliť ani tržba. Podklad pre priznanie DPH to preto NIE JE —
+// na to slúži report Sezóna/Reporty v rozsahu „Táto kasa".
 async function fetchSummary(from, to) {
   let payload = null;
-  await summaryHandler({ query: { from, to } }, { json: (b) => { payload = b; } });
+  await summaryHandler({ query: { from, to, scope: 'all' } }, { json: (b) => { payload = b; } });
   if (!payload) throw new Error('summaryHandler nevrátil dáta');
   // Keď sa nepodarilo zistiť režim DPH, summary počíta brutto (ako neplatiteľ).
   // Taký P&L sa do sheetu NESMIE zapísať — prepísal by správne čísla nesprávnymi
@@ -85,17 +97,38 @@ export function buildSheetValues(d, { from, to, updatedAt }) {
   const pct = (v) => base > 0 ? (v / base * 100).toFixed(1) + ' %' : '—';
   const rows = [];
 
+  // Rozsah sa v hlavičke MUSÍ priznať: sheet beží v `scope=all` (pozri
+  // fetchSummary), takže tržba je zlúčená za všetky subjekty na kase. Bez tejto
+  // vety by účtovníčka vzala DPH riadok ako podklad pre priznanie.
+  const SCOPE_NOTE = 'Čísla sú za VŠETKY daňové subjekty, ktoré sa na kase '
+    + 'vystriedali — mzdy, zamestnanecká spotreba ani shisha sa podľa DKP '
+    + 'rozdeliť nedajú, preto sa nedelí ani tržba. Tabuľka NIE je podkladom '
+    + 'pre priznanie DPH; na to slúži report Sezóna v rozsahu „Táto kasa".';
+
   rows.push([`SurfSpirit — Sezóna ${from.slice(0, 4)} (${fmtDateSk(from)} – ${fmtDateSk(to)})`]);
-  rows.push([isVatPayer
+  rows.push([(isVatPayer
     ? `Automaticky aktualizované ${updatedAt} · zdroj: report Sezóna (tržby bez DPH = fiškálne platby − DPH na výstupe + shisha + odpis; výsledok = tržby bez DPH − výroba − mzdy − zam. spotreba; % sú z tržieb bez DPH). Shisha a odpis cez eKasu neprešli, DPH nenesú. Mesačné aj denné riadky sú TIEŽ bez DPH, aby riadok vychádzal.`
-    : `Automaticky aktualizované ${updatedAt} · zdroj: report Sezóna (tržby = fiškálne platby + shisha + odpis; výsledok = tržby − výroba − mzdy − zam. spotreba)`]);
+    : `Automaticky aktualizované ${updatedAt} · zdroj: report Sezóna (tržby = fiškálne platby + shisha + odpis; výsledok = tržby − výroba − mzdy − zam. spotreba)`)
+    + ' ' + SCOPE_NOTE]);
   rows.push([]);
 
   rows.push(['SÚHRN ZA SEZÓNU', '€', isVatPayer ? '% z tržieb bez DPH' : '% z tržieb']);
   rows.push(['Celkové tržby', d.totalRevenue, '', `z toho odpis ${d.totalOdpis} €, shisha ${d.shisha.revenue} €`]);
   if (isVatPayer) {
-    rows.push(['z toho DPH (odvod štátu)', d.totalVatOutput, '', (d.vat?.byRate || [])
-      .map(r => `${r.vatRate} %: ${r.amount} €`).join(', ')]);
+    // `byRate` odteraz obsahuje aj 0 % skupinu — obdobie, keď bola firma
+    // neplatiteľ, a platby bez fiškálneho dokladu. Riadok „0 %: 0 €" by bol
+    // len šum, ale samotný fakt, KOĽKO tržby ide s nulovou daňou, je pre
+    // účtovníčku podstatný. Preto sadzby s daňou vypisujeme sumou dane,
+    // nulovú skupinu jej základom.
+    const zeroGross = (d.vat?.byRate || [])
+      .filter(r => Number(r.amount) === 0)
+      .reduce((sum, r) => sum + Number(r.gross || 0), 0);
+    const rateNote = (d.vat?.byRate || [])
+      .filter(r => Number(r.amount) > 0)
+      .map(r => `${r.vatRate} %: ${r.amount} €`)
+      .concat(zeroGross > 0 ? [`z toho bez dane (0 %): ${roundMoney(zeroGross)} €`] : [])
+      .join(', ');
+    rows.push(['z toho DPH (odvod štátu)', d.totalVatOutput, '', rateNote]);
     rows.push(['Tržby bez DPH (základ dane)', d.totalRevenueNet, '', 'podklad pre maržu aj priznanie DPH']);
   }
   rows.push(['Náklady na výrobu', d.totalCogs, pct(d.totalCogs), 'suroviny podľa receptúr']);
@@ -167,6 +200,20 @@ export async function runSheetsExportOnce() {
   const from = cfg.from;
   const to = todayBratislava();
   const data = await fetchSummary(from, to);
+  // SANITY GUARD — rovnaká logika ako pri `vatModeError`: radšej nechať sheet
+  // nezmenený, než ho prepísať nesprávnymi číslami. Zápis je full-rewrite, takže
+  // prázdny alebo nulový report by zmazal celú históriu sezóny — a cron o 05:10
+  // by to zopakoval každé ráno. Prázdne `daily` / nulová tržba znamená výpadok
+  // (zlý dátumový rozsah, nedostupná DB, práve prehodená kasa), nie deň bez
+  // predaja: v strede sezóny má aspoň jeden deň tržbu.
+  if (!Array.isArray(data.daily) || data.daily.length === 0) {
+    throw new Error(`Report nevrátil žiadne dni (${from} – ${to}) — sheet nezapisujem, `
+      + 'full-rewrite by zmazal históriu.');
+  }
+  if (!(Number(data.totalRevenue) > 0)) {
+    throw new Error(`Report vrátil tržbu ${data.totalRevenue} € za ${from} – ${to} — `
+      + 'sheet nezapisujem, full-rewrite by prepísal správne čísla nulami.');
+  }
   const updatedAt = new Intl.DateTimeFormat('sk-SK', {
     timeZone: TZ, day: 'numeric', month: 'numeric', year: 'numeric',
     hour: '2-digit', minute: '2-digit',

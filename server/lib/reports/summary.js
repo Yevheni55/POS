@@ -13,6 +13,58 @@ import {
   resolveScope,
 } from './shared.js';
 
+// Doklad je právoplatne zaevidovaný v rovnakých `result_mode` ako pri
+// `notStornoedSql` (server/lib/reports/shared.js) — offline akceptovaný doklad
+// je rovnako platný ako online. Zoznam je zámerne duplikovaný ako string
+// literál, lebo ide do RAW SQL fragmentu vo vnorenom SELECT-e (identicky ako
+// v server/lib/reports/export.js).
+const ACCEPTED_FISCAL_MODES = "'online_success','offline_accepted','reconciled_online_success','reconciled_offline_accepted'";
+
+/**
+ * Brutto sumy po sadzbách zo ZMRAZENÉHO fiškálneho dokladu.
+ *
+ * `fiscal_documents.request_json` je JEDINÝ immutable zdroj toho, s akou
+ * sadzbou doklad naozaj vznikol: `buildFiscalReceiptItems`
+ * (server/lib/fiscal-payment.js) tam zapisuje per-riadok `price` aj `vatRate`
+ * PO aplikovaní `forceZeroVat`. Živé `menu_items.vat_rate` sa medzitým mohlo
+ * zmeniť (alebo bola firma v čase predaja NEPLATITEĽ a doklad odišiel s 0 %) —
+ * potom by report vyrobil DPH, ktorá na doklade nikdy nebola.
+ *
+ * Zľavy sú v `items[]` už ako samostatné záporné riadky s VLASTNOU sadzbou
+ * (VAT-splitnuté), takže sa na ne NESMIE znova aplikovať zľava objednávky.
+ *
+ * Semanticky identické s `vatSplitFromFiscalRequest()` v
+ * server/lib/reports/export.js — tu ale potrebujeme samotné skupiny, nie už
+ * rozpočítaný Základ/DPH, lebo summary aplikuje POMER sadzieb na reálne
+ * zaplatenú sumu.
+ *
+ * @returns {Map<number, number>|null} null = doklad sa nedá použiť (chýba,
+ *   nedá sa rozparsovať, alebo nemá položky)
+ */
+function vatGroupsFromFiscalRequest(requestJson) {
+  if (!requestJson) return null;
+  let payload;
+  try {
+    payload = typeof requestJson === 'string' ? JSON.parse(requestJson) : requestJson;
+  } catch {
+    return null;
+  }
+  const data = payload && payload.request && payload.request.data;
+  const items = data && Array.isArray(data.items) ? data.items : null;
+  if (!items || !items.length) return null;
+
+  const vatGroups = new Map();
+  for (const line of items) {
+    const price = Number(line && line.price);
+    if (!Number.isFinite(price)) return null;
+    const vatRate = Number(line.vatRate) || 0;
+    // Sadzba -100 % by delila nulou; v SR neexistuje, ale radšej doklad zahodíme.
+    if (1 + (vatRate / 100) === 0) return null;
+    vatGroups.set(vatRate, roundMoney((vatGroups.get(vatRate) || 0) + price));
+  }
+  return vatGroups;
+}
+
 // GET /api/reports/summary?from=2024-01-01&to=2024-12-31&scope=active|all
 // Default: single calendar day (today, Bratislava) so "dashboard today" is
 // not merged with yesterday. All date/hour aggregates and boundary
@@ -144,26 +196,44 @@ export async function summaryHandler(req, res) {
     ORDER BY 1, mi.name
   `);
 
-  // Rozpad BRUTTO tržby predaných položiek podľa sadzby DPH, po dňoch.
+  // Rozpad tržby podľa sadzby DPH — zo ZMRAZENÉHO fiškálneho dokladu.
   // Slúži LEN na odvodenie netto tržby (základ dane) u platiteľa DPH —
   // u neplatiteľa sa query vôbec nespúšťa a všetky čísla ostávajú brutto.
-  // Odpis a staff_meal sú mimo (odpis nejde cez fiškál a rátame ho brutto,
-  // staff_meal nie je predaj). Pomer sadzieb sa potom aplikuje na REÁLNE
-  // zaplatenú sumu (`dailyRows`), aby zľavy aj zaokrúhlenia sedeli.
+  //
+  // Sadzba sa BERIE Z DOKLADU, nie zo živého `menu_items.vat_rate`: sezóna
+  // 2026 mala 89 z 93 dní režim NEPLATITEĽA a doklady odišli do eKasy s 0 %.
+  // Keby sa na ne spätne nasadili dnešné sadzby (5/19/23 %), report by vyrobil
+  // DPH, ktorá sa nikdy neodviedla (na živých dátach 12 192,50 € namiesto
+  // 1 099,02 €) a sezónny výsledok by bol o ~11 tis. € podhodnotený.
+  // Rovnaký zdroj aj sémantika ako server/lib/reports/export.js po [06]/[15].
+  //
+  // Query je PLATBOVÁ (nie item-ová), lebo doklad visí na platbe a netto tržba
+  // sa počíta z reálne zaplatenej sumy. Odpis a staff_meal sú mimo (odpis
+  // nejde cez fiškál a rátame ho brutto, staff_meal nie je predaj).
+  // Korelovaný sub-SELECT (nie JOIN), aby dva doklady na jednu platbu
+  // nezdvojili riadky join fan-outom; `source_type='payment'` vyberie AKTUÁLNY
+  // predajný doklad (po `change-method` je starý prepísaný na
+  // `payment_superseded`).
   const vatMixRows = vatRegistered ? await db.execute(sql`
     SELECT
-      to_char((o.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ})::date, 'YYYY-MM-DD') AS date,
-      COALESCE(mi.vat_rate::numeric, 0)::float AS vat_rate,
-      COALESCE(SUM(oi.qty * mi.price::numeric), 0)::float AS gross
-    FROM order_items oi
-    INNER JOIN orders o ON o.id = oi.order_id
-    INNER JOIN menu_items mi ON mi.id = oi.menu_item_id
-    WHERE o.created_at >= ${fromBoundary} AND o.created_at <= ${toBoundary}
+      to_char((p.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${TZ})::date, 'YYYY-MM-DD') AS date,
+      p.amount::numeric::float AS amount,
+      (
+        SELECT fd.request_json
+        FROM fiscal_documents fd
+        WHERE fd.payment_id = p.id
+          AND fd.source_type = 'payment'
+          AND fd.result_mode IN (${sql.raw(ACCEPTED_FISCAL_MODES)})
+        ORDER BY fd.id DESC
+        LIMIT 1
+      ) AS request_json
+    FROM payments p
+    INNER JOIN orders o ON o.id = p.order_id
+    WHERE p.created_at >= ${fromBoundary} AND p.created_at <= ${toBoundary}
       AND o.status != 'cancelled'
       AND COALESCE(o.closure_type, 'paid') NOT IN ('staff_meal', 'odpis')
-      AND ${sql.raw(notStornoedOrderSql('o'))}
-      AND ${notForeignOrderO}
-    GROUP BY 1, 2
+      AND ${sql.raw(notStornoedSql('p'))}
+      AND ${notForeignPaymentP}
   `) : { rows: [] };
 
   // Shisha — internal off-fiscal counter; rolled into the total so the dashboard
@@ -597,17 +667,53 @@ export async function summaryHandler(req, res) {
   // ── DPH na výstupe ────────────────────────────────────────────────────────
   // U PLATITEĽA nie je daň na výstupe príjmom firmy — proti NETTO nákladom
   // (ingredients.cost_per_unit sa zadáva BEZ DPH) sa preto nesmie stavať
-  // BRUTTO tržba. Postup: z položiek dňa vezmeme len POMER sadzieb a ten
-  // aplikujeme na REÁLNE zaplatenú sumu (`revenueByDate`), takže zľavy aj
-  // zaokrúhlenia ostanú konzistentné a Σ netto = fiškálna tržba − DPH.
+  // BRUTTO tržba. Postup: z KAŽDEJ platby vezmeme pomer sadzieb z jej
+  // ZMRAZENÉHO dokladu a aplikujeme ho na REÁLNE zaplatenú sumu, takže zľavy
+  // aj zaokrúhlenia ostanú konzistentné a Σ netto = fiškálna tržba − DPH.
   // Odpis a shisha ostávajú BRUTTO — cez fiškál vôbec neprešli.
   // U NEPLATITEĽA je `vatMixByDate` prázdna, `netFactorFor()` vracia 1 a
   // všetky čísla sú bajt-identické s pôvodným kódom.
-  const vatMixByDate = {};
+  //
+  // Platba BEZ použiteľného dokladu (paragón, lokálny režim, Portos vypnutý,
+  // staré riadky) cez eKasu nikdy nešla → do VAT mixu NEVSTUPUJE a NESMIE sa
+  // z nej odrátať žiadna daň. Vchádza preto do dňa ako samostatná skupina so
+  // sadzbou 0 % — `netFactorFor()` jej dá faktor 1 a v `vat.byRate` je vidno,
+  // koľko tržby dokladom podložené nie je. Vďaka tomu je Σ mixu presne rovná
+  // fiškálnej tržbe dňa a rozpad po sadzbách sedí s „Celkové tržby".
+  const vatDocCoverageByDate = {};
   for (const r of (vatMixRows.rows || [])) {
-    const gross = Number(r.gross) || 0;
-    if (gross <= 0) continue;
-    (vatMixByDate[r.date] ??= []).push({ vatRate: Number(r.vat_rate) || 0, gross });
+    const amount = Number(r.amount) || 0;
+    if (!(amount > 0)) continue;
+    const groups = vatGroupsFromFiscalRequest(r.request_json);
+    if (!groups || !groups.size) continue;
+    let docGross = 0;
+    for (const g of groups.values()) docGross += g;
+    // Doklad bez kladného súčtu (0 €, alebo samé záporné riadky) nedáva
+    // použiteľný pomer sadzieb — správame sa k nemu ako k platbe bez dokladu.
+    if (!(docGross > 0)) continue;
+    const cov = (vatDocCoverageByDate[r.date] ??= { covered: 0, byRate: new Map() });
+    cov.covered += amount;
+    for (const [vatRate, groupGross] of groups.entries()) {
+      cov.byRate.set(vatRate, (cov.byRate.get(vatRate) || 0) + (amount * (groupGross / docGross)));
+    }
+  }
+  const vatMixByDate = {};
+  if (vatRegistered) {
+    for (const [date, fiscalDay] of Object.entries(revenueByDate)) {
+      if (!(fiscalDay > 0)) continue;
+      const cov = vatDocCoverageByDate[date];
+      const mix = [];
+      if (cov) {
+        for (const [vatRate, gross] of cov.byRate.entries()) {
+          if (gross === 0) continue;
+          mix.push({ vatRate, gross });
+        }
+      }
+      // Zvyšok dňa bez dokladu — 0 %, teda faktor 1 (žiadna daň sa neodráta).
+      const uncovered = fiscalDay - (cov ? cov.covered : 0);
+      if (uncovered > 0.004) mix.push({ vatRate: 0, gross: uncovered });
+      if (mix.length) vatMixByDate[date] = mix;
+    }
   }
   /** Podiel základu dane na brutto tržbe daného dňa (1 = žiadna DPH). */
   function netFactorFor(date) {

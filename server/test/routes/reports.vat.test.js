@@ -261,13 +261,27 @@ describe('reports — režim platiteľa DPH', () => {
     // DPH z exportu: 10,00 @ 23 % = 1,87 ; 17,00 @ 5 % = 0,81 ; 2,50 @ 23 % = 0,47
     const expDph = Math.round(exp.body.reduce((s, r) => s + r.dph, 0) * 100) / 100;
     assert.equal(expDph, 3.15);
-    // Summary počíta DPH z pomeru sadzieb ŽIVÉHO menu, export zo zmrazeného
-    // dokladu — pri zhodných sadzbách sa musia stretnúť (tolerancia na
-    // rozpočítanie po dňoch je cent).
+
+    // Summary aj export berú sadzby z TOHO ISTÉHO zmrazeného dokladu, takže
+    // riadky so `zdroj: 'doklad'` sa musia stretnúť na cent presne.
+    const expDphZoDokladu = Math.round(
+      exp.body.filter((r) => r.zdroj === 'doklad').reduce((s, r) => s + r.dph, 0) * 100,
+    ) / 100;
+    assert.equal(expDphZoDokladu, 2.68, '1,87 (23 %) + 0,81 (5 %)');
     assert.ok(
-      Math.abs(expDph - sum.body.totalVatOutput) <= 0.02,
-      `export DPH ${expDph} vs summary totalVatOutput ${sum.body.totalVatOutput}`,
+      Math.abs(expDphZoDokladu - sum.body.totalVatOutput) <= 0.02,
+      `export DPH zo zmrazených dokladov ${expDphZoDokladu} vs summary totalVatOutput ${sum.body.totalVatOutput}`,
     );
+
+    // Rozdiel 0,47 € je platba (e) BEZ dokladu. Export ju dopočíta zo živého
+    // menu a označí `odhad`; summary z nej DPH priznať NESMIE — cez eKasu nikdy
+    // nešla. V tržbe (29,50) ostáva, v `vat.byRate` je vidno ako 0 % skupina.
+    const odhad = exp.body.filter((r) => r.zdroj === 'odhad');
+    assert.deepEqual(odhad.map((r) => r.celkom), [2.5]);
+    assert.equal(odhad[0].dph, 0.47);
+    const byRate = Object.fromEntries(sum.body.vat.byRate.map((r) => [r.vatRate, r]));
+    assert.equal(byRate[0].gross, 2.5, 'tržba bez dokladu je v rozpade ako 0 %');
+    assert.equal(byRate[0].amount, 0);
   });
 
   // ── [08b] prepínač rozsahu ?scope= ─────────────────────────────────────
@@ -471,7 +485,10 @@ describe('reports — režim platiteľa DPH', () => {
 
   it('[09] PLATITEĽ: zisk a marža stoja na tržbe BEZ DPH (100 € pri 23 % → základ 81,30 €)', async () => {
     await setCompanyProfile({ icDph: 'SK2121741842' });
-    await makeSale({ amount: '100.00', items: [{ menuItemId: fixtures.itemPivo.id, qty: 40 }] });
+    const sale = await makeSale({ amount: '100.00', items: [{ menuItemId: fixtures.itemPivo.id, qty: 40 }] });
+    // Sadzba MUSÍ byť na doklade — summary ju berie zo zmrazeného payloadu,
+    // nie zo živého menu (inak by vyrábala DPH z období bez fiškálu).
+    await makeFiscalDoc({ ...sale, lines: [{ name: 'Pivo', price: 100, vatRate: 23 }] });
 
     const res = await auth(request.get(`/api/reports/summary?from=${DAY}&to=${DAY}`));
     assert.equal(res.status, 200);
@@ -490,9 +507,13 @@ describe('reports — režim platiteľa DPH', () => {
   it('[09] PLATITEĽ so zmiešanými sadzbami: Σ vat.byRate.amount === totalVatOutput', async () => {
     await setCompanyProfile({ icDph: 'SK2121741842' });
     // 2× Burger (5 %, 8,50) + 2× Pivo (23 %, 2,50) = 22,00 €
-    await makeSale({
+    const sale = await makeSale({
       amount: '22.00',
       items: [{ menuItemId: fixtures.itemBurger.id, qty: 2 }, { menuItemId: fixtures.itemPivo.id, qty: 2 }],
+    });
+    await makeFiscalDoc({
+      ...sale,
+      lines: [{ name: 'Burger', price: 17, vatRate: 5 }, { name: 'Pivo', price: 5, vatRate: 23 }],
     });
 
     const res = await auth(request.get(`/api/reports/summary?from=${DAY}&to=${DAY}`));
@@ -522,9 +543,13 @@ describe('reports — režim platiteľa DPH', () => {
   it('[09] prepnutie na platiteľa NEZMENÍ ani jedno brutto číslo — mení sa len netto vetva', async () => {
     // 2× Burger (5 %, 8,50) + 4× Pivo (23 %, 2,50) = 27,00 €
     await setCompanyProfile({ icDph: '' });
-    await makeSale({
+    const sale = await makeSale({
       amount: '27.00',
       items: [{ menuItemId: fixtures.itemBurger.id, qty: 2 }, { menuItemId: fixtures.itemPivo.id, qty: 4 }],
+    });
+    await makeFiscalDoc({
+      ...sale,
+      lines: [{ name: 'Burger', price: 17, vatRate: 5 }, { name: 'Pivo', price: 10, vatRate: 23 }],
     });
     const nonPayer = (await auth(request.get(`/api/reports/summary?from=${DAY}&to=${DAY}`))).body;
 
@@ -566,13 +591,21 @@ describe('reports — režim platiteľa DPH', () => {
 
   it('[09] invariant: totalRevenueNet + totalVatOutput === totalRevenue', async () => {
     await setCompanyProfile({ icDph: 'SK2121741842' });
-    await makeSale({
+    const hotovost = await makeSale({
       amount: '27.00',
       items: [{ menuItemId: fixtures.itemBurger.id, qty: 2 }, { menuItemId: fixtures.itemPivo.id, qty: 4 }],
     });
-    await makeSale({
+    await makeFiscalDoc({
+      ...hotovost,
+      lines: [{ name: 'Burger', price: 17, vatRate: 5 }, { name: 'Pivo', price: 10, vatRate: 23 }],
+    });
+    const karta = await makeSale({
       amount: '13.50', method: 'karta',
       items: [{ menuItemId: fixtures.itemBurger.id, qty: 1 }, { menuItemId: fixtures.itemPivo.id, qty: 2 }],
+    });
+    await makeFiscalDoc({
+      ...karta,
+      lines: [{ name: 'Burger', price: 8.5, vatRate: 5 }, { name: 'Pivo', price: 5, vatRate: 23 }],
     });
 
     const res = await auth(request.get(`/api/reports/summary?from=${DAY}&to=${DAY}`));
@@ -586,6 +619,134 @@ describe('reports — režim platiteľa DPH', () => {
     assert.ok(Math.abs(baseSum - res.body.vat.base) <= 0.02, `Σ byRate.base ${baseSum} vs vat.base ${res.body.vat.base}`);
     const grossSum = Math.round(res.body.vat.byRate.reduce((s, r) => s + r.gross, 0) * 100) / 100;
     assert.ok(Math.abs(grossSum - res.body.revenue.fiscal) <= 0.02, `Σ byRate.gross ${grossSum} vs fiscal ${res.body.revenue.fiscal}`);
+  });
+
+  // ── [06s] summary berie sadzby zo ZMRAZENÉHO dokladu, nie zo živého menu ──
+  // Sezóna 2026 mala 89 z 93 dní režim NEPLATITEĽA — doklady odišli do eKasy
+  // s 0 %. Kým summary bralo sadzbu z `menu_items.vat_rate`, aplikovalo dnešné
+  // 5/19/23 % spätne na obdobie, kde sa žiadna daň neodviedla (12 192,50 €
+  // namiesto 1 099,02 €) a sezónny výsledok bol o ~11 tis. € podhodnotený.
+
+  /** Prepíše sadzbu položky v menu a po teste ju vráti späť (seed sa nerobí znova). */
+  async function withMenuVatRate(menuItemId, newRate, fn) {
+    const [row] = (await testDb.execute(
+      sql`SELECT vat_rate::text AS vat_rate FROM menu_items WHERE id = ${menuItemId}`,
+    )).rows;
+    try {
+      await testDb.execute(sql`UPDATE menu_items SET vat_rate = ${newRate} WHERE id = ${menuItemId}`);
+      await fn();
+    } finally {
+      await testDb.execute(sql`UPDATE menu_items SET vat_rate = ${row.vat_rate} WHERE id = ${menuItemId}`);
+    }
+  }
+
+  it('[06s] PLATITEĽ: doklad z obdobia NEPLATITEĽA (0 %) nesmie dostať DPH z dnešného menu', async () => {
+    // Presne prípad sezóny: firma je DNES platiteľ (ic_dph vyplnené) a Pivo má
+    // v menu 23 %, ale doklad vznikol s `forceZeroVat` → v eKase 0 %.
+    await setCompanyProfile({ icDph: 'SK2121741842' });
+    const sale = await makeSale({ amount: '100.00', items: [{ menuItemId: fixtures.itemPivo.id, qty: 40 }] });
+    await makeFiscalDoc({ ...sale, lines: [{ name: 'Pivo', price: 100, vatRate: 0 }] });
+
+    const res = await auth(request.get(`/api/reports/summary?from=${DAY}&to=${DAY}`));
+    assert.equal(res.status, 200);
+    assert.equal(res.body.vatRegistered, true, 'firma JE platiteľ — gate sa nemení');
+    assert.equal(res.body.totalVatOutput, 0, 'z dokladu s 0 % sa nesmie priznať žiadna DPH');
+    assert.equal(res.body.totalRevenueNet, res.body.totalRevenue);
+    assert.equal(res.body.totalRevenueNet, 100);
+    assert.equal(res.body.daily[0].revenueNet, res.body.daily[0].revenue);
+    assert.equal(res.body.vat.base, res.body.revenue.fiscal);
+    assert.deepEqual(res.body.vat.byRate, [{ vatRate: 0, gross: 100, base: 100, amount: 0 }]);
+    // Zisk stojí na tej istej (brutto = netto) tržbe — žiadna fiktívna strata.
+    assert.equal(
+      res.body.totalProfit,
+      res.body.totalRevenue - res.body.totalCogs - res.body.totalLabor - res.body.totalStaffMeal,
+    );
+  });
+
+  it('[06s] zmena menu_items.vat_rate PO vystavení dokladu nesmie pohnúť totalVatOutput', async () => {
+    await setCompanyProfile({ icDph: 'SK2121741842' });
+    const sale = await makeSale({ amount: '100.00', items: [{ menuItemId: fixtures.itemPivo.id, qty: 40 }] });
+    await makeFiscalDoc({ ...sale, lines: [{ name: 'Pivo', price: 100, vatRate: 23 }] });
+
+    const before = (await auth(request.get(`/api/reports/summary?from=${DAY}&to=${DAY}`))).body;
+    assert.equal(before.totalVatOutput, 18.7);
+    assert.equal(before.totalRevenueNet, 81.3);
+
+    // Od 1.1.2026 sa niektoré kategórie presunuli z 19 na 23 % — prepis cenníka
+    // NESMIE prepísať daň na dokladoch, ktoré už odišli do eKasy.
+    await withMenuVatRate(fixtures.itemPivo.id, '5.00', async () => {
+      const after = (await auth(request.get(`/api/reports/summary?from=${DAY}&to=${DAY}`))).body;
+      assert.equal(after.totalVatOutput, before.totalVatOutput, 'DPH sa viaže na doklad, nie na cenník');
+      assert.equal(after.totalVatOutput, 18.7);
+      assert.equal(after.totalRevenueNet, 81.3);
+      assert.deepEqual(after.vat.byRate.map((r) => r.vatRate), [23]);
+      assert.equal(after.daily[0].revenueNet, 81.3);
+    });
+  });
+
+  it('[06s] platba BEZ fiškálneho dokladu do DPH nevstupuje (tržbu ale neznižuje)', async () => {
+    await setCompanyProfile({ icDph: 'SK2121741842' });
+    const sDoklad = await makeSale({ amount: '100.00', items: [{ menuItemId: fixtures.itemPivo.id, qty: 40 }] });
+    await makeFiscalDoc({ ...sDoklad, lines: [{ name: 'Pivo', price: 100, vatRate: 23 }] });
+    // Paragón / lokálny režim — cez eKasu nikdy nešiel.
+    await makeSale({ amount: '50.00', method: 'karta', items: [{ menuItemId: fixtures.itemPivo.id, qty: 20 }] });
+
+    const res = await auth(request.get(`/api/reports/summary?from=${DAY}&to=${DAY}`));
+    assert.equal(res.body.totalRevenue, 150, 'platba bez dokladu ostáva v tržbe');
+    assert.equal(res.body.revenue.fiscal, 150);
+    // DPH len zo 100 € podložených dokladom: 100 − 100/1,23 = 18,70.
+    assert.equal(res.body.totalVatOutput, 18.7);
+    assert.equal(res.body.totalRevenueNet, 131.3);
+
+    const byRate = Object.fromEntries(res.body.vat.byRate.map((r) => [r.vatRate, r]));
+    assert.equal(byRate[23].gross, 100);
+    assert.equal(byRate[23].amount, 18.7);
+    assert.equal(byRate[0].gross, 50, 'nepodložená tržba je v rozpade viditeľne ako 0 %');
+    assert.equal(byRate[0].amount, 0);
+    // Rozpad musí stále sedieť s celkovou fiškálnou tržbou.
+    const grossSum = Math.round(res.body.vat.byRate.reduce((s, r) => s + r.gross, 0) * 100) / 100;
+    assert.equal(grossSum, res.body.revenue.fiscal);
+  });
+
+  it('[06s] s prázdnym ic_dph je odpoveď BAJT-IDENTICKÁ bez ohľadu na sadzby na doklade', async () => {
+    // Gate na `vatRegistered` musí ostať nedotknutý: u NEPLATITEĽA sa VAT query
+    // vôbec nespustí a všetky čísla ostávajú brutto — nech je na doklade
+    // čokoľvek. 2× Burger (17,00) + 4× Pivo (10,00) = 27,00 €.
+    await setCompanyProfile({ icDph: '' });
+    const sale = await makeSale({
+      amount: '27.00',
+      items: [{ menuItemId: fixtures.itemBurger.id, qty: 2 }, { menuItemId: fixtures.itemPivo.id, qty: 4 }],
+    });
+    await makeFiscalDoc({
+      ...sale,
+      lines: [{ name: 'Burger', price: 17, vatRate: 5 }, { name: 'Pivo', price: 10, vatRate: 23 }],
+    });
+    const before = (await auth(request.get(`/api/reports/summary?from=${DAY}&to=${DAY}`))).body;
+
+    // Prepíšeme sadzby priamo v zmrazenom payloade — u neplatiteľa sa NESMIE
+    // pohnúť ani jedno číslo v celej odpovedi.
+    await testDb.execute(sql`
+      UPDATE fiscal_documents
+      SET request_json = ${JSON.stringify({
+        request: { data: { items: [{ name: 'Burger', price: 17, vatRate: 23 }, { name: 'Pivo', price: 10, vatRate: 23 }] } },
+      })}
+      WHERE payment_id = ${sale.payment.id}
+    `);
+    const after = (await auth(request.get(`/api/reports/summary?from=${DAY}&to=${DAY}`))).body;
+
+    assert.equal(before.vatRegistered, false);
+    assert.deepEqual(after, before, 'u neplatiteľa nesmie zdroj sadzieb zmeniť nič');
+    assert.equal(before.totalVatOutput, 0);
+    assert.equal(before.totalRevenueNet, before.totalRevenue);
+    assert.equal(before.totalRevenueNet, 27);
+    assert.deepEqual(before.vat.byRate, []);
+    assert.equal(before.vat.base, before.revenue.fiscal);
+    assert.equal(before.daily[0].revenueNet, before.daily[0].revenue);
+    assert.equal(before.products[0].revenueNet, before.products[0].revenue);
+    assert.equal(
+      before.totalProfit,
+      before.totalRevenue - before.totalCogs - before.totalLabor - before.totalStaffMeal,
+    );
   });
 
   // ── [24] weekly na rovnakom základe ako COGS ───────────────────────────
