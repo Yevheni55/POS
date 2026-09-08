@@ -52,7 +52,7 @@ const routes = {
 };
 
 const pageTitles = {
-  dashboard: 'Dashboard',
+  dashboard: 'Prehľad',
   menu: 'Menu',
   tables: 'Stoly',
   recipes: 'Receptúry',

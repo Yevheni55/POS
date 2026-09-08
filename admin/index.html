@@ -13,8 +13,9 @@
      loaded it, so all of those were silently missing here. -->
 <link rel="stylesheet" href="/a11y.css">
 <link rel="stylesheet" href="/fonts/fonts.css">
-<link rel="stylesheet" href="admin.css?v=37ludia">
+<link rel="stylesheet" href="admin.css?v=38ios">
 <link rel="stylesheet" href="admin-dark.css?v=5contrast">
+<link rel="stylesheet" href="admin-ios.css?v=4">
 </head>
 <body>
 <div class="bg-scene"></div>
@@ -27,9 +28,9 @@
     </div>
     <nav class="nav" id="sidebarNav" aria-label="Hlavná navigácia">
       <!-- Prevadzka (denne) -->
-      <a class="nav-item active" data-page="dashboard" href="#dashboard" title="Dashboard" aria-current="page">
+      <a class="nav-item active" data-page="dashboard" href="#dashboard" title="Prehľad — dnešný deň na jednom mieste" aria-current="page">
         <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
-        Dashboard
+        Prehľad
       </a>
       <a class="nav-item" data-page="menu" href="#menu" title="Menu (produkty a kategórie)">
         <svg aria-hidden="true" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
@@ -130,7 +131,7 @@
   <!-- MAIN AREA -->
   <div class="main-area">
     <header class="header">
-      <h1 class="header-title" id="pageTitle">Dashboard</h1>
+      <h1 class="header-title" id="pageTitle">Prehľad</h1>
       <div class="header-right">
         <button type="button" class="header-back-pos" data-theme-toggle onclick="togglePosTheme()" title="Svetlý / tmavý režim" aria-label="Prepnúť tmavý režim" aria-pressed="false"><svg class="theme-ic-moon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg><svg class="theme-ic-sun" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg></button>
         <button type="button" class="header-back-pos" id="headerBackToPOS" title="Späť na POS" aria-label="Späť na POS">
@@ -147,6 +148,58 @@
     </header>
     <div class="content" id="pageContent">
       <!-- Page content rendered here by router -->
+    </div>
+  </div>
+</div>
+
+<!-- Tab bar (len dotykové šírky, admin-ios.css): päť cieľov, ktoré sa
+     otvárajú denne, pod palcom. Zvyšok navigácie je v spodnom paneli „Viac", ktorá
+     sa plní klonmi položiek z #sidebarNav — jeden zdroj pravdy. -->
+<nav class="tabbar" id="tabBar" aria-label="Hlavné sekcie">
+  <a href="#dashboard" data-page="dashboard">
+    <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg>
+    <span>Prehľad</span>
+  </a>
+  <a href="#menu" data-page="menu" data-active-for="recipes">
+    <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+    <span>Menu</span>
+  </a>
+  <a href="#inventory-dashboard" data-page="inventory-dashboard" data-active-for="sklad-materialy,ingredients,supplies,suppliers,sklad-pohyby,stock-movements,inventory-audit,write-offs,purchase-orders,assets,shisha">
+    <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 8l9-4 9 4v9l-9 4-9-4z"/><path d="M3 8l9 4 9-4M12 12v9"/></svg>
+    <span>Sklad</span>
+  </a>
+  <a href="#ludia" data-page="ludia" data-active-for="staff,dochadzka,zam-spotreba">
+    <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17" cy="9" r="2.5"/><path d="M15.5 14.5a5 5 0 0 1 6 5"/></svg>
+    <span>Ľudia</span>
+  </a>
+  <button type="button" id="tabMore" data-page="__more" aria-haspopup="dialog" aria-controls="moreSheet">
+    <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+    <span>Viac</span>
+  </button>
+</nav>
+
+<div class="sheet" id="moreSheet" role="dialog" aria-modal="true" aria-labelledby="moreTitle" hidden>
+  <div class="sheet-card">
+    <div class="sheet-head">
+      <h2 class="sheet-title" id="moreTitle">Viac</h2>
+      <button type="button" class="sheet-close" id="moreClose" aria-label="Zavrieť">×</button>
+    </div>
+    <div id="moreNav"></div>
+    <div class="sheet-label">Účet</div>
+    <div class="sheet-group">
+      <button type="button" class="nav-item" data-theme-toggle onclick="togglePosTheme()" aria-pressed="false">
+        <svg class="theme-ic-moon" aria-hidden="true" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        <svg class="theme-ic-sun" aria-hidden="true" viewBox="0 0 24 24" style="display:none"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+        Svetlý / tmavý režim
+      </button>
+      <a class="nav-item" href="#" onclick="goBackToPOS(); return false;">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        Späť na POS
+      </a>
+      <button type="button" class="nav-item is-danger" onclick="showLogoutModal()">
+        <svg aria-hidden="true" viewBox="0 0 20 20"><path d="M12 6V4.5A1.5 1.5 0 0 0 10.5 3h-5A1.5 1.5 0 0 0 4 4.5v11A1.5 1.5 0 0 0 5.5 17h5a1.5 1.5 0 0 0 1.5-1.5V14"/><path d="M9 10h8m0 0-2.5-2.5M17 10l-2.5 2.5"/></svg>
+        Odhlásiť
+      </button>
     </div>
   </div>
 </div>
@@ -377,6 +430,78 @@ function showConfirm(title,text,onConfirm,opts){
   ov.addEventListener('click',function(e){if(e.target===ov){dynDismiss();removeDyn();}});
   setTimeout(function(){var x=ov.querySelector('#dynCancel');if(x)x.focus();},0);
 }
+</script>
+<script>
+// Tab bar + spodný panel „Viac" (admin-ios.css). Router podsvecuje len
+// #sidebarNav, takže aktívny tab si odvodíme z hashu sami — rovnakými
+// pravidlami (data-page + data-active-for), aby sa nikdy nerozišli.
+(function () {
+  var TAB_PAGES = ['dashboard', 'menu', 'inventory-dashboard', 'ludia'];
+  var sheet = document.getElementById('moreSheet');
+  var more = document.getElementById('tabMore');
+  var host = document.getElementById('moreNav');
+  if (!sheet || !more || !host) return;
+
+  // Zvyšok navigácie = klony zo sidebaru v jeho poradí, s popiskami sekcií.
+  var group = null;
+  document.querySelectorAll('#sidebarNav .nav-divider, #sidebarNav .nav-section-label, #sidebarNav .nav-section-toggle, #sidebarNav .nav-item[data-page]')
+    .forEach(function (el) {
+      if (el.classList.contains('nav-divider')) { group = null; return; } // nová skupina bez popisku
+      if (el.classList.contains('nav-item')) {
+        if (TAB_PAGES.indexOf(el.dataset.page) >= 0) return;
+        if (!group) { group = document.createElement('div'); group.className = 'sheet-group'; host.appendChild(group); }
+        var c = el.cloneNode(true);
+        c.classList.remove('active', 'nav-item--sub');
+        c.removeAttribute('aria-current'); c.removeAttribute('id'); c.removeAttribute('title');
+        c.addEventListener('click', closeMore);
+        group.appendChild(c);
+      } else {
+        var lab = document.createElement('div');
+        lab.className = 'sheet-label';
+        lab.textContent = el.textContent.trim();
+        host.appendChild(lab);
+        group = null;
+      }
+    });
+
+  function pageFromHash() {
+    return (location.hash || '#dashboard').replace(/^#/, '').split('/')[0].split('?')[0];
+  }
+  function matches(el, page) {
+    return el.dataset.page === page || (el.dataset.activeFor || '').split(',').indexOf(page) >= 0;
+  }
+  function syncTabBar() {
+    var page = pageFromHash();
+    var any = false;
+    document.querySelectorAll('#tabBar [data-page]').forEach(function (el) {
+      if (el === more) return;
+      var on = matches(el, page);
+      el.classList.toggle('active', on);
+      if (on) { el.setAttribute('aria-current', 'page'); any = true; }
+      else el.removeAttribute('aria-current');
+    });
+    more.classList.toggle('active', !any);
+    host.querySelectorAll('[data-page]').forEach(function (el) {
+      el.classList.toggle('active', matches(el, page));
+    });
+  }
+  function openMore() {
+    sheet.hidden = false;
+    requestAnimationFrame(function () { sheet.classList.add('show'); });
+    var x = document.getElementById('moreClose'); if (x) x.focus();
+  }
+  function closeMore() {
+    sheet.classList.remove('show');
+    setTimeout(function () { sheet.hidden = true; }, 200);
+  }
+  more.addEventListener('click', function () { if (sheet.hidden) openMore(); else closeMore(); });
+  document.getElementById('moreClose').addEventListener('click', closeMore);
+  sheet.addEventListener('click', function (e) { if (e.target === sheet) closeMore(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !sheet.hidden) closeMore(); });
+  window.addEventListener('hashchange', syncTabBar);
+  syncTabBar();
+  window.syncTabBar = syncTabBar;
+})();
 </script>
 <script type="module">
   import { initCommandPalette } from './components/command-palette.js';

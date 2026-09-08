@@ -1,0 +1,403 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Admin — vrstva „ako iPhone"
+   ───────────────────────────────────────────────────────────────────────────
+   Načítava sa POSLEDNÁ (po admin.css a admin-dark.css) a prepisuje iba to, čo
+   robí z adminu appku namiesto webstránky: spodný tab bar pod palec, veľký
+   nadpis, vnorené skupinové zoznamy, segmentový prepínač, spodné panely zdola.
+   Paleta ostáva Daylight (značka); mení sa POVRCH: nepriehľadné svetlé karty
+   na kréme, vlasové oddeľovače, žiadne tiene ani gradienty. Len tokeny —
+   dva hexy pre povrch kariet sú v :root rovnako ako paleta v admin.css.
+   ═══════════════════════════════════════════════════════════════════════ */
+:root {
+  --ios-card:       #fffcf7;                 /* nepriehľadná karta na kréme */
+  --ios-sep:        rgba(30, 24, 18, .08);   /* vlasový oddeľovač */
+  --ios-sep-strong: rgba(30, 24, 18, .14);
+  --ios-track:      rgba(30, 24, 18, .06);   /* dráha segmentového prepínača */
+  --ios-scrim:      rgba(30, 24, 18, .38);
+  --ios-tab-h:      56px;
+  --ios-radius:     14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ios-card:       #27221b;
+    --ios-sep:        rgba(245, 239, 227, .10);
+    --ios-sep-strong: rgba(245, 239, 227, .18);
+    --ios-track:      rgba(245, 239, 227, .08);
+    --ios-scrim:      rgba(0, 0, 0, .55);
+  }
+}
+:root[data-theme="dark"] {
+  --ios-card:       #27221b;
+  --ios-sep:        rgba(245, 239, 227, .10);
+  --ios-sep-strong: rgba(245, 239, 227, .18);
+  --ios-track:      rgba(245, 239, 227, .08);
+  --ios-scrim:      rgba(0, 0, 0, .55);
+}
+
+/* ── Karty: jeden tvar pre všetko, čo je „skupina" ────────────────────────
+   Doteraz mala každá karta iný radius, priesvitné pozadie a vlastný tieň.
+   Skupina je nepriehľadná, s vlasovým okrajom, bez tieňa — pozornosť patrí
+   obsahu, nie obalu. */
+.panel,
+.stat-card,
+.people-list,
+.doch-req-card,
+.card {
+  background: var(--ios-card);
+  border: 1px solid var(--ios-sep);
+  border-radius: var(--ios-radius);
+  box-shadow: none;
+}
+.stat-card:hover {
+  transform: none;
+  box-shadow: none;
+  border-color: var(--ios-sep-strong);
+}
+.stat-card { padding: 14px 14px; gap: 12px; }
+.stat-icon { width: 36px; height: 36px; border-radius: 10px; box-shadow: none; }
+.stat-value { font-size: 24px; letter-spacing: -.02em; }
+/* Popisok dlaždice vetou, nie kapitálkami s rozostupom — na telefóne ho
+   admin.css v troch médiových blokoch zmenšuje na 9–11 px a rozťahuje.
+   Prefix .content dvíha špecifickosť nad tie viacriadkové pravidlá. */
+.content .stat-label { font-size: 13px; letter-spacing: 0; text-transform: none; font-weight: 500; }
+.content .panel-title { font-size: 17px; font-weight: 700; margin-bottom: 12px; }
+.content .panel-title::before { display: none; }
+
+/* Nadpis sekcie: veta, nie kričiaci štítok s pomlčkou pred sebou. */
+.content .dashboard-section-label {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+  text-transform: none;
+  color: var(--color-text);
+  padding-left: 0;
+  margin: 22px 0 10px;
+}
+.content .dashboard-section-label::before { display: none; }
+
+/* ── Tlačidlá: jedna hlavná (plná), ostatné tónované ─────────────────────── */
+.btn-add,
+.btn-save,
+.btn-primary {
+  background: var(--color-accent);
+  color: var(--color-on-accent, var(--color-bg));
+  border: 0;
+  border-radius: 12px;
+  min-height: 44px;
+  padding: 0 18px;
+  font-weight: 700;
+  box-shadow: none;
+}
+.btn-add:hover,
+.btn-save:hover,
+.btn-primary:hover { opacity: .92; transform: none; box-shadow: none; }
+.btn-add:active,
+.btn-save:active,
+.btn-primary:active { opacity: .85; transform: none; }
+.btn-secondary,
+.btn-edit,
+.action-btn {
+  background: var(--color-accent-bg);
+  color: var(--color-accent-text);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  min-height: 40px;
+  font-weight: 600;
+}
+.btn-secondary:hover,
+.btn-edit:hover,
+.action-btn:hover { background: var(--color-accent-bg-hover, var(--color-accent-bg)); color: var(--color-accent-text); }
+.btn-toggle-status { border-radius: 10px; min-height: 40px; }
+.u-btn { border-radius: 12px; min-height: 48px; font-weight: 700; }
+.search-input,
+.filter-select,
+.doch-input,
+.u-modal-field input,
+.u-modal-field select,
+.u-modal-field textarea { border-radius: 10px; }
+
+/* ── Segmentový prepínač (pod-stránky: Zamestnanci | Dochádzka …) ─────────
+   Namiesto podčiarknutých záložiek cez celú šírku: dráha s vysunutým
+   segmentom. Vidno, koľko možností je a ktorá je zapnutá. */
+.panel-tabs {
+  display: flex;
+  gap: 2px;
+  margin: 0 0 14px;
+  padding: 3px;
+  background: var(--ios-track);
+  border: 0;
+  border-radius: 12px;
+  overflow: visible;
+}
+.panel-tab {
+  flex: 1 1 0;
+  text-align: center;
+  border: 0;
+  border-radius: 9px;
+  padding: 9px 12px;
+  min-height: 40px;
+  font-size: 14px;
+  color: var(--color-text-sec);
+}
+.panel-tab:hover { background: transparent; color: var(--color-text); }
+.panel-tab.active {
+  background: var(--ios-card);
+  color: var(--color-text);
+  box-shadow: 0 1px 3px rgba(30, 24, 18, .14);
+  font-weight: 700;
+}
+.panel-tab:focus-visible { box-shadow: 0 0 0 3px var(--color-accent-bg); }
+
+/* ── Tab bar a spodný panel „Viac" — existujú len na dotykových šírkach ─────────── */
+.tabbar { display: none; }
+.sheet { display: none; }
+
+@media (max-width: 1024px) {
+  /* Plocha: žiadna dekoratívna scéna, bočný panel je preč — nahrádza ho
+     tab bar dole a spodný panel „Viac". */
+  .bg-scene { display: none; }
+  .app { background: var(--color-bg); flex-direction: column; height: 100vh; height: 100dvh; }
+  .sidebar { display: none; }
+  .main-area { flex: 1; min-height: 0; height: auto; }
+
+  /* Hlavička: riadok s „‹ POS" a účtom, pod ním veľký nadpis. Hodiny,
+     rola, téma a odhlásenie sa presúvajú do „Viac" — hlavička nesie len
+     to, čo treba mať poruke: späť na kasu a kto je prihlásený. */
+  .header {
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-template-areas: "right" "title";
+    gap: 0;
+    padding: max(6px, env(safe-area-inset-top, 0px)) 16px 8px;
+    min-height: 0;
+    background: var(--color-bg);
+    border-bottom: 0;
+    flex-wrap: nowrap;
+  }
+  .header-right {
+    grid-area: right;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    min-height: 44px;
+  }
+  .header-right .header-clock,
+  .header-right .admin-badge,
+  .header-right .logout-btn,
+  .header-right .header-back-pos[data-theme-toggle] { display: none; }
+  #headerBackToPOS {
+    order: -1;
+    margin-right: auto;
+    width: auto;
+    height: 40px;
+    padding: 0 10px 0 4px;
+    gap: 4px;
+    border-radius: 10px;
+    background: transparent;
+    border: 0;
+    color: var(--color-accent-text);
+    font-family: var(--font-body);
+    font-size: 15px;
+    font-weight: 600;
+  }
+  #headerBackToPOS::after { content: 'POS'; }
+  .header-user { order: 10; padding: 3px 3px 3px 3px; background: transparent; border: 0; }
+  .header-user span { display: none; }
+  .header-avatar { width: 36px; height: 36px; }
+  .header-title {
+    grid-area: title;
+    display: block;
+    -webkit-line-clamp: unset;
+    -webkit-box-orient: unset;
+    white-space: normal;
+    overflow: visible;
+    font-size: 30px;
+    font-weight: 800;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+    padding: 2px 0 6px;
+    margin: 0;
+  }
+  .header-title::after { display: none; }
+
+  .content {
+    padding: 4px 16px calc(var(--ios-tab-h) + 24px + env(safe-area-inset-bottom, 0px));
+  }
+  .panel-tabs { margin: 2px 0 14px; }
+  /* Dlaždica na telefóne: popisok, číslo, zmena. Ikona v štvorčeku bola
+     dekorácia, ktorá ju na úzkej obrazovke dvíhala o riadok. */
+  .stat-card .stat-icon { display: none; }
+  .stat-card { padding: 12px 14px; }
+
+  /* Tab bar: päť cieľov, ktoré sa otvárajú denne, pod palcom. */
+  .tabbar {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    z-index: 50;
+    display: flex;
+    align-items: stretch;
+    height: calc(var(--ios-tab-h) + env(safe-area-inset-bottom, 0px));
+    padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+    background: var(--color-bg-elevated);
+    border-top: 1px solid var(--ios-sep);
+  }
+  .tabbar > a,
+  .tabbar > button {
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    min-height: 44px;
+    padding: 6px 2px;
+    border: 0;
+    background: transparent;
+    color: var(--color-text-sec);
+    font-family: var(--font-body);
+    font-size: 11px;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .tabbar svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+  .tabbar .active { color: var(--color-accent-text); }
+  .tabbar .active svg { stroke-width: 2.3; }
+  .tabbar > a:focus-visible,
+  .tabbar > button:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--color-accent-border); border-radius: 10px; }
+
+  /* Spodný panel „Viac": zvyšok navigácie ako vnorený zoznam + účet. */
+  .sheet {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: flex;
+    align-items: flex-end;
+    background: var(--ios-scrim);
+    opacity: 0;
+    transition: opacity .18s ease;
+  }
+  .sheet[hidden] { display: none; }
+  .sheet.show { opacity: 1; }
+  .sheet-card {
+    width: 100%;
+    max-height: 88dvh;
+    overflow-y: auto;
+    background: var(--color-bg);
+    border-radius: 20px 20px 0 0;
+    padding: 8px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+    transform: translateY(24px);
+    transition: transform .22s ease;
+  }
+  .sheet.show .sheet-card { transform: none; }
+  /* Bez „grabbera": ťahanie prstom sa tu nedá, takže by bol falošný sľub.
+     Zatvára krížik, klepnutie mimo panel alebo Escape. */
+  .sheet-head { display: flex; align-items: center; justify-content: space-between; margin: 6px 0 10px; }
+  .sheet-title { font-family: var(--font-display); font-size: 22px; font-weight: 800; letter-spacing: -.02em; margin: 0; }
+  .sheet-close {
+    width: 36px; height: 36px; border-radius: 50%;
+    border: 0; background: var(--ios-track); color: var(--color-text-sec);
+    font-size: 20px; line-height: 1; cursor: pointer;
+  }
+  .sheet-close:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--color-accent-bg); }
+  .sheet-label {
+    font-size: 13px; font-weight: 600; color: var(--color-text-sec);
+    margin: 14px 0 6px 6px;
+  }
+  .sheet-group {
+    background: var(--ios-card);
+    border: 1px solid var(--ios-sep);
+    border-radius: var(--ios-radius);
+    overflow: hidden;
+    margin-bottom: 12px;
+  }
+  .sheet-group .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 48px;
+    padding: 10px 14px;
+    margin: 0;
+    border: 0;
+    border-bottom: 1px solid var(--ios-sep);
+    border-radius: 0;
+    background: transparent;
+    color: var(--color-text);
+    font-family: var(--font-body);
+    font-size: 16px;
+    font-weight: 500;
+    text-align: left;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .sheet-group .nav-item:last-child { border-bottom: 0; }
+  .sheet-group .nav-item svg { width: 20px; height: 20px; flex: none; }
+  .sheet-group .nav-item::after {
+    content: '';
+    width: 8px; height: 8px;
+    margin-left: auto;
+    border-right: 2px solid currentColor;
+    border-top: 2px solid currentColor;
+    transform: rotate(45deg);
+    opacity: .35;
+  }
+  .sheet-group .nav-item.active { background: var(--color-accent-bg); color: var(--color-accent-text); font-weight: 600; }
+  .sheet-group .nav-item.is-danger { color: var(--color-danger); }
+  .sheet-group .nav-item.is-danger::after,
+  .sheet-group .nav-item[data-theme-toggle]::after { display: none; }
+  .sheet-group .nav-item:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--color-accent-border); }
+}
+
+/* ── Modálne okná ako spodné panely zdola na telefóne ────────────────────────────── */
+@media (max-width: 768px) {
+  .u-overlay { align-items: flex-end; padding: 0; }
+  .u-modal {
+    margin-bottom: 0;
+    border-radius: 20px 20px 0 0;
+    padding-top: 22px;
+    position: relative;
+  }
+  .u-modal::before {
+    content: '';
+    position: absolute;
+    top: 8px; left: 50%;
+    width: 36px; height: 5px;
+    margin-left: -18px;
+    border-radius: 3px;
+    background: var(--ios-sep-strong);
+  }
+}
+
+/* ── Desktop: bočný panel v rovnakej reči ─────────────────────────────────── */
+@media (min-width: 1025px) {
+  .sidebar .nav-item {
+    min-height: 40px;
+    padding: 8px 12px;
+    border-left: 0;
+    border-radius: 10px;
+    font-size: 13.5px;
+  }
+  .sidebar .nav-item.active { background: var(--color-accent-bg); color: var(--color-accent-text); }
+  .header { border-bottom: 0; background: var(--color-bg); }
+  .header-title { font-size: 28px; font-weight: 800; letter-spacing: -.02em; }
+  .header-title::after { display: none; }
+}
+
+/* ── Formuláre: popisky polí vetou, nie kapitálkami ─────────────────────── */
+.u-modal-field label {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-sec);
+}
+.u-modal-title { font-size: 20px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet, .sheet-card { transition: none; }
+}

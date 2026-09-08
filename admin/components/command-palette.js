@@ -36,7 +36,7 @@ const MAX_RECENT = 5;
 
 const COMMANDS = [
   // Top-level navigation
-  { id: 'nav-dashboard', label: 'Dashboard',       group: 'Navigácia', icon: '📊', hash: '#dashboard',  keywords: ['prehlad', 'home', 'uvod'] },
+  { id: 'nav-dashboard', label: 'Prehľad',         group: 'Navigácia', icon: '📊', hash: '#dashboard',  keywords: ['prehlad', 'home', 'uvod'] },
   { id: 'nav-menu',      label: 'Menu',            group: 'Navigácia', icon: '🍔', hash: '#menu',       keywords: ['produkty', 'jedlo', 'kategorie'] },
   { id: 'nav-recipes',   label: 'Receptúry',       group: 'Navigácia', icon: '🍳', hash: '#recipes',    keywords: ['recipes', 'recepty', 'spotreba'] },
   { id: 'nav-tables',    label: 'Stoly',           group: 'Navigácia', icon: '🪑', hash: '#tables',     keywords: ['tables', 'zona', 'plan'] },
