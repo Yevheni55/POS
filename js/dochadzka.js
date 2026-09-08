@@ -158,25 +158,19 @@
   $('btnIn').addEventListener('click', function () { clock('clock_in'); });
   $('btnOut').addEventListener('click', function () { clock('clock_out'); });
 
-  // === MOJE SMENY / ZÁROBKY ===
-  // PIN-authenticated self-service view. Zamestnanec klikne tlačidlo,
-  // server vráti zoznam smien + zárobkov (rovnaký rate-limit ako clock).
-  // Auto-close po 60s nečinnosti.
+  // === MÔJ ZÁROBOK (moje smeny) ===
+  // PIN-authenticated self-service view. Server vráti prehľad PO MESIACOCH
+  // (`months`, každý so sumou) + smeny zvoleného obdobia. Zamestnanec si tak
+  // pozrie august aj júl bez manažéra. Auto-close po 60 s nečinnosti.
   var msPeriod = 'month';
   var msAutoClose = null;
+  var MONTHS_SK = ['Január', 'Február', 'Marec', 'Apríl', 'Máj', 'Jún',
+                   'Júl', 'August', 'September', 'Október', 'November', 'December'];
+  var DAYS_SK = ['Ne', 'Po', 'Ut', 'St', 'Št', 'Pi', 'So'];
 
   function fmtEur(n) {
     var x = Number(n) || 0;
     return x.toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
-  }
-  function fmtDateTime(iso) {
-    if (!iso) return '—';
-    var d = new Date(iso);
-    var dd = String(d.getDate()).padStart(2, '0');
-    var mm = String(d.getMonth() + 1).padStart(2, '0');
-    var hh = String(d.getHours()).padStart(2, '0');
-    var min = String(d.getMinutes()).padStart(2, '0');
-    return dd + '.' + mm + '. ' + hh + ':' + min;
   }
   function fmtTime(iso) {
     if (!iso) return '—';
@@ -188,6 +182,17 @@
     var m = (min || 0) % 60;
     return h + 'h ' + String(m).padStart(2, '0') + 'm';
   }
+  function monthName(ym) {
+    var p = String(ym).split('-');
+    return MONTHS_SK[parseInt(p[1], 10) - 1] || String(ym);
+  }
+  function monthLabel(ym) { return monthName(ym) + ' ' + String(ym).split('-')[0]; }
+  // "Pi 5. 9." — deň v týždni pomôže spomenúť si, ktorá smena to bola.
+  function fmtDay(iso) {
+    var d = new Date(iso);
+    return DAYS_SK[d.getDay()] + ' ' + d.getDate() + '. ' + (d.getMonth() + 1) + '.';
+  }
+  function shiftsWord(n) { return n === 1 ? 'smena' : (n >= 2 && n <= 4 ? 'smeny' : 'smien'); }
 
   function fetchMyShifts() {
     if (!pin || pin.length < 4) return;
@@ -214,39 +219,73 @@
     renderPin(); renderStatus(null);
   }
 
+  // Pás mesiacov so sumou + „Celá sezóna" na konci. Aktívny = zvolené obdobie.
+  function renderMonths(data) {
+    var months = data.months || [];
+    var p = data.period || {};
+    var activeKey = p.kind === 'season' ? 'season' : (p.kind === 'all' ? 'all' : (p.ym || ''));
+    var html = months.map(function (m) {
+      var on = m.ym === activeKey;
+      return '<button type="button" class="ms-month' + (on ? ' active' : '') + '" data-period="' + escapeHtml(m.ym) + '" aria-pressed="' + on + '">' +
+        '<span class="ms-month-name">' + escapeHtml(monthName(m.ym)) + '</span>' +
+        '<span class="ms-month-eur">' + fmtEur(m.earnings) + '</span>' +
+      '</button>';
+    }).join('');
+    html += '<button type="button" class="ms-month ms-month-all' + (activeKey === 'season' ? ' active' : '') +
+      '" data-period="season" aria-pressed="' + (activeKey === 'season') + '">' +
+      '<span class="ms-month-name">Celá sezóna</span></button>';
+    $('msMonths').innerHTML = html;
+    var act = $('msMonths').querySelector('.ms-month.active');
+    if (act && act.scrollIntoView) act.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+
   function renderMyShifts(data) {
     var s = data.staff || {};
     var sum = data.summary || {};
-    $('msTitle').textContent = (s.name || 'Moje smeny') + (s.position ? ' · ' + s.position : '');
-
-    // Summary panel — total hodín + earnings + paid/unpaid breakdown
+    var p = data.period || {};
     var hourlyRate = Number(s.hourlyRate) || 0;
-    var summaryHtml =
-      '<div class="ms-stat">' +
-        '<div class="ms-stat-label">Hodiny</div>' +
-        '<div class="ms-stat-num">' + fmtHours(sum.totalMinutes || 0) + '</div>' +
-        '<div class="ms-stat-foot">' + (sum.shiftCount || 0) + ' smien' + (sum.openShifts ? ' · ' + sum.openShifts + ' otvorená' : '') + '</div>' +
-      '</div>' +
-      '<div class="ms-stat">' +
-        '<div class="ms-stat-label">Zárobok</div>' +
-        '<div class="ms-stat-num primary">' + fmtEur(sum.totalEarnings || 0) + '</div>' +
-        '<div class="ms-stat-foot">' + (hourlyRate > 0 ? fmtEur(hourlyRate) + '/hod' : 'sadzba neurčená') + '</div>' +
-      '</div>' +
-      '<div class="ms-stat">' +
-        '<div class="ms-stat-label">Vyplatené</div>' +
-        '<div class="ms-stat-num paid">' + fmtEur(sum.paidEarnings || 0) + '</div>' +
-        '<div class="ms-stat-foot">zostáva ' + fmtEur(sum.unpaidEarnings || 0) + '</div>' +
-      '</div>';
-    $('msSummary').innerHTML = summaryHtml;
+    $('msSub').textContent = [s.name, s.position, hourlyRate > 0 ? fmtEur(hourlyRate) + '/h' : '']
+      .filter(Boolean).join(' · ');
+    renderMonths(data);
 
-    // List of shifts
+    // Hero: jedno číslo (zárobok), pod ním hodiny/smeny a pásik vyplatené vs. zostáva.
+    var label = p.kind === 'season' ? 'Celá sezóna'
+      : (p.kind === 'all' ? 'Celé obdobie' : (p.ym ? monthLabel(p.ym) : 'Tento mesiac'));
+    var earnings = Number(sum.totalEarnings) || 0;
+    var paid = Number(sum.paidEarnings) || 0;
+    var unpaid = Number(sum.unpaidEarnings) || 0;
+    var pct = earnings > 0 ? Math.max(0, Math.min(100, Math.round(paid / earnings * 100))) : 0;
+    var empty = !sum.shiftCount && !sum.openShifts;
+    var meta = fmtHours(sum.totalMinutes || 0)
+      + ' · ' + (sum.shiftCount || 0) + ' ' + shiftsWord(sum.shiftCount || 0)
+      + (sum.openShifts ? ' · ' + sum.openShifts + ' prebieha' : '')
+      + (hourlyRate > 0 ? ' · ' + fmtEur(hourlyRate) + '/h' : '');
+    var ov = sum.overlap;
+    var hero = $('msSummary');
+    hero.className = 'ms-hero' + (empty ? ' is-empty' : (unpaid <= 0.005 ? ' is-clear' : ''));
+    hero.innerHTML =
+      '<div class="ms-hero-top">' +
+        '<span class="ms-hero-label">Zárobok · ' + escapeHtml(label) + '</span>' +
+        '<span class="ms-hero-num">' + (empty ? 'zatiaľ nič' : fmtEur(earnings)) + '</span>' +
+      '</div>' +
+      '<div class="ms-hero-meta">' + escapeHtml(meta) + '</div>' +
+      (ov && ov.minutes > 0
+        ? '<div class="ms-hero-note">z toho ' + fmtHours(ov.minutes) + ' v spoločnej smene @ ' + fmtEur(ov.rate) + '/h</div>'
+        : '') +
+      (empty ? '' :
+        '<div class="ms-bar" role="img" aria-label="Vyplatené ' + pct + ' %"><span class="ms-bar-paid" style="width:' + pct + '%"></span></div>' +
+        '<div class="ms-hero-pay">' +
+          '<span class="is-paid">✓ Vyplatené ' + fmtEur(paid) + '</span>' +
+          (unpaid > 0.005 ? '<span class="is-due">Zostáva ' + fmtEur(unpaid) + '</span>' : '<span class="is-paid">všetko vyplatené</span>') +
+        '</div>');
+
     var shifts = data.shifts || [];
     if (!shifts.length) {
-      $('msList').innerHTML = '<div class="ms-empty">Za toto obdobie žiadne smeny.</div>';
+      $('msList').innerHTML = '<div class="ms-empty">' +
+        (p.kind === 'month' ? 'V tomto mesiaci zatiaľ žiadne smeny.' : 'Za toto obdobie žiadne smeny.') + '</div>';
       return;
     }
-    var listHtml = shifts.map(function (sh) {
-      var dateStr = fmtDateTime(sh.inAt).split(' ')[0]; // dd.mm.
+    $('msList').innerHTML = shifts.map(function (sh) {
       var inT = fmtTime(sh.inAt);
       var outT = sh.outAt ? fmtTime(sh.outAt) : '— stále vo vnútri —';
       var paidBadge = '';
@@ -258,7 +297,7 @@
       }
       return (
         '<div class="ms-shift ' + statusClass + '">' +
-          '<div class="ms-shift-date">' + dateStr + '</div>' +
+          '<div class="ms-shift-date">' + escapeHtml(fmtDay(sh.inAt)) + '</div>' +
           '<div class="ms-shift-times">' + inT + ' – ' + outT + '</div>' +
           '<div class="ms-shift-hours">' + fmtHours(sh.minutes) + '</div>' +
           '<div class="ms-shift-eur">' +
@@ -268,7 +307,6 @@
         '</div>'
       );
     }).join('');
-    $('msList').innerHTML = listHtml;
   }
 
   $('btnMyShifts').addEventListener('click', function () {
@@ -277,21 +315,17 @@
       return;
     }
     msPeriod = 'month';
-    document.querySelectorAll('.ms-period').forEach(function (b) {
-      b.classList.toggle('active', b.dataset.period === 'month');
-    });
     fetchMyShifts();
   });
 
   $('msClose').addEventListener('click', closeMyShifts);
 
-  document.querySelectorAll('.ms-period').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      document.querySelectorAll('.ms-period').forEach(function (b) { b.classList.remove('active'); });
-      btn.classList.add('active');
-      msPeriod = btn.dataset.period;
-      fetchMyShifts();
-    });
+  // Chipy mesiacov sa kreslia nanovo pri každej odpovedi — delegácia.
+  $('msMonths').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-period]');
+    if (!b) return;
+    msPeriod = b.getAttribute('data-period');
+    fetchMyShifts();
   });
 
   // Reset auto-close timer on any user interaction inside overlay

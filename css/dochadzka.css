@@ -458,72 +458,81 @@ body::before {
   border-color: var(--color-danger);
 }
 
-.doch-myshifts-period {
-  display: flex; gap: 6px;
-  margin-bottom: 18px;
-  padding: 4px;
-  background: var(--color-bg-surface);
-  border-radius: 12px;
-  border: 1px solid var(--color-border);
+/* Podtitul pod nadpisom — meno · pozícia · sadzba. */
+.doch-myshifts-sub { font-size: 13px; font-weight: 600; color: var(--color-text-sec); margin-top: 2px; }
+
+/* Mesiace — vodorovný pás chipov, každý so sumou, ktorú si človek v ten
+   mesiac zarobil. Sezóna má 5–6 mesiacov, pás roluje vbok; aktívny je plný.
+   Predtým tu boli tri prepínače (mesiac / sezóna / všetko) bez čísel. */
+.ms-months {
+  display: flex; gap: 8px;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+  padding: 2px 0 8px; margin-bottom: 14px;
+  scrollbar-width: none;
 }
-.ms-period {
-  flex: 1;
-  padding: 12px;
-  border: none;
-  background: transparent;
+.ms-months::-webkit-scrollbar { display: none; }
+.ms-month {
+  flex: 0 0 auto;
+  min-width: 108px; min-height: 60px;
+  padding: 8px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
   color: var(--color-text-sec);
   font-family: var(--font-body);
-  font-size: 13px;
-  font-weight: 600;
-  border-radius: 9px;
+  text-align: left;
+  display: flex; flex-direction: column; justify-content: center; gap: 2px;
   cursor: pointer;
-  transition: background .15s, color .15s;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .15s, color .15s, border-color .15s;
 }
-.ms-period:hover { color: var(--color-text); background: rgba(30, 24, 18, .04); }
-.ms-period.active {
+.ms-month-name { font-size: 13px; font-weight: 700; color: var(--color-text); }
+.ms-month-eur { font-family: var(--font-mono); font-feature-settings: 'tnum' 1; font-size: 13px; font-weight: 600; }
+.ms-month.active {
   background: var(--color-accent);
-  color: #f5efe3;
+  border-color: var(--color-accent);
   box-shadow: 0 2px 8px rgba(184, 84, 42, .22);
 }
+.ms-month.active .ms-month-name,
+.ms-month.active .ms-month-eur { color: #f5efe3; }
+.ms-month:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--color-accent-bg); }
+.ms-month-all { align-items: center; }
 
-.doch-myshifts-summary {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  margin-bottom: 18px;
-}
-.ms-stat {
+/* Hero zvoleného obdobia — jedno veľké číslo, pod ním kontext a pásik
+   vyplatené / zostáva. Tri rovnocenné karty nútili čítať všetky tri. */
+.ms-hero {
   background: var(--color-bg-surface);
   border: 1px solid var(--color-border);
-  border-radius: 14px;
-  padding: 14px;
-  text-align: center;
+  border-radius: 16px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
 }
-.ms-stat-label {
-  font-family: var(--font-body);
-  font-size: 10px;
-  letter-spacing: .15em;
-  text-transform: uppercase;
-  color: var(--color-text-dim);
-  margin-bottom: 6px;
-  font-weight: 700;
+.ms-hero-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.ms-hero-label { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--color-text-dim); }
+.ms-hero-num {
+  font-family: var(--font-mono); font-feature-settings: 'tnum' 1;
+  font-size: 34px; font-weight: 700; letter-spacing: -.02em; line-height: 1;
+  color: var(--color-accent);
 }
-.ms-stat-num {
-  font-family: var(--font-mono);
-  font-feature-settings: 'tnum' 1;
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: -.02em;
-  line-height: 1.1;
-  color: var(--color-text);
+.ms-hero.is-empty .ms-hero-num { font-size: 20px; color: var(--color-text-dim); }
+.ms-hero-meta { margin-top: 6px; font-size: 13px; color: var(--color-text-sec); font-family: var(--font-mono); font-feature-settings: 'tnum' 1; }
+.ms-hero-note { margin-top: 4px; font-size: 12px; color: var(--accent-amber-text); }
+.ms-bar {
+  height: 10px; margin-top: 12px;
+  border-radius: 6px; overflow: hidden;
+  background: var(--accent-amber-bg);
+  border: 1px solid rgba(184, 124, 26, .35);
 }
-.ms-stat-num.primary { color: var(--color-accent); }
-.ms-stat-num.paid    { color: var(--color-success); }
-.ms-stat-foot {
-  font-size: 10px;
-  color: var(--color-text-dim);
-  margin-top: 4px;
+.ms-hero.is-clear .ms-bar { border-color: var(--color-success-border); }
+.ms-bar-paid { display: block; height: 100%; border-radius: 6px; background: var(--color-success); transition: width .3s ease; }
+.ms-hero-pay {
+  display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  margin-top: 8px;
+  font-size: 13px; font-weight: 700;
+  font-family: var(--font-mono); font-feature-settings: 'tnum' 1;
 }
+.ms-hero-pay .is-paid { color: var(--color-success); }
+.ms-hero-pay .is-due  { color: var(--accent-amber-text); }
 
 .doch-myshifts-list { display: flex; flex-direction: column; gap: 8px; }
 .ms-shift {
@@ -609,7 +618,7 @@ body::before {
 }
 
 @media (max-width: 540px) {
-  .doch-myshifts-summary { grid-template-columns: 1fr; }
+  .ms-hero-num { font-size: 28px; }
   .ms-shift {
     grid-template-columns: 1fr 110px;
     grid-template-areas:

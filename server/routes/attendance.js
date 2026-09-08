@@ -8,6 +8,7 @@ import { asyncRoute } from '../lib/async-route.js';
 import { requireRole } from '../middleware/requireRole.js';
 import {
   pinSchema,
+  myShiftsSchema,
   clockSchema,
   manualEventSchema,
   editEventSchema,
@@ -22,6 +23,9 @@ import {
   OVERLAP_RULES,
   overlapMinutes,
   computeWageWithOverlap,
+  monthKeyBratislava,
+  groupIndexByMonth,
+  summarizeShiftRows,
 } from '../lib/attendance.js';
 
 export const publicRouter = Router();
@@ -196,7 +200,16 @@ publicRouter.post('/clock', validate(clockSchema), asyncRoute(async (req, res) =
 //
 // Bezpečnosť: PIN sa overí cez findStaffByAttendancePin (rovnaká logika
 // ako /clock), uplatňuje sa rovnaký rate-limit.
-publicRouter.post('/my-shifts', validate(pinSchema), asyncRoute(async (req, res) => {
+// POST /my-shifts — samoobslužný prehľad zárobku pre zamestnanca (PIN).
+//
+// Okrem zvoleného obdobia vracia aj PREHĽAD PO MESIACOCH (`months`), aby si
+// človek pozrel, koľko zarobil v auguste či v júli, bez manažéra.
+//
+// period: 'month' (aktuálny mesiac, default) | 'YYYY-MM' (konkrétny mesiac)
+//         | 'season' (od 25. 4.) | 'all'.
+// Kým `period` nebol v schéme, validate() ho ako neznáme pole ZAHODIL —
+// tlačidlá „Sezóna" a „Všetko" na termináli preto nikdy nefungovali.
+publicRouter.post('/my-shifts', validate(myShiftsSchema), asyncRoute(async (req, res) => {
   const ip = req.ip || req.connection?.remoteAddress || '';
   const found = await findStaffByAttendancePin(req.body.pin);
 
@@ -212,97 +225,125 @@ publicRouter.post('/my-shifts', validate(pinSchema), asyncRoute(async (req, res)
   }
   await recordAttempt({ staffId: found.id, ip, success: true });
 
-  // Period: default = aktuálny kalendárny mesiac. 'season' = od 25.04.
-  // 'all' = od začiatku evidencie.
-  const period = String((req.body && req.body.period) || 'month');
+  const period = String(req.body.period || 'month');
   const now = new Date();
-  let fromDate, toDate = new Date(now.getFullYear(), now.getMonth() + 1, 1); // start of next month
-  if (period === 'season') {
-    fromDate = new Date(`${now.getFullYear()}-04-25T00:00:00Z`);
-  } else if (period === 'all') {
-    fromDate = new Date('2000-01-01T00:00:00Z');
-  } else {
-    fromDate = new Date(now.getFullYear(), now.getMonth(), 1);
-  }
+  const currentYm = monthKeyBratislava(now);
+  const hourlyRate = Number(found.hourlyRate) || 0;
 
-  const events = await db.select().from(attendanceEvents).where(and(
-    eq(attendanceEvents.staffId, found.id),
-    gte(attendanceEvents.at, fromDate),
-    lte(attendanceEvents.at, toDate),
-  )).orderBy(attendanceEvents.at, attendanceEvents.id);
+  // Celá história naraz: mesačný prehľad ju potrebuje a pri jednej prevádzke
+  // sú to stovky riadkov, nie tisíce.
+  const events = await db.select().from(attendanceEvents)
+    .where(eq(attendanceEvents.staffId, found.id))
+    .orderBy(attendanceEvents.at, attendanceEvents.id);
 
-  // Map clock_out events → payout (ak existuje), aby zamestnanec videl
-  // ✓ vyplatené pri každej smene a vedel rozlíšiť čo už dostal vs. čo
-  // ešte čaká.
+  // clock_out → payout (ak existuje): zamestnanec vidí ✓ vyplatené pri smene
+  // a rozlíši, čo už dostal a čo ešte čaká.
   const clockOutIds = events.filter((e) => e.type === 'clock_out').map((e) => e.id);
-  let payoutByOutId = new Map();
+  const payoutByOutId = new Map();
   if (clockOutIds.length) {
     const payouts = await db.select({
-      id: attendancePayouts.id,
       clockOutEventId: attendancePayouts.clockOutEventId,
       amount: attendancePayouts.amount,
       paidAt: attendancePayouts.paidAt,
-    }).from(attendancePayouts).where(
-      sql`${attendancePayouts.clockOutEventId} IN (${sql.join(clockOutIds.map((id) => sql`${id}`), sql`, `)})`,
-    );
+    }).from(attendancePayouts).where(inArray(attendancePayouts.clockOutEventId, clockOutIds));
     for (const p of payouts) payoutByOutId.set(p.clockOutEventId, p);
   }
 
   const shifts = pairEventsToShifts(events);
-  const summary = summarizeHours(shifts);
-  const totalWage = computeWage(summary.minutes, found.hourlyRate);
-
-  // Pre každú smenu vypočítaj earnings + paid status. Earning = minutes/60
-  // × hourlyRate (rovnaké ako server-side computeWage). Open shifts (bez
-  // clock_out) nie sú ešte hotové — nepripočítavame.
-  const hourlyRate = Number(found.hourlyRate) || 0;
+  // shiftRows[i] zodpovedá shifts[i] — prekryv sa počíta nad surovými smenami.
   const shiftRows = shifts.map((sh) => {
     const minutes = sh.minutes || 0;
-    const hours = minutes / 60;
-    const earnings = sh.closed ? Math.round(hours * hourlyRate * 100) / 100 : 0;
     const payout = sh.outEvent ? payoutByOutId.get(sh.outEvent.id) : null;
     return {
-      inAt: sh.inEvent ? sh.inEvent.at : null,
+      ym: monthKeyBratislava(sh.inEvent.at),
+      inAt: sh.inEvent.at,
       outAt: sh.outEvent ? sh.outEvent.at : null,
       minutes,
-      hours: Math.round(hours * 100) / 100,
-      earnings,
+      hours: Math.round((minutes / 60) * 100) / 100,
+      earnings: sh.closed ? computeWage(minutes, hourlyRate) : 0,
       closed: sh.closed,
-      paid: payout ? {
-        amount: Number(payout.amount),
-        paidAt: payout.paidAt,
-      } : null,
+      paid: payout ? { amount: Number(payout.amount), paidAt: payout.paidAt } : null,
     };
   });
 
-  // Sumár len cez closed shifts.
-  const closedShifts = shiftRows.filter((s) => s.closed);
-  const totalEarnings = closedShifts.reduce((s, x) => s + x.earnings, 0);
-  const paidEarnings = closedShifts.reduce((s, x) => s + (x.paid ? x.paid.amount : 0), 0);
-  const unpaidEarnings = Math.round((totalEarnings - paidEarnings) * 100) / 100;
+  // Overlap pravidlo (napr. Oleg @ 5 €/h keď robí s Jarikom) — rovnaký výpočet
+  // ako v manažérskom /summary, inak by zamestnanec videl inú mzdu, než mu
+  // manažér reálne vyplatí.
+  const rule = OVERLAP_RULES.find((r) => r.staffId === found.id);
+  let partnerShifts = [];
+  if (rule) {
+    const partnerEvents = await db.select().from(attendanceEvents)
+      .where(eq(attendanceEvents.staffId, rule.withStaffId))
+      .orderBy(attendanceEvents.at, attendanceEvents.id);
+    partnerShifts = pairEventsToShifts(partnerEvents);
+  }
+
+  const totalsFor = (idx) => {
+    const base = summarizeShiftRows(idx.map((i) => shiftRows[i]));
+    let earnings = computeWage(base.minutes, hourlyRate);
+    let overlap = null;
+    if (rule && base.minutes > 0) {
+      const ov = overlapMinutes(idx.map((i) => shifts[i]), partnerShifts);
+      if (ov > 0) {
+        earnings = computeWageWithOverlap(base.minutes, hourlyRate, ov, rule.overlapRate);
+        overlap = { minutes: ov, rate: rule.overlapRate };
+      }
+    }
+    return { ...base, earnings, unpaid: Math.round((earnings - base.paid) * 100) / 100, overlap };
+  };
+
+  // Mesiace: každý, v ktorom je aspoň jedna smena, plus aktuálny (aj prázdny),
+  // aby mal predvolený výber vždy svoj chip.
+  const byMonth = groupIndexByMonth(shiftRows);
+  if (!byMonth.has(currentYm)) byMonth.set(currentYm, []);
+  const months = [...byMonth.keys()].sort().reverse()
+    .map((ym) => ({ ym, ...totalsFor(byMonth.get(ym)) }));
+
+  let kind = 'month';
+  let ym = currentYm;
+  let idx;
+  let from = null;
+  if (/^\d{4}-\d{2}$/.test(period)) {
+    ym = period;
+    idx = byMonth.get(period) || [];
+  } else if (period === 'season') {
+    kind = 'season'; ym = null;
+    const seasonStart = new Date(`${now.getFullYear()}-04-25T00:00:00Z`);
+    from = seasonStart.toISOString();
+    idx = shiftRows.map((_, i) => i).filter((i) => shiftRows[i].inAt >= seasonStart);
+  } else if (period === 'all') {
+    kind = 'all'; ym = null;
+    idx = shiftRows.map((_, i) => i);
+  } else {
+    idx = byMonth.get(currentYm) || [];
+  }
+  if (ym) from = ym + '-01';
+  const t = totalsFor(idx);
+  const periodShifts = idx.map((i) => {
+    const { ym: _ym, ...row } = shiftRows[i];
+    return row;
+  }).reverse(); // najnovšie hore
 
   res.json({
     staff: {
       id: found.id,
       name: found.name,
       position: found.position || '',
-      hourlyRate: hourlyRate,
+      hourlyRate,
     },
-    period: {
-      kind: period,
-      from: fromDate.toISOString(),
-      to: now.toISOString(),
-    },
-    shifts: shiftRows.reverse(), // najnovšie hore
+    period: { kind, ym, from, to: now.toISOString() },
+    months,
+    shifts: periodShifts,
     summary: {
-      shiftCount: closedShifts.length,
-      openShifts: summary.openShifts,
-      totalMinutes: summary.minutes,
-      totalHours: Math.round((summary.minutes / 60) * 100) / 100,
-      totalEarnings: Math.round(totalEarnings * 100) / 100,
-      paidEarnings: Math.round(paidEarnings * 100) / 100,
-      unpaidEarnings: unpaidEarnings,
-      hourlyRate: hourlyRate,
+      shiftCount: t.shiftCount,
+      openShifts: t.openShifts,
+      totalMinutes: t.minutes,
+      totalHours: Math.round((t.minutes / 60) * 100) / 100,
+      totalEarnings: t.earnings,
+      paidEarnings: t.paid,
+      unpaidEarnings: t.unpaid,
+      hourlyRate,
+      overlap: t.overlap,
     },
   });
 }));

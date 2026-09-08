@@ -108,3 +108,47 @@ export function computeWageWithOverlap(minutes, hourlyRate, ovMinutes, overlapRa
   const wage = (solo / 60) * rate + (ov / 60) * (Number(overlapRate) || 0);
   return Math.round(wage * 100) / 100;
 }
+
+
+// ── Mesačné bucketovanie (samoobslužný prehľad zárobku) ────────────────────
+// Server beží v UTC, ale mesiac patrí človeku v Bratislave: smena, ktorá
+// začala 31. 8. o 23:30 UTC, je 1. 9. 00:30 lokálne — patrí do septembra.
+const YM_PARTS = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'Europe/Bratislava', year: 'numeric', month: '2-digit',
+});
+
+/** 'YYYY-MM' dátumu v Europe/Bratislava. */
+export function monthKeyBratislava(date) {
+  const parts = YM_PARTS.formatToParts(date);
+  const y = parts.find((p) => p.type === 'year').value;
+  const m = parts.find((p) => p.type === 'month').value;
+  return `${y}-${m}`;
+}
+
+/** Map ym → [index do `rows`]; poradie indexov zachované. */
+export function groupIndexByMonth(rows) {
+  const map = new Map();
+  rows.forEach((r, i) => {
+    if (!map.has(r.ym)) map.set(r.ym, []);
+    map.get(r.ym).push(i);
+  });
+  return map;
+}
+
+/**
+ * Súčty nad riadkami smien ({ closed, minutes, paid: {amount}|null }).
+ * Bez sadzby — mzdu (aj overlap) dopočíta volajúci, lebo potrebuje DB.
+ */
+export function summarizeShiftRows(rows) {
+  let minutes = 0, paid = 0, shiftCount = 0, openShifts = 0;
+  for (const r of rows) {
+    if (r.closed) {
+      shiftCount += 1;
+      minutes += r.minutes || 0;
+      paid += r.paid ? (Number(r.paid.amount) || 0) : 0;
+    } else {
+      openShifts += 1;
+    }
+  }
+  return { minutes, paid: Math.round(paid * 100) / 100, shiftCount, openShifts };
+}

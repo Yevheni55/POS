@@ -76,6 +76,53 @@ describe('attendance public PIN routes', () => {
     assert.equal(res.status, 401);
   });
 
+  it('POST /api/attendance/my-shifts returns per-month totals and honours period=YYYY-MM', async () => {
+    const s = await makeStaffWithAttendancePin('4321'); // 7.50 €/h
+    const ev = (type, at) => ({ staffId: s.id, type, source: 'pin', at: new Date(at) });
+    // August: 2 smeny po 4 h (16:00–20:00 Bratislava = 14:00–18:00Z), jedna vyplatená.
+    // September: 1 smena 2 h. Smena z 31. 8. 23:30 UTC začína 1. 9. lokálne → september.
+    const [a1in, a1out, a2in, a2out, s1in, s1out] = await testDb.insert(attendanceEvents).values([
+      ev('clock_in',  '2026-08-10T14:00:00Z'), ev('clock_out', '2026-08-10T18:00:00Z'),
+      ev('clock_in',  '2026-08-20T14:00:00Z'), ev('clock_out', '2026-08-20T18:00:00Z'),
+      ev('clock_in',  '2026-08-31T22:30:00Z'), ev('clock_out', '2026-09-01T00:30:00Z'),
+    ]).returning();
+    assert.ok(a1in && a1out && a2in && a2out && s1in && s1out);
+    await testDb.insert(attendancePayouts).values({
+      staffId: s.id, clockOutEventId: a1out.id, amount: '30.00', paidByStaffId: 3,
+    });
+
+    // Konkrétny mesiac
+    const aug = await request.post('/api/attendance/my-shifts').send({ pin: '4321', period: '2026-08' });
+    assert.equal(aug.status, 200);
+    assert.equal(aug.body.period.kind, 'month');
+    assert.equal(aug.body.period.ym, '2026-08');
+    assert.equal(aug.body.shifts.length, 2);
+    assert.equal(aug.body.summary.totalMinutes, 480);
+    assert.equal(aug.body.summary.totalEarnings, 60);   // 8 h × 7,50
+    assert.equal(aug.body.summary.paidEarnings, 30);
+    assert.equal(aug.body.summary.unpaidEarnings, 30);
+
+    // Prehľad po mesiacoch — najnovší hore, smena cez polnoc UTC patrí septembru
+    const byYm = Object.fromEntries(aug.body.months.map((m) => [m.ym, m]));
+    assert.ok(byYm['2026-08'] && byYm['2026-09'], 'months must contain 2026-08 and 2026-09');
+    assert.equal(byYm['2026-08'].earnings, 60);
+    assert.equal(byYm['2026-08'].paid, 30);
+    assert.equal(byYm['2026-09'].minutes, 120);
+    assert.equal(byYm['2026-09'].earnings, 15);
+    assert.deepEqual(aug.body.months.map((m) => m.ym), [...aug.body.months.map((m) => m.ym)].sort().reverse());
+
+    // Sezóna = všetko od 25. 4. — predtým validate() `period` zahodil a vracal vždy aktuálny mesiac
+    const season = await request.post('/api/attendance/my-shifts').send({ pin: '4321', period: 'season' });
+    assert.equal(season.status, 200);
+    assert.equal(season.body.period.kind, 'season');
+    assert.equal(season.body.shifts.length, 3);
+    assert.equal(season.body.summary.totalEarnings, 75);
+
+    // Neplatné obdobie odmietne schéma
+    const bad = await request.post('/api/attendance/my-shifts').send({ pin: '4321', period: '2026-13' });
+    assert.equal(bad.status, 400);
+  });
+
   it('POST /api/attendance/clock toggles state and writes a row', async () => {
     const s = await makeStaffWithAttendancePin('4321');
 

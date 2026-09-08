@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { pinSchema, clockSchema, manualEventSchema, summaryQuerySchema, attendanceReasonSchema } from '../../schemas/attendance.js';
+import { pinSchema, myShiftsSchema, clockSchema, manualEventSchema, summaryQuerySchema, attendanceReasonSchema } from '../../schemas/attendance.js';
 
 test('pinSchema accepts 4-6 digits', () => {
   assert.equal(pinSchema.safeParse({ pin: '1234' }).success, true);
@@ -43,4 +43,13 @@ test('summaryQuerySchema requires from <= to as ISO date strings', () => {
   assert.equal(summaryQuerySchema.safeParse({ from: '2026-05-01', to: '2026-05-31' }).success, true);
   assert.equal(summaryQuerySchema.safeParse({ from: '2026-05-31', to: '2026-05-01' }).success, false);
   assert.equal(summaryQuerySchema.safeParse({ from: 'bad', to: '2026-05-01' }).success, false);
+});
+
+test('myShiftsSchema keeps period (validate() strips unknown keys) and accepts month/season/all/YYYY-MM', () => {
+  for (const p of ['month', 'season', 'all', '2026-08']) {
+    assert.equal(myShiftsSchema.parse({ pin: '1234', period: p }).period, p, `should keep "${p}"`);
+  }
+  assert.equal(myShiftsSchema.parse({ pin: '1234' }).period, undefined);
+  assert.equal(myShiftsSchema.safeParse({ pin: '1234', period: '2026-13' }).success, false);
+  assert.equal(myShiftsSchema.safeParse({ pin: '1234', period: 'week' }).success, false);
 });

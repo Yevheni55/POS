@@ -4,6 +4,17 @@ const pinValue = z.string().regex(/^\d{4,6}$/, 'PIN musi byt 4 az 6 cifier');
 
 export const pinSchema = z.object({ pin: pinValue });
 
+// Samoobslužný prehľad zárobku: 'month' | 'season' | 'all' | 'YYYY-MM'.
+// `period` MUSÍ byť v schéme — validate() robí schema.parse(), ktorý neznáme
+// polia zahodí. Kým tu chýbal, terminál dostal vždy aktuálny mesiac, nech
+// zamestnanec klikol na čokoľvek.
+export const myShiftsSchema = z.object({
+  pin: pinValue,
+  period: z.string()
+    .regex(/^(month|season|all|\d{4}-(0[1-9]|1[0-2]))$/, 'Neplatne obdobie')
+    .optional(),
+});
+
 export const clockSchema = z.object({
   pin: pinValue,
   type: z.enum(['clock_in', 'clock_out']),
