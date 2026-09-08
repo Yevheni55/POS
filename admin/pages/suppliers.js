@@ -28,7 +28,7 @@ function escapeHtml(v) {
 // ===== LOAD =====
 async function loadSuppliers() {
   const tbody = $('#suppliersBody');
-  if (tbody) showLoading(tbody.closest('.panel') || tbody, 'Nacitavam dodavatelov...');
+  if (tbody) showLoading(tbody.closest('.panel') || tbody, 'Načítavam dodavatelov...');
   try {
     suppliers = await api.get('/inventory/suppliers');
     if (tbody) hideLoading(tbody.closest('.panel') || tbody);
@@ -62,7 +62,7 @@ function renderSuppliers() {
   }
 
   if (filtered.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="td-empty">Ziadne vysledky pre zadany filter</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="td-empty">Žiadne výsledky pre zadany filter</td></tr>';
     return;
   }
 
@@ -75,7 +75,7 @@ function renderSuppliers() {
       <td><span class="badge ${s.active ? 'paid' : 'open'}">${s.active ? 'Aktivny' : 'Neaktivny'}</span></td>
       <td>
         <div class="prod-actions">
-          <button class="act-btn" data-edit-id="${s.id}" title="Upravit">
+          <button class="act-btn" data-edit-id="${s.id}" title="Upraviť">
             <svg viewBox="0 0 16 16"><path d="M12.1 1.3a1.5 1.5 0 012.1 2.1L5.8 11.8l-3.3.8.8-3.3z"/></svg>
           </button>
           <button class="act-btn del" data-del-id="${s.id}" title="Odstranit">
@@ -95,7 +95,7 @@ function openModal(id) {
   if (existing) existing.remove();
 
   const s = editingId ? suppliers.find(x => x.id === editingId) : null;
-  const title = s ? 'Upravit dodavatela' : 'Pridat dodavatela';
+  const title = s ? 'Upraviť dodávateľa' : 'Pridať dodávateľa';
 
   const ov = document.createElement('div');
   ov.className = 'u-overlay';
@@ -210,7 +210,7 @@ export function init(container) {
     <div class="top-bar">
       <button class="btn-add" id="addSupplierBtn">
         <svg aria-hidden="true" viewBox="0 0 14 14"><line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        Pridat dodavatela
+        Pridať dodávateľa
       </button>
       <div class="search-wrap">
         <svg aria-hidden="true" viewBox="0 0 16 16"><circle cx="6.5" cy="6.5" r="5" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="10.5" y1="10.5" x2="15" y2="15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>

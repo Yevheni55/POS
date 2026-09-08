@@ -121,7 +121,7 @@ function render() {
         '</div>' +
       '</div>' +
       '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
-        '<button class="btn-add" id="cfAddIncome" style="background:rgba(95,200,130,.16);color:var(--color-success);border-color:rgba(95,200,130,.4)">+ Príjem</button>' +
+        '<button class="btn-add" id="cfAddIncome" style="background:rgba(95,200,130,.16);color:var(--color-success-text);border-color:rgba(95,200,130,.4)">+ Príjem</button>' +
         '<button class="btn-add" id="cfAddExpense" style="background:rgba(224,112,112,.16);color:var(--color-danger);border-color:rgba(224,112,112,.4)">+ Výdavok</button>' +
       '</div>' +
     '</div>' +

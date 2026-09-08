@@ -86,7 +86,7 @@ async function loadReports() {
   const from = $('#dateFrom').value;
   const to = $('#dateTo').value;
   const activeTabContent = _container.querySelector('.tab-content.active');
-  if (activeTabContent) showLoading(activeTabContent, 'Nacitavam reporty...');
+  if (activeTabContent) showLoading(activeTabContent, 'Načítavam reporty...');
   try {
     const data = await api.get('/reports/summary?from=' + from + '&to=' + to + scopeQuery());
     if (activeTabContent) hideLoading(activeTabContent);
@@ -112,17 +112,17 @@ async function loadReports() {
 }
 
 function showEmptyReports() {
-  const emptyHtml = '<tr><td colspan="8" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
+  const emptyHtml = '<tr><td colspan="8" class="td-empty">Žiadne dáta pre toto obdobie</td></tr>';
   const trzbyBody = $('#table-trzby tbody');
   if (trzbyBody) trzbyBody.innerHTML = emptyHtml;
   const payBody = $('#table-payments tbody');
-  if (payBody) payBody.innerHTML = '<tr><td colspan="4" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
+  if (payBody) payBody.innerHTML = '<tr><td colspan="4" class="td-empty">Žiadne dáta pre toto obdobie</td></tr>';
   const produktyBody = $('#table-produkty tbody');
-  if (produktyBody) produktyBody.innerHTML = '<tr><td colspan="8" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
+  if (produktyBody) produktyBody.innerHTML = '<tr><td colspan="8" class="td-empty">Žiadne dáta pre toto obdobie</td></tr>';
   const zamBody = $('#table-zamestnanci tbody');
-  if (zamBody) zamBody.innerHTML = '<tr><td colspan="6" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
+  if (zamBody) zamBody.innerHTML = '<tr><td colspan="6" class="td-empty">Žiadne dáta pre toto obdobie</td></tr>';
   const hodBody = $('#table-hodiny tbody');
-  if (hodBody) hodBody.innerHTML = '<tr><td colspan="6" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
+  if (hodBody) hodBody.innerHTML = '<tr><td colspan="6" class="td-empty">Žiadne dáta pre toto obdobie</td></tr>';
 }
 
 function renderStats(data) {
@@ -350,7 +350,7 @@ function renderTrzby(data) {
   const tbody = $('#table-trzby tbody');
   if (!tbody) return;
   if (!data.daily || !data.daily.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="td-empty">Žiadne dáta pre toto obdobie</td></tr>';
     return;
   }
   if (!tbody) return;
@@ -508,7 +508,7 @@ function renderProdukty(data) {
   updateProductHeaderArrows();
   updateProductFilterStats();
   if (!data.products || !data.products.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="td-empty">Žiadne dáta pre toto obdobie</td></tr>';
     renderProductsByDay(data);
     return;
   }
@@ -819,7 +819,7 @@ function renderZamestnanci(data) {
   const tbody = $('#table-zamestnanci tbody');
   if (!tbody) return;
   if (!data.staff || !data.staff.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="td-empty">Žiadne dáta pre toto obdobie</td></tr>';
     return;
   }
   if (!tbody) return;
@@ -841,7 +841,7 @@ function renderHodiny(data) {
   const tbody = $('#table-hodiny tbody');
   if (!tbody) return;
   if (!data.hourly || !data.hourly.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="td-empty">Ziadne dáta pre toto obdobie</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="td-empty">Žiadne dáta pre toto obdobie</td></tr>';
     const tfootEmpty = $('#table-hodiny tfoot');
     if (tfootEmpty) tfootEmpty.innerHTML = '';
     return;
@@ -888,13 +888,13 @@ async function loadStaffReport() {
   const from = $('#dateFrom').value;
   const to = $('#dateTo').value;
   const tabContent = _container.querySelector('#tab-cisnicky');
-  if (tabContent) showLoading(tabContent, 'Nacitavam cisnicky...');
+  if (tabContent) showLoading(tabContent, 'Načítavam cisnicky...');
   try {
     const data = await api.get('/reports/staff?from=' + from + '&to=' + to + scopeQuery());
     if (tabContent) hideLoading(tabContent);
     if (!data || data.length === 0) {
-      $('#staffTableBody').innerHTML = '<tr><td colspan="9" class="td-empty">Ziadne data</td></tr>';
-      $('#staffBars').innerHTML = '<div class="loading-placeholder">Ziadne data pre zvolene obdobie</div>';
+      $('#staffTableBody').innerHTML = '<tr><td colspan="9" class="td-empty">Žiadne data</td></tr>';
+      $('#staffBars').innerHTML = '<div class="loading-placeholder">Žiadne data pre zvolené obdobie</div>';
       return;
     }
 
@@ -947,7 +947,7 @@ async function generateZReport() {
     // Payment methods
     const pmDiv = $('#zPaymentMethods');
     if (data.paymentMethods.length === 0) {
-      pmDiv.innerHTML = '<div class="loading-placeholder">Ziadne platby</div>';
+      pmDiv.innerHTML = '<div class="loading-placeholder">Žiadne platby</div>';
     } else {
       pmDiv.innerHTML = data.paymentMethods.map(pm => {
         const label = pm.method.charAt(0).toUpperCase() + pm.method.slice(1);
@@ -960,7 +960,7 @@ async function generateZReport() {
     // Cancelled
     $('#zCancelled').innerHTML =
       `<div class="uzavierka-value color-danger" style="margin-bottom:4px">${data.cancelledItems}</div>` +
-      `<div class="loading-placeholder">${data.cancelledTotal > 0 ? 'Strata: ' + fmtEur(data.cancelledTotal) : 'Ziadne storna'}</div>`;
+      `<div class="loading-placeholder">${data.cancelledTotal > 0 ? 'Strata: ' + fmtEur(data.cancelledTotal) : 'Žiadne storna'}</div>`;
 
     // Odpisy (predaj) — predajná hodnota účtov uzavretých ako manažérsky odpis
     // (mimo fiškál). Mimo tržby aj mimo platobných metód.
@@ -1844,7 +1844,7 @@ export function init(container) {
       + 'font-family:var(--font-body);font-size:var(--text-base);font-weight:var(--weight-semibold);'
       + 'cursor:pointer;transition:all var(--transition-fast);min-height:var(--btn-h-md)}'
       + '.scope-btn:hover{color:var(--color-text);background:var(--color-bg-hover)}'
-      + '.scope-btn.active{color:var(--color-accent);background:var(--color-accent-bg);border-color:var(--color-accent-border)}'
+      + '.scope-btn.active{color:var(--color-accent-text);background:var(--color-accent-bg);border-color:var(--color-accent-border)}'
       + '.scope-btn:focus-visible{outline:none;border-color:var(--color-focus);box-shadow:0 0 0 3px var(--border-focus)}'
       + '.scope-note{padding:var(--space-3) var(--space-4);margin-bottom:var(--space-4);'
       + 'border:1px solid var(--color-accent-border);border-left:3px solid var(--color-accent);'

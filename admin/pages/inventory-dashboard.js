@@ -138,7 +138,7 @@ function renderMovements(movements) {
   if (!tbody) return;
 
   if (!movements || movements.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="4" class="td-empty">Ziadne pohyby dnes</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="4" class="td-empty">Žiadne pohyby dnes</td></tr>';
     return;
   }
 

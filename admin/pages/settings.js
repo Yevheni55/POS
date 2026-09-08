@@ -40,7 +40,7 @@ const DEFAULTS = {
 };
 
 const DEST_LABELS = {
-  all: 'Vsetko',
+  all: 'Všetko',
   kuchyna: 'Kuchyna',
   bar: 'Bar',
   uctenka: 'Uctenka'
@@ -127,7 +127,7 @@ function getTemplate() {
         <div class="form-group full">
           <label>DPH</label>
           <div id="vatStatusBox" style="padding:10px 12px;border:1px solid var(--color-border);border-radius:var(--radius-sm);background:var(--color-bg-surface);line-height:1.5">
-            <span class="text-muted">Nacitavam rezim DPH...</span>
+            <span class="text-muted">Načítavam režim DPH…</span>
           </div>
         </div>
         <div class="form-group">
@@ -181,12 +181,17 @@ function getTemplate() {
         <svg aria-hidden="true" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10 5v5l3.5 2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Otvaracie hodiny
       </div>
-      <table class="hours-table">
-        <thead>
-          <tr><th>Den</th><th>Stav</th><th>Od</th><th></th><th>Do</th></tr>
-        </thead>
-        <tbody id="hoursBody"></tbody>
-      </table>
+      <!-- .table-scroll-wrap je povinny: tabulka ma 506 px, na telefone sa do
+           350 px sekcie nezmesti a bez wrappera sa CAST ORIEZLA — nedalo sa k nej
+           doskrolovat vobec. Ostatne admin tabulky wrapper uz maju. -->
+      <div class="table-scroll-wrap">
+        <table class="hours-table">
+          <thead>
+            <tr><th>Den</th><th>Stav</th><th>Od</th><th></th><th>Do</th></tr>
+          </thead>
+          <tbody id="hoursBody"></tbody>
+        </table>
+      </div>
     </div>
 
     <!-- SECTION 4: Tlac a uctenky -->
@@ -233,7 +238,7 @@ function getTemplate() {
         Tlaciarni
       </div>
       <div class="mb-3">
-        <button class="btn-save btn-sm" id="btnAddPrinter">+ Pridat tlaciaren</button>
+        <button class="btn-save btn-sm" id="btnAddPrinter">+ Pridať tlačiareň</button>
       </div>
       <div id="addPrinterForm" class="inline-form-panel" style="display:none">
         <div class="form-grid form-grid-printer">
@@ -326,7 +331,7 @@ function getTemplate() {
         Zlavy
       </div>
       <div class="mb-3">
-        <button class="btn-save btn-sm" id="btnAddDiscount">+ Pridat zlavu</button>
+        <button class="btn-save btn-sm" id="btnAddDiscount">+ Pridať zľavu</button>
       </div>
       <div id="addDiscountForm" class="inline-form-panel" style="display:none">
         <div class="form-grid three-col">
@@ -460,12 +465,14 @@ function renderVatStatus() {
 
   var icDph = String(companyProfile.icDph || '').trim();
   var isPayer = icDph.length > 0;
-  var tone = isPayer ? 'var(--color-success)' : 'var(--color-text-sec)';
+  // Textovy odtien, nie vyplnovy: --color-success ma ako text na kreme
+  // len 4,43:1 (pod AA 4,5). --color-success-text je stmaveny variant.
+  var tone = isPayer ? 'var(--color-success-text)' : 'var(--color-text-sec)';
   el.innerHTML = '<div style="font-weight:var(--weight-bold);color:' + tone + '">'
       + 'Platitel DPH: ' + (isPayer ? 'ano' : 'nie') + '</div>'
     + (isPayer ? '<div class="text-muted" style="font-size:12px;margin-top:2px">IC DPH ' + escapeHtml(icDph) + '</div>' : '')
     + '<div class="text-muted" style="font-size:12px;margin-top:6px;line-height:1.5">'
-    + 'Sadzby DPH sa nastavuju per polozka v <a href="#menu" style="color:var(--color-accent)">Admin -> Menu</a> (5 / 19 / 23 %). '
+    + 'Sadzby DPH sa nastavuju per polozka v <a href="#menu" class="settings-inline-link">Admin -&gt; Menu</a> (5 / 19 / 23 %). '
     + (isPayer
       ? 'Doklady sa fiskalizuju so sadzbou konkretnej polozky.'
       : 'Kym firma nie je platitel, kazdy doklad ide s 0 % DPH.')
@@ -556,7 +563,7 @@ function resetDefaults() {
     applyToForm();
     renderCompanyProfileCompare();
     showToast('Nastavenia obnovene na povodne', true);
-  }, { type: 'warning', icon: '\u{1F504}', confirmText: 'Obnovit' });
+  }, { type: 'warning', icon: '\u{1F504}', confirmText: 'Obnoviť' });
 }
 
 /* ─── HOURS ─── */
@@ -611,7 +618,7 @@ function updateColorHex(inputId, hexId) {
 
 async function loadPrinters() {
   var el = byId('printersTable');
-  if (el) showLoading(el, 'Nacitavam tlaciarni...');
+  if (el) showLoading(el, 'Načítavam tlačiarne...');
   try {
     adminPrinters = await api.get('/printers');
     if (el) hideLoading(el);
@@ -626,7 +633,7 @@ async function loadPrinters() {
 function renderPrinters() {
   var el = byId('printersTable');
   if (!adminPrinters.length) {
-    el.innerHTML = '<div class="empty-hint">Ziadne tlaciarni. Kliknite "+ Pridat tlaciaren" pre vytvorenie.</div>';
+    el.innerHTML = '<div class="empty-hint">Žiadne tlačiarne. Kliknite „+ Pridať tlačiareň“ pre vytvorenie.</div>';
     return;
   }
   var html = '<div class="table-scroll-wrap"><table class="data-table">';
@@ -653,9 +660,9 @@ function renderPrinters() {
     html += '<td class="data-td text-center"><span id="' + statusId + '" class="status-dot"></span></td>';
     html += '<td class="data-td text-right nowrap">';
     html += '<button class="action-btn action-btn-accent" data-printer-test="' + p.id + '">Test</button>';
-    html += '<button class="action-btn action-btn-dim" data-printer-edit="' + p.id + '">Upravit</button>';
+    html += '<button class="action-btn action-btn-dim" data-printer-edit="' + p.id + '">Upraviť</button>';
     // XSS: samotne &quot; nestaci — pri ' alebo > sa da vyskocit z atributu.
-    html += '<button class="action-btn action-btn-danger" data-printer-delete="' + p.id + '" data-printer-name="' + escapeHtml(p.name) + '">Zmazat</button>';
+    html += '<button class="action-btn action-btn-danger" data-printer-delete="' + p.id + '" data-printer-name="' + escapeHtml(p.name) + '">Zmazať</button>';
     html += '</td></tr>';
   });
   html += '</tbody></table></div>';
@@ -683,7 +690,7 @@ async function saveNewPrinter() {
   var port = parseInt(byId('newPrinterPort').value) || 9100;
   var dest = byId('newPrinterDest').value;
 
-  if (!name) { showToast('Zadajte nazov tlaciarni'); return; }
+  if (!name) { showToast('Zadajte názov tlačiarne'); return; }
   if (!ip) { showToast('Zadajte IP adresu'); return; }
   if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip)) { showToast('Neplatna IP adresa'); return; }
   if (port < 1 || port > 65535) { showToast('Port musi byt 1-65535'); return; }
@@ -730,7 +737,7 @@ async function togglePrinterActive(id, currentActive) {
 }
 
 async function deletePrinter(id, name) {
-  showConfirm('Zmazat tlaciaren', 'Naozaj chcete zmazat tlaciaren "' + name + '"?', async function () {
+  showConfirm('Zmazať tlačiareň', 'Naozaj chcete zmazať tlačiareň "' + name + '"?', async function () {
     try {
       await api.del('/printers/' + id);
       showToast('Tlaciaren zmazana', true);
@@ -738,7 +745,7 @@ async function deletePrinter(id, name) {
     } catch (e) {
       showToast('Chyba: ' + e.message);
     }
-  }, { type: 'danger', icon: '\u26A0\uFE0F', confirmText: 'Zmazat' });
+  }, { type: 'danger', icon: '\u26A0\uFE0F', confirmText: 'Zmazať' });
 }
 
 async function testPrinter(id) {
@@ -916,7 +923,7 @@ function renderPortosDiagnostics() {
   if (!el) return;
 
   if (portosStatusLoading) {
-    el.innerHTML = '<div class="loading-hint">Nacitavam Portos stav...</div>';
+    el.innerHTML = '<div class="loading-hint">Načítavam Portos stav...</div>';
     return;
   }
 
@@ -926,7 +933,7 @@ function renderPortosDiagnostics() {
   }
 
   if (!portosStatus) {
-    el.innerHTML = '<div class="empty-hint">Zatial nie su dostupne Portos data.</div>';
+    el.innerHTML = '<div class="empty-hint">Zatiaľ nie sú dostupné Portos dáta.</div>';
     return;
   }
 
@@ -1017,7 +1024,7 @@ async function loadPortosStatus() {
   if (btn) {
     btn.disabled = true;
     btn.dataset.originalText = btn.textContent;
-    btn.textContent = 'Nacitavam...';
+    btn.textContent = 'Načítavam...';
   }
   renderPortosDiagnostics();
   try {
@@ -1074,7 +1081,7 @@ function submitFiscalStorno() {
 
 async function loadDiscounts() {
   var el = byId('discountsTable');
-  if (el) showLoading(el, 'Nacitavam zlavy...');
+  if (el) showLoading(el, 'Načítavam zľavy...');
   try {
     adminDiscounts = await api.get('/discounts/all');
     if (el) hideLoading(el);
@@ -1089,7 +1096,7 @@ async function loadDiscounts() {
 function renderDiscounts() {
   var el = byId('discountsTable');
   if (!adminDiscounts.length) {
-    el.innerHTML = '<div class="empty-hint">Ziadne zlavy. Kliknite "+ Pridat zlavu" pre vytvorenie.</div>';
+    el.innerHTML = '<div class="empty-hint">Žiadne zľavy. Kliknite „+ Pridať zľavu“ pre vytvorenie.</div>';
     return;
   }
   var html = '<div class="table-scroll-wrap"><table class="data-table">';
@@ -1133,8 +1140,8 @@ async function saveNewDiscount() {
   var name = byId('newDiscName').value.trim();
   var type = byId('newDiscType').value;
   var value = parseFloat(byId('newDiscValue').value);
-  if (!name) { showToast('Zadajte nazov zlavy'); return; }
-  if (!value || value <= 0) { showToast('Zadajte platnu hodnotu'); return; }
+  if (!name) { showToast('Zadajte názov zľavy'); return; }
+  if (!value || value <= 0) { showToast('Zadajte platnú hodnotu'); return; }
   if (type === 'percent' && value > 100) { showToast('Percento nemoze byt viac ako 100'); return; }
   var btn = byId('btnSaveDiscount');
   if (btn) btnLoading(btn);
@@ -1161,7 +1168,7 @@ async function toggleDiscountActive(id, currentActive) {
 }
 
 async function deleteDiscount(id, name) {
-  showConfirm('Zmazat zlavu', 'Naozaj chcete zmazat zlavu "' + name + '"?', async function () {
+  showConfirm('Zmazať zľavu', 'Naozaj chcete zmazať zľavu "' + name + '"?', async function () {
     try {
       await api.del('/discounts/' + id);
       showToast('Zlava zmazana', true);
@@ -1169,7 +1176,7 @@ async function deleteDiscount(id, name) {
     } catch (e) {
       showToast('Chyba: ' + e.message);
     }
-  }, { type: 'danger', icon: '\u26A0\uFE0F', confirmText: 'Zmazat' });
+  }, { type: 'danger', icon: '\u26A0\uFE0F', confirmText: 'Zmazať' });
 }
 
 /* ─── EVENT DELEGATION ─── */

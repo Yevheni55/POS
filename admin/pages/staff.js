@@ -1,55 +1,76 @@
-// Staff page module
+// Staff page module — zoznam ľudí.
+//
+// Predtým mriežka kariet: každý človek 239 px, nad zoznamom 200 px filtrov
+// (hľadanie, rola, "Zobraziť PIN-y"), na každej karte PIN, badge "Dochádzka
+// PIN" a dve tlačidlá. Šesť ľudí = 1,4 obrazovky scrollovania kvôli štyrom
+// faktom na osobu. Teraz: jeden riadok na človeka, celý riadok otvára úpravu,
+// PIN a deaktivácia sú vo formulári. Výnimky (neaktívny, chýba PIN na
+// dochádzku) sa hlásia len tam, kde nastali — nie na každom riadku.
 import { mountEmptyState } from '../components/empty-state.js';
 import { fmtCost } from '../../components/fmt.js';
 
 let staff = [];
 let editingId = null;
-let revealedPins = new Set();
-// Master toggle "Zobrazit PIN-y" — ked je true, vsetky PIN-y su odhalene
-// vsetky naraz. Pre per-card eye icon stale funguje revealedPins set.
+// "Zobraziť PIN-y" — jeden prepínač pre celý zoznam. Pri prvom zapnutí sa
+// načíta _pinMap[staffId] = pin | null z /staff/pins-visible (admin/manažér).
+// null = záznam pred migráciou, PIN treba nastaviť cez Upraviť.
 let _showAllPins = false;
-// Cache plain-text PIN-ov ulozenych v _pinMap[staffId] = pin (string) | null.
-// null = staff nema vyplneny pin_visible v DB (pred migraciou alebo PIN reset
-// chyba). Plnime cez api.get('/staff/pins-visible') — len pre admin/manazer.
 let _pinMap = null;
 
 let _container = null;
 let _escHandler = null;
 
+const ROLE_LABEL = { admin: 'Admin', manazer: 'Manažér', cisnik: 'Čašník' };
+// Od tohto počtu ľudí má hľadanie zmysel. Pod ním je celý zoznam na jednej
+// obrazovke a políčko by len odsúvalo prvého človeka nižšie.
+const SEARCH_FROM = 9;
+
 function $(sel) {
   return _container.querySelector(sel);
 }
 
-function getInitials(name, surname) {
-  const safe = (s) => (s && typeof s === 'string') ? s : '';
-  const n = safe(name);
-  const s = safe(surname);
-  return ((n.charAt(0) || '?') + s.charAt(0)).toUpperCase();
+// Iniciály z celého mena ("Mária Horváthová" → MH). Priezvisko je od
+// zjednotenia formulára súčasťou `name`, samostatné pole neexistuje.
+function getInitials(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  const a = parts[0] ? parts[0].charAt(0) : '?';
+  const b = parts[1] ? parts[1].charAt(0) : '';
+  return (a + b).toUpperCase();
 }
 
 function getRoleClass(role) {
-  return 'role-' + role.toLowerCase();
+  return 'role-' + String(role || '').toLowerCase();
 }
 
-function formatNum(n) {
-  // Defensive: e.orders / e.revenue are not in the GET /api/staff response
-  // shape (no JOIN with orders/payments). undefined.toLocaleString() used
-  // to throw and crashed the entire staff page render.
-  return Number(n || 0).toLocaleString('sk-SK');
+function peopleWord(n) {
+  if (n === 1) return 'človek';
+  if (n >= 2 && n <= 4) return 'ľudia';
+  return 'ľudí';
+}
+
+function updateCount() {
+  const el = $('#staffCount');
+  if (!el) return;
+  const off = staff.filter((e) => !e.active).length;
+  el.textContent = staff.length + ' ' + peopleWord(staff.length)
+    + (off ? ' · ' + off + (off === 1 ? ' neaktívny' : ' neaktívni') : '');
 }
 
 async function loadStaff() {
   const grid = $('#staffGrid');
-  if (grid) showLoading(grid, 'Nacitavam zamestnancov...');
+  if (grid) showLoading(grid, 'Načítavam zamestnancov…');
   try {
     staff = await api.get('/staff');
     if (grid) hideLoading(grid);
+    const searchWrap = $('#staffSearchWrap');
+    if (searchWrap) searchWrap.hidden = !(staff && staff.length >= SEARCH_FROM);
+    updateCount();
     if (!staff || staff.length === 0) {
       if (grid) mountEmptyState(grid, {
-        icon: '\uD83D\uDC65',
-        title: '\u017Diadni zamestnanci',
-        text: 'Tu sa zobrazuj\u00FA \u010Da\u0161n\u00EDci, mana\u017E\u00E9ri a admin pou\u017E\u00EDvatelia. Pridajte prv\u00E9ho zamestnanca.',
-        ctaLabel: 'Prida\u0165 zamestnanca',
+        icon: '👥',
+        title: 'Žiadni zamestnanci',
+        text: 'Tu sa zobrazujú čašníci, manažéri a admin používatelia. Pridajte prvého zamestnanca.',
+        ctaLabel: 'Pridať zamestnanca',
         onCta: function () { const b = document.getElementById('addStaffBtn'); if (b) b.click(); },
       });
       return;
@@ -57,132 +78,86 @@ async function loadStaff() {
     renderStaff();
   } catch (err) {
     if (grid) hideLoading(grid);
-    renderError(grid, err.message || 'Chyba pri nacitani zamestnancov', loadStaff);
+    renderError(grid, err.message || 'Chyba pri načítaní zamestnancov', loadStaff);
   }
 }
 
-function renderStaff() {
-  const search = $('#staffSearch').value.toLowerCase();
-  const roleF = $('#roleFilter').value;
+function rowHtml(e) {
+  const name = String(e.name || '').trim() || '—';
+  const roleLabel = ROLE_LABEL[e.role] || e.role || '';
+  const position = String(e.position || '').trim();
+  // "Čašník · Čašník" — keď je pozícia to isté slovo ako rola, stačí raz.
+  const sub = (position && position.toLowerCase() !== roleLabel.toLowerCase())
+    ? position + ' · ' + roleLabel
+    : (position || roleLabel);
+  const rate = e.hourlyRate != null ? fmtCost(e.hourlyRate) + ' €/h' : '';
 
-  const filtered = staff.filter(e => {
-    const fullName = ((e.name || '') + ' ' + (e.surname || '')).toLowerCase();
-    if (search && !fullName.includes(search)) return false;
-    if (roleF && e.role !== roleF) return false;
-    return true;
-  });
+  // Badge "Dochádzka PIN" mal každý, takže nehovoril nič. Upozorníme len na
+  // človeka, ktorému sa počíta mzda (má sadzbu) a PIN nemá — ten sa do
+  // dochádzky nevie prihlásiť a jeho hodiny sa nezapisujú.
+  const warn = (e.hourlyRate != null && !e.hasAttendancePin)
+    ? '<span class="person-warn">nemá PIN na dochádzku</span>'
+    : '';
+
+  let pin = '';
+  if (_showAllPins) {
+    const p = _pinMap ? _pinMap[e.id] : undefined;
+    pin = p
+      ? '<span class="person-pin">PIN <b>' + escapeHtml(p) + '</b></span>'
+      : '<span class="person-pin is-missing">PIN treba nastaviť (Upraviť)</span>';
+  }
+
+  return '<button type="button" class="person' + (e.active ? '' : ' is-off') + '" data-edit-id="' + e.id + '">' +
+    '<span class="person-avatar ' + getRoleClass(e.role) + '" aria-hidden="true">' + getInitials(name) + '</span>' +
+    '<span class="person-main">' +
+      '<span class="person-name">' + escapeHtml(name) +
+        (e.active ? '' : ' <span class="person-off">neaktívny</span>') +
+      '</span>' +
+      (sub ? '<span class="person-sub">' + escapeHtml(sub) + '</span>' : '') +
+      pin +
+    '</span>' +
+    '<span class="person-side">' +
+      (rate ? '<span class="person-rate">' + rate + '</span>' : '') +
+      warn +
+    '</span>' +
+    '<svg class="person-chev" aria-hidden="true" viewBox="0 0 16 16"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+  '</button>';
+}
+
+function renderStaff() {
+  const search = ($('#staffSearch').value || '').trim().toLowerCase();
+  const filtered = staff.filter((e) => !search || String(e.name || '').toLowerCase().includes(search));
+  // Aktívni hore, neaktívni dole — neaktívny človek nepatrí medzi tých,
+  // ktorých manažér hľadá najčastejšie.
+  const sorted = filtered.slice().sort((a, b) => (a.active === b.active ? 0 : (a.active ? -1 : 1)));
 
   const grid = $('#staffGrid');
-  if (filtered.length === 0) {
+  if (sorted.length === 0) {
     mountEmptyState(grid, {
-      icon: '\uD83D\uDD0D',
-      title: '\u017Diadne v\u00FDsledky',
-      text: 'Pre zadan\u00FD filter sa nena\u0161li \u017Eiadni zamestnanci. Sk\u00FAs zru\u0161i\u0165 filter.',
-      ctaLabel: 'Zru\u0161i\u0165 filter',
+      icon: '🔍',
+      title: 'Žiadne výsledky',
+      text: 'Pre zadané meno sa nenašiel nikto. Skús hľadanie vymazať.',
+      ctaLabel: 'Vymazať hľadanie',
       onCta: function () {
         const s = document.getElementById('staffSearch');
-        const r = document.getElementById('roleFilter');
-        if (s) s.value = '';
-        if (r) r.value = '';
-        if (s) s.dispatchEvent(new Event('input'));
+        if (s) { s.value = ''; s.dispatchEvent(new Event('input')); }
       },
     });
     return;
   }
-
-  grid.innerHTML = filtered.map((e, i) => {
-    // Pin display: master toggle (_showAllPins) ALEBO per-card eye reveal.
-    // Plain PIN sa cita z _pinMap (vyplneny len po stlaceni "Zobrazit PIN-y").
-    // Pre staffov pred migraciou (bez pin_visible) zobrazi 'reset' hint.
-    const isRevealed = _showAllPins || revealedPins.has(e.id);
-    const plainPin = _pinMap && _pinMap[e.id] !== undefined ? _pinMap[e.id] : null;
-    let pinDisplay;
-    if (isRevealed) {
-      if (plainPin) {
-        pinDisplay = '<span style="font-family:var(--font-mono,monospace);font-size:15px;letter-spacing:.12em;font-weight:600;color:var(--color-accent,#B85C2A)">' + escapeHtml(plainPin) + '</span>';
-      } else if (_pinMap) {
-        // pinMap loaded ale pre tento staff je null \u2192 zaznam pred migraciou
-        pinDisplay = '<span style="font-size:11px;color:var(--color-warning,#d97706);font-style:italic">PIN treba resetova\u0165 (klik Upravi\u0165)</span>';
-      } else {
-        // pinMap nie je nacitany \u2014 show placeholder, master toggle to nacita
-        pinDisplay = '<span style="font-size:11px;color:var(--color-text-dim);font-style:italic">\u2026</span>';
-      }
-    } else {
-      pinDisplay = '\u25CF\u25CF\u25CF\u25CF';
-    }
-    const eyeIcon = isRevealed
-      ? '<svg viewBox="0 0 20 20"><path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="10" r="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="3" y1="17" x2="17" y2="3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>'
-      : '<svg viewBox="0 0 20 20"><path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="10" r="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>';
-
-    const fullName = ((e.name || '') + (e.surname ? ' ' + e.surname : '')).trim() || '—';
-    const roleLabel = ({ admin: 'Admin', manazer: 'Manažér', cisnik: 'Čašník' })[e.role] || e.role || '';
-    const positionLine = e.position
-      ? `<div class="staff-stats">${escapeHtml(e.position)}${e.hourlyRate != null ? ' · <strong>' + fmtCost(e.hourlyRate) + ' €/h</strong>' : ''}</div>`
-      : (e.hourlyRate != null ? `<div class="staff-stats"><strong>${fmtCost(e.hourlyRate)} €/h</strong></div>` : '');
-    const dochBadge = e.hasAttendancePin
-      ? '<span class="badge badge-success" style="font-size:11px;padding:2px 6px">Dochádzka PIN</span>'
-      : '';
-    return `<div class="staff-card" style="animation-delay:${i * 50}ms">
-      <div class="staff-top">
-        <div class="staff-avatar ${getRoleClass(e.role)}">${getInitials(e.name, e.surname)}</div>
-        <div>
-          <div class="staff-name">${escapeHtml(fullName)}</div>
-          <div class="staff-role-wrap">
-            <span class="role-badge ${getRoleClass(e.role)}">${escapeHtml(roleLabel)}</span>
-            <span class="status-dot ${e.active ? 'active' : 'inactive'}"></span>
-            <span class="status-label">${e.active ? 'Aktívny' : 'Neaktívny'}</span>
-            ${dochBadge}
-          </div>
-        </div>
-      </div>
-      <div class="staff-pin">
-        <span class="pin-label">PIN:</span>
-        <span class="pin-value">${pinDisplay}</span>
-        <button class="pin-toggle" data-pin-id="${e.id}" aria-label="Zobrazit/skryt PIN">${eyeIcon}</button>
-      </div>
-      ${positionLine}
-      <div class="staff-actions">
-        <button class="btn-edit" data-edit-id="${e.id}">Upraviť</button>
-        <button class="btn-toggle-status ${!e.active ? 'activate' : ''}" data-toggle-id="${e.id}">${e.active ? 'Deaktivovať' : 'Aktivovať'}</button>
-      </div>
-    </div>`;
-  }).join('');
-
-  // Bind card action listeners via delegation is handled in init
+  grid.innerHTML = sorted.map(rowHtml).join('');
 }
 
-async function togglePin(id) {
-  if (revealedPins.has(id)) {
-    revealedPins.delete(id);
-    renderStaff();
-    return;
-  }
-  revealedPins.add(id);
-  // Ak este nemame _pinMap, nacitaj pri prvom kliknuti — admin/manazer endpoint.
-  if (!_pinMap) {
-    try {
-      const rows = await api.get('/staff/pins-visible');
-      _pinMap = {};
-      for (const r of rows) _pinMap[r.id] = r.pin;
-    } catch (err) {
-      showToast(err.message || 'Chyba načítania PIN-ov', 'error');
-      revealedPins.delete(id);
-    }
-  }
-  renderStaff();
-}
-
-// Master toggle "Zobrazit PIN-y" — odkryje vsetky PIN-y naraz. Pri prvom
-// kliknuti nacita _pinMap z API. Druhy klik = skry.
+// Prepínač "Zobraziť PIN-y" — odkryje PIN-y na prihlásenie pri všetkých
+// naraz. Pri prvom zapnutí načíta _pinMap z API. Druhý klik = skryť.
 async function toggleAllPins() {
+  const btn = $('#btnTogglePins');
   if (_showAllPins) {
     _showAllPins = false;
     renderStaff();
-    updateMasterToggleBtn();
+    updatePinsBtn();
     return;
   }
-  // Show — nacitaj PIN-y ak este nie su
-  const btn = $('#btnTogglePins');
   if (btn) btnLoading(btn);
   try {
     if (!_pinMap) {
@@ -192,55 +167,20 @@ async function toggleAllPins() {
     }
     _showAllPins = true;
     renderStaff();
-    updateMasterToggleBtn();
   } catch (err) {
     showToast(err.message || 'Chyba načítania PIN-ov', 'error');
   } finally {
     if (btn) btnReset(btn);
+    updatePinsBtn();
   }
 }
 
-// Update label + ikonku master toggle tlačidla.
-function updateMasterToggleBtn() {
+function updatePinsBtn() {
   const btn = $('#btnTogglePins');
   if (!btn) return;
-  if (_showAllPins) {
-    btn.innerHTML =
-      '<svg viewBox="0 0 20 20" aria-hidden="true" style="width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.5"><path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z"/><circle cx="10" cy="10" r="2.5"/><line x1="3" y1="17" x2="17" y2="3" stroke-linecap="round"/></svg>'
-      + 'Skryť PIN-y';
-    btn.style.background = 'rgba(184,84,42,.08)';
-    btn.style.borderColor = 'var(--color-accent, #B85C2A)';
-    btn.style.color = 'var(--color-accent, #B85C2A)';
-  } else {
-    btn.innerHTML =
-      '<svg viewBox="0 0 20 20" aria-hidden="true" style="width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.5"><path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z"/><circle cx="10" cy="10" r="2.5"/></svg>'
-      + 'Zobraziť PIN-y';
-    btn.style.background = '';
-    btn.style.borderColor = '';
-    btn.style.color = '';
-  }
-}
-
-async function toggleStatus(id) {
-  const emp = staff.find(e => e.id === id);
-  if (!emp) return;
-  const name = emp.name + ' ' + emp.surname;
-  const active = emp.active;
-  showConfirm(
-    active ? 'Deaktivovat zamestnanca' : 'Aktivovat zamestnanca',
-    'Naozaj chcete zmenit stav zamestnanca ' + name + '?',
-    async function() {
-      try {
-        await api.put('/staff/' + id, { active: !active });
-        emp.active = !active;
-        showToast(name + (emp.active ? ' aktivovany' : ' deaktivovany'));
-        renderStaff();
-      } catch (err) {
-        showToast('Chyba: ' + err.message);
-      }
-    },
-    { type: active ? 'danger' : 'info', confirmText: active ? 'Deaktivovat' : 'Aktivovat' }
-  );
+  btn.textContent = _showAllPins ? 'Skryť PIN-y' : 'Zobraziť PIN-y na prihlásenie';
+  btn.classList.toggle('is-on', _showAllPins);
+  btn.setAttribute('aria-pressed', _showAllPins ? 'true' : 'false');
 }
 
 function generatePin() {
@@ -255,7 +195,7 @@ function openStaffModal(id) {
   if (existing) existing.remove();
 
   const emp = editingId ? staff.find(e => e.id === editingId) : null;
-  const title = emp ? 'Upravit zamestnanca' : 'Pridat zamestnanca';
+  const title = emp ? 'Upraviť zamestnanca' : 'Pridať zamestnanca';
 
   const ov = document.createElement('div');
   ov.className = 'u-overlay';
@@ -278,41 +218,41 @@ function openStaffModal(id) {
       </div>
       <div class="u-modal-row" style="align-items:flex-end">
         <div class="u-modal-field">
-          <label for="fPin">PIN kod<span class="required-mark" aria-hidden="true"> *</span></label>
+          <label for="fPin">PIN na prihlásenie<span class="required-mark" aria-hidden="true"> *</span></label>
           <input id="fPin" type="text" placeholder="${emp ? 'Vyplňte len pri zmene' : '4 číslice'}" ${emp ? '' : 'aria-required="true" data-validate="required|pin"'} maxlength="6" pattern="[0-9]{4,6}" value="">
         </div>
         <div style="flex:0 0 auto">
-          <button class="btn-generate" id="btnGenPin">Generovat</button>
+          <button class="btn-generate" id="btnGenPin">Generovať</button>
         </div>
       </div>
       <input id="fPhone" type="hidden" value="">
       <input id="fEmail" type="hidden" value="">
       <div class="u-modal-row">
         <div class="u-modal-field">
-          <label for="fPosition">Pozicia</label>
-          <input id="fPosition" type="text" maxlength="50" placeholder="napr. Casnik" value="${emp && emp.position ? emp.position : ''}">
+          <label for="fPosition">Pozícia</label>
+          <input id="fPosition" type="text" maxlength="50" placeholder="napr. Čašník" value="${emp && emp.position ? escapeHtml(emp.position) : ''}">
         </div>
         <div class="u-modal-field">
-          <label for="fHourlyRate">Hodinova sadza (EUR)</label>
-          <input id="fHourlyRate" type="number" step="0.01" min="0" placeholder="0.00" value="${emp && emp.hourlyRate != null ? emp.hourlyRate : ''}">
+          <label for="fHourlyRate">Hodinová sadzba (€/h)</label>
+          <input id="fHourlyRate" type="number" step="0.01" min="0" placeholder="0,00" value="${emp && emp.hourlyRate != null ? emp.hourlyRate : ''}">
         </div>
       </div>
       <div class="u-modal-field">
-        <label for="fAttendancePin">Dochadzka PIN (4-6 cifier)</label>
-        <input id="fAttendancePin" type="text" pattern="\\d{4,6}" placeholder="Nastavit / zmenit" value="">
-        <small id="fAttendancePinStatus" class="muted" style="display:block;margin-top:4px">${emp && emp.hasAttendancePin ? 'PIN je nastaveny - vyplnte len ak chcete zmenit' : (emp ? 'PIN nie je nastaveny' : '')}</small>
+        <label for="fAttendancePin">PIN na dochádzku (4–6 číslic)</label>
+        <input id="fAttendancePin" type="text" pattern="\\d{4,6}" placeholder="Nastaviť / zmeniť" value="">
+        <small id="fAttendancePinStatus" class="muted" style="display:block;margin-top:4px">${emp && emp.hasAttendancePin ? 'PIN je nastavený — vyplňte len ak ho chcete zmeniť' : (emp ? 'PIN nie je nastavený — bez neho sa nevie prihlásiť do dochádzky' : '')}</small>
       </div>
       <div class="u-modal-field">
         <label>Stav</label>
         <div class="u-toggle" id="fActiveToggle">
           <div class="u-toggle-track${(!emp || emp.active) ? ' on' : ''}" id="fActive"><div class="u-toggle-knob"></div></div>
-          <span class="u-toggle-label">Aktivny</span>
+          <span class="u-toggle-label">Aktívny</span>
         </div>
       </div>
     </div>
     <div class="u-modal-btns">
-      <button class="u-btn u-btn-ghost" id="staffModalCancel">Zrusit</button>
-      <button class="u-btn u-btn-ice" id="staffModalSave">Ulozit</button>
+      <button class="u-btn u-btn-ghost" id="staffModalCancel">Zrušiť</button>
+      <button class="u-btn u-btn-ice" id="staffModalSave">Uložiť</button>
     </div>
   </div>`;
 
@@ -366,12 +306,14 @@ function openStaffModal(id) {
     try {
       if (editingId) {
         await api.put('/staff/' + editingId, body);
-        showToast('Zamestnanec upraveny', true);
+        showToast('Zamestnanec upravený', true);
       } else {
         await api.post('/staff', body);
-        showToast('Zamestnanec pridany', true);
+        showToast('Zamestnanec pridaný', true);
       }
       closeModal();
+      // Zmenený PIN by inak ostal v cache — odkryté PIN-y sa načítajú nanovo.
+      _pinMap = null;
       await loadStaff();
     } catch (err) {
       showToast(err.message || 'Chyba ukladania zamestnanca', 'error');
@@ -384,58 +326,36 @@ function openStaffModal(id) {
 export function init(container) {
   _container = container;
   container.innerHTML = `
-    <div class="top-bar">
+    <div class="people-head">
+      <div class="people-count" id="staffCount" aria-live="polite"></div>
       <button class="btn-add" id="addStaffBtn">
         <svg aria-hidden="true" viewBox="0 0 14 14"><line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        Pridat zamestnanca
-      </button>
-      <div class="search-wrap">
-        <svg aria-hidden="true" viewBox="0 0 16 16"><circle cx="6.5" cy="6.5" r="5" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="10.5" y1="10.5" x2="15" y2="15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-        <input class="search-input" id="staffSearch" type="text" placeholder="Hladat podla mena...">
-      </div>
-      <select class="filter-select" id="roleFilter">
-        <option value="">Všetky role</option>
-        <option value="admin">Admin</option>
-        <option value="manazer">Manažér</option>
-        <option value="cisnik">Čašník</option>
-      </select>
-      <button class="btn-secondary" id="btnTogglePins" style="display:inline-flex;align-items:center;gap:6px;font-weight:600">
-        <svg viewBox="0 0 20 20" aria-hidden="true" style="width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.5"><path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z"/><circle cx="10" cy="10" r="2.5"/></svg>
-        Zobraziť PIN-y
+        Pridať
       </button>
     </div>
-    <div class="staff-grid" id="staffGrid">
+    <div class="search-wrap people-search" id="staffSearchWrap" hidden>
+      <svg aria-hidden="true" viewBox="0 0 16 16"><circle cx="6.5" cy="6.5" r="5" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="10.5" y1="10.5" x2="15" y2="15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      <input class="search-input" id="staffSearch" type="search" placeholder="Hľadať meno…" aria-label="Hľadať podľa mena">
+    </div>
+    <div class="people-list" id="staffGrid">
       <div class="skeleton-card"></div>
       <div class="skeleton-card"></div>
       <div class="skeleton-card"></div>
       <div class="skeleton-card"></div>
+    </div>
+    <div class="people-foot">
+      <button type="button" class="people-pins" id="btnTogglePins" aria-pressed="false">Zobraziť PIN-y na prihlásenie</button>
     </div>
   `;
 
-  // Bind top bar events
   $('#addStaffBtn').addEventListener('click', () => openStaffModal());
   $('#staffSearch').addEventListener('input', () => renderStaff());
-  $('#roleFilter').addEventListener('change', () => renderStaff());
-  const togglePinsBtn = $('#btnTogglePins');
-  if (togglePinsBtn) togglePinsBtn.addEventListener('click', toggleAllPins);
+  $('#btnTogglePins').addEventListener('click', toggleAllPins);
 
-  // Delegate click events on the staff grid
+  // Celý riadok je tlačidlo — otvára úpravu.
   $('#staffGrid').addEventListener('click', e => {
-    const pinBtn = e.target.closest('[data-pin-id]');
-    if (pinBtn) {
-      togglePin(Number(pinBtn.dataset.pinId));
-      return;
-    }
-    const editBtn = e.target.closest('[data-edit-id]');
-    if (editBtn) {
-      openStaffModal(Number(editBtn.dataset.editId));
-      return;
-    }
-    const toggleBtn = e.target.closest('[data-toggle-id]');
-    if (toggleBtn) {
-      toggleStatus(Number(toggleBtn.dataset.toggleId));
-      return;
-    }
+    const row = e.target.closest('[data-edit-id]');
+    if (row) openStaffModal(Number(row.dataset.editId));
   });
 
   // Escape key handler
@@ -466,20 +386,15 @@ export function init(container) {
 }
 
 export function destroy() {
-  // Remove escape handler
   if (_escHandler) {
     document.removeEventListener('keydown', _escHandler);
     _escHandler = null;
   }
-
-  // Remove modal if open
   const modal = document.getElementById('staffModal');
   if (modal) modal.remove();
 
-  // Reset state
   staff = [];
   editingId = null;
-  revealedPins = new Set();
   _showAllPins = false;
   _pinMap = null;
   _container = null;

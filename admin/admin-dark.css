@@ -12,6 +12,19 @@
   --color-bg:          #1c1710;
   --color-bg-elevated: #261f16;
   --color-bg-surface:  rgba(245, 239, 227, .05);
+  /* Nepriehladny ekvivalent .panel pre lepiaci prvy stlpec tabuliek:
+     #1c1710 zmiesane s 5 % #f5efe3. */
+  --color-panel-solid: #27221b;
+
+  /* V tmavej teme je accent uz zosvetleny (#e0764a) a ako TEXT na tmavom
+     podklade ma 5,82:1 — textovy odtien sa teda rovna accentu.
+     Opacny problem je vypln: BIELA na #e0764a ma len 3,06:1. Text na
+     accentovej vypni preto berie tmavu kanvu (5,82:1). */
+  --color-accent-text: #e0764a;
+  --color-on-accent: #1c1710;
+  /* V tmavej teme je success zosvetleny (#6fb35a) a ako text na tmavom
+     podklade prechadza — textovy odtien sa rovna zakladnemu. */
+  --color-success-text: #6fb35a;
   --color-bg-hover:    rgba(245, 239, 227, .09);
   --color-bg-active:   rgba(245, 239, 227, .13);
   --color-overlay:     rgba(0, 0, 0, .62);
@@ -315,3 +328,13 @@
 
 /* G20 — Drag handle .u-modal::after (ink) → border token */
 :root[data-theme="dark"] .u-modal::after { background: var(--color-border); }
+
+
+/* Tlacidla s accentovou vyplnou: biely text na zosvetlenej terakote ma v
+   tmavej teme 3,06:1 (pod AA). Tmava kanva na tej istej vypni da 5,82:1. */
+:root[data-theme="dark"] .btn-save,
+:root[data-theme="dark"] .btn-add,
+:root[data-theme="dark"] .btn-primary,
+:root[data-theme="dark"] .empty-state-cta {
+  color: var(--color-on-accent);
+}

@@ -40,7 +40,7 @@ function $(sel) {
 // ===== PERSISTENCE (API) =====
 async function loadTables() {
   const canvas = $('#floorCanvas');
-  if (canvas) showLoading(canvas, 'Nacitavam stoly...');
+  if (canvas) showLoading(canvas, 'Načítavam stoly...');
   try {
     // Fetch tables and zone labels in parallel — zones is tiny so no
     // perf concern; doing it together keeps the floor layout and the
@@ -73,7 +73,7 @@ async function loadTables() {
     populateZoneSelects();
     renderFloor();
     if (!TABLES || TABLES.length === 0) {
-      if (canvas) canvas.innerHTML = '<div class="empty-state"><div class="empty-state-icon">\uD83E\uDE91</div><div class="empty-state-title">Ziadne stoly</div><div class="empty-state-text">Pridajte prvy stol do planocky</div><button class="btn-outline-accent" onclick="document.getElementById(\'addTableBtn\').click()">Pridat stol</button></div>';
+      if (canvas) canvas.innerHTML = '<div class="empty-state"><div class="empty-state-icon">\uD83E\uDE91</div><div class="empty-state-title">Žiadne stoly</div><div class="empty-state-text">Pridajte prvý stol do planocky</div><button class="btn-outline-accent" onclick="document.getElementById(\'addTableBtn\').click()">Pridať stol</button></div>';
     }
   } catch (err) {
     if (canvas) hideLoading(canvas);
@@ -340,7 +340,7 @@ function onTouchEnd() {
 function deleteTable() {
   const t = TABLES.find(x => x.id === selectedTableId);
   if (!t) return;
-  showConfirm('Zmazat', 'Tato akcia sa neda vratit.', async function () {
+  showConfirm('Zmazať', 'Tato akcia sa neda vratit.', async function () {
     try {
       await api.del('/tables/' + selectedTableId);
       TABLES = TABLES.filter(t => t.id !== selectedTableId);
@@ -395,7 +395,7 @@ async function saveNewTable() {
   const seats = seatsEl ? parseInt(seatsEl.value) || 4 : 4;
   const zone = zoneEl ? zoneEl.value : 'interior';
   const shape = shapeEl ? shapeEl.value : 'rect';
-  if (!name) { showToast('Zadajte nazov stola'); return; }
+  if (!name) { showToast('Zadajte názov stola'); return; }
   const canvas = $('#floorCanvas');
   const cx = canvas ? Math.round((canvas.scrollLeft + canvas.clientWidth / 2 - 40) / 20) * 20 : 100;
   const cy = canvas ? Math.round((canvas.scrollTop + canvas.clientHeight / 2 - 40) / 20) * 20 : 100;
@@ -437,7 +437,7 @@ async function saveNewZone() {
 
   const azName = $('#azName');
   const name = azName ? azName.value.trim() : '';
-  if (!name) { showToast('Zadajte nazov zony'); return; }
+  if (!name) { showToast('Zadajte názov zony'); return; }
   const id = name.toLowerCase().replace(/[^a-z0-9]/g, '_');
   if (ZONES.find(z => z.id === id)) { showToast('Zona uz existuje'); return; }
   // Persist before touching local state so a server-side reject (auth,
@@ -499,11 +499,11 @@ export function init(container) {
         </label>
         <button class="toolbar-btn" id="addZoneBtn">
           <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
-          Pridat zonu
+          Pridať zónu
         </button>
         <button class="toolbar-btn primary" id="addTableBtn">
           <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
-          Pridat stol
+          Pridať stôl
         </button>
       </div>
     </div>
@@ -547,7 +547,7 @@ export function init(container) {
     <!-- Add Table Modal -->
     <div class="u-overlay" id="addTableModal">
       <div class="u-modal u-modal-left">
-        <div class="u-modal-title text-center">Pridat stol</div>
+        <div class="u-modal-title text-center">Pridať stôl</div>
         <div class="u-modal-body">
           <div class="u-modal-field">
             <label for="atName">Nazov<span class="required-mark" aria-hidden="true"> *</span></label>
@@ -580,7 +580,7 @@ export function init(container) {
     <!-- Add Zone Modal -->
     <div class="u-overlay" id="addZoneModal">
       <div class="u-modal u-modal-left">
-        <div class="u-modal-title text-center">Pridat zonu</div>
+        <div class="u-modal-title text-center">Pridať zónu</div>
         <div class="u-modal-body">
           <div class="u-modal-field">
             <label for="azName">Nazov zony<span class="required-mark" aria-hidden="true"> *</span></label>

@@ -102,7 +102,7 @@ function renderIngredientOptions() {
 // === Load movements ===
 async function loadMovements() {
   var tableWrap = $('#movementsTable');
-  if (tableWrap) showLoading(tableWrap, 'Nacitavam pohyby...');
+  if (tableWrap) showLoading(tableWrap, 'Načítavam pohyby...');
   try {
     var result = await api.get('/inventory/movements?' + buildQueryString());
     if (tableWrap) hideLoading(tableWrap);
@@ -133,7 +133,7 @@ function renderTable() {
   if (!movements.length) {
     tableWrap.innerHTML = '<div class="empty-state">'
       + '<div class="empty-state-icon">&#128230;</div>'
-      + '<div class="empty-state-title">Ziadne pohyby</div>'
+      + '<div class="empty-state-title">Žiadne pohyby</div>'
       + '<div class="empty-state-text">Pre zvolene filtre neboli najdene ziadne skladove pohyby.</div>'
       + '</div>';
     return;
@@ -279,7 +279,7 @@ function openAdjustModal() {
       return;
     }
     if (isNaN(quantity) || quantity === 0) {
-      showToast('Zadajte nenulove mnozstvo');
+      showToast('Zadajte nenulove množstvo');
       return;
     }
 

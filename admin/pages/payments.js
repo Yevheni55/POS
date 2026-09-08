@@ -151,7 +151,7 @@ function renderTable() {
   if (!el) return;
 
   if (loading) {
-    el.innerHTML = '<div class="loading-hint">Nacitavam historiu platieb...</div>';
+    el.innerHTML = '<div class="loading-hint">Načítavam históriu platieb...</div>';
     return;
   }
 

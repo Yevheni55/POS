@@ -75,7 +75,7 @@ function depreciatedPct(asset) {
 // === Load data ===
 async function loadAssets() {
   var tableWrap = $('#assetsTable');
-  if (tableWrap) showLoading(tableWrap, 'Nacitavam majetok...');
+  if (tableWrap) showLoading(tableWrap, 'Načítavam majetok...');
   try {
     assets = await api.get('/inventory/assets');
     if (tableWrap) hideLoading(tableWrap);
@@ -167,12 +167,12 @@ function renderTable() {
       + '<svg viewBox="0 0 24 24" width="14" height="14" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round">'
       + '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>'
       + '</button>';
-    html += '<button class="act-btn" data-edit-id="' + a.id + '" title="Upravit">'
+    html += '<button class="act-btn" data-edit-id="' + a.id + '" title="Upraviť">'
       + '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
       + '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>'
       + '<path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>'
       + '</button>';
-    html += '<button class="act-btn del" data-delete-id="' + a.id + '" data-delete-name="' + escHtml(a.name) + '" title="Zmazat">'
+    html += '<button class="act-btn del" data-delete-id="' + a.id + '" data-delete-name="' + escHtml(a.name) + '" title="Zmazať">'
       + '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
       + '<polyline points="3 6 5 6 21 6"/>'
       + '<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>'
@@ -190,7 +190,7 @@ function openAddEditModal(id) {
   if (existing) existing.remove();
 
   var item = id ? assets.find(function (a) { return a.id === id; }) : null;
-  var title = item ? 'Upravit zariadenie' : 'Pridat zariadenie';
+  var title = item ? 'Upraviť zariadenie' : 'Pridať zariadenie';
 
   var catOptions = Object.keys(CATEGORIES).map(function (key) {
     var sel = item && item.category === key ? ' selected' : (!item && key === 'kitchen_equipment' ? ' selected' : '');
@@ -246,7 +246,7 @@ function openAddEditModal(id) {
     + '</div>'
     + '<div class="u-modal-btns">'
     + '<button class="u-btn u-btn-ghost" id="assetModalCancel">Zrusit</button>'
-    + '<button class="u-btn u-btn-ice" id="assetModalSave">' + (item ? 'Ulozit' : 'Pridat') + '</button>'
+    + '<button class="u-btn u-btn-ice" id="assetModalSave">' + (item ? 'Uložiť' : 'Pridať') + '</button>'
     + '</div>'
     + '</div>';
 
@@ -296,8 +296,8 @@ function openAddEditModal(id) {
     var residualValue = parseFloat(ov.querySelector('#fResidualValue').value) || 0;
     var note = ov.querySelector('#fNote').value.trim();
 
-    if (!name) { showToast('Zadajte nazov zariadenia', 'error'); return; }
-    if (!purchaseDateVal) { showToast('Zadajte datum nakupu', 'error'); return; }
+    if (!name) { showToast('Zadajte názov zariadenia', 'error'); return; }
+    if (!purchaseDateVal) { showToast('Zadajte dátum nákupu', 'error'); return; }
     if (usefulLifeMonths < 1) { showToast('Doba zivotnosti musi byt aspon 1 mesiac', 'error'); return; }
 
     var btn = ov.querySelector('#assetModalSave');
@@ -340,7 +340,7 @@ async function openDetailModal(id) {
   ov.className = 'u-overlay';
   ov.id = 'assetDetailModal';
   ov.innerHTML = '<div class="u-modal" style="text-align:left;max-width:600px">'
-    + '<div class="u-modal-title" style="text-align:center">Nacitavam detail...</div>'
+    + '<div class="u-modal-title" style="text-align:center">Načítavam detail...</div>'
     + '<div class="u-modal-body" style="min-height:120px">'
     + '<div class="skeleton-row"></div><div class="skeleton-row"></div><div class="skeleton-row"></div>'
     + '</div>'
@@ -468,7 +468,7 @@ async function deleteAsset(id, name) {
 function runDepreciation() {
   showConfirm(
     'Spustit mesacny odpis',
-    'Naozaj chcete spustit mesacny odpis pre vsetky zariadenia? Tuto akciu nie je mozne vratit.',
+    'Naozaj chcete spustiť mesačný odpis pre všetky zariadenia? Túto akciu nie je možné vrátiť.',
     async function () {
       var btn = $('#runDepBtn');
       if (btn) btnLoading(btn);
@@ -532,7 +532,7 @@ export function init(container) {
     + '<div class="top-bar" style="margin-top:16px">'
     + '<button class="btn-add" id="addAssetBtn">'
     + '<svg aria-hidden="true" viewBox="0 0 14 14"><line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
-    + 'Pridat zariadenie'
+    + 'Pridať zariadenie'
     + '</button>'
     + '<button class="u-btn u-btn-ghost" id="runDepBtn" style="margin-left:auto">'
     + '<svg viewBox="0 0 24 24" width="14" height="14" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;margin-right:6px">'

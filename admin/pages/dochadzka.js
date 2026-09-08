@@ -13,6 +13,11 @@ import { fmtCost } from '../../components/fmt.js';
 let _container = null;
 let _from = todayMinusDays(7);
 let _to = todayIso();
+// Ktorý prednastavený rozsah je zapnutý ('7' | 'month' | … | 'custom') —
+// kvôli zvýrazneniu chipu; samotný rozsah drží _from/_to.
+let _preset = '7';
+// Rozbalený blok "Iné" (dátumy, filter na človeka, ďalšie rozsahy).
+let _moreOpen = false;
 let _summary = { rows: [] };
 let _expanded = null; // staffId currently expanded
 // Staff filter: 'all' = show every staff member, otherwise the staffId
@@ -600,7 +605,7 @@ async function loadSummary() {
     _summary = res || { rows: [] };
   } catch (err) {
     _summary = { rows: [] };
-    showToast(err.message || 'Chyba načítania prehlěadu', 'error');
+    showToast(err.message || 'Chyba načítania prehľadu', 'error');
   }
   // If the previously selected staff is no longer in the result (e.g. user
   // changed the date range), drop the filter back to 'all' so the dropdown's
@@ -776,43 +781,32 @@ function renderBalancePanel() {
   // Len ľudia ktorým reálne dlžíš (balance > 0), zoradení podľa dlžoby.
   const debtors = (b.rows || []).filter((r) => Number(r.balance) > 0.01);
 
-  // Per-osoba čipy — meno + suma. Neaktívni dostanú jemný tag.
-  const chips = debtors.map((r) => {
-    const inactiveTag = r.active ? '' : ' <span style="color:var(--color-text-dim);font-size:var(--text-xs)">(neaktívny)</span>';
-    return '<div class="doch-debtor-chip">' +
-      '<span style="font-weight:var(--weight-semibold)">' + escapeHtml(r.name || '?') + inactiveTag + '</span>' +
-      '<strong>' + fmtEur(r.balance) + '</strong>' +
-    '</div>';
-  }).join('');
+  // Kompaktná karta namiesto 334 px "hero" panelu: jedna suma, mená s
+  // dlžobou v jednom riadku, poznámky drobným písmom. Odpoveď na otázku
+  // "komu dlhujem" musí byť vidno hneď, ale nesmie odsúvať zoznam ľudí.
+  const who = debtors.map((r) =>
+    '<span class="doch-owe-who-i">' + escapeHtml(r.name || '?') +
+      (r.active ? '' : ' <em>(neaktívny)</em>') +
+      ' <b>' + fmtEur(r.balance) + '</b></span>'
+  ).join('');
 
-  const prepaidNote = prepaid > 0.01
-    ? '<div class="doch-hero-note">ℹ️ Navyše máš predplatené (zálohy) ' + escapeHtml(fmtEur(prepaid)) + ' — tie sa odrátajú z budúcich miezd.</div>'
-    : '';
-
-  // "Za obdobie vyplatené" — presunuté sem z pôvodnej KPI karty. Sumár výplat
-  // za zvolený dátumový filter (paidAt), nezávislý od all-time dlhu hore.
+  // "Za obdobie vyplatené" — sumár výplat za zvolený dátumový filter
+  // (paidAt), nezávislý od all-time dlhu.
   const periodPaid = (_summary.rows || []).reduce((s, r) => s + (Number(r.paidTotal) || 0), 0);
-  const periodLabel = _from === _to ? escapeHtml(_from) : escapeHtml(_from) + ' → ' + escapeHtml(_to);
-  const periodPaidNote = periodPaid > 0.01
-    ? '<div class="doch-hero-note bordered">Za zvolené obdobie (' + periodLabel + ') si vyplatil <strong>' + escapeHtml(fmtEur(periodPaid)) + '</strong>.</div>'
-    : '';
+  const notes = [];
+  if (prepaid > 0.01) notes.push('Predplatené ' + fmtEur(prepaid) + ' (zálohy) sa odráta z budúcich miezd.');
+  if (periodPaid > 0.01) notes.push('Za zvolené obdobie vyplatené ' + fmtEur(periodPaid) + '.');
 
   const isClear = owed <= 0.01;
-  // Hero karta: veľká suma dlhu + breakdown po osobách (zelená keď nič nedlhuješ).
   host.innerHTML =
-    '<div class="doch-hero' + (isClear ? ' is-clear' : '') + '">' +
-      '<div class="doch-hero-top">' +
-        '<div>' +
-          '<div class="doch-hero-eyebrow">💰 Komu dlhujem na výplatách</div>' +
-          '<div class="doch-hero-sub">za celé obdobie fungovania — odpracované hodiny mínus všetko vyplatené</div>' +
-        '</div>' +
-        '<div class="doch-hero-num">' + escapeHtml(fmtEur(owed)) + '</div>' +
+    '<div class="doch-owe' + (isClear ? ' is-clear' : '') + '">' +
+      '<div class="doch-owe-main">' +
+        '<span class="doch-owe-k">' + (isClear ? 'Výplaty' : 'Dlhujem na výplatách') +
+          ' <small>za celý čas, nie len za obdobie</small></span>' +
+        '<span class="doch-owe-v">' + (isClear ? 'všetko vyplatené' : escapeHtml(fmtEur(owed))) + '</span>' +
       '</div>' +
-      (debtors.length
-        ? '<div class="doch-hero-debtors">' + chips + '</div>'
-        : '<div class="doch-hero-allpaid">✓ Všetko vyplatené — nikomu nedlhuješ</div>') +
-      prepaidNote +
-      periodPaidNote +
+      (debtors.length ? '<div class="doch-owe-who">' + who + '</div>' : '') +
+      (notes.length ? '<div class="doch-owe-note">' + notes.map(escapeHtml).join(' ') + '</div>' : '') +
     '</div>';
 }
 
@@ -837,6 +831,28 @@ function totalsFor(rows) {
     totalMinutes, totalWage, openShifts, totalStaff: rows.length, withRate,
     totalPaid, totalOutstanding, outstandingPositive,
   };
+}
+
+// Chip pre prednastavený rozsah — zvýraznený, keď je práve zvolený.
+function presetChip(preset, label) {
+  const on = _preset === preset;
+  return '<button type="button" class="doch-chip' + (on ? ' is-on' : '') + '" data-preset="' + preset + '"' +
+    ' aria-pressed="' + (on ? 'true' : 'false') + '">' + label + '</button>';
+}
+
+// "1. 9. – 8. 9. 2026" — človek nemá lúštiť ISO dátumy z dvoch políčok.
+function fmtRange(fromIso, toIso) {
+  const parse = (iso) => { const p = String(iso).split('-').map(Number); return { y: p[0], m: p[1], d: p[2] }; };
+  const a = parse(fromIso), b = parse(toIso);
+  if (!a.y || !b.y) return fromIso + ' – ' + toIso;
+  const left = a.d + '. ' + a.m + '.' + (a.y === b.y ? '' : ' ' + a.y);
+  return left + ' – ' + b.d + '. ' + b.m + '. ' + b.y;
+}
+
+function openWord(n) {
+  if (n === 1) return 'otvorená smena';
+  if (n >= 2 && n <= 4) return 'otvorené smeny';
+  return 'otvorených smien';
 }
 
 function render() {
@@ -864,13 +880,28 @@ function render() {
       return '<option value="' + r.staffId + '"' + sel + '>' + escapeHtml(r.name || '?') + '</option>';
     }).join('');
 
+  const filterName = _staffFilter === 'all'
+    ? ''
+    : ((allRows.find((r) => String(r.staffId) === String(_staffFilter)) || {}).name || '');
+
   const html =
     // Inline style: sticky header pre dochadzka tabulku (scroll dlhych zoznamov
     // ludi by inak skryl Meno/Pozicia hlavicku). z-index>2 aby bol nad badges.
-    // Pridana sub-shadow pre vizualnu separaciu od scrollovaneho obsahu.
     '<style>.doch-table thead th{position:sticky;top:0;background:var(--color-bg-elevated);z-index:3;box-shadow:0 1px 0 var(--color-border)}</style>' +
-    '<div class="doch-toolbar">' +
-      '<div class="doch-toolbar-dates">' +
+
+    // Obdobie: tri najpoužívanejšie rozsahy ako chipy, všetko ostatné
+    // (dátumy, filter na človeka, ďalšie rozsahy) pod „Iné". Predtým tu bolo
+    // 6 tlačidiel, 2 dátumy, select a 2 akcie — 274 px výšky na mobile,
+    // kým sa ukázal prvý človek.
+    '<div class="doch-head">' +
+      '<div class="doch-chips" role="group" aria-label="Obdobie">' +
+        presetChip('7', '7 dní') +
+        presetChip('month', 'Tento mesiac') +
+        presetChip('last-month', 'Minulý mesiac') +
+        '<button type="button" class="doch-chip' + ((_moreOpen || _preset === 'custom') ? ' is-on' : '') + '"' +
+          ' id="dMore" aria-expanded="' + (_moreOpen ? 'true' : 'false') + '" aria-controls="dMoreBox">Iné…</button>' +
+      '</div>' +
+      '<div class="doch-more" id="dMoreBox"' + (_moreOpen ? '' : ' hidden') + '>' +
         '<label class="doch-toolbar-label">Od' +
           '<input type="date" id="dFrom" class="doch-input" value="' + _from + '">' +
         '</label>' +
@@ -880,98 +911,54 @@ function render() {
         '<label class="doch-toolbar-label">Zamestnanec' +
           '<select id="dStaff" class="doch-input">' + staffOptionsHtml + '</select>' +
         '</label>' +
-        '<div class="doch-toolbar-presets">' +
-          '<button type="button" class="btn-secondary doch-preset" data-preset="week">Tento týždeň</button>' +
-          '<button type="button" class="btn-secondary doch-preset" data-preset="last-week">Minulý týždeň</button>' +
-          '<button type="button" class="btn-secondary doch-preset" data-preset="month">Tento mesiac</button>' +
-          '<button type="button" class="btn-secondary doch-preset" data-preset="last-month">Minulý mesiac</button>' +
-          '<button type="button" class="btn-secondary doch-preset" data-preset="7">7 dní</button>' +
-          '<button type="button" class="btn-secondary doch-preset" data-preset="30">30 dní</button>' +
+        '<div class="doch-chips doch-chips-more">' +
+          presetChip('week', 'Tento týždeň') +
+          presetChip('last-week', 'Minulý týždeň') +
+          presetChip('30', '30 dní') +
         '</div>' +
       '</div>' +
-      '<div style="display:flex;gap:8px;align-items:center">' +
-        '<button class="btn-secondary" id="dExportCsv" title="Stiahnuť CSV pre účtovníka">' +
-          '<svg viewBox="0 0 16 16" aria-hidden="true" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1v10"/><polyline points="4 7 8 11 12 7"/><path d="M2 14h12"/></svg>' +
-          'Export CSV' +
-        '</button>' +
-        '<button class="btn-add" id="dRefresh">' +
-          '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3a5 5 0 015 5 5 5 0 01-5 5 5 5 0 01-3.5-1.4L3 13l-1-3 3 1-1.1 1.1A4 4 0 008 12a4 4 0 100-8 4 4 0 00-3.5 2H6V5H2v4h1V7.5A5 5 0 018 3z"/></svg>' +
-          'Obnoviť' +
-        '</button>' +
-      '</div>' +
+      '<div class="doch-range">' + escapeHtml(fmtRange(_from, _to)) +
+        (filterName ? ' · len ' + escapeHtml(filterName) : '') + '</div>' +
     '</div>' +
 
     // Celkový dlh na výplatách (ALL-TIME, nezávislý od dátumového filtra).
-    // Naplnené cez loadBalance() → /api/attendance/balance. Prázdny kým
-    // sa nenačíta.
+    // Naplnené cez loadBalance() → /api/attendance/balance.
     '<div id="dBalancePanel"></div>' +
 
     // Žiadosti o opravu dochádzky. Panel sa vykreslí len keď niečo čaká —
     // keď je prázdno, nezaberá manažérovi miesto ani pozornosť.
     '<div id="dRequestsPanel"></div>' +
 
-    // KPI grid — zúžené na 3 karty čo manažéra reálne zaujímajú za obdobie:
-    // koľko sa odpracovalo, koľko sa zarobilo, a koľko smien je otvorených
-    // (akčné). Celkový dlh + period-vyplatené sú v hero paneli vyššie, takže
-    // sme zrušili duplicitné karty „Aktívni", „Vyplatené" a „Zostáva".
-    '<div class="stat-grid doch-stats" style="grid-template-columns:repeat(3,minmax(0,1fr))">' +
-      '<div class="stat-card">' +
-        '<div class="stat-icon ice">' +
-          '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>' +
-        '</div>' +
-        '<div class="stat-info">' +
-          '<div class="stat-label">Odpracované</div>' +
-          '<div class="stat-value">' + escapeHtml(fmtMinutes(t.totalMinutes)) + '</div>' +
-          '<div class="stat-change neutral">' + t.totalStaff + ' ' + (t.totalStaff === 1 ? 'zamestnanec' : 'zamestnancov') + '</div>' +
-        '</div>' +
-      '</div>' +
-      '<div class="stat-card">' +
-        '<div class="stat-icon mint">' +
-          '<svg viewBox="0 0 24 24"><path d="M3 7h18M3 12h18M3 17h18"/><path d="M7 5v14M17 5v14"/></svg>' +
-        '</div>' +
-        '<div class="stat-info">' +
-          '<div class="stat-label">Zarobené za obdobie</div>' +
-          '<div class="stat-value">' + escapeHtml(fmtEur(t.totalWage)) + '</div>' +
-          '<div class="stat-change neutral">' + t.withRate + ' so sadzbou</div>' +
-        '</div>' +
-      '</div>' +
-      // Clickable card: toggle _openOnly filter. Hover/cursor menia signal ze
-      // sa s tym da niečo robiť. Border-color zvyrazni keď je filter aktivny.
-      '<div class="stat-card doch-kpi-open" id="kpiOpenShifts" ' +
-        'style="cursor:' + (t.openShifts > 0 || _openOnly ? 'pointer' : 'default') + ';' +
-        (_openOnly ? 'border-color:var(--color-warning);box-shadow:0 0 0 2px var(--color-warning-border)' : '') +
-        '" title="' + (_openOnly ? 'Klik = vypnúť filter' : (t.openShifts > 0 ? 'Klik = zobraziť len ľudí s otvorenými smenami' : 'Žiadne otvorené smeny')) + '">' +
-        '<div class="stat-icon ' + (t.openShifts > 0 ? 'amber' : 'mint') + '">' +
-          '<svg viewBox="0 0 24 24"><path d="M12 8v5l3 2"/><circle cx="12" cy="12" r="9"/></svg>' +
-        '</div>' +
-        '<div class="stat-info">' +
-          '<div class="stat-label">Otvorené smeny' + (_openOnly ? ' <span style="color:var(--color-warning);font-weight:var(--weight-bold)">(filter ON)</span>' : '') + '</div>' +
-          '<div class="stat-value">' + t.openShifts + '</div>' +
-          '<div class="stat-change ' + (t.openShifts > 0 ? 'neutral' : 'up') + '">' +
-            (_openOnly
-              ? 'Klik = vypnúť filter'
-              : (t.openShifts > 0 ? 'Klik = ukáž len týchto' : 'Všetko v poriadku')) +
-          '</div>' +
-        '</div>' +
-      '</div>' +
+    // Súčet za obdobie — jeden riadok namiesto troch KPI kariet (175 px).
+    // Otvorené smeny sú jediné akčné číslo, preto sú tlačidlom; keď je 0,
+    // nezobrazí sa nič — nie je čo riešiť.
+    '<div class="doch-sum">' +
+      '<span class="doch-sum-i"><strong>' + escapeHtml(fmtMinutes(t.totalMinutes)) + '</strong> odpracovaných</span>' +
+      '<span class="doch-sum-i"><strong>' + escapeHtml(fmtEur(t.totalWage)) + '</strong> mzda za obdobie</span>' +
+      ((t.openShifts > 0 || _openOnly)
+        ? '<button type="button" class="doch-sum-open' + (_openOnly ? ' is-on' : '') + '" id="kpiOpenShifts"' +
+            ' aria-pressed="' + (_openOnly ? 'true' : 'false') + '"' +
+            ' title="' + (_openOnly ? 'Klik = vypnúť filter' : 'Klik = ukáž len ľudí s otvorenou smenou') + '">' +
+            (_openOnly ? 'Len otvorené smeny ✕' : t.openShifts + ' ' + openWord(t.openShifts)) +
+          '</button>'
+        : '') +
     '</div>' +
 
     '<div class="panel doch-panel">' +
-      '<div class="panel-title">' +
-        '<svg viewBox="0 0 24 24" aria-hidden="true" style="width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>' +
-        ' Prehlěad za obdobie' +
-      '</div>' +
       '<div id="dBodyWrap" class="table-scroll-wrap">' +
         '<table class="data-table doch-table">' +
           '<thead><tr>' +
             '<th class="data-th">Zamestnanec</th>' +
             '<th class="data-th text-right">Hodín</th>' +
             '<th class="data-th text-right">Mzda</th>' +
-            '<th class="data-th text-right" title="✓ Vyplatené = nič nedlhuješ  ·  Dlhuje sa = treba vyplatiť  ·  Záloha = preplatil si (bonus/predplate)">Stav výplaty</th>' +
+            '<th class="data-th text-right" title="Vyplatené = nič nedlhuješ · Dlhuje sa = treba vyplatiť · Záloha = preplatil si">Stav výplaty</th>' +
             '<th class="data-th"></th>' +
           '</tr></thead>' +
           '<tbody id="dBody"></tbody>' +
         '</table>' +
+      '</div>' +
+      '<div class="doch-foot">' +
+        '<button type="button" class="doch-link" id="dExportCsv">Stiahnuť CSV pre účtovníka</button>' +
       '</div>' +
     '</div>' +
 
@@ -979,12 +966,24 @@ function render() {
 
   _container.innerHTML = html;
 
-  _container.querySelector('#dRefresh').addEventListener('click', () => {
-    _from = _container.querySelector('#dFrom').value || _from;
-    _to = _container.querySelector('#dTo').value || _to;
-    _expanded = null;
-    _openOnly = false; // novy rozsah → vypneme filter aby manager nestral data
-    loadSummary();
+  // Dátumy sa použijú hneď pri zmene — tlačidlo „Obnoviť" bolo krok navyše.
+  ['#dFrom', '#dTo'].forEach((sel) => {
+    _container.querySelector(sel).addEventListener('change', () => {
+      const f = _container.querySelector('#dFrom').value;
+      const tt = _container.querySelector('#dTo').value;
+      if (!f || !tt || f > tt) return; // neúplný alebo prevrátený rozsah — počkáme
+      _from = f;
+      _to = tt;
+      _preset = 'custom';
+      _expanded = null;
+      _openOnly = false; // nový rozsah → vypneme filter, aby manažér nestratil dáta
+      loadSummary();
+    });
+  });
+
+  _container.querySelector('#dMore').addEventListener('click', () => {
+    _moreOpen = !_moreOpen;
+    render();
   });
 
   const exportBtn = _container.querySelector('#dExportCsv');
@@ -992,19 +991,11 @@ function render() {
     exportBtn.addEventListener('click', downloadCsv);
   }
 
-  // KPI "Otv. smeny" clickable toggle. Click disabled keď je 0 otv. smien
-  // AND filter nie je aktivny (nemalo by zmysel).
+  // „Otvorené smeny" je prepínač filtra. Vykreslí sa len keď je čo riešiť
+  // (alebo keď filter beží a treba ho dať vypnúť), takže klik má vždy účinok.
   const kpiOpenCard = _container.querySelector('#kpiOpenShifts');
   if (kpiOpenCard) {
     kpiOpenCard.addEventListener('click', () => {
-      // Compute totals on the unfiltered (by _openOnly) set — ak su 0
-      // otv. smien a filter nie je aktivny, nerob nic.
-      const allRows = _summary.rows || [];
-      const rowsForCheck = _staffFilter === 'all'
-        ? allRows
-        : allRows.filter((r) => String(r.staffId) === String(_staffFilter));
-      const hasOpen = rowsForCheck.some((r) => Number(r.openShifts) > 0);
-      if (!_openOnly && !hasOpen) return; // click bez akcie
       _openOnly = !_openOnly;
       _expanded = null;
       render();
@@ -1019,7 +1010,7 @@ function render() {
     render();
   });
 
-  _container.querySelectorAll('.doch-preset').forEach((btn) => {
+  _container.querySelectorAll('[data-preset]').forEach((btn) => {
     btn.addEventListener('click', () => {
       _openOnly = false; // nove obdobie → vypneme filter
       const preset = btn.getAttribute('data-preset');
@@ -1039,6 +1030,8 @@ function render() {
         _from = todayMinusDays(parseInt(preset, 10));
         _to = todayIso();
       }
+      _preset = preset;
+      _moreOpen = false; // výber je hotový, rozbalený blok už netreba
       _expanded = null;
       loadSummary();
     });
@@ -1141,12 +1134,14 @@ function renderBody() {
           ' title="Vyplatiť hotovostne — predvyplní dlžobu">Vyplatiť</button>'
       : '';
 
+    // Triedy doch-c-* sú kotvy pre mobilnú mriežku (CSS skladá riadok
+    // tabuľky do dvoch riadkov namiesto scrollovania vbok).
     return '<tr class="data-row" data-staff="' + r.staffId + '">' +
-      '<td class="data-td">' + nameCell + '</td>' +
-      '<td class="data-td num text-right"><strong>' + escapeHtml(fmtMinutes(r.minutes)) + '</strong></td>' +
-      '<td class="data-td num text-right">' + wageCell + '</td>' +
-      '<td class="data-td num text-right">' + statusCell + '</td>' +
-      '<td class="data-td" style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">' +
+      '<td class="data-td doch-c-name">' + nameCell + '</td>' +
+      '<td class="data-td num text-right doch-c-hours"><strong>' + escapeHtml(fmtMinutes(r.minutes)) + '</strong></td>' +
+      '<td class="data-td num text-right doch-c-wage">' + wageCell + '</td>' +
+      '<td class="data-td num text-right doch-c-status">' + statusCell + '</td>' +
+      '<td class="data-td doch-c-act">' +
         payBtn +
         '<button class="btn-edit doch-detail-btn" data-toggle="' + r.staffId + '">' +
           (isOpen ? 'Skryť' : 'Detail') +

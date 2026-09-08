@@ -163,7 +163,7 @@ function showPrompt(title, placeholder, onSubmit, opts) {
     '</div><div class="u-modal-body"><div class="u-modal-field"><input type="text" id="dynInput" placeholder="' +
     (placeholder || '') + '" value="' + (opts.defaultValue || '') +
     '"></div></div><div class="u-modal-btns"><button class="u-btn u-btn-ghost" id="dynCancel">Zrusit</button><button class="u-btn u-btn-ice" id="dynOk">' +
-    (opts.confirmText || 'Potvrdit') + '</button></div></div>';
+    (opts.confirmText || 'Potvrdiť') + '</button></div></div>';
   document.body.appendChild(ov);
   requestAnimationFrame(() => ov.classList.add('show'));
   setTimeout(() => document.getElementById('dynInput').focus(), 100);
@@ -182,7 +182,7 @@ function showPrompt(title, placeholder, onSubmit, opts) {
 async function loadMenu() {
   const catList = byId('catList');
   const prodList = byId('prodList');
-  if (catList) showLoading(catList, 'Nacitavam menu...');
+  if (catList) showLoading(catList, 'Načítavam menu...');
   try {
     const menu = await api.get('/menu');
     if (catList) hideLoading(catList);
@@ -193,8 +193,8 @@ async function loadMenu() {
     renderCategories();
     renderProducts();
     if (MENU_DATA.length === 0) {
-      if (catList) catList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">\uD83D\uDCC2</div><div class="empty-state-title">Ziadne kategorie</div><div class="empty-state-text">Vytvorte prvu kategoriu pre vase menu</div><button class="btn-outline-accent" onclick="document.getElementById(\'addCatBtn\').click()">Pridat kategoriu</button></div>';
-      if (prodList) prodList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">\uD83D\uDCE6</div><div class="empty-state-title">Ziadne produkty</div><div class="empty-state-text">Najprv pridajte kategoriu</div></div>';
+      if (catList) catList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">\uD83D\uDCC2</div><div class="empty-state-title">Žiadne kategórie</div><div class="empty-state-text">Vytvorte prvú kategóriu pre vaše menu</div><button class="btn-outline-accent" onclick="document.getElementById(\'addCatBtn\').click()">Pridať kategóriu</button></div>';
+      if (prodList) prodList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">\uD83D\uDCE6</div><div class="empty-state-title">Žiadne produkty</div><div class="empty-state-text">Najprv pridajte kategóriu</div></div>';
     }
   } catch (err) {
     if (catList) hideLoading(catList);
@@ -214,10 +214,10 @@ function renderCategories() {
         <div class="cat-count">${cat.items.length} poloziek</div>
       </div>
       <div class="cat-actions" style="display:flex;gap:2px;opacity:.7">
-        <button type="button" class="act-btn cat-edit-btn" data-cat-edit="${cat.id}" title="Upravit" style="width:28px;height:28px">
+        <button type="button" class="act-btn cat-edit-btn" data-cat-edit="${cat.id}" title="Upraviť" style="width:28px;height:28px">
           <svg viewBox="0 0 24 24" width="12" height="12" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
         </button>
-        <button type="button" class="act-btn del cat-del-btn" data-cat-del="${cat.id}" title="Zmazat" style="width:28px;height:28px">
+        <button type="button" class="act-btn del cat-del-btn" data-cat-del="${cat.id}" title="Zmazať" style="width:28px;height:28px">
           <svg viewBox="0 0 24 24" width="12" height="12" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
         </button>
       </div>
@@ -386,7 +386,7 @@ function openCategoryModal(mode, initial) {
 
   ov.innerHTML = ''
     + '<div class="u-modal" style="text-align:left;max-width:520px">'
-    + '<div class="u-modal-title" style="text-align:center">' + (mode === 'edit' ? 'Upravit kategoriu' : 'Nova kategoria') + '</div>'
+    + '<div class="u-modal-title" style="text-align:center">' + (mode === 'edit' ? 'Upraviť kategóriu' : 'Nova kategoria') + '</div>'
     + '<div class="u-modal-body" style="gap:14px">'
     + '<div class="u-modal-field">'
     + '<label for="fCatName">Nazov<span class="required-mark" aria-hidden="true"> *</span></label>'
@@ -420,7 +420,7 @@ function openCategoryModal(mode, initial) {
     + '</div>'
     + '<div class="u-modal-btns">'
     + '<button class="u-btn u-btn-ghost" id="catCancel">Zrusit</button>'
-    + '<button class="u-btn u-btn-ice" id="catSave">' + (mode === 'edit' ? 'Ulozit' : 'Pridat') + '</button>'
+    + '<button class="u-btn u-btn-ice" id="catSave">' + (mode === 'edit' ? 'Uložiť' : 'Pridať') + '</button>'
     + '</div>'
     + '<style>.emoji-pick{font-size:22px;line-height:1;padding:6px;border:1px solid transparent;background:transparent;border-radius:var(--radius-xs);cursor:pointer;transition:all .1s ease}.emoji-pick:hover{background:var(--color-accent-bg);border-color:var(--color-accent)}.emoji-pick.active{background:var(--color-accent-bg-hover);border-color:var(--color-accent);transform:scale(1.1)}</style>'
     + '</div>';
@@ -651,7 +651,7 @@ function renderProducts() {
   if (!cat) { prodList.innerHTML = ''; prodTitle.textContent = ''; return; }
   prodTitle.textContent = cat.icon + ' ' + cat.label;
   if (!cat.items.length) {
-    prodList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">\uD83D\uDCE6</div><div class="empty-state-title">Ziadne produkty</div><div class="empty-state-text">Pridajte prvy produkt do tejto kategorie</div><button class="btn-outline-accent" onclick="document.getElementById(\'addProdBtn\').click()">Pridat produkt</button></div>';
+    prodList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">\uD83D\uDCE6</div><div class="empty-state-title">Žiadne produkty</div><div class="empty-state-text">Pridajte prvý produkt do tejto kategórie</div><button class="btn-outline-accent" onclick="document.getElementById(\'addProdBtn\').click()">Pridať produkt</button></div>';
     return;
   }
   prodList.innerHTML = cat.items.map((item, i) => `
@@ -668,7 +668,7 @@ function renderProducts() {
         <div class="toggle ${(item.available !== undefined ? item.available : item.active) ? 'on' : ''}" data-item-id="${item.id}"><div class="toggle-knob"></div></div>
       </div>
       <div class="prod-actions">
-        <button class="act-btn" data-edit-id="${item.id}" title="Upravit">
+        <button class="act-btn" data-edit-id="${item.id}" title="Upraviť">
           <svg viewBox="0 0 16 16"><path d="M12.1 1.3a1.5 1.5 0 012.1 2.1L5.8 11.8l-3.3.8.8-3.3z"/></svg>
         </button>
         <button class="act-btn del" data-del-id="${item.id}" title="Odstranit">
@@ -839,7 +839,7 @@ function refreshImagePreview() {
 
 function openAddProduct() {
   editingProductId = null;
-  byId('modalTitle').textContent = 'Pridat produkt';
+  byId('modalTitle').textContent = 'Pridať produkt';
   byId('fEmoji').value = '';
   byId('fName').value = '';
   byId('fDesc').value = '';
@@ -866,7 +866,7 @@ function openEditProduct(id) {
   MENU_DATA.forEach(cat => { cat.items.forEach(it => { if (it.id === id) { item = it; catId = cat.id; } }); });
   if (!item) return;
   editingProductId = id;
-  byId('modalTitle').textContent = 'Upravit produkt';
+  byId('modalTitle').textContent = 'Upraviť produkt';
   byId('fEmoji').value = item.emoji;
   byId('fName').value = item.name;
   byId('fDesc').value = item.desc;
@@ -933,8 +933,8 @@ async function saveProduct() {
   // dest override \u2014 empty string = inherit kateg\u00F3ria (NULL v DB)
   const destOverrideRaw = byId('fDestOverride') ? byId('fDestOverride').value : '';
   const destOverride = (destOverrideRaw === 'bar' || destOverrideRaw === 'kuchyna') ? destOverrideRaw : null;
-  if (!name) { showToast('Zadajte nazov produktu'); return; }
-  if (price <= 0) { showToast('Zadajte platnu cenu'); return; }
+  if (!name) { showToast('Zadajte názov produktu'); return; }
+  if (price <= 0) { showToast('Zadajte platnú cenu'); return; }
   if (!Number.isFinite(vatRate)) {
     // Neznama kategoria (slug `cat_<timestamp>`) — sadzba sa neda odvodit a
     // predvyplnit 23 % by pri jedle znamenalo 18 p.b. preplatenu DPH.
@@ -1054,7 +1054,7 @@ export function init(container) {
         <div class="skeleton-row"></div>
         <div class="skeleton-row"></div>
       </div>
-      <button class="cat-add-btn" id="addCatBtn">+ Pridat kategoriu</button>
+      <button class="cat-add-btn" id="addCatBtn">+ Pridať kategóriu</button>
     </div>
     <div class="prod-panel">
       <div class="prod-header">
@@ -1074,7 +1074,7 @@ export function init(container) {
     <!-- Product Modal -->
     <div class="u-overlay" id="productModal">
       <div class="u-modal u-modal-left">
-        <div class="u-modal-title text-center" id="modalTitle">Pridat produkt</div>
+        <div class="u-modal-title text-center" id="modalTitle">Pridať produkt</div>
         <div class="u-modal-body">
           <div class="u-modal-row">
             <div class="u-modal-field field-emoji">

@@ -84,7 +84,7 @@ async function loadIngredients() {
 
 async function loadWriteOffs() {
   var panel = $('#writeOffsPanel');
-  if (panel) showLoading(panel, 'Nacitavam odpisy...');
+  if (panel) showLoading(panel, 'Načítavam odpisy...');
   try {
     var params = [];
     if (activeStatus) params.push('status=' + encodeURIComponent(activeStatus));
@@ -104,7 +104,7 @@ async function loadWriteOffs() {
 
 async function loadSummary() {
   var wrap = $('#summaryWrap');
-  if (wrap) showLoading(wrap, 'Nacitavam prehlad...');
+  if (wrap) showLoading(wrap, 'Načítavam prehľad...');
   try {
     // Bratislavsky den (zdielany global z /api.js), nie UTC — 'from' je
     // prvy den toho isteho bratislavskeho mesiaca ako 'to'.
@@ -180,7 +180,7 @@ function renderTable() {
       + '</button>';
     // Approve button (checkmark, only pending)
     if (wo.status === 'pending') {
-      html += '<button class="act-btn" data-approve-id="' + wo.id + '" title="Schvalit" style="color:var(--color-success)">'
+      html += '<button class="act-btn" data-approve-id="' + wo.id + '" title="Schvalit" style="color:var(--color-success-text)">'
         + '<svg viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round">'
         + '<polyline points="20 6 9 17 4 12"/></svg>'
         + '</button>';
@@ -360,7 +360,7 @@ function openDetailModal(id) {
     });
     itemsHtml += '</tbody></table></div>';
   } else {
-    itemsHtml = '<div class="td-empty" style="padding:16px;text-align:center">Ziadne polozky</div>';
+    itemsHtml = '<div class="td-empty" style="padding:16px;text-align:center">Žiadne položky</div>';
   }
 
   var actionBtns = '';
@@ -476,7 +476,7 @@ function openNewModal() {
     + '<div id="woItemsWrap"></div>'
     + '<button class="btn-outline-accent" id="woAddItemBtn" type="button" style="margin-top:8px">'
     + '<svg aria-hidden="true" viewBox="0 0 14 14" style="width:12px;height:12px"><line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
-    + ' Pridat polozku'
+    + ' Pridať položku'
     + '</button>'
     + '</div>'
     + '<div id="woGrandTotal" style="text-align:right;font-weight:700;font-size:14px;padding-top:8px;border-top:1px solid rgba(255,255,255,.06)">'

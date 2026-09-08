@@ -42,7 +42,7 @@ function getStatusBadge(item) {
 // === Load data ===
 async function loadIngredients() {
   const tableWrap = $('#ingredientsTable');
-  if (tableWrap) showLoading(tableWrap, 'Nacitavam suroviny...');
+  if (tableWrap) showLoading(tableWrap, 'Načítavam suroviny...');
   try {
     ingredients = await api.get('/inventory/ingredients?type=ingredient');
     if (tableWrap) hideLoading(tableWrap);
@@ -103,8 +103,8 @@ function renderTable() {
     html += '<td class="data-td text-right num">' + fmtCost(item.costPerUnit) + '\u00A0\u20AC/' + escapeHtml(item.unit) + '</td>';
     html += '<td class="data-td text-center">' + getStatusBadge(item) + '</td>';
     html += '<td class="data-td text-right"><div class="prod-actions">';
-    html += '<button class="act-btn" data-edit-id="' + item.id + '" title="Upravit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>';
-    html += '<button class="act-btn del" data-delete-id="' + item.id + '" data-delete-name="' + escapeHtml(item.name) + '" title="Zmazat"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>';
+    html += '<button class="act-btn" data-edit-id="' + item.id + '" title="Upraviť"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>';
+    html += '<button class="act-btn del" data-delete-id="' + item.id + '" data-delete-name="' + escapeHtml(item.name) + '" title="Zmazať"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>';
     html += '</div></td></tr>';
   });
 
@@ -120,7 +120,7 @@ function openModal(id) {
   if (existing) existing.remove();
 
   var item = editingId ? ingredients.find(function (i) { return i.id === editingId; }) : null;
-  var title = item ? 'Upravit surovinu' : 'Pridat surovinu';
+  var title = item ? 'Upraviť surovinu' : 'Pridať surovinu';
 
   var unitOptions = ['ks', 'kg', 'g', 'l', 'ml'];
   var unitOpts = unitOptions.map(function (u) {
@@ -187,7 +187,7 @@ function openModal(id) {
     var minQty = parseFloat(document.getElementById('fMinQty').value) || 0;
     var costPerUnit = parseFloat(document.getElementById('fCostPerUnit').value) || 0;
 
-    if (!name) { showToast('Zadajte nazov suroviny'); return; }
+    if (!name) { showToast('Zadajte názov suroviny'); return; }
 
     var saveBtn = document.getElementById('ingredientModalSave');
     if (saveBtn) btnLoading(saveBtn);
@@ -259,7 +259,7 @@ export function init(container) {
     + '<div class="top-bar">'
     + '<button class="btn-add" id="addIngredientBtn">'
     + '<svg aria-hidden="true" viewBox="0 0 14 14"><line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
-    + 'Pridat surovinu'
+    + 'Pridať surovinu'
     + '</button>'
     + '<div class="search-wrap">'
     + '<svg aria-hidden="true" viewBox="0 0 16 16"><circle cx="6.5" cy="6.5" r="5" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="10.5" y1="10.5" x2="15" y2="15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>'

@@ -55,7 +55,7 @@ function statusBadge(status) {
 // ===== LOAD =====
 async function loadOrders() {
   var panel = $('#ordersPanel');
-  if (panel) showLoading(panel, 'Nacitavam objednavky...');
+  if (panel) showLoading(panel, 'Načítavam objednávky...');
   try {
     var url = '/inventory/purchase-orders';
     if (activeStatus) url += '?status=' + activeStatus;
@@ -143,7 +143,7 @@ function renderTable() {
       + '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>'
       + '</button>';
     if (po.status === 'draft') {
-      html += '<button class="act-btn" data-receive-id="' + po.id + '" title="Prijat" style="color:var(--color-success)">'
+      html += '<button class="act-btn" data-receive-id="' + po.id + '" title="Prijat" style="color:var(--color-success-text)">'
         + '<svg viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round">'
         + '<polyline points="20 6 9 17 4 12"/></svg>'
         + '</button>';
@@ -171,7 +171,7 @@ function receiveOrder(id) {
   if (!po) return;
   showConfirm(
     'Prijat objednavku',
-    'Naozaj chcete prijat objednavku #' + po.id + '? Suroviny budu pridane do skladu.',
+    'Naozaj chcete prijať objednávku #' + po.id + '? Suroviny budu pridane do skladu.',
     async function () {
       try {
         await api.post('/inventory/purchase-orders/' + id + '/receive');
@@ -191,7 +191,7 @@ function cancelOrder(id) {
   if (!po) return;
   showConfirm(
     'Zrusit objednavku',
-    'Naozaj chcete zrusit objednavku #' + po.id + '?',
+    'Naozaj chcete zrušiť objednávku #' + po.id + '?',
     async function () {
       try {
         await api.post('/inventory/purchase-orders/' + id + '/cancel');
@@ -344,7 +344,7 @@ function openDetailModal(id) {
     + (po.status !== 'cancelled' ? '<button class="u-btn u-btn-rose" id="poSetCancelled" style="flex:1">Zrusena</button>' : '')
     + '</div>'
     + '<div class="u-modal-btns" style="margin-top:16px">'
-    + (po.status !== 'cancelled' ? '<button class="u-btn u-btn-ghost" id="poEdit" style="flex:1">Upravit polozky</button>' : '')
+    + (po.status !== 'cancelled' ? '<button class="u-btn u-btn-ghost" id="poEdit" style="flex:1">Upraviť položky</button>' : '')
     + '<button class="u-btn u-btn-ghost" id="poDetailClose">Zavriet</button>'
     + '</div>'
     + '</div>';
@@ -437,7 +437,7 @@ function openEditOrderModal(po) {
   ov.className = 'u-overlay';
   ov.id = 'poEditModal';
   ov.innerHTML = '<div class="u-modal" style="text-align:left;max-width:880px;max-height:90vh;overflow-y:auto">'
-    + '<div class="u-modal-title" style="text-align:center">Upravit objednavku #' + po.id + '</div>'
+    + '<div class="u-modal-title" style="text-align:center">Upraviť objednávku #' + po.id + '</div>'
     + '<div class="u-modal-body" style="gap:10px">'
     + warning
     + '<div class="u-modal-field">'
@@ -446,7 +446,7 @@ function openEditOrderModal(po) {
     + '</div>'
     + '<div class="form-label">Polozky</div>'
     + '<div id="editItemsWrap">' + rowsHtml + '</div>'
-    + '<button class="u-btn u-btn-ghost btn-sm" id="btnEditAddRow" style="align-self:flex-start">+ Pridat polozku</button>'
+    + '<button class="u-btn u-btn-ghost btn-sm" id="btnEditAddRow" style="align-self:flex-start">+ Pridať položku</button>'
     + '<div style="text-align:right;font-weight:700;font-size:var(--text-lg);padding-top:10px;border-top:1px solid var(--color-border)">'
     + 'Celkom: <span id="editGrandTotal" style="color:var(--color-accent);font-family:var(--font-display);font-size:var(--text-2xl)">' + fmtEur(po.totalCost || 0) + '</span>'
     + '</div>'
@@ -598,7 +598,7 @@ function openNewOrderModal() {
     + '<div id="poItemsWrap"></div>'
     + '<button class="btn-outline-accent" id="poAddItemBtn" type="button" style="margin-top:8px">'
     + '<svg aria-hidden="true" viewBox="0 0 14 14" style="width:12px;height:12px"><line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
-    + ' Pridat polozku'
+    + ' Pridať položku'
     + '</button>'
     + '</div>'
     + '<div id="poGrandTotal" style="text-align:right;font-weight:700;font-size:14px;padding-top:8px;border-top:1px solid rgba(255,255,255,.06)">'
@@ -1207,7 +1207,7 @@ function buildScanItemCard(item, idx) {
   h += '<div style="font-size:var(--text-md);font-weight:var(--weight-bold);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(item.invoiceName || item.name || '') + '</div>';
   var catBadge = (item.category === 'supply')
     ? '<span style="font-size:var(--text-xs);font-weight:var(--weight-bold);padding:2px 8px;background:rgba(125,211,252,.1);color:#7DD3FC;border-radius:var(--radius-xs);white-space:nowrap">Tovar</span>'
-    : '<span style="font-size:var(--text-xs);font-weight:var(--weight-bold);padding:2px 8px;background:rgba(92,196,158,.1);color:var(--color-success);border-radius:var(--radius-xs);white-space:nowrap">Surovina</span>';
+    : '<span style="font-size:var(--text-xs);font-weight:var(--weight-bold);padding:2px 8px;background:rgba(92,196,158,.1);color:var(--color-success-text);border-radius:var(--radius-xs);white-space:nowrap">Surovina</span>';
   h += catBadge;
   if (isUnmatched) h += '<span style="font-size:var(--text-xs);color:var(--color-danger);font-weight:var(--weight-bold);padding:2px 8px;background:rgba(224,112,112,.1);border-radius:var(--radius-xs);white-space:nowrap">Nepriradena</span>';
 
@@ -1262,7 +1262,7 @@ function buildScanItemCard(item, idx) {
     h += '<option value="' + u + '"' + (newIngUnit === u ? ' selected' : '') + '>' + u + '</option>';
   });
   h += '</select>';
-  h += '<span style="font-size:var(--text-xs);color:var(--color-success)">' + (isSupply ? 'Novy tovar' : 'Nova surovina') + '</span>';
+  h += '<span style="font-size:var(--text-xs);color:var(--color-success-text)">' + (isSupply ? 'Novy tovar' : 'Nova surovina') + '</span>';
   h += '</div>';
 
   h += '</div>';
@@ -1283,19 +1283,19 @@ export function init(container) {
     + '<div class="top-bar">'
     + '<button class="btn-add" id="addOrderBtn">'
     + '<svg aria-hidden="true" viewBox="0 0 14 14"><line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
-    + 'Nova objednavka'
+    + 'Nová objednávka'
     + '</button>'
     + '<button class="btn-outline-accent" id="scanInvoiceBtn" style="display:inline-flex;align-items:center;gap:6px">'
     + '<svg aria-hidden="true" viewBox="0 0 24 24" style="width:16px;height:16px" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>'
-    + 'Skenovat fakturu'
+    + 'Skenovať faktúru'
     + '</button>'
     + '<input type="file" id="invoiceFileInput" accept="image/*,application/pdf" capture="environment" style="display:none">'
     + '</div>'
     + '<div class="tabs" id="poTabs">'
-    + '<button class="tab-btn po-tab-btn active" data-status="">Vsetky</button>'
-    + '<button class="tab-btn po-tab-btn" data-status="draft">Rozpracovane</button>'
-    + '<button class="tab-btn po-tab-btn" data-status="received">Prijate</button>'
-    + '<button class="tab-btn po-tab-btn" data-status="cancelled">Zrusene</button>'
+    + '<button class="tab-btn po-tab-btn active" data-status="">Všetky</button>'
+    + '<button class="tab-btn po-tab-btn" data-status="draft">Rozpracované</button>'
+    + '<button class="tab-btn po-tab-btn" data-status="received">Prijaté</button>'
+    + '<button class="tab-btn po-tab-btn" data-status="cancelled">Zrušené</button>'
     + '</div>'
     + '<div class="panel" id="ordersPanel">'
     + '<div class="skeleton-row"></div>'

@@ -51,7 +51,7 @@ function getStatusBadge(status) {
 // === Load audit list ===
 async function loadAudits() {
   var tableWrap = $('#auditListWrap');
-  if (tableWrap) showLoading(tableWrap, 'Nacitavam inventury...');
+  if (tableWrap) showLoading(tableWrap, 'Načítavam inventúry...');
   try {
     var result = await api.get('/inventory/audits');
     if (tableWrap) hideLoading(tableWrap);
@@ -162,7 +162,7 @@ function renderDetail() {
   var table = '';
   if (!items.length) {
     table = '<div class="empty-state">'
-      + '<div class="empty-state-title">Ziadne polozky</div>'
+      + '<div class="empty-state-title">Žiadne položky</div>'
       + '<div class="empty-state-text">Tato inventura nema ziadne polozky.</div>'
       + '</div>';
   } else {
@@ -313,7 +313,7 @@ function recalcDiff(inputEl) {
 function completeAudit(auditId) {
   showConfirm(
     'Dokoncit inventuru',
-    'Naozaj chcete dokoncit inventuru #' + auditId + '? Po dokonceni uz nebude mozne upravovat hodnoty.',
+    'Naozaj chcete dokončiť inventúru #' + auditId + '? Po dokonceni uz nebude mozne upravovat hodnoty.',
     async function () {
       try {
         await api.post('/inventory/audits/' + auditId + '/complete');
@@ -331,7 +331,7 @@ function completeAudit(auditId) {
 function cancelAudit(auditId) {
   showConfirm(
     'Zrusit inventuru',
-    'Naozaj chcete zrusit inventuru #' + auditId + '? Tato akcia sa neda vratit.',
+    'Naozaj chcete zrušiť inventúru #' + auditId + '? Tato akcia sa neda vratit.',
     async function () {
       try {
         await api.post('/inventory/audits/' + auditId + '/cancel');
