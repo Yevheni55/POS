@@ -49,3 +49,6 @@ server/.env.ttlock
 /.claude/*.json
 /.claude/admin-specs/
 /.claude/worktrees/
+
+# Denné zálohy sezónneho xlsx (refresh_season_xlsx.py, drží posledných 14) — generované, nie zdroj.
+/scripts/season-xlsx/archiv/
