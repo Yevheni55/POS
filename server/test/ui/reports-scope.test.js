@@ -251,17 +251,23 @@ test('sheets-export: prázdny report sa do sheetu NEZAPÍŠE (full-rewrite)', ()
   assert.match(guardBlock, /throw new Error/, 'guard musí vyhodiť chybu, nie pokračovať');
 });
 
+// Štýl prepínača už nie je injektovaný v JS — býva v admin/ios-reporty.css ako
+// segment `.rp-seg` (iOS vrstva). Markup musí tú triedu niesť a CSS musí držať
+// tie isté záruky: 44 px tap target, 3 px focus ring, farby len cez tokeny.
+const SEG_CSS = readSrc('admin/ios-reporty.css');
+
 test('prepínač spĺňa DESIGN-CODE: 44px tap target, focus ring, žiadne hex', () => {
   for (const [label, src] of [['reports.js', REPORTS_SRC], ['season.js', SEASON_SRC]]) {
-    const css = src.match(/\.scope-btn\{[^}]*\}/);
-    assert.ok(css, `${label}: .scope-btn štýl sa nenašiel`);
-    assert.match(css[0], /min-height:\s*var\(--btn-h-md\)/, `${label}: tap target < 44px`);
-    assert.match(src, /\.scope-btn:focus-visible\{[^}]*box-shadow:\s*0 0 0 3px/,
-      `${label}: chýba 3px focus ring`);
-    // Farby len cez tokeny — žiadny hex v scope CSS.
-    const scopeCss = src.match(/\.scope-(btn|switch|note)[^\n]*/g) || [];
-    for (const line of scopeCss) {
-      assert.doesNotMatch(line, /#[0-9a-fA-F]{3,8}\b/, `${label}: hex hodnota v "${line.trim()}"`);
-    }
+    assert.match(src, /class="scope-switch rp-seg"/, `${label}: scope-switch nenesie triedu .rp-seg`);
+  }
+  const btn = SEG_CSS.match(/\.rp-seg > button \{[^}]*\}/);
+  assert.ok(btn, 'ios-reporty.css: .rp-seg > button štýl sa nenašiel');
+  assert.match(btn[0], /min-height:\s*(var\(--btn-h-md\)|4[4-9]px|[5-9]\d px)/, 'tap target < 44px');
+  assert.match(SEG_CSS, /\.rp-seg > button:focus-visible \{[^}]*box-shadow:\s*0 0 0 3px/,
+    'chýba 3px focus ring');
+  // Farby len cez tokeny — žiadny hex v pravidlách segmentu.
+  const segCss = SEG_CSS.match(/\.rp-seg[^\n]*/g) || [];
+  for (const line of segCss) {
+    assert.doesNotMatch(line, /#[0-9a-fA-F]{3,8}\b/, `hex hodnota v "${line.trim()}"`);
   }
 });

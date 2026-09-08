@@ -66,7 +66,7 @@
 .rp-seg > button {
   flex: 1 1 0;
   min-width: 0;
-  min-height: 38px;
+  min-height: var(--btn-h-md); /* 44 px — DESIGN-CODE tap target */
   padding: 0 12px;
   border: 0;
   border-radius: 9px;
@@ -91,7 +91,8 @@
   box-shadow: var(--shadow-sm);
 }
 .rp-seg > button:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--color-accent-bg); }
-.rp-seg-sm > button { min-height: 34px; font-size: 13px; padding: 0 10px; }
+/* „Malý" variant je menší len písmom a odsadením — tap target ostáva 44 px. */
+.rp-seg-sm > button { font-size: 13px; padding: 0 10px; }
 .rp-seg-wrap { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); align-items: center; }
 .rp-seg-label { font-size: 13px; font-weight: 600; color: var(--color-text-sec); }
 .rp-seg-wrap .rp-seg { flex: 0 1 auto; }

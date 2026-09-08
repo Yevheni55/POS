@@ -136,11 +136,18 @@
   border: 0;
   border-radius: 9px;
   padding: 9px 12px;
-  min-height: 40px;
+  min-height: var(--btn-h-md); /* 44 px — DESIGN-CODE tap target */
   font-size: 14px;
   color: var(--color-text-sec);
 }
 .panel-tab:hover { background: transparent; color: var(--color-text); }
+/* Štyri segmenty (História, Reporty) sa na 375 px nezmestia pri 14 px
+   a 12 px odsadení — nižšie sa zmenšia; keby aj tak pretiekli, dráha
+   roluje vbok namiesto toho, aby pretiekla obsah stránky. */
+@media (max-width: 480px) {
+  .panel-tabs { overflow-x: auto; scrollbar-width: none; }
+  .panel-tab { flex: 1 0 auto; padding: 9px 8px; font-size: 13px; white-space: nowrap; }
+}
 .panel-tab.active {
   background: var(--ios-card);
   color: var(--color-text);
@@ -157,7 +164,11 @@
   /* Plocha: žiadna dekoratívna scéna, bočný panel je preč — nahrádza ho
      tab bar dole a spodný panel „Viac". */
   .bg-scene { display: none; }
-  .app { background: var(--color-bg); flex-direction: column; height: 100vh; height: 100dvh; }
+  /* z-index:auto — .app inak tvorí stacking context (z 2) a panel zdola
+     vykreslený vnútri stránky (position:fixed) by skončil POD tab barom
+     (z 50), nech má akýkoľvek z-index. Scéna na pozadí je tu skrytá,
+     takže .app nepotrebuje nad ňou vlastnú vrstvu. */
+  .app { background: var(--color-bg); flex-direction: column; height: 100vh; height: 100dvh; z-index: auto; }
   .sidebar { display: none; }
   .main-area { flex: 1; min-height: 0; height: auto; }
 
