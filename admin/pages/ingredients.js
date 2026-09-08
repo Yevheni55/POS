@@ -19,6 +19,11 @@ function escapeHtml(v) {
 let ingredients = [];
 let editingId = null;
 let searchTerm = '';
+// „Pod minimom" v súčte je zároveň filter — jeden klik ukáže len to, čo treba
+// doobjednať. Hľadanie má zmysel až od SEARCH_FROM položiek; pod tým je celý
+// zoznam na jednej obrazovke a políčko by len odsúvalo prvú surovinu nižšie.
+let _lowOnly = false;
+const SEARCH_FROM = 9;
 
 let _container = null;
 let _escHandler = null;
@@ -27,48 +32,97 @@ function $(sel) {
   return _container.querySelector(sel);
 }
 
-function getStatusBadge(item) {
-  // Leading glyph carry meaning bez ohladu na farbu — WCAG 1.4.1 fix
-  // pre color-blind users (deuteranopia 8% mužov).
-  if (item.currentQty <= 0) {
-    return '<span class="badge badge-danger" aria-label="Prázdny">● Prázdny</span>';
-  }
-  if (item.currentQty <= item.minQty) {
-    return '<span class="badge badge-warning" aria-label="Nízky">▲ Nízky</span>';
-  }
-  return '<span class="badge badge-success" aria-label="OK">✓ OK</span>';
+// Pilulka len pre výnimku (prázdne / pod minimom). Bežný stav nemá farbu —
+// keď má každý riadok zelené „OK", nehovorí to nič.
+function statusPill(item) {
+  if (item.currentQty <= 0) return '<span class="sk-pill is-danger">Prázdne</span>';
+  if (item.currentQty <= item.minQty) return '<span class="sk-pill is-warn">Pod minimom</span>';
+  return '';
+}
+
+function itemWord(n) {
+  if (n === 1) return 'surovina';
+  if (n >= 2 && n <= 4) return 'suroviny';
+  return 'surovín';
 }
 
 // === Load data ===
 async function loadIngredients() {
   const tableWrap = $('#ingredientsTable');
-  if (tableWrap) showLoading(tableWrap, 'Načítavam suroviny...');
+  if (tableWrap) showLoading(tableWrap, 'Načítavam suroviny…');
   try {
     ingredients = await api.get('/inventory/ingredients?type=ingredient');
     if (tableWrap) hideLoading(tableWrap);
     renderTable();
   } catch (err) {
     if (tableWrap) hideLoading(tableWrap);
-    renderError(tableWrap, err.message || 'Chyba pri nacitani surovin', loadIngredients);
+    renderError(tableWrap, err.message || 'Chyba pri načítaní surovín', loadIngredients);
   }
 }
 
 // === Render table ===
+// Riadok suroviny: názov + cena/jednotka a minimum vľavo, množstvo vpravo,
+// pilulka len keď je stav výnimočný. Celý riadok otvára úpravu.
+function rowHtml(item) {
+  var unit = escapeHtml(item.unit);
+  var sub = fmtCost(item.costPerUnit) + '\u00A0\u20AC/' + unit + ' · min. ' + fmtNum(item.minQty) + '\u00A0' + unit;
+  return '<button type="button" class="sk-row" data-edit-id="' + item.id + '">'
+    + '<span class="sk-row-main">'
+    + '<span class="sk-row-name">' + escapeHtml(item.name) + '</span>'
+    + '<span class="sk-row-sub">' + sub + '</span>'
+    + '</span>'
+    + '<span class="sk-row-side">'
+    + '<span class="sk-row-num">' + fmtNum(item.currentQty) + ' <small>' + unit + '</small></span>'
+    + statusPill(item)
+    + '</span>'
+    + '<svg class="sk-row-chev" aria-hidden="true" viewBox="0 0 16 16"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    + '</button>';
+}
+
+function renderSum() {
+  var sum = $('#ingSum');
+  if (!sum) return;
+  var low = ingredients.filter(function (i) { return i.currentQty <= i.minQty; }).length;
+  var empty = ingredients.filter(function (i) { return i.currentQty <= 0; }).length;
+  sum.innerHTML = '<span><strong>' + ingredients.length + '</strong> ' + itemWord(ingredients.length) + '</span>'
+    + ((low || _lowOnly)
+      ? '<button type="button" class="sk-sum-open' + (empty ? ' is-danger' : '') + (_lowOnly ? ' is-on' : '') + '"'
+        + ' id="ingLowToggle" aria-pressed="' + (_lowOnly ? 'true' : 'false') + '">'
+        + (_lowOnly ? 'Len pod minimom ✕' : low + ' pod minimom' + (empty ? ' · ' + empty + ' prázdne' : ''))
+        + '</button>'
+      : '');
+}
+
 function renderTable() {
-  const tableWrap = $('#ingredientsTable');
+  var tableWrap = $('#ingredientsTable');
   if (!tableWrap) return;
 
-  const filtered = ingredients.filter(function (item) {
+  renderSum();
+  var searchWrap = $('#ingredientSearchWrap');
+  if (searchWrap) searchWrap.hidden = ingredients.length < SEARCH_FROM;
+
+  var filtered = ingredients.filter(function (item) {
+    if (_lowOnly && item.currentQty > item.minQty) return false;
     if (!searchTerm) return true;
     return item.name.toLowerCase().includes(searchTerm);
   });
 
   if (!filtered.length) {
-    if (searchTerm) {
+    if (searchTerm || _lowOnly) {
       mountEmptyState(tableWrap, {
         icon: '🔍',
         title: 'Žiadne výsledky',
-        text: 'Pre hľadaný výraz „' + searchTerm + '" sa nenašla žiadna surovina. Skúste iný výraz alebo zmažte filter.',
+        text: searchTerm
+          ? 'Pre hľadaný výraz „' + searchTerm + '" sa nenašla žiadna surovina. Skúste iný výraz alebo hľadanie vymažte.'
+          : 'Žiadna surovina nie je pod minimom.',
+        ctaLabel: searchTerm ? 'Vymazať hľadanie' : 'Zobraziť všetky',
+        onCta: function () {
+          searchTerm = '';
+          _lowOnly = false;
+          var s = document.getElementById('ingredientSearch');
+          if (s) s.value = '';
+          renderTable();
+        },
       });
     } else {
       mountEmptyState(tableWrap, {
@@ -82,34 +136,7 @@ function renderTable() {
     return;
   }
 
-  var html = '<div class="table-scroll-wrap"><table class="data-table">';
-  html += '<thead><tr>';
-  var ths = ['Názov', 'Jednotka', 'Aktuálne množstvo', 'Minimum', 'Cena/jedn.', 'Stav', 'Akcie'];
-  var alignClasses = ['', '', 'text-right', 'text-right', 'text-right', 'text-center', 'text-right'];
-  ths.forEach(function (t, idx) {
-    html += '<th class="data-th ' + alignClasses[idx] + '">' + t + '</th>';
-  });
-  html += '</tr></thead><tbody>';
-
-  filtered.forEach(function (item) {
-    html += '<tr class="data-row">';
-    html += '<td class="data-td td-name">' + escapeHtml(item.name) + '</td>';
-    html += '<td class="data-td td-sec">' + escapeHtml(item.unit) + '</td>';
-    html += '<td class="data-td text-right num">' + fmtNum(item.currentQty) + '</td>';
-    html += '<td class="data-td text-right num td-sec">' + fmtNum(item.minQty) + '</td>';
-    // \u20AC/jednotka \u2014 pridanie sufixu "/g", "/l", "/ks" hne\u010F za sumou aby
-    // bolo jednozna\u010Dn\u00E9 ze cena je per-gram/liter, nie za balenie.
-    // Pre sub-centov\u00E9 ceny zobraz\u00EDme 4-5 desatinn\u00FDch miest cez fmtCost.
-    html += '<td class="data-td text-right num">' + fmtCost(item.costPerUnit) + '\u00A0\u20AC/' + escapeHtml(item.unit) + '</td>';
-    html += '<td class="data-td text-center">' + getStatusBadge(item) + '</td>';
-    html += '<td class="data-td text-right"><div class="prod-actions">';
-    html += '<button class="act-btn" data-edit-id="' + item.id + '" title="Upraviť"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>';
-    html += '<button class="act-btn del" data-delete-id="' + item.id + '" data-delete-name="' + escapeHtml(item.name) + '" title="Zmazať"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>';
-    html += '</div></td></tr>';
-  });
-
-  html += '</tbody></table></div>';
-  tableWrap.innerHTML = html;
+  tableWrap.innerHTML = '<div class="sk-list">' + filtered.map(rowHtml).join('') + '</div>';
 }
 
 // === Modal ===
@@ -130,38 +157,47 @@ function openModal(id) {
 
   var qtyValue = item ? item.currentQty : 0;
   var qtyField = '<div class="u-modal-field">'
-    + '<label for="fCurrentQty">Aktualne mnozstvo</label>'
+    + '<label for="fCurrentQty">Aktuálne množstvo</label>'
     + '<input id="fCurrentQty" type="number" step="0.001" min="0" placeholder="0" value="' + qtyValue + '">'
-    + (editingId ? '<div class="text-muted" style="font-size:12px;margin-top:4px">Zmena sa zaznamena do historie skladu ako adjustment.</div>' : '')
+    + (editingId ? '<small>Zmena sa zapíše do histórie skladu ako úprava.</small>' : '')
     + '</div>';
+
+  // Mazanie je vo formulári, nie na každom riadku zoznamu — omylný tap na
+  // kôš vedľa ceruzky bol najčastejší dôvod „vrátiť späť".
+  var deleteBlock = item
+    ? '<div class="sk-actions"><button type="button" class="u-btn u-btn-rose" id="ingredientModalDelete">Zmazať surovinu</button></div>'
+    : '';
 
   var ov = document.createElement('div');
   ov.className = 'u-overlay';
   ov.id = 'ingredientModal';
-  ov.innerHTML = '<div class="u-modal" style="text-align:left;max-width:480px">'
-    + '<div class="u-modal-title" style="text-align:center">' + title + '</div>'
+  ov.innerHTML = '<div class="u-modal sk-modal" style="max-width:480px">'
+    + '<div class="u-modal-title">' + title + '</div>'
     + '<div class="u-modal-body">'
     + '<div class="u-modal-field">'
-    + '<label for="fName">Nazov<span class="required-mark" aria-hidden="true"> *</span></label>'
-    + '<input id="fName" type="text" placeholder="napr. Muka hladka" aria-required="true" data-validate="required" value="' + (item ? item.name : '') + '">'
+    + '<label for="fName">Názov<span class="required-mark" aria-hidden="true"> *</span></label>'
+    + '<input id="fName" type="text" placeholder="napr. Múka hladká" aria-required="true" data-validate="required" value="' + (item ? escapeHtml(item.name) : '') + '">'
     + '</div>'
+    + '<div class="u-modal-row">'
     + '<div class="u-modal-field">'
     + '<label for="fUnit">Jednotka</label>'
     + '<select id="fUnit">' + unitOpts + '</select>'
     + '</div>'
-    + qtyField
     + '<div class="u-modal-field">'
-    + '<label for="fMinQty">Minimalne mnozstvo</label>'
+    + '<label for="fMinQty">Minimum (upozornenie)</label>'
     + '<input id="fMinQty" type="number" step="0.01" min="0" placeholder="0" value="' + (item ? item.minQty : '0') + '">'
     + '</div>'
+    + '</div>'
+    + qtyField
     + '<div class="u-modal-field">'
-    + '<label for="fCostPerUnit">Cena za jednotku (EUR)</label>'
+    + '<label for="fCostPerUnit">Cena za jednotku (€, bez DPH)</label>'
     + '<input id="fCostPerUnit" type="number" step="0.0001" min="0" placeholder="0,0000" value="' + (item ? item.costPerUnit : '0') + '">'
     + '</div>'
+    + deleteBlock
     + '</div>'
     + '<div class="u-modal-btns">'
-    + '<button class="u-btn u-btn-ghost" id="ingredientModalCancel">Zrusit</button>'
-    + '<button class="u-btn u-btn-ice" id="ingredientModalSave">Ulozit</button>'
+    + '<button class="u-btn u-btn-ghost" id="ingredientModalCancel">Zrušiť</button>'
+    + '<button class="u-btn u-btn-ice" id="ingredientModalSave">' + (item ? 'Uložiť zmeny' : 'Pridať surovinu') + '</button>'
     + '</div>'
     + '</div>';
 
@@ -178,6 +214,15 @@ function openModal(id) {
 
   document.getElementById('ingredientModalCancel').onclick = closeModal;
   ov.addEventListener('click', function (e) { if (e.target === ov) closeModal(); });
+
+  var delBtn = document.getElementById('ingredientModalDelete');
+  if (delBtn && item) {
+    delBtn.onclick = function () {
+      var delId = item.id, delName = item.name;
+      closeModal();
+      deleteIngredient(delId, delName);
+    };
+  }
 
   document.getElementById('ingredientModalSave').onclick = async function () {
     if (!validateForm(ov)) return;
@@ -198,12 +243,12 @@ function openModal(id) {
         await api.put('/inventory/ingredients/' + editingId, {
           name: name, unit: unit, currentQty: currentQty, minQty: minQty, costPerUnit: costPerUnit,
         });
-        showToast('Surovina upravena', true);
+        showToast('Surovina upravená', true);
       } else {
         await api.post('/inventory/ingredients', {
           name: name, unit: unit, type: 'ingredient', currentQty: currentQty, minQty: minQty, costPerUnit: costPerUnit,
         });
-        showToast('Surovina pridana', true);
+        showToast('Surovina pridaná', true);
       }
       closeModal();
       await loadIngredients();
@@ -236,7 +281,7 @@ async function deleteIngredient(id, name) {
     // Restore at original position
     ingredients.splice(idx, 0, snapshot);
     renderTable();
-    showToast('Vratene', true);
+    showToast('Vrátené', true);
   } else if (!result.error) {
     // Delete commited — sync from server so currentQty / dependencies sa dosynchronizuju
     await loadIngredients();
@@ -254,17 +299,19 @@ export function init(container) {
   ingredients = [];
   editingId = null;
   searchTerm = '';
+  _lowOnly = false;
 
   container.innerHTML = ''
-    + '<div class="top-bar">'
+    + '<div class="sk-head">'
+    + '<div class="sk-sum" id="ingSum" aria-live="polite"></div>'
     + '<button class="btn-add" id="addIngredientBtn">'
     + '<svg aria-hidden="true" viewBox="0 0 14 14"><line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
-    + 'Pridať surovinu'
+    + 'Pridať'
     + '</button>'
-    + '<div class="search-wrap">'
-    + '<svg aria-hidden="true" viewBox="0 0 16 16"><circle cx="6.5" cy="6.5" r="5" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="10.5" y1="10.5" x2="15" y2="15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>'
-    + '<input class="search-input" id="ingredientSearch" type="text" placeholder="Hladat surovinu...">'
     + '</div>'
+    + '<div class="search-wrap sk-search" id="ingredientSearchWrap" hidden>'
+    + '<svg aria-hidden="true" viewBox="0 0 16 16"><circle cx="6.5" cy="6.5" r="5" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="10.5" y1="10.5" x2="15" y2="15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>'
+    + '<input class="search-input" id="ingredientSearch" type="search" placeholder="Hľadať surovinu…" aria-label="Hľadať surovinu">'
     + '</div>'
     + '<div id="ingredientsTable">'
     + '<div class="skeleton-row"></div>'
@@ -279,8 +326,14 @@ export function init(container) {
     renderTable();
   });
 
-  // Event delegation for table actions
+  // Event delegation for list actions
   container.addEventListener('click', function (e) {
+    var lowBtn = e.target.closest('#ingLowToggle');
+    if (lowBtn) {
+      _lowOnly = !_lowOnly;
+      renderTable();
+      return;
+    }
     var editBtn = e.target.closest('[data-edit-id]');
     if (editBtn) {
       openModal(Number(editBtn.dataset.editId));

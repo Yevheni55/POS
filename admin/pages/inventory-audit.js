@@ -38,20 +38,27 @@ function fmtNum(n) {
   return Number(n).toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function getStatusBadge(status) {
-  var map = {
-    open:      { cls: 'badge-warning', label: 'Otvorena' },
-    completed: { cls: 'badge-success', label: 'Dokoncena' },
-    cancelled: { cls: 'badge-danger',  label: 'Zrusena' }
-  };
-  var entry = map[status] || { cls: '', label: status || '--' };
-  return '<span class="badge ' + entry.cls + '">' + escapeHtml(entry.label) + '</span>';
+// Stav ako pilulka: otvorená = treba dokončiť (jantár), zrušená = sivá,
+// dokončená = zelená (v zozname ju nezobrazujeme — je to pravidlo).
+var STATUS = {
+  open:      { cls: 'is-warn', label: 'Otvorená' },
+  completed: { cls: 'is-ok',   label: 'Dokončená' },
+  cancelled: { cls: 'is-dim',  label: 'Zrušená' }
+};
+function statusPill(status) {
+  var entry = STATUS[status] || { cls: 'is-dim', label: status || '—' };
+  return '<span class="sk-pill ' + entry.cls + '">' + escapeHtml(entry.label) + '</span>';
+}
+function auditWord(n) {
+  if (n === 1) return 'inventúra';
+  if (n >= 2 && n <= 4) return 'inventúry';
+  return 'inventúr';
 }
 
 // === Load audit list ===
 async function loadAudits() {
   var tableWrap = $('#auditListWrap');
-  if (tableWrap) showLoading(tableWrap, 'Načítavam inventúry...');
+  if (tableWrap) showLoading(tableWrap, 'Načítavam inventúry…');
   try {
     var result = await api.get('/inventory/audits');
     if (tableWrap) hideLoading(tableWrap);
@@ -59,7 +66,7 @@ async function loadAudits() {
     renderList();
   } catch (err) {
     if (tableWrap) hideLoading(tableWrap);
-    renderError(tableWrap, err.message || 'Chyba pri nacitani inventur', loadAudits);
+    renderError(tableWrap, err.message || 'Chyba pri načítaní inventúr', loadAudits);
   }
 }
 
@@ -68,40 +75,36 @@ function renderList() {
   var wrap = $('#auditListWrap');
   if (!wrap) return;
 
+  var countEl = $('#auCount');
+  if (countEl) {
+    var open = audits.filter(function (a) { return a.status === 'open'; }).length;
+    countEl.innerHTML = '<span><strong>' + audits.length + '</strong> ' + auditWord(audits.length) + '</span>'
+      + (open ? '<span class="sk-pill is-warn">' + open + ' otvoren' + (open === 1 ? 'á' : (open <= 4 ? 'é' : 'ých')) + '</span>' : '');
+  }
+
   if (!audits.length) {
     mountEmptyState(wrap, {
       icon: '📋',
       title: 'Žiadne inventúry',
-      text: 'Inventúra zafixuje aktuálny stav skladu a porovná ho s reálnym stavom. Začnite prvú.',
+      text: 'Inventúra zafixuje aktuálny stav skladu a porovná ho so skutočným. Začnite prvú.',
       ctaLabel: 'Nová inventúra',
       onCta: function () { createAudit(); },
     });
     return;
   }
 
-  var html = '<div class="table-scroll-wrap"><table class="data-table"><thead><tr>'
-    + '<th class="text-right">ID</th>'
-    + '<th>Dátum</th>'
-    + '<th>Stav</th>'
-    + '<th>Poznámka</th>'
-    + '<th class="text-right">Akcie</th>'
-    + '</tr></thead><tbody>';
-
-  audits.forEach(function (a) {
-    html += '<tr class="data-row">';
-    html += '<td class="num">#' + a.id + '</td>';
-    html += '<td>' + fmtDate(a.createdAt) + '</td>';
-    html += '<td>' + getStatusBadge(a.status) + '</td>';
-    html += '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
-      + escapeHtml(a.note || '') + '</td>';
-    html += '<td class="text-right">';
-    html += '<button class="btn-outline-accent" data-view-id="' + a.id + '" style="padding:4px 12px;font-size:12px">Detail</button>';
-    html += '</td>';
-    html += '</tr>';
-  });
-
-  html += '</tbody></table></div>';
-  wrap.innerHTML = html;
+  // Riadok: číslo + dátum, poznámka pod tým; stav ako pilulka len keď nie je
+  // dokončená. Celý riadok otvára detail.
+  wrap.innerHTML = '<div class="sk-list">' + audits.map(function (a) {
+    return '<button type="button" class="sk-row' + (a.status === 'cancelled' ? ' is-off' : '') + '" data-view-id="' + a.id + '">'
+      + '<span class="sk-row-main">'
+      + '<span class="sk-row-name">Inventúra #' + a.id + '</span>'
+      + '<span class="sk-row-sub">' + fmtDate(a.createdAt) + (a.note ? ' · ' + escapeHtml(a.note) : '') + '</span>'
+      + '</span>'
+      + '<span class="sk-row-side">' + (a.status === 'completed' ? '' : statusPill(a.status)) + '</span>'
+      + '<svg class="sk-row-chev" aria-hidden="true" viewBox="0 0 16 16"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+      + '</button>';
+  }).join('') + '</div>';
 }
 
 // === Switch to detail view ===
@@ -114,7 +117,7 @@ async function showDetail(auditId) {
     currentAudit = result;
     renderDetail();
   } catch (err) {
-    showToast(err.message || 'Chyba pri nacitani inventury', 'error');
+    showToast(err.message || 'Chyba pri načítaní inventúry', 'error');
     showListView();
   }
 }
@@ -122,13 +125,11 @@ async function showDetail(auditId) {
 function renderSkeleton() {
   if (!_container) return;
   _container.innerHTML = ''
-    + '<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">'
-    + '<button class="btn-outline-accent" id="backToListBtn" style="padding:6px 14px">'
-    + '&larr; Spat'
-    + '</button>'
+    + '<div class="sk-detail-head">'
+    + '<button type="button" class="sk-back" id="backToListBtn"><svg aria-hidden="true" viewBox="0 0 16 16"><path d="M10 3L5 8l5 5"/></svg>Späť</button>'
     + '<div class="skeleton skeleton-text" style="width:200px;height:24px"></div>'
     + '</div>'
-    + '<div id="auditDetailWrap">'
+    + '<div id="auditDetailWrap" class="sk-list">'
     + '<div class="skeleton-row"></div>'
     + '<div class="skeleton-row"></div>'
     + '<div class="skeleton-row"></div>'
@@ -145,33 +146,35 @@ function renderDetail() {
   var isReadonly = !isOpen;
   var items = Array.isArray(a.items) ? a.items : [];
 
-  var header = '<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">'
-    + '<button class="btn-outline-accent" id="backToListBtn" style="padding:6px 14px">&larr; Spat</button>'
-    + '<h2 style="font-family:var(--font-display);font-size:var(--text-4xl);font-weight:var(--weight-bold);margin:0">'
-    + 'Inventura #' + a.id + '</h2>'
-    + getStatusBadge(a.status);
+  var header = '<div class="sk-detail-head">'
+    + '<button type="button" class="sk-back" id="backToListBtn"><svg aria-hidden="true" viewBox="0 0 16 16"><path d="M10 3L5 8l5 5"/></svg>Späť</button>'
+    + '<h2 class="sk-detail-title">Inventúra #' + a.id + ' ' + statusPill(a.status) + '</h2>';
 
+  // Jedna plná akcia (dokončiť), zrušenie tónované červené.
   if (isOpen) {
-    header += '<div style="margin-left:auto;display:flex;gap:8px">'
-      + '<button class="u-btn u-btn-ice" id="completeAuditBtn" style="padding:6px 18px;min-height:auto">Dokoncit inventuru</button>'
-      + '<button class="u-btn u-btn-rose" id="cancelAuditBtn" style="padding:6px 18px;min-height:auto">Zrusit</button>'
+    header += '<div class="sk-detail-actions">'
+      + '<button type="button" class="btn-secondary is-danger" id="cancelAuditBtn">Zrušiť inventúru</button>'
+      + '<button type="button" class="btn-primary" id="completeAuditBtn">Dokončiť inventúru</button>'
       + '</div>';
   }
   header += '</div>';
 
+  var help = isOpen
+    ? '<div class="sk-help" style="margin-bottom:var(--space-3)">Do stĺpca „Skutočné" zadajte, koľko ste napočítali. Hodnota sa uloží sama, keď pole opustíte.</div>'
+    : '';
+
   var table = '';
   if (!items.length) {
-    table = '<div class="empty-state">'
-      + '<div class="empty-state-title">Žiadne položky</div>'
-      + '<div class="empty-state-text">Tato inventura nema ziadne polozky.</div>'
-      + '</div>';
+    table = '<div class="empty-hint">Táto inventúra nemá žiadne položky.</div>';
   } else {
-    table = '<div class="table-scroll-wrap"><table class="data-table" id="auditItemsTable"><thead><tr>'
-      + '<th>Surovina</th>'
-      + '<th>Jednotka</th>'
-      + '<th class="text-right">Očakávané</th>'
-      + '<th class="text-right">Skutočné</th>'
-      + '<th class="text-right">Rozdiel</th>'
+    // Triedy au-c-* sú kotvy pre mobilnú mriežku (surovina + skutočné hore,
+    // očakávané + rozdiel dole). Rozdiel MUSÍ ostať posledná bunka —
+    // recalcDiff ju hľadá cez td:last-child.
+    table = '<div class="sk-table-wrap"><table class="sk-table au-table" id="auditItemsTable"><thead><tr>'
+      + '<th class="au-c-name">Surovina</th>'
+      + '<th class="num au-c-exp">Očakávané</th>'
+      + '<th class="num au-c-actual">Skutočné</th>'
+      + '<th class="num au-c-diff">Rozdiel</th>'
       + '</tr></thead><tbody>';
 
     items.forEach(function (item) {
@@ -180,38 +183,37 @@ function renderDetail() {
       var hasActual = actual != null && actual !== '';
       var diff = hasActual ? (Number(actual) - expected) : null;
       var diffClass = '';
-      var diffText = '--';
+      var diffText = '';
       if (diff !== null) {
-        diffClass = diff > 0 ? 'color-success' : (diff < 0 ? 'color-danger' : '');
+        diffClass = diff > 0 ? 'is-up' : (diff < 0 ? 'is-down' : '');
         var sign = diff > 0 ? '+' : '';
         diffText = sign + Number(diff).toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       }
+      var unit = escapeHtml(item.ingredientUnit || '');
 
       table += '<tr data-item-id="' + item.id + '">';
-      table += '<td class="td-name">' + escapeHtml(item.ingredientName || ('Surovina #' + item.ingredientId)) + '</td>';
-      table += '<td>' + escapeHtml(item.ingredientUnit || '--') + '</td>';
-      table += '<td class="text-right num">' + fmtNum(expected) + '</td>';
-      table += '<td class="text-right">';
+      table += '<td class="td-name au-c-name">' + escapeHtml(item.ingredientName || ('Surovina #' + item.ingredientId)) + (unit ? '<span class="td-sub">' + unit + '</span>' : '') + '</td>';
+      table += '<td class="num au-c-exp">' + fmtNum(expected) + (unit ? '\u00A0' + unit : '') + '</td>';
+      table += '<td class="num au-c-actual">';
 
       if (isReadonly) {
-        table += '<span class="num">' + (hasActual ? fmtNum(actual) : '--') + '</span>';
+        table += (hasActual ? fmtNum(actual) : '—');
       } else {
         table += '<input type="number" step="0.01" class="form-input actual-qty-input" '
-          + 'style="width:100px;padding:5px 8px;text-align:right;font-size:12px" '
           + 'data-item-id="' + item.id + '" '
           + 'value="' + (hasActual ? actual : '') + '" '
-          + 'placeholder="--">';
+          + 'placeholder="—" aria-label="Skutočné množstvo">';
       }
 
       table += '</td>';
-      table += '<td class="text-right num ' + diffClass + '">' + diffText + '</td>';
+      table += '<td class="num au-c-diff ' + diffClass + '">' + diffText + '</td>';
       table += '</tr>';
     });
 
     table += '</tbody></table></div>';
   }
 
-  _container.innerHTML = header + '<div id="auditDetailWrap">' + table + '</div>';
+  _container.innerHTML = header + help + '<div id="auditDetailWrap" class="sk-list">' + table + '</div>';
 
   // Wire back button
   $('#backToListBtn').addEventListener('click', function () { showListView(); });
@@ -271,7 +273,7 @@ async function saveActualQty(inputEl) {
 
     recalcDiff(inputEl);
   } catch (err) {
-    showToast(err.message || 'Chyba pri ukladani', 'error');
+    showToast(err.message || 'Chyba pri ukladaní', 'error');
   } finally {
     delete _savingItems[itemId];
   }
@@ -294,8 +296,8 @@ function recalcDiff(inputEl) {
   if (!diffCell) return;
 
   if (val === '') {
-    diffCell.className = 'text-right num';
-    diffCell.textContent = '--';
+    diffCell.className = 'num au-c-diff';
+    diffCell.textContent = '';
     return;
   }
 
@@ -304,44 +306,44 @@ function recalcDiff(inputEl) {
   var diff = actual - expected;
   var sign = diff > 0 ? '+' : '';
   var diffText = sign + Number(diff).toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  var cls = diff > 0 ? 'color-success' : (diff < 0 ? 'color-danger' : '');
-  diffCell.className = 'text-right num ' + cls;
+  var cls = diff > 0 ? 'is-up' : (diff < 0 ? 'is-down' : '');
+  diffCell.className = 'num au-c-diff ' + cls;
   diffCell.textContent = diffText;
 }
 
 // === Complete audit ===
 function completeAudit(auditId) {
   showConfirm(
-    'Dokoncit inventuru',
-    'Naozaj chcete dokončiť inventúru #' + auditId + '? Po dokonceni uz nebude mozne upravovat hodnoty.',
+    'Dokončiť inventúru',
+    'Naozaj chcete dokončiť inventúru #' + auditId + '? Po dokončení sa sklad prepíše na napočítané hodnoty a už ich nebude možné upravovať.',
     async function () {
       try {
         await api.post('/inventory/audits/' + auditId + '/complete');
-        showToast('Inventura dokoncena', true);
+        showToast('Inventúra dokončená', true);
         await showDetail(auditId);
       } catch (err) {
-        showToast(err.message || 'Chyba pri dokoncovani inventury', 'error');
+        showToast(err.message || 'Chyba pri dokončovaní inventúry', 'error');
       }
     },
-    { confirmText: 'Dokoncit' }
+    { confirmText: 'Dokončiť' }
   );
 }
 
 // === Cancel audit ===
 function cancelAudit(auditId) {
   showConfirm(
-    'Zrusit inventuru',
-    'Naozaj chcete zrušiť inventúru #' + auditId + '? Tato akcia sa neda vratit.',
+    'Zrušiť inventúru',
+    'Naozaj chcete zrušiť inventúru #' + auditId + '? Táto akcia sa nedá vrátiť.',
     async function () {
       try {
         await api.post('/inventory/audits/' + auditId + '/cancel');
-        showToast('Inventura zrusena', true);
+        showToast('Inventúra zrušená', true);
         await showDetail(auditId);
       } catch (err) {
-        showToast(err.message || 'Chyba pri ruseni inventury', 'error');
+        showToast(err.message || 'Chyba pri rušení inventúry', 'error');
       }
     },
-    { type: 'danger', confirmText: 'Zrusit inventuru' }
+    { type: 'danger', confirmText: 'Zrušiť inventúru' }
   );
 }
 
@@ -353,15 +355,15 @@ async function createAudit() {
     var result = await api.post('/inventory/audits', {});
     if (btn) btnReset(btn);
     if (result && result.id) {
-      showToast('Inventura vytvorena', true);
+      showToast('Inventúra vytvorená', true);
       await showDetail(result.id);
     } else {
-      showToast('Inventura vytvorena', true);
+      showToast('Inventúra vytvorená', true);
       await loadAudits();
     }
   } catch (err) {
     if (btn) btnReset(btn);
-    showToast(err.message || 'Chyba pri vytvarani inventury', 'error');
+    showToast(err.message || 'Chyba pri vytváraní inventúry', 'error');
   }
 }
 
@@ -378,10 +380,11 @@ function showListView() {
 function renderLayout() {
   if (!_container) return;
   _container.innerHTML = ''
-    + '<div class="top-bar">'
+    + '<div class="sk-head">'
+    + '<div class="sk-sum" id="auCount" aria-live="polite"></div>'
     + '<button class="btn-add" id="newAuditBtn">'
     + '<svg aria-hidden="true" viewBox="0 0 14 14"><line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
-    + 'Nova inventura'
+    + 'Nová inventúra'
     + '</button>'
     + '</div>'
     + '<div id="auditListWrap">'

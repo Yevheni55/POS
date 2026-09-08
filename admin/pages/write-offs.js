@@ -10,6 +10,8 @@ let currentView = 'list'; // 'list' | 'summary'
 let _container = null;
 let _escHandler = null;
 var itemCounter = 0;
+// Počty podľa stavu pre chipy — spočítané z posledného nefiltrovaného zoznamu.
+var _counts = {};
 
 function $(sel) {
   return _container.querySelector(sel);
@@ -50,26 +52,43 @@ function fmtNum(n) {
   return Number(n).toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function reasonBadge(reason) {
-  var map = {
-    expiration: { cls: 'badge-warning', label: 'Expiracia' },
-    damage:     { cls: 'badge-danger',  label: 'Poskodenie' },
-    theft:      { cls: 'badge-purple',  label: 'Kradez' },
-    staff_meal: { cls: 'badge-amber',   label: 'Zamestnanecka spotreba' },
-    other:      { cls: '',              label: 'Ine' }
-  };
-  var entry = map[reason] || { cls: '', label: reason || '--' };
-  return '<span class="badge ' + entry.cls + '">' + escapeHtml(entry.label) + '</span>';
+// Dôvod odpisu — farba nesie druh straty (expirácia jantár, poškodenie
+// červená, krádež navy), zamestnanecká spotreba a „iné" sú neutrálne.
+var REASONS = {
+  expiration: { cls: 'is-warn',   label: 'Expirácia' },
+  damage:     { cls: 'is-danger', label: 'Poškodenie' },
+  theft:      { cls: 'is-navy',   label: 'Krádež' },
+  staff_meal: { cls: 'is-accent', label: 'Zamestnanecká spotreba' },
+  other:      { cls: 'is-dim',    label: 'Iné' }
+};
+function reasonLabel(reason) {
+  return (REASONS[reason] || {}).label || reason || '—';
+}
+function reasonPill(reason) {
+  var entry = REASONS[reason] || { cls: 'is-dim', label: reason || '—' };
+  return '<span class="sk-pill ' + entry.cls + '">' + escapeHtml(entry.label) + '</span>';
 }
 
-function statusBadge(status) {
-  var map = {
-    pending:  { cls: 'badge-warning', label: 'Caka' },
-    approved: { cls: 'badge-success', label: 'Schvaleny' },
-    rejected: { cls: 'badge-danger',  label: 'Zamietnuty' }
-  };
-  var entry = map[status] || { cls: '', label: status || '--' };
-  return '<span class="badge ' + entry.cls + '">' + escapeHtml(entry.label) + '</span>';
+// Stav: čakajúci na schválenie je výnimka (jantár), zamietnutý sivý,
+// schválený zelený — v zozname ho nezobrazujeme, je to pravidlo.
+var STATUS = {
+  pending:  { cls: 'is-warn', label: 'Čaká na schválenie' },
+  approved: { cls: 'is-ok',   label: 'Schválený' },
+  rejected: { cls: 'is-dim',  label: 'Zamietnutý' }
+};
+function statusPill(status) {
+  var entry = STATUS[status] || { cls: 'is-dim', label: status || '—' };
+  return '<span class="sk-pill ' + entry.cls + '">' + escapeHtml(entry.label) + '</span>';
+}
+function woWord(n) {
+  if (n === 1) return 'odpis';
+  if (n >= 2 && n <= 4) return 'odpisy';
+  return 'odpisov';
+}
+function itemWord(n) {
+  if (n === 1) return 'položka';
+  if (n >= 2 && n <= 4) return 'položky';
+  return 'položiek';
 }
 
 // ===== LOAD DATA =====
@@ -84,7 +103,7 @@ async function loadIngredients() {
 
 async function loadWriteOffs() {
   var panel = $('#writeOffsPanel');
-  if (panel) showLoading(panel, 'Načítavam odpisy...');
+  if (panel) showLoading(panel, 'Načítavam odpisy…');
   try {
     var params = [];
     if (activeStatus) params.push('status=' + encodeURIComponent(activeStatus));
@@ -98,13 +117,13 @@ async function loadWriteOffs() {
     renderTable();
   } catch (err) {
     if (panel) hideLoading(panel);
-    if (panel) renderError(panel, err.message || 'Chyba pri nacitani odpisov', loadWriteOffs);
+    if (panel) renderError(panel, err.message || 'Chyba pri načítaní odpisov', loadWriteOffs);
   }
 }
 
 async function loadSummary() {
   var wrap = $('#summaryWrap');
-  if (wrap) showLoading(wrap, 'Načítavam prehľad...');
+  if (wrap) showLoading(wrap, 'Načítavam prehľad…');
   try {
     // Bratislavsky den (zdielany global z /api.js), nie UTC — 'from' je
     // prvy den toho isteho bratislavskeho mesiaca ako 'to'.
@@ -115,14 +134,53 @@ async function loadSummary() {
     renderSummary();
   } catch (err) {
     if (wrap) hideLoading(wrap);
-    if (wrap) renderError(wrap, err.message || 'Chyba pri nacitani prehladu', loadSummary);
+    if (wrap) renderError(wrap, err.message || 'Chyba pri načítaní prehľadu', loadSummary);
   }
 }
 
 // ===== RENDER TABLE =====
+function rowHtml(wo) {
+  var itemCount = Array.isArray(wo.items) ? wo.items.length : 0;
+  var sub = ['#' + wo.id, fmtDate(wo.createdAt), itemCount + ' ' + itemWord(itemCount), escapeHtml(wo.createdByName || '—')];
+  // Schváliť / zamietnuť je v detaile — riadok má jeden cieľ.
+  return '<button type="button" class="sk-row' + (wo.status === 'rejected' ? ' is-off' : '') + '" data-detail-id="' + wo.id + '">'
+    + '<span class="sk-row-main">'
+    + '<span class="sk-row-name">' + escapeHtml(reasonLabel(wo.reason)) + '</span>'
+    + '<span class="sk-row-sub">' + sub.join(' · ') + '</span>'
+    + '</span>'
+    + '<span class="sk-row-side">'
+    + '<span class="sk-row-num">' + fmtEur(wo.totalCost || 0) + '</span>'
+    + (wo.status === 'approved' ? '' : statusPill(wo.status))
+    + '</span>'
+    + '<svg class="sk-row-chev" aria-hidden="true" viewBox="0 0 16 16"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    + '</button>';
+}
+
+function renderSum() {
+  var sum = $('#woSum');
+  if (!sum) return;
+  var total = writeOffs.reduce(function (s, w) { return s + (Number(w.totalCost) || 0); }, 0);
+  sum.innerHTML = '<span><strong>' + writeOffs.length + '</strong> ' + woWord(writeOffs.length) + '</span>'
+    + (writeOffs.length ? '<span><strong>' + fmtEur(total) + '</strong></span>' : '');
+
+  // Počet v chipe („Čakajúce 1") namiesto ďalšej pilulky v súčte — hovorí
+  // to isté a nezaberá riadok navyše.
+  if (!activeStatus) {
+    _counts = {};
+    writeOffs.forEach(function (w) { _counts[w.status] = (_counts[w.status] || 0) + 1; });
+  }
+  $$('.wo-tab-btn').forEach(function (btn) {
+    var st = btn.dataset.status;
+    var n = st ? (_counts[st] || 0) : 0;
+    btn.innerHTML = escapeHtml(btn.dataset.label || btn.textContent) + (n ? ' <span class="sk-n">' + n + '</span>' : '');
+  });
+}
+
 function renderTable() {
   var panel = $('#writeOffsPanel');
   if (!panel) return;
+
+  renderSum();
 
   if (!writeOffs || writeOffs.length === 0) {
     var filtered = activeStatus || activeReason;
@@ -130,19 +188,18 @@ function renderTable() {
       mountEmptyState(panel, {
         icon: '🔍',
         title: 'Žiadne výsledky',
-        text: 'Pre zvolený filter sa nenašli žiadne odpisy. Skús zrušiť filter.',
-        ctaLabel: 'Zrušiť filter',
+        text: 'Pre zvolený filter sa nenašli žiadne odpisy.',
+        ctaLabel: 'Zobraziť všetky',
         onCta: function () {
-          activeStatus = '';
           activeReason = '';
-          loadWriteOffs();
+          setActiveTab('');
         },
       });
     } else {
       mountEmptyState(panel, {
         icon: '📋',
         title: 'Žiadne odpisy',
-        text: 'Odpis zaznamenáva straty (rozliatie, exspirovaný tovar, krádež) a znižuje stav skladu. Vytvor prvý.',
+        text: 'Odpis zaznamenáva straty (rozliatie, exspirovaný tovar, krádež) a znižuje stav skladu. Vytvorte prvý.',
         ctaLabel: 'Nový odpis',
         onCta: function () { openNewModal(); },
       });
@@ -150,53 +207,7 @@ function renderTable() {
     return;
   }
 
-  var html = '<div class="table-scroll-wrap"><table class="data-table"><thead><tr>'
-    + '<th>ID</th>'
-    + '<th>Dátum</th>'
-    + '<th>Dôvod</th>'
-    + '<th class="text-right">Položky</th>'
-    + '<th class="text-right">Celková cena</th>'
-    + '<th class="text-center">Stav</th>'
-    + '<th>Kto vytvoril</th>'
-    + '<th class="text-right">Akcie</th>'
-    + '</tr></thead><tbody>';
-
-  writeOffs.forEach(function (wo) {
-    var itemCount = Array.isArray(wo.items) ? wo.items.length : 0;
-    html += '<tr>';
-    html += '<td class="td-name">#' + wo.id + '</td>';
-    html += '<td>' + fmtDate(wo.createdAt) + '</td>';
-    html += '<td>' + reasonBadge(wo.reason) + '</td>';
-    html += '<td class="text-right num">' + itemCount + '</td>';
-    html += '<td class="text-right num">' + fmtEur(wo.totalCost || 0) + '</td>';
-    html += '<td class="text-center">' + statusBadge(wo.status) + '</td>';
-    html += '<td>' + escapeHtml(wo.createdByName || '--') + '</td>';
-    html += '<td class="text-right nowrap">';
-    html += '<div class="prod-actions" style="justify-content:flex-end">';
-    // Detail button (eye)
-    html += '<button class="act-btn" data-detail-id="' + wo.id + '" title="Detail">'
-      + '<svg viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round">'
-      + '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>'
-      + '</button>';
-    // Approve button (checkmark, only pending)
-    if (wo.status === 'pending') {
-      html += '<button class="act-btn" data-approve-id="' + wo.id + '" title="Schvalit" style="color:var(--color-success-text)">'
-        + '<svg viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round">'
-        + '<polyline points="20 6 9 17 4 12"/></svg>'
-        + '</button>';
-      // Reject button (X, only pending)
-      html += '<button class="act-btn del" data-reject-id="' + wo.id + '" title="Zamietnuť">'
-        + '<svg viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round">'
-        + '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
-        + '</button>';
-    }
-    html += '</div>';
-    html += '</td>';
-    html += '</tr>';
-  });
-
-  html += '</tbody></table></div>';
-  panel.innerHTML = html;
+  panel.innerHTML = '<div class="sk-list">' + writeOffs.map(rowHtml).join('') + '</div>';
 }
 
 // ===== RENDER SUMMARY =====
@@ -205,90 +216,33 @@ function renderSummary() {
   if (!wrap || !summary) return;
 
   var byReason = summary.byReason || {};
-  var html = '<div class="stat-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">'
+  var reasons = ['expiration', 'damage', 'theft', 'staff_meal', 'other'];
 
-    + '<div class="stat-card">'
-    + '<div class="stat-icon" style="background:var(--color-accent-bg-hover);color:var(--color-accent)">'
-    + '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>'
-    + '</div>'
-    + '<div class="stat-info">'
-    + '<div class="stat-label">Celkom odpisy</div>'
-    + '<div class="stat-value">' + fmtEur(summary.total || 0) + '</div>'
-    + '</div>'
-    + '</div>'
-
-    + '<div class="stat-card">'
-    + '<div class="stat-icon" style="background:rgba(245,158,11,.12);color:#F59E0B">'
-    + '<svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>'
-    + '</div>'
-    + '<div class="stat-info">'
-    + '<div class="stat-label">Expiracia</div>'
-    + '<div class="stat-value">' + fmtEur(byReason.expiration || 0) + '</div>'
-    + '</div>'
-    + '</div>'
-
-    + '<div class="stat-card">'
-    + '<div class="stat-icon" style="background:rgba(224,112,112,.12);color:var(--color-danger)">'
-    + '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>'
-    + '</div>'
-    + '<div class="stat-info">'
-    + '<div class="stat-label">Poskodenie</div>'
-    + '<div class="stat-value">' + fmtEur(byReason.damage || 0) + '</div>'
-    + '</div>'
-    + '</div>'
-
-    + '<div class="stat-card">'
-    + '<div class="stat-icon" style="background:rgba(168,85,247,.12);color:#A855F7">'
-    + '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>'
-    + '</div>'
-    + '<div class="stat-info">'
-    + '<div class="stat-label">Kradez</div>'
-    + '<div class="stat-value">' + fmtEur(byReason.theft || 0) + '</div>'
-    + '</div>'
-    + '</div>'
-
-    + '<div class="stat-card">'
-    + '<div class="stat-icon" style="background:rgba(255,255,255,.08);color:var(--color-text-sec)">'
-    + '<svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>'
-    + '</div>'
-    + '<div class="stat-info">'
-    + '<div class="stat-label">Ine (storno, spotreba)</div>'
-    + '<div class="stat-value">' + fmtEur(byReason.other || 0) + '</div>'
-    + '</div>'
-    + '</div>'
-
+  // Jeden riadok súčtu namiesto piatich rovnocenných kariet; rozpad podľa
+  // dôvodu je zoznam — nula sa nezobrazuje, nie je čo riešiť.
+  var html = '<div class="sk-sum">'
+    + '<span>Tento mesiac odpísané <strong>' + fmtEur(summary.total || 0) + '</strong></span>'
+    + '<span><strong>' + (summary.count || 0) + '</strong> ' + woWord(summary.count || 0) + '</span>'
     + '</div>';
 
-  // Top write-offs by cost table
+  var rows = reasons.filter(function (r) { return Number(byReason[r]) > 0; }).map(function (r) {
+    return '<div class="sk-row is-static">'
+      + '<span class="sk-row-main"><span class="sk-row-name">' + escapeHtml(reasonLabel(r)) + '</span></span>'
+      + '<span class="sk-row-side"><span class="sk-row-num">' + fmtEur(byReason[r]) + '</span></span>'
+      + '</div>';
+  });
+  html += '<div class="sk-list-title">Podľa dôvodu</div>'
+    + '<div class="sk-list">' + (rows.length ? rows.join('') : '<div class="empty-hint">Tento mesiac zatiaľ bez schválených odpisov.</div>') + '</div>';
+
+  // Top write-offs by cost
   var sorted = writeOffs.slice().sort(function (a, b) {
     return (b.totalCost || 0) - (a.totalCost || 0);
   });
   var topItems = sorted.slice(0, 10);
 
   if (topItems.length) {
-    html += '<div class="panel" style="margin-top:20px">'
-      + '<div style="font-family:var(--font-display);font-weight:var(--weight-bold);font-size:var(--text-lg);margin-bottom:12px">Najvyssie odpisy podla nakladov</div>'
-      + '<div class="table-scroll-wrap"><table class="data-table"><thead><tr>'
-      + '<th>ID</th>'
-      + '<th>Dátum</th>'
-      + '<th>Dôvod</th>'
-      + '<th class="text-right">Celková cena</th>'
-      + '<th class="text-center">Stav</th>'
-      + '<th>Kto vytvoril</th>'
-      + '</tr></thead><tbody>';
-
-    topItems.forEach(function (wo) {
-      html += '<tr>';
-      html += '<td class="td-name">#' + wo.id + '</td>';
-      html += '<td>' + fmtDate(wo.createdAt) + '</td>';
-      html += '<td>' + reasonBadge(wo.reason) + '</td>';
-      html += '<td class="text-right num">' + fmtEur(wo.totalCost || 0) + '</td>';
-      html += '<td class="text-center">' + statusBadge(wo.status) + '</td>';
-      html += '<td>' + escapeHtml(wo.createdByName || '--') + '</td>';
-      html += '</tr>';
-    });
-
-    html += '</tbody></table></div></div>';
+    html += '<div class="sk-list-title">Najvyššie odpisy</div>'
+      + '<div class="sk-list">' + topItems.map(rowHtml).join('') + '</div>';
   }
 
   wrap.innerHTML = html;
@@ -297,18 +251,18 @@ function renderSummary() {
 // ===== APPROVE / REJECT =====
 function approveWriteOff(id) {
   showConfirm(
-    'Schvalit odpis',
-    'Naozaj chcete schvalit odpis #' + id + '?',
+    'Schváliť odpis',
+    'Naozaj chcete schváliť odpis #' + id + '? Množstvá sa odpíšu zo skladu.',
     async function () {
       try {
         await api.post('/inventory/write-offs/' + id + '/approve');
-        showToast('Odpis #' + id + ' schvaleny', true);
+        showToast('Odpis #' + id + ' schválený', true);
         await loadWriteOffs();
       } catch (err) {
-        showToast(err.message || 'Chyba pri schvalovani odpisu', 'error');
+        showToast(err.message || 'Chyba pri schvaľovaní odpisu', 'error');
       }
     },
-    { type: 'info', confirmText: 'Schvalit' }
+    { type: 'info', confirmText: 'Schváliť' }
   );
 }
 
@@ -319,10 +273,10 @@ function rejectWriteOff(id) {
     async function () {
       try {
         await api.post('/inventory/write-offs/' + id + '/reject');
-        showToast('Odpis #' + id + ' zamietnuty', true);
+        showToast('Odpis #' + id + ' zamietnutý', true);
         await loadWriteOffs();
       } catch (err) {
-        showToast(err.message || 'Chyba pri zamietani odpisu', 'error');
+        showToast(err.message || 'Chyba pri zamietaní odpisu', 'error');
       }
     },
     { type: 'danger', confirmText: 'Zamietnuť' }
@@ -339,62 +293,49 @@ function openDetailModal(id) {
 
   var items = Array.isArray(wo.items) ? wo.items : [];
 
+  // Položky ako riadky: názov vľavo, suma a „množstvo × cena" vpravo.
   var itemsHtml = '';
   if (items.length > 0) {
-    itemsHtml = '<div class="table-scroll-wrap"><table class="data-table" style="margin-top:12px">'
-      + '<thead><tr>'
-      + '<th>Surovina</th>'
-      + '<th>Jednotka</th>'
-      + '<th class="text-right">Množstvo</th>'
-      + '<th class="text-right">Jedn. cena</th>'
-      + '<th class="text-right">Spolu</th>'
-      + '</tr></thead><tbody>';
-    items.forEach(function (item) {
-      itemsHtml += '<tr>';
-      itemsHtml += '<td class="td-name">' + escapeHtml(item.ingredientName || '--') + '</td>';
-      itemsHtml += '<td>' + escapeHtml(item.ingredientUnit || '--') + '</td>';
-      itemsHtml += '<td class="text-right num">' + fmtNum(item.quantity) + '</td>';
-      itemsHtml += '<td class="text-right num">' + fmtEur(item.unitCost || 0) + '</td>';
-      itemsHtml += '<td class="text-right num">' + fmtEur(item.totalCost || 0) + '</td>';
-      itemsHtml += '</tr>';
-    });
-    itemsHtml += '</tbody></table></div>';
+    itemsHtml = '<div class="sk-items">' + items.map(function (item) {
+      return '<div class="sk-item">'
+        + '<div class="sk-item-main"><span class="sk-item-name">' + escapeHtml(item.ingredientName || '—') + '</span></div>'
+        + '<div class="sk-item-side"><span class="sk-item-num">' + fmtEur(item.totalCost || 0) + '</span>'
+        + '<span class="sk-item-meta">' + fmtNum(item.quantity) + '\u00A0' + escapeHtml(item.ingredientUnit || '') + ' × ' + fmtEur(item.unitCost || 0) + '</span></div>'
+        + '</div>';
+    }).join('') + '</div>';
   } else {
-    itemsHtml = '<div class="td-empty" style="padding:16px;text-align:center">Žiadne položky</div>';
+    itemsHtml = '<div class="empty-hint">Odpis nemá žiadne položky.</div>';
   }
 
   var actionBtns = '';
   if (wo.status === 'pending') {
-    actionBtns = '<div style="display:flex;gap:8px;padding-top:12px;border-top:1px solid var(--color-border);margin-top:4px">'
-      + '<button class="u-btn u-btn-ice" id="woDetailApprove" style="flex:1">Schvalit</button>'
-      + '<button class="u-btn u-btn-rose" id="woDetailReject" style="flex:1">Zamietnuť</button>'
+    actionBtns = '<div class="sk-actions">'
+      + '<button class="u-btn u-btn-rose" id="woDetailReject">Zamietnuť</button>'
+      + '<button class="u-btn u-btn-ice" id="woDetailApprove">Schváliť odpis</button>'
       + '</div>';
   }
 
   var ov = document.createElement('div');
   ov.className = 'u-overlay';
   ov.id = 'woDetailModal';
-  ov.innerHTML = '<div class="u-modal" style="text-align:left;max-width:640px">'
-    + '<div class="u-modal-title" style="text-align:center">Odpis #' + wo.id + '</div>'
-    + '<div class="u-modal-body" style="gap:10px">'
-    + '<div style="display:flex;gap:16px;flex-wrap:wrap">'
-    + '<div style="flex:1;min-width:120px"><div class="form-label">Dovod</div><div>' + reasonBadge(wo.reason) + '</div></div>'
-    + '<div style="flex:1;min-width:120px"><div class="form-label">Datum</div><div style="font-weight:600">' + fmtDate(wo.createdAt) + '</div></div>'
-    + '<div style="flex:1;min-width:120px"><div class="form-label">Stav</div><div>' + statusBadge(wo.status) + '</div></div>'
+  ov.innerHTML = '<div class="u-modal sk-modal" style="max-width:640px">'
+    + '<div class="u-modal-title">Odpis #' + wo.id + '</div>'
+    + '<div class="u-modal-body">'
+    + '<div class="sk-kv">'
+    + '<div><span class="sk-kv-k">Dôvod</span><span class="sk-kv-v">' + reasonPill(wo.reason) + '</span></div>'
+    + '<div><span class="sk-kv-k">Stav</span><span class="sk-kv-v">' + statusPill(wo.status) + '</span></div>'
+    + '<div><span class="sk-kv-k">Dátum</span><span class="sk-kv-v num">' + fmtDate(wo.createdAt) + '</span></div>'
+    + '<div><span class="sk-kv-k">Vytvoril</span><span class="sk-kv-v">' + escapeHtml(wo.createdByName || '—') + '</span></div>'
+    + (wo.approvedByName ? '<div><span class="sk-kv-k">Schválil</span><span class="sk-kv-v">' + escapeHtml(wo.approvedByName) + '</span></div>' : '')
     + '</div>'
-    + '<div style="display:flex;gap:16px;flex-wrap:wrap">'
-    + '<div style="flex:1;min-width:120px"><div class="form-label">Vytvoril</div><div style="font-weight:600">' + escapeHtml(wo.createdByName || '--') + '</div></div>'
-    + (wo.approvedByName ? '<div style="flex:1;min-width:120px"><div class="form-label">Schvalil</div><div style="font-weight:600">' + escapeHtml(wo.approvedByName) + '</div></div>' : '')
-    + '</div>'
-    + (wo.note ? '<div><div class="form-label">Poznamka</div><div style="font-size:13px;color:var(--color-text-sec)">' + escapeHtml(wo.note) + '</div></div>' : '')
-    + '<div><div class="form-label">Polozky</div>' + itemsHtml + '</div>'
-    + '<div style="text-align:right;font-weight:700;font-size:14px;padding-top:8px;border-top:1px solid rgba(255,255,255,.06)">'
-    + 'Celkova cena: <span style="color:var(--color-accent);font-family:var(--font-display)">' + fmtEur(wo.totalCost || 0) + '</span>'
-    + '</div>'
-    + '</div>'
+    + (wo.note ? '<div><span class="sk-kv-k">Poznámka</span><div class="sk-note">' + escapeHtml(wo.note) + '</div></div>' : '')
+    + '<div class="sk-label">Položky</div>'
+    + itemsHtml
+    + '<div class="sk-total"><span>Celková cena</span><strong>' + fmtEur(wo.totalCost || 0) + '</strong></div>'
     + actionBtns
-    + '<div class="u-modal-btns" style="margin-top:16px">'
-    + '<button class="u-btn u-btn-ghost" id="woDetailClose">Zavriet</button>'
+    + '</div>'
+    + '<div class="u-modal-btns">'
+    + '<button class="u-btn u-btn-ghost" id="woDetailClose">Zavrieť</button>'
     + '</div>'
     + '</div>';
 
@@ -419,10 +360,10 @@ function openDetailModal(id) {
       try {
         await api.post('/inventory/write-offs/' + wo.id + '/approve');
         closeModal();
-        showToast('Odpis #' + wo.id + ' schvaleny', true);
+        showToast('Odpis #' + wo.id + ' schválený', true);
         await loadWriteOffs();
       } catch (err) {
-        showToast(err.message || 'Chyba pri schvalovani', 'error');
+        showToast(err.message || 'Chyba pri schvaľovaní', 'error');
         btnReset(approveBtn);
       }
     });
@@ -434,10 +375,10 @@ function openDetailModal(id) {
       try {
         await api.post('/inventory/write-offs/' + wo.id + '/reject');
         closeModal();
-        showToast('Odpis #' + wo.id + ' zamietnuty', true);
+        showToast('Odpis #' + wo.id + ' zamietnutý', true);
         await loadWriteOffs();
       } catch (err) {
-        showToast(err.message || 'Chyba pri zamietani', 'error');
+        showToast(err.message || 'Chyba pri zamietaní', 'error');
         btnReset(rejectBtn);
       }
     });
@@ -454,38 +395,32 @@ function openNewModal() {
   var ov = document.createElement('div');
   ov.className = 'u-overlay';
   ov.id = 'woNewModal';
-  ov.innerHTML = '<div class="u-modal" style="text-align:left;max-width:720px">'
-    + '<div class="u-modal-title" style="text-align:center">Novy odpis</div>'
-    + '<div class="u-modal-body" style="gap:14px">'
+  ov.innerHTML = '<div class="u-modal sk-modal" style="max-width:720px">'
+    + '<div class="u-modal-title">Nový odpis</div>'
+    + '<div class="u-modal-body">'
     + '<div class="u-modal-field">'
-    + '<label for="fWoReason">Dovod<span class="required-mark" aria-hidden="true"> *</span></label>'
+    + '<label for="fWoReason">Dôvod<span class="required-mark" aria-hidden="true"> *</span></label>'
     + '<select id="fWoReason" data-validate="required">'
-    + '<option value="">-- Vyberte dovod --</option>'
-    + '<option value="expiration">Expiracia</option>'
-    + '<option value="damage">Poskodenie</option>'
-    + '<option value="theft">Kradez</option>'
-    + '<option value="other">Ine</option>'
+    + '<option value="">— vyberte dôvod —</option>'
+    + '<option value="expiration">Expirácia</option>'
+    + '<option value="damage">Poškodenie</option>'
+    + '<option value="theft">Krádež</option>'
+    + '<option value="other">Iné</option>'
     + '</select>'
     + '</div>'
     + '<div class="u-modal-field">'
-    + '<label for="fWoNote">Poznamka</label>'
-    + '<textarea id="fWoNote" class="form-input" rows="2" placeholder="Doplnujuce informacie..."></textarea>'
+    + '<label for="fWoNote">Poznámka</label>'
+    + '<textarea id="fWoNote" class="form-input" rows="2" placeholder="Doplňujúce informácie…"></textarea>'
     + '</div>'
-    + '<div>'
-    + '<div class="form-label" style="margin-bottom:8px">Polozky<span class="required-mark" aria-hidden="true"> *</span></div>'
-    + '<div id="woItemsWrap"></div>'
-    + '<button class="btn-outline-accent" id="woAddItemBtn" type="button" style="margin-top:8px">'
-    + '<svg aria-hidden="true" viewBox="0 0 14 14" style="width:12px;height:12px"><line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
-    + ' Pridať položku'
-    + '</button>'
-    + '</div>'
-    + '<div id="woGrandTotal" style="text-align:right;font-weight:700;font-size:14px;padding-top:8px;border-top:1px solid rgba(255,255,255,.06)">'
-    + 'Celkova cena: <span style="color:var(--color-accent);font-family:var(--font-display)">0,00 \u20AC</span>'
-    + '</div>'
+    + '<div class="sk-label">Položky<span class="required-mark" aria-hidden="true"> *</span></div>'
+    + '<div id="woItemsWrap" class="sk-frows"></div>'
+    + '<button class="btn-secondary sk-frow-add" id="woAddItemBtn" type="button"><svg aria-hidden="true" viewBox="0 0 14 14"><line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg> Pridať položku</button>'
+    + '<div id="woGrandTotal" class="sk-total"><span>Celková cena</span><strong>' + fmtEur(0) + '</strong></div>'
+    + '<div class="sk-total-hint">Cena sa počíta z aktuálnej nákupnej ceny suroviny. Odpis nad 50 € čaká na schválenie manažérom.</div>'
     + '</div>'
     + '<div class="u-modal-btns">'
-    + '<button class="u-btn u-btn-ghost" id="woNewCancel">Zrusit</button>'
-    + '<button class="u-btn u-btn-ice" id="woNewSave">Vytvorit odpis</button>'
+    + '<button class="u-btn u-btn-ghost" id="woNewCancel">Zrušiť</button>'
+    + '<button class="u-btn u-btn-ice" id="woNewSave">Vytvoriť odpis</button>'
     + '</div>'
     + '</div>';
 
@@ -516,7 +451,7 @@ function openNewModal() {
     var note = document.getElementById('fWoNote').value.trim();
 
     if (!reason) {
-      showToast('Vyberte dovod odpisu');
+      showToast('Vyberte dôvod odpisu');
       return;
     }
 
@@ -535,7 +470,7 @@ function openNewModal() {
     });
 
     if (items.length === 0 || hasError) {
-      showToast('Pridajte aspon jednu polozku s platnym mnozstvom');
+      showToast('Pridajte aspoň jednu položku s platným množstvom');
       return;
     }
 
@@ -547,11 +482,11 @@ function openNewModal() {
         note: note || undefined,
         items: items
       });
-      showToast('Odpis vytvoreny', true);
+      showToast('Odpis vytvorený', true);
       closeModal();
       await loadWriteOffs();
     } catch (err) {
-      showToast(err.message || 'Chyba pri vytvarani odpisu', 'error');
+      showToast(err.message || 'Chyba pri vytváraní odpisu', 'error');
     } finally {
       if (saveBtn) btnReset(saveBtn);
     }
@@ -565,25 +500,24 @@ function addItemRow() {
   itemCounter++;
   var rowId = 'woItem_' + itemCounter;
 
-  var ingredientOpts = '<option value="">-- Surovina --</option>';
+  var ingredientOpts = '<option value="">— surovina —</option>';
   ingredients.forEach(function (ing) {
     ingredientOpts += '<option value="' + ing.id + '" data-cost="' + (ing.costPerUnit || 0) + '">'
       + escapeHtml(ing.name) + ' (' + escapeHtml(ing.unit) + ')</option>';
   });
 
+  // Riadok položky: surovina / množstvo / suma / odstrániť. Rozloženie
+  // rieši CSS (.sk-frow--wo), na telefóne sa skladá do dvoch riadkov.
   var row = document.createElement('div');
-  row.className = 'wo-item-row';
+  row.className = 'wo-item-row sk-frow sk-frow--wo';
   row.id = rowId;
-  row.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap';
   row.innerHTML = ''
-    + '<select class="wo-ingredient-select" style="flex:2;min-width:140px;padding:8px 10px;border-radius:var(--radius-sm);border:1px solid var(--color-border);background:rgba(255,255,255,.04);font-family:var(--font-body);font-size:13px;color:var(--color-text);outline:none">'
+    + '<select class="wo-ingredient-select form-select sk-f-sel" aria-label="Surovina">'
     + ingredientOpts
     + '</select>'
-    + '<input class="wo-qty-input" type="number" step="0.01" min="0" placeholder="Mnozstvo" style="flex:1;min-width:80px;padding:8px 10px;border-radius:var(--radius-sm);border:1px solid var(--color-border);background:rgba(255,255,255,.04);font-family:var(--font-body);font-size:13px;color:var(--color-text);outline:none">'
-    + '<span class="wo-line-cost" style="flex:0 0 90px;text-align:right;font-family:var(--font-display);font-weight:600;font-size:13px;color:var(--color-text-sec)">0,00 \u20AC</span>'
-    + '<button class="act-btn del wo-remove-btn" type="button" title="Odstranit" style="flex-shrink:0">'
-    + '<svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
-    + '</button>';
+    + '<input class="wo-qty-input form-input sk-f-qty" type="number" step="0.01" min="0" placeholder="Množstvo" aria-label="Množstvo">'
+    + '<span class="wo-line-cost sk-frow-tot sk-f-tot">' + fmtEur(0) + '</span>'
+    + '<button class="act-btn del wo-remove-btn sk-f-rm" type="button" title="Odstrániť" aria-label="Odstrániť položku"><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>';
 
   wrap.appendChild(row);
 
@@ -628,25 +562,21 @@ function updateGrandTotal() {
     total += qty * costPerUnit;
   });
 
-  totalEl.innerHTML = 'Celkova cena: <span style="color:var(--color-accent);font-family:var(--font-display)">' + fmtEur(total) + '</span>';
+  totalEl.innerHTML = '<span>Celková cena</span><strong>' + fmtEur(total) + '</strong>';
 }
 
 // ===== VIEW TOGGLE =====
 function setView(view) {
   currentView = view;
-  $$('.wo-view-btn').forEach(function (btn) {
-    btn.classList.toggle('active', btn.dataset.view === view);
-  });
-
   var listSection = $('#listSection');
   var summarySection = $('#summarySection');
 
   if (view === 'list') {
-    if (listSection) listSection.style.display = '';
-    if (summarySection) summarySection.style.display = 'none';
+    if (listSection) listSection.hidden = false;
+    if (summarySection) summarySection.hidden = true;
   } else {
-    if (listSection) listSection.style.display = 'none';
-    if (summarySection) summarySection.style.display = '';
+    if (listSection) listSection.hidden = true;
+    if (summarySection) summarySection.hidden = false;
     loadSummary();
   }
 }
@@ -655,7 +585,10 @@ function setView(view) {
 function setActiveTab(status) {
   activeStatus = status;
   $$('.wo-tab-btn').forEach(function (btn) {
-    btn.classList.toggle('active', btn.dataset.status === status);
+    var on = btn.dataset.status === status;
+    btn.classList.toggle('active', on);
+    btn.classList.toggle('is-on', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
   });
   loadWriteOffs();
 }
@@ -672,44 +605,43 @@ export function init(container) {
   currentView = 'list';
   itemCounter = 0;
 
-  container.innerHTML = ''
-    // View toggle
-    + '<div class="tabs" style="margin-bottom:16px">'
-    + '<button class="tab-btn wo-view-btn active" data-view="list">Zoznam</button>'
-    + '<button class="tab-btn wo-view-btn" data-view="summary">Prehlad</button>'
-    + '</div>'
+  var statusChips = [['', 'Všetky'], ['pending', 'Čakajúce'], ['approved', 'Schválené'], ['rejected', 'Zamietnuté']]
+    .map(function (t, i) {
+      return '<button type="button" class="doch-chip wo-tab-btn' + (i === 0 ? ' is-on active' : '') + '" data-status="' + t[0] + '" data-label="' + t[1] + '" aria-pressed="' + (i === 0 ? 'true' : 'false') + '">' + t[1] + '</button>';
+    }).join('');
 
+  container.innerHTML = ''
     // LIST VIEW
     + '<div id="listSection">'
-    + '<div class="top-bar">'
+    + '<div class="sk-head">'
+    + '<div class="sk-sum" id="woSum" aria-live="polite"></div>'
     + '<button class="btn-add" id="addWriteOffBtn">'
     + '<svg aria-hidden="true" viewBox="0 0 14 14"><line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
-    + 'Novy odpis'
+    + 'Nový odpis'
     + '</button>'
     + '</div>'
-    + '<div class="tabs" id="woTabs">'
-    + '<button class="tab-btn wo-tab-btn active" data-status="">Vsetky</button>'
-    + '<button class="tab-btn wo-tab-btn" data-status="pending">Cakajuce</button>'
-    + '<button class="tab-btn wo-tab-btn" data-status="approved">Schvalene</button>'
-    + '<button class="tab-btn wo-tab-btn" data-status="rejected">Zamietnute</button>'
-    + '</div>'
-    + '<div class="panel" id="writeOffsPanel">'
+    + '<div class="sk-filters"><div class="sk-chips" id="woTabs" role="group" aria-label="Stav odpisu">' + statusChips + '</div></div>'
+    + '<div class="panel sk-bare" id="writeOffsPanel">'
     + '<div class="skeleton-row"></div>'
     + '<div class="skeleton-row"></div>'
     + '<div class="skeleton-row"></div>'
     + '</div>'
+    // Prehľad mesiaca je report — odkaz pod zoznamom, nie segment nad ním
+    // (ušetrí 62 px nad prvým odpisom).
+    + '<div class="sk-foot"><button type="button" class="sk-link wo-view-btn" data-view="summary">Prehľad mesiaca</button></div>'
     + '</div>'
 
     // SUMMARY VIEW
-    + '<div id="summarySection" style="display:none">'
+    + '<div id="summarySection" hidden>'
+    + '<div class="sk-detail-head"><button type="button" class="sk-back wo-view-btn" data-view="list"><svg aria-hidden="true" viewBox="0 0 16 16"><path d="M10 3L5 8l5 5"/></svg>Späť na zoznam</button></div>'
     + '<div id="summaryWrap">'
     + '<div class="skeleton-row"></div>'
     + '<div class="skeleton-row"></div>'
     + '</div>'
     + '</div>';
 
-  // View toggle events
-  _container.querySelector('.tabs').addEventListener('click', function (e) {
+  // View toggle events (odkaz pod zoznamom / späť zo súhrnu)
+  container.addEventListener('click', function (e) {
     var btn = e.target.closest('.wo-view-btn');
     if (!btn) return;
     setView(btn.dataset.view);
@@ -727,7 +659,7 @@ export function init(container) {
     setActiveTab(btn.dataset.status);
   });
 
-  // Table event delegation
+  // List event delegation
   container.addEventListener('click', function (e) {
     var detailBtn = e.target.closest('[data-detail-id]');
     if (detailBtn) {

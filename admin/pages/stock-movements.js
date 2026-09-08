@@ -53,16 +53,23 @@ function fmtNum(n) {
   return Number(n).toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function getTypeBadge(type) {
-  var map = {
-    purchase:   { cls: 'badge-success',  label: 'Prijem' },
-    sale:       { cls: 'badge-purple',   label: 'Predaj' },
-    adjustment: { cls: 'badge-info',     label: 'Uprava' },
-    waste:      { cls: 'badge-danger',   label: 'Odpad' },
-    inventory:  { cls: 'badge-warning',  label: 'Inventura' }
-  };
-  var entry = map[type] || { cls: '', label: type || '--' };
-  return '<span class="badge ' + entry.cls + '">' + escapeHtml(entry.label) + '</span>';
+// Typ pohybu: predaj je pravidlo (bez farby), príjem zelený, odpad červený,
+// inventúra a ručná úprava sú „niekto zasiahol" — jantár / terakota.
+var TYPES = {
+  purchase:   { cls: 'is-ok',     label: 'Príjem' },
+  sale:       { cls: 'is-dim',    label: 'Predaj' },
+  adjustment: { cls: 'is-accent', label: 'Úprava' },
+  waste:      { cls: 'is-danger', label: 'Odpad' },
+  inventory:  { cls: 'is-warn',   label: 'Inventúra' }
+};
+function typePill(type) {
+  var entry = TYPES[type] || { cls: 'is-dim', label: type || '—' };
+  return '<span class="sk-pill ' + entry.cls + '">' + escapeHtml(entry.label) + '</span>';
+}
+function recordWord(n) {
+  if (n === 1) return 'pohyb';
+  if (n >= 2 && n <= 4) return 'pohyby';
+  return 'pohybov';
 }
 
 function buildQueryString() {
@@ -91,7 +98,7 @@ function renderIngredientOptions() {
   var select = $('#filterIngredient');
   if (!select) return;
   var val = select.value;
-  var html = '<option value="">Vsetky suroviny</option>';
+  var html = '<option value="">Všetky suroviny</option>';
   ingredients.forEach(function (ing) {
     html += '<option value="' + ing.id + '"' + (String(ing.id) === val ? ' selected' : '') + '>'
       + escapeHtml(ing.name) + '</option>';
@@ -102,7 +109,7 @@ function renderIngredientOptions() {
 // === Load movements ===
 async function loadMovements() {
   var tableWrap = $('#movementsTable');
-  if (tableWrap) showLoading(tableWrap, 'Načítavam pohyby...');
+  if (tableWrap) showLoading(tableWrap, 'Načítavam pohyby…');
   try {
     var result = await api.get('/inventory/movements?' + buildQueryString());
     if (tableWrap) hideLoading(tableWrap);
@@ -121,7 +128,7 @@ async function loadMovements() {
     renderPagination();
   } catch (err) {
     if (tableWrap) hideLoading(tableWrap);
-    renderError(tableWrap, err.message || 'Chyba pri nacitani pohybov', loadMovements);
+    renderError(tableWrap, err.message || 'Chyba pri načítaní pohybov', loadMovements);
   }
 }
 
@@ -130,39 +137,39 @@ function renderTable() {
   var tableWrap = $('#movementsTable');
   if (!tableWrap) return;
 
+  var countEl = $('#smCount');
+  if (countEl) countEl.textContent = totalCount + ' ' + recordWord(totalCount);
+
   if (!movements.length) {
-    tableWrap.innerHTML = '<div class="empty-state">'
-      + '<div class="empty-state-icon">&#128230;</div>'
-      + '<div class="empty-state-title">Žiadne pohyby</div>'
-      + '<div class="empty-state-text">Pre zvolene filtre neboli najdene ziadne skladove pohyby.</div>'
-      + '</div>';
+    tableWrap.innerHTML = '<div class="empty-hint">Pre zvolené filtre sa nenašli žiadne pohyby skladu. Skúste iný typ alebo širšie obdobie.</div>';
     return;
   }
 
-  var html = '<div class="table-scroll-wrap"><table class="data-table"><thead><tr>'
-    + '<th>Dátum</th>'
-    + '<th>Typ</th>'
-    + '<th>Surovina / Položka</th>'
-    + '<th class="text-right">Množstvo</th>'
-    + '<th class="text-right">Pred</th>'
-    + '<th class="text-right">Po</th>'
-    + '<th>Poznámka</th>'
+  // Triedy sm-c-* sú kotvy pre mobilnú mriežku: názov / rozdiel hore,
+  // typ · dátum / pred → po pod tým, poznámka na celú šírku.
+  var html = '<div class="sk-table-wrap"><table class="sk-table sm-table"><thead><tr>'
+    + '<th class="sm-c-date">Dátum</th>'
+    + '<th class="sm-c-type">Typ</th>'
+    + '<th class="sm-c-name">Surovina / položka</th>'
+    + '<th class="num sm-c-qty">Rozdiel</th>'
+    + '<th class="num sm-c-prev">Pred</th>'
+    + '<th class="num sm-c-new">Po</th>'
+    + '<th class="sm-c-note">Poznámka</th>'
     + '</tr></thead><tbody>';
 
   movements.forEach(function (m) {
     var diff = Number(m.newQty) - Number(m.previousQty);
-    var qtyClass = diff >= 0 ? 'color-success' : 'color-danger';
-    var itemName = m.ingredientName || m.menuItemName || ('ID: ' + (m.ingredientId || m.menuItemId || '--'));
+    var qtyClass = diff > 0 ? 'is-up' : (diff < 0 ? 'is-down' : '');
+    var itemName = m.ingredientName || m.menuItemName || ('ID: ' + (m.ingredientId || m.menuItemId || '—'));
 
     html += '<tr>';
-    html += '<td>' + fmtDate(m.createdAt) + '</td>';
-    html += '<td>' + getTypeBadge(m.type) + '</td>';
-    html += '<td class="td-name">' + escapeHtml(itemName) + '</td>';
-    html += '<td class="text-right num ' + qtyClass + '">' + fmtQty(diff) + '</td>';
-    html += '<td class="text-right num">' + fmtNum(m.previousQty) + '</td>';
-    html += '<td class="text-right num">' + fmtNum(m.newQty) + '</td>';
-    html += '<td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
-      + escapeHtml(m.note || '') + '</td>';
+    html += '<td class="sm-c-date">' + fmtDate(m.createdAt) + '</td>';
+    html += '<td class="sm-c-type">' + typePill(m.type) + '</td>';
+    html += '<td class="td-name sm-c-name">' + escapeHtml(itemName) + '</td>';
+    html += '<td class="num sm-c-qty ' + qtyClass + '">' + fmtQty(diff) + '</td>';
+    html += '<td class="num sm-c-prev">' + fmtNum(m.previousQty) + '</td>';
+    html += '<td class="num sm-c-new"><span class="sk-prev-inline">' + fmtNum(m.previousQty) + ' → </span>' + fmtNum(m.newQty) + '</td>';
+    html += '<td class="td-note sm-c-note">' + escapeHtml(m.note || '') + '</td>';
     html += '</tr>';
   });
 
@@ -179,20 +186,18 @@ function renderPagination() {
   var currentPage = Math.floor(currentOffset / PAGE_SIZE) + 1;
 
   if (totalCount <= PAGE_SIZE) {
-    wrap.innerHTML = '<span class="color-sec font-sm">' + totalCount + ' zaznamov</span>';
+    wrap.innerHTML = '';
     return;
   }
 
   wrap.innerHTML = ''
-    + '<button class="btn-outline-accent" id="prevPageBtn"'
-    + (currentPage <= 1 ? ' disabled style="opacity:.4;pointer-events:none"' : '')
-    + '>Predchadzajuca</button>'
-    + '<span class="color-sec font-sm" style="padding:0 12px;line-height:36px">'
-    + currentPage + ' z ' + totalPages
-    + '</span>'
-    + '<button class="btn-outline-accent" id="nextPageBtn"'
-    + (currentPage >= totalPages ? ' disabled style="opacity:.4;pointer-events:none"' : '')
-    + '>Dalsia strana</button>';
+    + '<button type="button" class="btn-secondary" id="prevPageBtn"'
+    + (currentPage <= 1 ? ' disabled' : '')
+    + '>Predchádzajúca</button>'
+    + '<span class="sk-pager-n">' + currentPage + ' z ' + totalPages + '</span>'
+    + '<button type="button" class="btn-secondary" id="nextPageBtn"'
+    + (currentPage >= totalPages ? ' disabled' : '')
+    + '>Ďalšia</button>';
 
   var prevBtn = $('#prevPageBtn');
   var nextBtn = $('#nextPageBtn');
@@ -216,40 +221,43 @@ function openAdjustModal() {
   var existing = document.getElementById('adjustModal');
   if (existing) existing.remove();
 
-  var ingOptions = '<option value="">-- Vyberte surovinu --</option>';
+  var ingOptions = '<option value="">— vyberte surovinu —</option>';
   ingredients.forEach(function (ing) {
-    ingOptions += '<option value="' + ing.id + '">' + escapeHtml(ing.name) + '</option>';
+    ingOptions += '<option value="' + ing.id + '">' + escapeHtml(ing.name) + ' (' + escapeHtml(ing.unit || '') + ')</option>';
   });
 
   var ov = document.createElement('div');
   ov.className = 'u-overlay';
   ov.id = 'adjustModal';
-  ov.innerHTML = '<div class="u-modal" style="text-align:left;max-width:480px">'
-    + '<div class="u-modal-title" style="text-align:center">Rucna uprava</div>'
+  ov.innerHTML = '<div class="u-modal sk-modal" style="max-width:480px">'
+    + '<div class="u-modal-title">Ručná úprava skladu</div>'
     + '<div class="u-modal-body">'
     + '<div class="u-modal-field">'
     + '<label for="adjIngredient">Surovina<span class="required-mark" aria-hidden="true"> *</span></label>'
     + '<select id="adjIngredient" aria-required="true" data-validate="required">' + ingOptions + '</select>'
     + '</div>'
+    + '<div class="u-modal-row">'
     + '<div class="u-modal-field">'
-    + '<label for="adjQty">Mnozstvo<span class="required-mark" aria-hidden="true"> *</span></label>'
-    + '<input id="adjQty" type="number" step="0.01" placeholder="napr. 5 alebo -3" aria-required="true" data-validate="required">'
+    + '<label for="adjQty">Množstvo<span class="required-mark" aria-hidden="true"> *</span></label>'
+    + '<input id="adjQty" type="number" step="0.01" placeholder="napr. 5 alebo −3" aria-required="true" data-validate="required">'
+    + '<small>Kladné číslo pridá, záporné odoberie.</small>'
     + '</div>'
     + '<div class="u-modal-field">'
     + '<label for="adjType">Typ</label>'
     + '<select id="adjType">'
-    + '<option value="adjustment">Uprava</option>'
+    + '<option value="adjustment">Úprava</option>'
     + '<option value="waste">Odpad</option>'
     + '</select>'
     + '</div>'
+    + '</div>'
     + '<div class="u-modal-field">'
-    + '<label for="adjNote">Poznamka</label>'
-    + '<textarea id="adjNote" rows="2" placeholder="Dovod upravy..."></textarea>'
+    + '<label for="adjNote">Poznámka</label>'
+    + '<textarea id="adjNote" rows="2" placeholder="Dôvod úpravy…"></textarea>'
     + '</div>'
     + '</div>'
     + '<div class="u-modal-btns">'
-    + '<button class="u-btn u-btn-ghost" id="adjustModalCancel">Zrusit</button>'
-    + '<button class="u-btn u-btn-ice" id="adjustModalSave">Ulozit</button>'
+    + '<button class="u-btn u-btn-ghost" id="adjustModalCancel">Zrušiť</button>'
+    + '<button class="u-btn u-btn-ice" id="adjustModalSave">Uložiť úpravu</button>'
     + '</div>'
     + '</div>';
 
@@ -279,7 +287,7 @@ function openAdjustModal() {
       return;
     }
     if (isNaN(quantity) || quantity === 0) {
-      showToast('Zadajte nenulove množstvo');
+      showToast('Zadajte nenulové množstvo');
       return;
     }
 
@@ -292,12 +300,12 @@ function openAdjustModal() {
         type: type,
         note: note || undefined
       });
-      showToast('Uprava ulozena', true);
+      showToast('Úprava uložená', true);
       closeModal();
       currentOffset = 0;
       await loadMovements();
     } catch (err) {
-      showToast(err.message || 'Chyba pri ukladani upravy', 'error');
+      showToast(err.message || 'Chyba pri ukladaní úpravy', 'error');
     } finally {
       if (saveBtn) btnReset(saveBtn);
     }
@@ -324,59 +332,76 @@ export function init(container) {
   currentOffset = 0;
   filters = { type: '', ingredientId: '', from: '', to: '' };
 
+  var typeChips = [['', 'Všetky'], ['purchase', 'Príjem'], ['sale', 'Predaj'], ['adjustment', 'Úprava'], ['waste', 'Odpad'], ['inventory', 'Inventúra']]
+    .map(function (t, i) {
+      return '<button type="button" class="doch-chip' + (i === 0 ? ' is-on' : '') + '" data-type="' + t[0] + '" aria-pressed="' + (i === 0 ? 'true' : 'false') + '">' + t[1] + '</button>';
+    }).join('');
+
   container.innerHTML = ''
-    + '<div class="top-bar">'
+    + '<div class="sk-head">'
+    + '<div class="sk-count" id="smCount" aria-live="polite"></div>'
     + '<button class="btn-add" id="adjustBtn">'
     + '<svg aria-hidden="true" viewBox="0 0 14 14"><line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
-    + 'Rucna uprava'
+    + 'Ručná úprava'
     + '</button>'
     + '</div>'
 
-    // Filter bar
-    + '<div class="panel mb-3" style="padding:14px 16px">'
-    + '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end">'
+    // Filtre: typ ako chipy (aplikujú sa hneď), surovina a dátumy pod „Iné…".
+    // Predtým 4 polia + tlačidlo „Filtrovať" v paneli — 190 px, kým sa
+    // ukázal prvý pohyb.
+    + '<div class="sk-filters">'
+    + '<div class="sk-filter-row">'
+    + '<div class="sk-chips" role="group" aria-label="Typ pohybu">' + typeChips + '</div>'
+    + '<button type="button" class="doch-chip is-more" id="smMore" aria-expanded="false" aria-controls="smMoreBox">Iné…</button>'
+    + '</div>'
+    + '<input type="hidden" id="filterType" value="">'
+    + '<div class="sk-more" id="smMoreBox" hidden>'
+    + '<label class="doch-toolbar-label">Surovina'
+    + '<select id="filterIngredient" class="doch-input"><option value="">Všetky suroviny</option></select>'
+    + '</label>'
+    + '<div class="sk-dates">'
+    + '<label class="doch-toolbar-label">Od<input id="filterFrom" type="date" class="doch-input"></label>'
+    + '<label class="doch-toolbar-label">Do<input id="filterTo" type="date" class="doch-input"></label>'
+    + '</div>'
+    + '</div>'
+    + '</div>'
 
-    + '<div class="u-modal-field" style="flex:0 0 auto;min-width:140px">'
-    + '<label for="filterType" style="margin-bottom:4px">Typ</label>'
-    + '<select id="filterType" class="form-select" style="padding:8px 30px 8px 10px">'
-    + '<option value="">Vsetky</option>'
-    + '<option value="purchase">Prijem</option>'
-    + '<option value="sale">Predaj</option>'
-    + '<option value="adjustment">Uprava</option>'
-    + '<option value="waste">Odpad</option>'
-    + '<option value="inventory">Inventura</option>'
-    + '</select></div>'
-
-    + '<div class="u-modal-field" style="flex:0 0 auto;min-width:160px">'
-    + '<label for="filterIngredient" style="margin-bottom:4px">Surovina</label>'
-    + '<select id="filterIngredient" class="form-select" style="padding:8px 30px 8px 10px">'
-    + '<option value="">Vsetky suroviny</option>'
-    + '</select></div>'
-
-    + '<div class="u-modal-field" style="flex:0 0 auto;min-width:140px">'
-    + '<label for="filterFrom" style="margin-bottom:4px">Od</label>'
-    + '<input id="filterFrom" type="date" class="form-input" style="padding:7px 10px"></div>'
-
-    + '<div class="u-modal-field" style="flex:0 0 auto;min-width:140px">'
-    + '<label for="filterTo" style="margin-bottom:4px">Do</label>'
-    + '<input id="filterTo" type="date" class="form-input" style="padding:7px 10px"></div>'
-
-    + '<button class="btn-outline-accent" id="applyFilterBtn" style="height:38px">Filtrovat</button>'
-    + '</div></div>'
-
-    // Table
-    + '<div id="movementsTable">'
+    // Zoznam
+    + '<div class="sk-list" id="movementsTable">'
     + '<div class="skeleton-row"></div>'
     + '<div class="skeleton-row"></div>'
     + '<div class="skeleton-row"></div>'
     + '</div>'
 
-    // Pagination
-    + '<div id="paginationWrap" style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:16px"></div>';
+    // Stránkovanie
+    + '<div class="sk-pager" id="paginationWrap"></div>';
 
   // Bind events
   $('#adjustBtn').addEventListener('click', function () { openAdjustModal(); });
-  $('#applyFilterBtn').addEventListener('click', function () { applyFilters(); });
+
+  container.querySelector('.sk-chips').addEventListener('click', function (e) {
+    var chip = e.target.closest('[data-type]');
+    if (!chip) return;
+    container.querySelectorAll('.sk-chips [data-type]').forEach(function (c) {
+      var on = c === chip;
+      c.classList.toggle('is-on', on);
+      c.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    $('#filterType').value = chip.dataset.type;
+    applyFilters();
+  });
+
+  $('#smMore').addEventListener('click', function () {
+    var box = $('#smMoreBox');
+    var open = box.hidden;
+    box.hidden = !open;
+    this.setAttribute('aria-expanded', open ? 'true' : 'false');
+    this.classList.toggle('is-on', open);
+  });
+
+  ['#filterIngredient', '#filterFrom', '#filterTo'].forEach(function (sel) {
+    $(sel).addEventListener('change', function () { applyFilters(); });
+  });
 
   // Escape key handler
   _escHandler = function (e) {

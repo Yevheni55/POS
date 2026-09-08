@@ -42,15 +42,23 @@ function fmtMonth(isoStr) {
 }
 
 var CATEGORIES = {
-  kitchen_equipment: { label: 'Kuchyna',     cls: 'badge-success' },
-  furniture:         { label: 'Nabytok',     cls: 'badge-info' },
-  electronics:       { label: 'Elektronika', cls: 'badge-purple' },
-  other:             { label: 'Ine',         cls: '' }
+  kitchen_equipment: { label: 'Kuchyňa' },
+  furniture:         { label: 'Nábytok' },
+  electronics:       { label: 'Elektronika' },
+  other:             { label: 'Iné' }
 };
 
-function categoryBadge(cat) {
-  var entry = CATEGORIES[cat] || CATEGORIES.other;
-  return '<span class="badge ' + entry.cls + '">' + escHtml(entry.label) + '</span>';
+// Kategória je zaradenie, nie stav — text, nie farebná pilulka.
+function categoryLabel(cat) {
+  return (CATEGORIES[cat] || CATEGORIES.other).label;
+}
+function assetWord(n) {
+  if (n === 1) return 'zariadenie';
+  if (n >= 2 && n <= 4) return 'zariadenia';
+  return 'zariadení';
+}
+function meterClass(pct) {
+  return pct >= 90 ? ' is-danger' : (pct >= 60 ? ' is-warn' : '');
 }
 
 function calcMonthlyDep(purchasePrice, residualValue, usefulLifeMonths) {
@@ -75,14 +83,14 @@ function depreciatedPct(asset) {
 // === Load data ===
 async function loadAssets() {
   var tableWrap = $('#assetsTable');
-  if (tableWrap) showLoading(tableWrap, 'Načítavam majetok...');
+  if (tableWrap) showLoading(tableWrap, 'Načítavam majetok…');
   try {
     assets = await api.get('/inventory/assets');
     if (tableWrap) hideLoading(tableWrap);
     renderTable();
   } catch (err) {
     if (tableWrap) hideLoading(tableWrap);
-    renderError(tableWrap, err.message || 'Chyba pri nacitani majetku', loadAssets);
+    renderError(tableWrap, err.message || 'Chyba pri načítaní majetku', loadAssets);
   }
 }
 
@@ -113,6 +121,7 @@ function renderStats() {
   if (cntEl) {
     cntEl.textContent = Number(summary.count || 0).toLocaleString('sk-SK');
     cntEl.classList.remove('skeleton', 'skeleton-text');
+    var w = $('#statCountWord'); if (w) w.textContent = assetWord(Number(summary.count || 0));
   }
 }
 
@@ -132,56 +141,24 @@ function renderTable() {
     return;
   }
 
-  var html = '<div class="table-scroll-wrap"><table class="data-table"><thead><tr>';
-  html += '<th>Názov</th>';
-  html += '<th>Kategória</th>';
-  html += '<th class="text-right">Nákupná cena</th>';
-  html += '<th>Dátum nákupu</th>';
-  html += '<th class="text-right">Mesačný odpis</th>';
-  html += '<th class="text-right">Aktuálna hodnota</th>';
-  html += '<th>% odpisane</th>';
-  html += '<th class="text-right">Akcie</th>';
-  html += '</tr></thead><tbody>';
-
-  assets.forEach(function (a) {
+  // Riadok: názov + kategória · dátum nákupu · mesačný odpis; vpravo aktuálna
+  // hodnota a % odpísané; pod riadkom tenký ukazovateľ. Celý riadok otvára
+  // detail (upraviť / odstrániť sú v ňom).
+  tableWrap.innerHTML = '<div class="sk-list">' + assets.map(function (a) {
     var pct = depreciatedPct(a);
-    var barColor = pct >= 90 ? 'var(--color-danger)' : (pct >= 60 ? 'var(--color-warning)' : 'var(--color-success)');
-
-    html += '<tr class="data-row" data-view-id="' + a.id + '" style="cursor:pointer">';
-    html += '<td class="td-name">' + escHtml(a.name) + '</td>';
-    html += '<td>' + categoryBadge(a.category) + '</td>';
-    html += '<td class="text-right num">' + fmtEur(a.purchasePrice) + '</td>';
-    html += '<td>' + fmtDate(a.purchaseDate) + '</td>';
-    html += '<td class="text-right num">' + fmtEur(a.monthlyDepreciation) + '</td>';
-    html += '<td class="text-right num">' + fmtEur(a.currentValue) + '</td>';
-    html += '<td>'
-      + '<div style="display:flex;align-items:center;gap:8px">'
-      + '<div style="flex:1;height:6px;background:var(--color-border);border-radius:3px;overflow:hidden;min-width:60px">'
-      + '<div style="height:100%;width:' + pct.toFixed(1) + '%;background:' + barColor + ';border-radius:3px;transition:width .3s"></div>'
-      + '</div>'
-      + '<span class="num" style="font-size:11px;min-width:36px;text-align:right">' + pct.toFixed(0) + '%</span>'
-      + '</div>'
-      + '</td>';
-    html += '<td class="text-right"><div class="prod-actions">';
-    html += '<button class="act-btn" data-detail-id="' + a.id + '" title="Detail">'
-      + '<svg viewBox="0 0 24 24" width="14" height="14" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round">'
-      + '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>'
+    return '<button type="button" class="sk-row" data-view-id="' + a.id + '">'
+      + '<span class="sk-row-main">'
+      + '<span class="sk-row-name">' + escHtml(a.name) + '</span>'
+      + '<span class="sk-row-sub">' + escHtml(categoryLabel(a.category)) + ' · kúpené ' + fmtDate(a.purchaseDate) + ' · odpis ' + fmtEur(a.monthlyDepreciation) + '/mes.</span>'
+      + '</span>'
+      + '<span class="sk-row-side">'
+      + '<span class="sk-row-num">' + fmtEur(a.currentValue) + '</span>'
+      + '<span class="sk-row-meta">odpísané ' + pct.toFixed(0) + ' % z ' + fmtEur(a.purchasePrice) + '</span>'
+      + '</span>'
+      + '<svg class="sk-row-chev" aria-hidden="true" viewBox="0 0 16 16"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+      + '<span class="sk-meter' + meterClass(pct) + '" aria-hidden="true"><span style="width:' + pct.toFixed(1) + '%"></span></span>'
       + '</button>';
-    html += '<button class="act-btn" data-edit-id="' + a.id + '" title="Upraviť">'
-      + '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
-      + '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>'
-      + '<path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>'
-      + '</button>';
-    html += '<button class="act-btn del" data-delete-id="' + a.id + '" data-delete-name="' + escHtml(a.name) + '" title="Zmazať">'
-      + '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
-      + '<polyline points="3 6 5 6 21 6"/>'
-      + '<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>'
-      + '</button>';
-    html += '</div></td></tr>';
-  });
-
-  html += '</tbody></table></div>';
-  tableWrap.innerHTML = html;
+  }).join('') + '</div>';
 }
 
 // === Add/Edit asset modal ===
@@ -205,48 +182,46 @@ function openAddEditModal(id) {
   var ov = document.createElement('div');
   ov.className = 'u-overlay';
   ov.id = 'assetModal';
-  ov.innerHTML = '<div class="u-modal" style="text-align:left;max-width:520px">'
-    + '<div class="u-modal-title" style="text-align:center">' + title + '</div>'
+  ov.innerHTML = '<div class="u-modal sk-modal" style="max-width:520px">'
+    + '<div class="u-modal-title">' + title + '</div>'
     + '<div class="u-modal-body">'
     + '<div class="u-modal-field">'
-    + '<label for="fName">Nazov<span class="required-mark" aria-hidden="true"> *</span></label>'
-    + '<input id="fName" class="form-input" type="text" placeholder="napr. Konvekcna rura" data-validate="required" value="' + escHtml(item ? item.name : '') + '">'
+    + '<label for="fName">Názov<span class="required-mark" aria-hidden="true"> *</span></label>'
+    + '<input id="fName" class="form-input" type="text" placeholder="napr. Konvekčná rúra" data-validate="required" value="' + escHtml(item ? item.name : '') + '">'
     + '</div>'
     + '<div class="u-modal-row">'
     + '<div class="u-modal-field">'
-    + '<label for="fCategory">Kategoria</label>'
+    + '<label for="fCategory">Kategória</label>'
     + '<select id="fCategory" class="form-select">' + catOptions + '</select>'
     + '</div>'
     + '<div class="u-modal-field">'
-    + '<label for="fPurchaseDate">Datum nakupu<span class="required-mark" aria-hidden="true"> *</span></label>'
+    + '<label for="fPurchaseDate">Dátum nákupu<span class="required-mark" aria-hidden="true"> *</span></label>'
     + '<input id="fPurchaseDate" class="form-input" type="date" data-validate="required" value="' + purchaseDate + '">'
     + '</div>'
     + '</div>'
     + '<div class="u-modal-row">'
     + '<div class="u-modal-field">'
-    + '<label for="fPurchasePrice">Nakupna cena (EUR)<span class="required-mark" aria-hidden="true"> *</span></label>'
-    + '<input id="fPurchasePrice" class="form-input" type="number" step="0.01" min="0" data-validate="required" placeholder="0.00" value="' + (item ? item.purchasePrice : '') + '">'
+    + '<label for="fPurchasePrice">Nákupná cena (€)<span class="required-mark" aria-hidden="true"> *</span></label>'
+    + '<input id="fPurchasePrice" class="form-input" type="number" step="0.01" min="0" data-validate="required" placeholder="0,00" value="' + (item ? item.purchasePrice : '') + '">'
     + '</div>'
     + '<div class="u-modal-field">'
-    + '<label for="fResidualValue">Zostatkovs hodnota (EUR)</label>'
+    + '<label for="fResidualValue">Zostatková hodnota (€)</label>'
     + '<input id="fResidualValue" class="form-input" type="number" step="0.01" min="0" placeholder="0" value="' + (item ? (item.residualValue || 0) : '0') + '">'
     + '</div>'
     + '</div>'
     + '<div class="u-modal-field">'
-    + '<label for="fUsefulLife">Doba zivotnosti (mesiace)<span class="required-mark" aria-hidden="true"> *</span></label>'
+    + '<label for="fUsefulLife">Doba životnosti (mesiace)<span class="required-mark" aria-hidden="true"> *</span></label>'
     + '<input id="fUsefulLife" class="form-input" type="number" step="1" min="1" data-validate="required" placeholder="60" value="' + (item ? item.usefulLifeMonths : '') + '">'
     + '</div>'
     + '<div class="u-modal-field">'
-    + '<label for="fNote">Poznamka</label>'
-    + '<input id="fNote" class="form-input" type="text" placeholder="Volitelna poznamka" value="' + escHtml(item ? (item.note || '') : '') + '">'
+    + '<label for="fNote">Poznámka</label>'
+    + '<input id="fNote" class="form-input" type="text" placeholder="Voliteľná poznámka" value="' + escHtml(item ? (item.note || '') : '') + '">'
     + '</div>'
-    + '<div id="depPreview" style="padding:10px 14px;background:var(--surface-raised);border-radius:8px;font-size:13px;color:var(--color-text-dim);margin-top:4px">'
-    + 'Mesacny odpis: --'
-    + '</div>'
+    + '<div id="depPreview" class="sk-preview" aria-live="polite">Mesačný odpis: —</div>'
     + '</div>'
     + '<div class="u-modal-btns">'
-    + '<button class="u-btn u-btn-ghost" id="assetModalCancel">Zrusit</button>'
-    + '<button class="u-btn u-btn-ice" id="assetModalSave">' + (item ? 'Uložiť' : 'Pridať') + '</button>'
+    + '<button class="u-btn u-btn-ghost" id="assetModalCancel">Zrušiť</button>'
+    + '<button class="u-btn u-btn-ice" id="assetModalSave">' + (item ? 'Uložiť zmeny' : 'Pridať zariadenie') + '</button>'
     + '</div>'
     + '</div>';
 
@@ -266,9 +241,9 @@ function openAddEditModal(id) {
 
     if (pp && months && parseInt(months) > 0) {
       var dep = calcMonthlyDep(pp, rv, months);
-      preview.textContent = 'Mesacny odpis: ' + fmtEur(dep);
+      preview.innerHTML = 'Mesačný odpis: <strong>' + fmtEur(dep) + '</strong>';
     } else {
-      preview.textContent = 'Mesacny odpis: --';
+      preview.textContent = 'Mesačný odpis: —';
     }
   }
 
@@ -298,7 +273,7 @@ function openAddEditModal(id) {
 
     if (!name) { showToast('Zadajte názov zariadenia', 'error'); return; }
     if (!purchaseDateVal) { showToast('Zadajte dátum nákupu', 'error'); return; }
-    if (usefulLifeMonths < 1) { showToast('Doba zivotnosti musi byt aspon 1 mesiac', 'error'); return; }
+    if (usefulLifeMonths < 1) { showToast('Doba životnosti musí byť aspoň 1 mesiac', 'error'); return; }
 
     var btn = ov.querySelector('#assetModalSave');
     btnLoading(btn);
@@ -315,16 +290,16 @@ function openAddEditModal(id) {
 
       if (id) {
         await api.put('/inventory/assets/' + id, payload);
-        showToast('Zariadenie upravene', true);
+        showToast('Zariadenie upravené', true);
       } else {
         await api.post('/inventory/assets', payload);
-        showToast('Zariadenie pridane', true);
+        showToast('Zariadenie pridané', true);
       }
       closeModal();
       loadAssets();
       loadSummary();
     } catch (err) {
-      showToast(err.message || 'Chyba pri ukladani', 'error');
+      showToast(err.message || 'Chyba pri ukladaní', 'error');
     } finally {
       btnReset(btn);
     }
@@ -339,13 +314,13 @@ async function openDetailModal(id) {
   var ov = document.createElement('div');
   ov.className = 'u-overlay';
   ov.id = 'assetDetailModal';
-  ov.innerHTML = '<div class="u-modal" style="text-align:left;max-width:600px">'
-    + '<div class="u-modal-title" style="text-align:center">Načítavam detail...</div>'
-    + '<div class="u-modal-body" style="min-height:120px">'
+  ov.innerHTML = '<div class="u-modal sk-modal" style="max-width:600px">'
+    + '<div class="u-modal-title">Načítavam…</div>'
+    + '<div class="u-modal-body">'
     + '<div class="skeleton-row"></div><div class="skeleton-row"></div><div class="skeleton-row"></div>'
     + '</div>'
     + '<div class="u-modal-btns">'
-    + '<button class="u-btn u-btn-ghost" id="detailClose">Zavriet</button>'
+    + '<button class="u-btn u-btn-ghost" id="detailClose">Zavrieť</button>'
     + '</div></div>';
 
   document.body.appendChild(ov);
@@ -362,12 +337,17 @@ async function openDetailModal(id) {
   try {
     var asset = await api.get('/inventory/assets/' + id);
     renderDetailContent(ov, asset);
+    // Upraviť / odstrániť boli ikony na každom riadku zoznamu — patria sem.
+    var editBtn = ov.querySelector('#assetDetailEdit');
+    if (editBtn) editBtn.addEventListener('click', function () { closeModal(); openAddEditModal(id); });
+    var delBtn = ov.querySelector('#assetDetailDelete');
+    if (delBtn) delBtn.addEventListener('click', function () { closeModal(); deleteAsset(id, asset.name); });
   } catch (err) {
     var modal = ov.querySelector('.u-modal');
     if (modal) {
       modal.querySelector('.u-modal-title').textContent = 'Chyba';
       modal.querySelector('.u-modal-body').innerHTML =
-        '<div style="text-align:center;color:var(--color-danger);padding:20px">' + escHtml(err.message || 'Nepodarilo sa nacitat detail') + '</div>';
+        '<div class="error-hint">' + escHtml(err.message || 'Nepodarilo sa načítať detail') + '</div>';
     }
   }
 }
@@ -377,63 +357,47 @@ function renderDetailContent(ov, asset) {
   if (!modal) return;
 
   var pct = depreciatedPct(asset);
-  var barColor = pct >= 90 ? 'var(--color-danger)' : (pct >= 60 ? 'var(--color-warning)' : 'var(--color-success)');
-
   var depreciations = Array.isArray(asset.depreciations) ? asset.depreciations : [];
 
-  var infoHtml = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 24px;margin-bottom:20px">'
-    + '<div><div style="font-size:11px;color:var(--color-text-dim);margin-bottom:2px">Nazov</div><div style="font-weight:600">' + escHtml(asset.name) + '</div></div>'
-    + '<div><div style="font-size:11px;color:var(--color-text-dim);margin-bottom:2px">Kategoria</div><div>' + categoryBadge(asset.category) + '</div></div>'
-    + '<div><div style="font-size:11px;color:var(--color-text-dim);margin-bottom:2px">Nakupna cena</div><div class="num" style="font-weight:600">' + fmtEur(asset.purchasePrice) + '</div></div>'
-    + '<div><div style="font-size:11px;color:var(--color-text-dim);margin-bottom:2px">Datum nakupu</div><div>' + fmtDate(asset.purchaseDate) + '</div></div>'
-    + '<div><div style="font-size:11px;color:var(--color-text-dim);margin-bottom:2px">Doba zivotnosti</div><div>' + (asset.usefulLifeMonths || '--') + ' mesiacov</div></div>'
-    + '<div><div style="font-size:11px;color:var(--color-text-dim);margin-bottom:2px">Zostatkovs hodnota</div><div class="num">' + fmtEur(asset.residualValue) + '</div></div>'
+  var kv = function (k, v, num) {
+    return '<div><span class="sk-kv-k">' + k + '</span><span class="sk-kv-v' + (num ? ' num' : '') + '">' + v + '</span></div>';
+  };
+
+  // Aktuálna hodnota je hlavná odpoveď — veľké číslo + ukazovateľ; zvyšok
+  // ako kľúč–hodnota.
+  var stateHtml = '<div class="sk-total" style="border-top:0;padding-top:0"><span>Aktuálna hodnota</span><strong>' + fmtEur(asset.currentValue) + '</strong></div>'
+    + '<span class="sk-meter' + meterClass(pct) + '" aria-hidden="true"><span style="width:' + pct.toFixed(1) + '%"></span></span>'
+    + '<div class="sk-note">Odpísané ' + pct.toFixed(1).replace('.', ',') + ' % — ' + fmtEur(asset.totalDepreciated) + ' z ' + fmtEur(asset.purchasePrice) + ', ' + fmtEur(asset.monthlyDepreciation) + ' mesačne.</div>';
+
+  var infoHtml = '<div class="sk-kv">'
+    + kv('Kategória', escHtml(categoryLabel(asset.category)))
+    + kv('Dátum nákupu', fmtDate(asset.purchaseDate), true)
+    + kv('Nákupná cena', fmtEur(asset.purchasePrice), true)
+    + kv('Zostatková hodnota', fmtEur(asset.residualValue), true)
+    + kv('Doba životnosti', (asset.usefulLifeMonths || '—') + ' mesiacov', true)
+    + (asset.note ? kv('Poznámka', escHtml(asset.note)) : '')
     + '</div>';
 
-  var stateHtml = '<div style="padding:14px;background:var(--surface-raised);border-radius:10px;margin-bottom:20px">'
-    + '<div style="font-weight:600;margin-bottom:10px;font-size:13px">Aktualny stav</div>'
-    + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">'
-    + '<div><div style="font-size:11px;color:var(--color-text-dim)">Aktualna hodnota</div><div class="num" style="font-weight:600;font-size:15px">' + fmtEur(asset.currentValue) + '</div></div>'
-    + '<div><div style="font-size:11px;color:var(--color-text-dim)">Celkovo odpisane</div><div class="num" style="font-weight:600;font-size:15px">' + fmtEur(asset.totalDepreciated) + '</div></div>'
-    + '<div><div style="font-size:11px;color:var(--color-text-dim)">Mesacny odpis</div><div class="num" style="font-weight:600;font-size:15px">' + fmtEur(asset.monthlyDepreciation) + '</div></div>'
-    + '</div>'
-    + '<div style="display:flex;align-items:center;gap:10px">'
-    + '<div style="flex:1;height:8px;background:var(--color-border);border-radius:4px;overflow:hidden">'
-    + '<div style="height:100%;width:' + pct.toFixed(1) + '%;background:' + barColor + ';border-radius:4px;transition:width .3s"></div>'
-    + '</div>'
-    + '<span class="num" style="font-size:12px;font-weight:600;min-width:40px;text-align:right">' + pct.toFixed(1) + '%</span>'
-    + '</div>'
-    + '</div>';
-
-  var historyHtml = '';
+  var historyHtml = '<div class="sk-label">História odpisov</div>';
   if (depreciations.length > 0) {
-    historyHtml = '<div style="font-weight:600;margin-bottom:8px;font-size:13px">História odpisov</div>'
-      + '<div style="max-height:200px;overflow-y:auto">'
-      + '<div class="table-scroll-wrap">'
-      + '<table class="data-table"><thead><tr>'
-      + '<th>Mesiac</th>'
-      + '<th class="text-right">Suma odpisu</th>'
-      + '<th class="text-right">Hodnota pred</th>'
-      + '<th class="text-right">Hodnota po</th>'
-      + '</tr></thead><tbody>';
-
-    depreciations.forEach(function (d) {
-      historyHtml += '<tr>';
-      historyHtml += '<td>' + fmtMonth(d.month) + '</td>';
-      historyHtml += '<td class="text-right num">' + fmtEur(d.amount) + '</td>';
-      historyHtml += '<td class="text-right num">' + fmtEur(d.previousValue) + '</td>';
-      historyHtml += '<td class="text-right num">' + fmtEur(d.newValue) + '</td>';
-      historyHtml += '</tr>';
-    });
-
-    historyHtml += '</tbody></table></div></div>';
+    historyHtml += '<div class="sk-items">' + depreciations.map(function (d) {
+      return '<div class="sk-item">'
+        + '<div class="sk-item-main"><span class="sk-item-name">' + fmtMonth(d.month) + '</span></div>'
+        + '<div class="sk-item-side"><span class="sk-item-num">−' + fmtEur(d.amount) + '</span>'
+        + '<span class="sk-item-meta">' + fmtEur(d.previousValue) + ' → ' + fmtEur(d.newValue) + '</span></div>'
+        + '</div>';
+    }).join('') + '</div>';
   } else {
-    historyHtml = '<div style="font-weight:600;margin-bottom:8px;font-size:13px">História odpisov</div>'
-      + '<div style="text-align:center;color:var(--color-text-dim);padding:16px;font-size:13px">Žiadne odpisy zatiaľ</div>';
+    historyHtml += '<div class="empty-hint">Zatiaľ žiadne odpisy. Mesačný odpis spustíte tlačidlom na stránke Majetok.</div>';
   }
 
-  modal.querySelector('.u-modal-title').textContent = escHtml(asset.name);
-  modal.querySelector('.u-modal-body').innerHTML = infoHtml + stateHtml + historyHtml;
+  var actions = '<div class="sk-actions">'
+    + '<button type="button" class="u-btn u-btn-ghost" id="assetDetailEdit">Upraviť</button>'
+    + '<button type="button" class="u-btn u-btn-rose" id="assetDetailDelete">Odstrániť</button>'
+    + '</div>';
+
+  modal.querySelector('.u-modal-title').textContent = asset.name;
+  modal.querySelector('.u-modal-body').innerHTML = stateHtml + infoHtml + historyHtml + actions;
 }
 
 // === Delete asset (optimistic + undo-toast) ===
@@ -444,7 +408,7 @@ async function deleteAsset(id, name) {
 
   // Optimistic remove
   assets.splice(idx, 1);
-  renderAssets();
+  renderTable();
 
   const result = await softDelete({
     label: '„' + name + '" odstránené',
@@ -454,7 +418,7 @@ async function deleteAsset(id, name) {
   if (result.undone) {
     assets.splice(idx, 0, snapshot);
     renderTable();
-    showToast('Vratene', true);
+    showToast('Vrátené', true);
   } else if (result.error) {
     assets.splice(idx, 0, snapshot);
     renderTable();
@@ -467,25 +431,25 @@ async function deleteAsset(id, name) {
 // === Run depreciation ===
 function runDepreciation() {
   showConfirm(
-    'Spustit mesacny odpis',
+    'Spustiť mesačný odpis',
     'Naozaj chcete spustiť mesačný odpis pre všetky zariadenia? Túto akciu nie je možné vrátiť.',
     async function () {
       var btn = $('#runDepBtn');
       if (btn) btnLoading(btn);
       try {
         var result = await api.post('/inventory/assets/run-depreciation');
-        var msg = 'Odpis dokonceny: ' + (result.processed || 0) + ' zariadeni';
+        var msg = 'Odpis dokončený: ' + (result.processed || 0) + ' ' + assetWord(result.processed || 0);
         if (result.month) msg += ' (' + fmtMonth(result.month) + ')';
         showToast(msg, true);
         loadAssets();
         loadSummary();
       } catch (err) {
-        showToast(err.message || 'Chyba pri spusteni odpisu', 'error');
+        showToast(err.message || 'Chyba pri spustení odpisu', 'error');
       } finally {
         if (btn) btnReset(btn);
       }
     },
-    { confirmText: 'Spustit odpis' }
+    { confirmText: 'Spustiť odpis' }
   );
 }
 
@@ -497,51 +461,28 @@ export function init(container) {
   summary = null;
 
   container.innerHTML = ''
-    // Stat cards
-    + '<div class="stat-grid grid-3col">'
-    + '<div class="stat-card">'
-    + '<div class="stat-icon mint">'
-    + '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>'
-    + '</div>'
-    + '<div class="stat-info">'
-    + '<div class="stat-label">Celkova hodnota majetku</div>'
-    + '<div class="stat-value skeleton skeleton-text" id="statValue">&nbsp;</div>'
-    + '</div>'
-    + '</div>'
-    + '<div class="stat-card">'
-    + '<div class="stat-icon lavender">'
-    + '<svg aria-hidden="true" viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>'
-    + '</div>'
-    + '<div class="stat-info">'
-    + '<div class="stat-label">Mesacny odpis</div>'
-    + '<div class="stat-value skeleton skeleton-text" id="statDep">&nbsp;</div>'
-    + '</div>'
-    + '</div>'
-    + '<div class="stat-card">'
-    + '<div class="stat-icon" style="background:rgba(130,170,255,.12);color:var(--color-accent-secondary)">'
-    + '<svg aria-hidden="true" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>'
-    + '</div>'
-    + '<div class="stat-info">'
-    + '<div class="stat-label">Pocet zariadeni</div>'
-    + '<div class="stat-value skeleton skeleton-text" id="statCount">&nbsp;</div>'
-    + '</div>'
-    + '</div>'
+    // Súčet: jeden riadok namiesto troch kariet
+    + '<div class="sk-sum">'
+    + '<span>Hodnota majetku <strong id="statValue" class="skeleton skeleton-text">&nbsp;</strong></span>'
+    + '<span>Mesačný odpis <strong id="statDep" class="skeleton skeleton-text">&nbsp;</strong></span>'
+    + '<span><strong id="statCount" class="skeleton skeleton-text">&nbsp;</strong> <span id="statCountWord">zariadení</span></span>'
     + '</div>'
 
-    // Top bar
-    + '<div class="top-bar" style="margin-top:16px">'
+    // Hlavička: jedna plná akcia, odpis tónovaný
+    + '<div class="sk-head">'
+    + '<div class="sk-head-actions">'
+    + '<button class="btn-secondary" id="runDepBtn" type="button">'
+    + '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>'
+    + 'Spustiť mesačný odpis'
+    + '</button>'
     + '<button class="btn-add" id="addAssetBtn">'
     + '<svg aria-hidden="true" viewBox="0 0 14 14"><line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
     + 'Pridať zariadenie'
     + '</button>'
-    + '<button class="u-btn u-btn-ghost" id="runDepBtn" style="margin-left:auto">'
-    + '<svg viewBox="0 0 24 24" width="14" height="14" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;margin-right:6px">'
-    + '<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>'
-    + 'Spustit mesacny odpis'
-    + '</button>'
+    + '</div>'
     + '</div>'
 
-    // Data table wrapper
+    // Zoznam
     + '<div id="assetsTable">'
     + '<div class="skeleton-row"></div>'
     + '<div class="skeleton-row"></div>'
@@ -552,7 +493,7 @@ export function init(container) {
   $('#addAssetBtn').addEventListener('click', function () { openAddEditModal(); });
   $('#runDepBtn').addEventListener('click', function () { runDepreciation(); });
 
-  // Event delegation for table actions
+  // Event delegation for list actions
   container.addEventListener('click', function (e) {
     var detailBtn = e.target.closest('[data-detail-id]');
     if (detailBtn) {

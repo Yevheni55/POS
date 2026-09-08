@@ -3,6 +3,9 @@ import { softDelete } from '../components/toast-undo.js';
 
 let suppliers = [];
 let editingId = null;
+// Hľadanie má zmysel až od SEARCH_FROM dodávateľov; pod tým je celý zoznam
+// na jednej obrazovke.
+const SEARCH_FROM = 9;
 let _container = null;
 let _escHandler = null;
 
@@ -28,7 +31,7 @@ function escapeHtml(v) {
 // ===== LOAD =====
 async function loadSuppliers() {
   const tbody = $('#suppliersBody');
-  if (tbody) showLoading(tbody.closest('.panel') || tbody, 'Načítavam dodavatelov...');
+  if (tbody) showLoading(tbody.closest('.panel') || tbody, 'Načítavam dodávateľov…');
   try {
     suppliers = await api.get('/inventory/suppliers');
     if (tbody) hideLoading(tbody.closest('.panel') || tbody);
@@ -37,12 +40,37 @@ async function loadSuppliers() {
     if (tbody) hideLoading(tbody.closest('.panel') || tbody);
     const panel = tbody ? tbody.closest('.panel') : null;
     if (panel) {
-      renderError(panel, err.message || 'Chyba pri nacitani dodavatelov', loadSuppliers);
+      renderError(panel, err.message || 'Chyba pri načítaní dodávateľov', loadSuppliers);
     }
   }
 }
 
 // ===== RENDER =====
+function supplierWord(n) {
+  if (n === 1) return 'dodávateľ';
+  if (n >= 2 && n <= 4) return 'dodávatelia';
+  return 'dodávateľov';
+}
+
+// Riadok dodávateľa: názov, pod ním kontakt a telefón; „neaktívny" je
+// výnimka a hlási sa pilulkou. Celý riadok otvára úpravu.
+function rowHtml(s) {
+  const parts = [];
+  if (s.contactPerson) parts.push(escapeHtml(s.contactPerson));
+  if (s.phone) parts.push(escapeHtml(s.phone));
+  if (!parts.length && s.email) parts.push(escapeHtml(s.email));
+  return '<button type="button" class="sk-row' + (s.active ? '' : ' is-off') + '" data-edit-id="' + s.id + '">' +
+    '<span class="sk-row-main">' +
+      '<span class="sk-row-name">' + escapeHtml(s.name) + '</span>' +
+      (parts.length ? '<span class="sk-row-sub">' + parts.join(' · ') + '</span>' : '') +
+    '</span>' +
+    '<span class="sk-row-side">' +
+      (s.active ? '' : '<span class="sk-pill is-dim">neaktívny</span>') +
+    '</span>' +
+    '<svg class="sk-row-chev" aria-hidden="true" viewBox="0 0 16 16"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+  '</button>';
+}
+
 function renderSuppliers() {
   const search = ($('#supplierSearch') || {}).value || '';
   const searchLower = search.toLowerCase();
@@ -56,35 +84,28 @@ function renderSuppliers() {
   const tbody = $('#suppliersBody');
   if (!tbody) return;
 
+  const countEl = $('#supplierCount');
+  if (countEl) {
+    const off = suppliers.filter(s => !s.active).length;
+    countEl.textContent = suppliers.length + ' ' + supplierWord(suppliers.length)
+      + (off ? ' · ' + off + (off === 1 ? ' neaktívny' : ' neaktívni') : '');
+  }
+  const searchWrap = $('#supplierSearchWrap');
+  if (searchWrap) searchWrap.hidden = suppliers.length < SEARCH_FROM;
+
   if (!suppliers || suppliers.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="td-empty">Ziadni dodavatelia. Pridajte prveho dodavatela.</td></tr>';
+    tbody.innerHTML = '<div class="empty-hint">Zatiaľ žiadni dodávatelia. Pridajte prvého tlačidlom „Pridať" — objednávky skladu potom pôjdu na jeho meno.</div>';
     return;
   }
 
   if (filtered.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="td-empty">Žiadne výsledky pre zadany filter</td></tr>';
+    tbody.innerHTML = '<div class="empty-hint">Nič sa nenašlo. Skúste iný výraz alebo hľadanie vymažte.</div>';
     return;
   }
 
-  tbody.innerHTML = filtered.map(s =>
-    `<tr>
-      <td class="td-name">${escapeHtml(s.name)}</td>
-      <td>${escapeHtml(s.contactPerson || '')}</td>
-      <td>${escapeHtml(s.phone || '')}</td>
-      <td>${escapeHtml(s.email || '')}</td>
-      <td><span class="badge ${s.active ? 'paid' : 'open'}">${s.active ? 'Aktivny' : 'Neaktivny'}</span></td>
-      <td>
-        <div class="prod-actions">
-          <button class="act-btn" data-edit-id="${s.id}" title="Upraviť">
-            <svg viewBox="0 0 16 16"><path d="M12.1 1.3a1.5 1.5 0 012.1 2.1L5.8 11.8l-3.3.8.8-3.3z"/></svg>
-          </button>
-          <button class="act-btn del" data-del-id="${s.id}" title="Odstranit">
-            <svg viewBox="0 0 16 16"><path d="M5 2V1h6v1h4v2H1V2h4zm0 4v7h6V6H5zm-3 9h12V5H2v10z"/></svg>
-          </button>
-        </div>
-      </td>
-    </tr>`
-  ).join('');
+  // Aktívni hore, neaktívni dole.
+  const sorted = filtered.slice().sort((a, b) => (a.active === b.active ? 0 : (a.active ? -1 : 1)));
+  tbody.innerHTML = sorted.map(rowHtml).join('');
 }
 
 // ===== MODAL =====
@@ -97,38 +118,44 @@ function openModal(id) {
   const s = editingId ? suppliers.find(x => x.id === editingId) : null;
   const title = s ? 'Upraviť dodávateľa' : 'Pridať dodávateľa';
 
+  // Odstránenie je vo formulári, nie na každom riadku zoznamu.
+  const deleteBlock = s
+    ? '<div class="sk-actions"><button type="button" class="u-btn u-btn-rose" id="supplierModalDelete">Odstrániť dodávateľa</button></div>'
+    : '';
+
   const ov = document.createElement('div');
   ov.className = 'u-overlay';
   ov.id = 'supplierModal';
-  ov.innerHTML = `<div class="u-modal" style="text-align:left;max-width:520px">
-    <div class="u-modal-title" style="text-align:center">${title}</div>
+  ov.innerHTML = `<div class="u-modal sk-modal" style="max-width:520px">
+    <div class="u-modal-title">${title}</div>
     <div class="u-modal-body">
       <div class="u-modal-field">
-        <label for="fSupName">Nazov<span class="required-mark" aria-hidden="true"> *</span></label>
-        <input id="fSupName" type="text" class="form-input" placeholder="Nazov dodavatela" aria-required="true" data-validate="required" value="${s ? escapeHtml(s.name) : ''}">
+        <label for="fSupName">Názov<span class="required-mark" aria-hidden="true"> *</span></label>
+        <input id="fSupName" type="text" class="form-input" placeholder="Názov dodávateľa" aria-required="true" data-validate="required" value="${s ? escapeHtml(s.name) : ''}">
       </div>
       <div class="u-modal-field">
-        <label for="fSupContact">Kontaktna osoba</label>
+        <label for="fSupContact">Kontaktná osoba</label>
         <input id="fSupContact" type="text" class="form-input" placeholder="Meno a priezvisko" value="${s ? escapeHtml(s.contactPerson || '') : ''}">
       </div>
       <div class="u-modal-row">
         <div class="u-modal-field">
-          <label for="fSupPhone">Telefon</label>
-          <input id="fSupPhone" type="text" class="form-input" placeholder="+421..." value="${s ? escapeHtml(s.phone || '') : ''}">
+          <label for="fSupPhone">Telefón</label>
+          <input id="fSupPhone" type="tel" class="form-input" placeholder="+421…" value="${s ? escapeHtml(s.phone || '') : ''}">
         </div>
         <div class="u-modal-field">
-          <label for="fSupEmail">Email</label>
-          <input id="fSupEmail" type="text" class="form-input" placeholder="email@example.com" value="${s ? escapeHtml(s.email || '') : ''}">
+          <label for="fSupEmail">E-mail</label>
+          <input id="fSupEmail" type="email" class="form-input" placeholder="meno@firma.sk" value="${s ? escapeHtml(s.email || '') : ''}">
         </div>
       </div>
       <div class="u-modal-field">
-        <label for="fSupNotes">Poznamky</label>
-        <textarea id="fSupNotes" class="form-input" rows="3" placeholder="Dodacie podmienky, poznamky...">${s ? escapeHtml(s.notes || '') : ''}</textarea>
+        <label for="fSupNotes">Poznámky</label>
+        <textarea id="fSupNotes" class="form-input" rows="3" placeholder="Dodacie podmienky, poznámky…">${s ? escapeHtml(s.notes || '') : ''}</textarea>
       </div>
+      ${deleteBlock}
     </div>
     <div class="u-modal-btns">
-      <button class="u-btn u-btn-ghost" id="supplierModalCancel">Zrusit</button>
-      <button class="u-btn u-btn-ice" id="supplierModalSave">Ulozit</button>
+      <button class="u-btn u-btn-ghost" id="supplierModalCancel">Zrušiť</button>
+      <button class="u-btn u-btn-ice" id="supplierModalSave">${s ? 'Uložiť zmeny' : 'Pridať dodávateľa'}</button>
     </div>
   </div>`;
 
@@ -146,6 +173,15 @@ function openModal(id) {
   document.getElementById('supplierModalCancel').onclick = closeModal;
   ov.addEventListener('click', e => { if (e.target === ov) closeModal(); });
 
+  const delBtn = document.getElementById('supplierModalDelete');
+  if (delBtn && s) {
+    delBtn.onclick = () => {
+      const delId = s.id;
+      closeModal();
+      deleteSupplier(delId);
+    };
+  }
+
   document.getElementById('supplierModalSave').onclick = async () => {
     if (!validateForm(ov)) return;
 
@@ -160,15 +196,15 @@ function openModal(id) {
     try {
       if (editingId) {
         await api.put('/inventory/suppliers/' + editingId, { name, contactPerson, phone, email, notes });
-        showToast('Dodavatel upraveny', true);
+        showToast('Dodávateľ upravený', true);
       } else {
         await api.post('/inventory/suppliers', { name, contactPerson, phone, email, notes });
-        showToast('Dodavatel pridany', true);
+        showToast('Dodávateľ pridaný', true);
       }
       closeModal();
       await loadSuppliers();
     } catch (err) {
-      showToast(err.message || 'Chyba ukladania dodavatela', 'error');
+      showToast(err.message || 'Chyba ukladania dodávateľa', 'error');
     } finally {
       if (saveBtn) btnReset(saveBtn);
     }
@@ -195,7 +231,7 @@ async function deleteSupplier(id) {
   if (result.undone) {
     suppliers.splice(idx, 0, snapshot);
     renderSuppliers();
-    showToast('Vratene', true);
+    showToast('Vrátené', true);
   } else if (result.error) {
     // Server failed — restore
     suppliers.splice(idx, 0, snapshot);
@@ -207,33 +243,20 @@ async function deleteSupplier(id) {
 export function init(container) {
   _container = container;
   container.innerHTML = `
-    <div class="top-bar">
+    <div class="sk-head">
+      <div class="sk-count" id="supplierCount" aria-live="polite"></div>
       <button class="btn-add" id="addSupplierBtn">
         <svg aria-hidden="true" viewBox="0 0 14 14"><line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        Pridať dodávateľa
+        Pridať
       </button>
-      <div class="search-wrap">
-        <svg aria-hidden="true" viewBox="0 0 16 16"><circle cx="6.5" cy="6.5" r="5" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="10.5" y1="10.5" x2="15" y2="15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-        <input class="search-input" id="supplierSearch" type="text" placeholder="Hladat dodavatela...">
-      </div>
     </div>
-    <div class="panel">
-      <div class="table-scroll-wrap">
-      <table class="data-table" id="suppliersTable">
-        <thead>
-          <tr>
-            <th>Názov</th>
-            <th>Kontaktná osoba</th>
-            <th>Telefón</th>
-            <th>E-mail</th>
-            <th>Stav</th>
-            <th>Akcie</th>
-          </tr>
-        </thead>
-        <tbody id="suppliersBody">
-          <tr><td colspan="6" class="td-empty">Načítavam…</td></tr>
-        </tbody>
-      </table>
+    <div class="search-wrap sk-search" id="supplierSearchWrap" hidden>
+      <svg aria-hidden="true" viewBox="0 0 16 16"><circle cx="6.5" cy="6.5" r="5" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="10.5" y1="10.5" x2="15" y2="15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      <input class="search-input" id="supplierSearch" type="search" placeholder="Hľadať dodávateľa…" aria-label="Hľadať dodávateľa">
+    </div>
+    <div class="panel sk-bare" id="suppliersTable">
+      <div class="sk-list" id="suppliersBody">
+        <div class="skeleton-row"></div><div class="skeleton-row"></div><div class="skeleton-row"></div>
       </div>
     </div>
   `;
@@ -242,7 +265,7 @@ export function init(container) {
   $('#addSupplierBtn').addEventListener('click', () => openModal());
   $('#supplierSearch').addEventListener('input', () => renderSuppliers());
 
-  // Table event delegation
+  // List event delegation
   $('#suppliersTable').addEventListener('click', e => {
     const editBtn = e.target.closest('[data-edit-id]');
     if (editBtn) {

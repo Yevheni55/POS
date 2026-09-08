@@ -42,20 +42,35 @@ function fmtDate(isoStr) {
   return new Date(isoStr).toLocaleDateString('sk-SK', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-function statusBadge(status) {
-  var map = {
-    draft:     { cls: 'badge-warning', label: 'Rozpracovana' },
-    received:  { cls: 'badge-success', label: 'Prijata' },
-    cancelled: { cls: 'badge-danger',  label: 'Zrusena' }
-  };
-  var entry = map[status] || { cls: '', label: status || '--' };
-  return '<span class="badge ' + entry.cls + '">' + entry.label + '</span>';
+// Stav ako pilulka. V zozname dostane farbu len výnimka (rozpracovaná =
+// treba prijať, zrušená); prijatá je pravidlo a v riadku ju nesie podtitulok.
+var STATUS = {
+  draft:     { cls: 'is-warn',   label: 'Rozpracovaná' },
+  received:  { cls: 'is-ok',     label: 'Prijatá' },
+  cancelled: { cls: 'is-dim',    label: 'Zrušená' }
+};
+function statusPill(status) {
+  var entry = STATUS[status] || { cls: 'is-dim', label: status || '—' };
+  return '<span class="sk-pill ' + entry.cls + '">' + escapeHtml(entry.label) + '</span>';
+}
+function statusLabel(status) {
+  return (STATUS[status] || {}).label || status || '—';
+}
+function orderWord(n) {
+  if (n === 1) return 'objednávka';
+  if (n >= 2 && n <= 4) return 'objednávky';
+  return 'objednávok';
+}
+function itemWord(n) {
+  if (n === 1) return 'položka';
+  if (n >= 2 && n <= 4) return 'položky';
+  return 'položiek';
 }
 
 // ===== LOAD =====
 async function loadOrders() {
   var panel = $('#ordersPanel');
-  if (panel) showLoading(panel, 'Načítavam objednávky...');
+  if (panel) showLoading(panel, 'Načítavam objednávky…');
   try {
     var url = '/inventory/purchase-orders';
     if (activeStatus) url += '?status=' + activeStatus;
@@ -64,7 +79,7 @@ async function loadOrders() {
     renderTable();
   } catch (err) {
     if (panel) hideLoading(panel);
-    if (panel) renderError(panel, err.message || 'Chyba pri nacitani objednavok', loadOrders);
+    if (panel) renderError(panel, err.message || 'Chyba pri načítaní objednávok', loadOrders);
   }
 }
 
@@ -85,22 +100,56 @@ async function loadIngredients() {
 }
 
 // ===== RENDER TABLE =====
+function rowHtml(po) {
+  var supplierName = po.supplier ? escapeHtml(po.supplier.name) : '—';
+  var itemCount = po.items ? po.items.length : 0;
+  var subParts = ['#' + po.id, fmtDate(po.createdAt), itemCount + ' ' + itemWord(itemCount)];
+  if (po.status === 'received') subParts.push('prijatá');
+  if (po.hasImage) subParts.push('faktúra');
+  // Akcie (prijať, zrušiť, vymazať, faktúra) sú v detaile — riadok má jeden cieľ.
+  return '<button type="button" class="sk-row' + (po.status === 'cancelled' ? ' is-off' : '') + '" data-detail-id="' + po.id + '">'
+    + '<span class="sk-row-main">'
+    + '<span class="sk-row-name">' + supplierName + '</span>'
+    + '<span class="sk-row-sub">' + subParts.join(' · ') + '</span>'
+    + '</span>'
+    + '<span class="sk-row-side">'
+    + '<span class="sk-row-num">' + fmtEur(po.totalCost || 0) + '</span>'
+    + (po.status === 'received' ? '' : statusPill(po.status))
+    + '</span>'
+    + '<svg class="sk-row-chev" aria-hidden="true" viewBox="0 0 16 16"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    + '</button>';
+}
+
+function renderSum() {
+  var sum = $('#poSum');
+  if (!sum) return;
+  var total = orders.reduce(function (s, po) { return s + (Number(po.totalCost) || 0); }, 0);
+  var drafts = orders.filter(function (po) { return po.status === 'draft'; }).length;
+  sum.innerHTML = '<span><strong>' + orders.length + '</strong> ' + orderWord(orders.length) + '</span>'
+    + (orders.length ? '<span><strong>' + fmtEur(total) + '</strong> spolu</span>' : '')
+    + (drafts && !activeStatus ? '<span class="sk-pill is-warn">' + drafts + ' na prijatie</span>' : '');
+}
+
 function renderTable() {
   var panel = $('#ordersPanel');
   if (!panel) return;
+
+  renderSum();
 
   if (!orders || orders.length === 0) {
     if (activeStatus) {
       mountEmptyState(panel, {
         icon: '🔍',
         title: 'Žiadne výsledky',
-        text: 'Pre zvolený filter sa nenašli žiadne objednávky skladu.',
+        text: 'V stave „' + statusLabel(activeStatus).toLowerCase() + '" nie je žiadna objednávka.',
+        ctaLabel: 'Zobraziť všetky',
+        onCta: function () { setActiveTab(''); },
       });
     } else {
       mountEmptyState(panel, {
         icon: '📦',
         title: 'Žiadne objednávky',
-        text: 'Objednávka skladu eviduje nákup tovaru/surovín od dodávateľa. Po prijatí sa stav skladu automaticky aktualizuje.',
+        text: 'Objednávka skladu eviduje nákup tovaru a surovín od dodávateľa. Po prijatí sa stav skladu doplní sám.',
         ctaLabel: 'Nová objednávka',
         onCta: function () { openNewOrderModal(); },
       });
@@ -108,61 +157,7 @@ function renderTable() {
     return;
   }
 
-  var html = '<div class="table-scroll-wrap"><table class="data-table" id="ordersTable">';
-  html += '<thead><tr>';
-  html += '<th>ID</th>';
-  html += '<th>Dodávateľ</th>';
-  html += '<th>Položky</th>';
-  html += '<th class="text-right">Celková cena</th>';
-  html += '<th>Dátum</th>';
-  html += '<th class="text-center">Stav</th>';
-  html += '<th class="text-right">Akcie</th>';
-  html += '</tr></thead><tbody>';
-
-  orders.forEach(function (po) {
-    var supplierName = po.supplier ? escapeHtml(po.supplier.name) : '--';
-    var itemCount = po.items ? po.items.length : 0;
-
-    html += '<tr>';
-    html += '<td class="td-name">#' + po.id + '</td>';
-    html += '<td>' + supplierName + '</td>';
-    html += '<td>' + itemCount + '</td>';
-    html += '<td class="text-right num">' + fmtEur(po.totalCost || 0) + '</td>';
-    html += '<td>' + fmtDate(po.createdAt) + '</td>';
-    html += '<td class="text-center">' + statusBadge(po.status) + '</td>';
-    html += '<td class="text-right nowrap">';
-    html += '<div class="prod-actions" style="justify-content:flex-end">';
-    if (po.hasImage) {
-      html += '<button class="act-btn" data-image-id="' + po.id + '" title="Zobrazit fakturu" style="color:var(--color-accent)">'
-        + '<svg viewBox="0 0 24 24" width="14" height="14" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round">'
-        + '<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>'
-        + '</button>';
-    }
-    html += '<button class="act-btn" data-detail-id="' + po.id + '" title="Detail">'
-      + '<svg viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round">'
-      + '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>'
-      + '</button>';
-    if (po.status === 'draft') {
-      html += '<button class="act-btn" data-receive-id="' + po.id + '" title="Prijat" style="color:var(--color-success-text)">'
-        + '<svg viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round">'
-        + '<polyline points="20 6 9 17 4 12"/></svg>'
-        + '</button>';
-      html += '<button class="act-btn del" data-cancel-id="' + po.id + '" title="Zrusit">'
-        + '<svg viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round">'
-        + '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
-        + '</button>';
-    }
-    html += '<button class="act-btn del" data-delete-id="' + po.id + '" title="Vymazat">'
-      + '<svg viewBox="0 0 24 24" width="14" height="14" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round">'
-      + '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>'
-      + '</button>';
-    html += '</div>';
-    html += '</td>';
-    html += '</tr>';
-  });
-
-  html += '</tbody></table></div>';
-  panel.innerHTML = html;
+  panel.innerHTML = '<div class="sk-list" id="ordersTable">' + orders.map(rowHtml).join('') + '</div>';
 }
 
 // ===== RECEIVE =====
@@ -170,18 +165,18 @@ function receiveOrder(id) {
   var po = orders.find(function (o) { return o.id === id; });
   if (!po) return;
   showConfirm(
-    'Prijat objednavku',
-    'Naozaj chcete prijať objednávku #' + po.id + '? Suroviny budu pridane do skladu.',
+    'Prijať objednávku',
+    'Naozaj chcete prijať objednávku #' + po.id + '? Suroviny sa pripočítajú do skladu.',
     async function () {
       try {
         await api.post('/inventory/purchase-orders/' + id + '/receive');
-        showToast('Objednavka #' + id + ' prijata', true);
+        showToast('Objednávka #' + id + ' prijatá', true);
         await loadOrders();
       } catch (err) {
-        showToast(err.message || 'Chyba pri prijmani objednavky', 'error');
+        showToast(err.message || 'Chyba pri prijímaní objednávky', 'error');
       }
     },
-    { type: 'info', confirmText: 'Prijat' }
+    { type: 'info', confirmText: 'Prijať' }
   );
 }
 
@@ -190,18 +185,18 @@ function cancelOrder(id) {
   var po = orders.find(function (o) { return o.id === id; });
   if (!po) return;
   showConfirm(
-    'Zrusit objednavku',
+    'Zrušiť objednávku',
     'Naozaj chcete zrušiť objednávku #' + po.id + '?',
     async function () {
       try {
         await api.post('/inventory/purchase-orders/' + id + '/cancel');
-        showToast('Objednavka #' + id + ' zrusena', true);
+        showToast('Objednávka #' + id + ' zrušená', true);
         await loadOrders();
       } catch (err) {
-        showToast(err.message || 'Chyba pri ruseni objednavky', 'error');
+        showToast(err.message || 'Chyba pri rušení objednávky', 'error');
       }
     },
-    { type: 'danger', confirmText: 'Zrusit objednavku' }
+    { type: 'danger', confirmText: 'Zrušiť objednávku' }
   );
 }
 
@@ -245,7 +240,7 @@ async function deleteOrder(id) {
   if (result.undone) {
     orders.splice(idx, 0, snapshot);
     renderTable();
-    showToast('Vratene', true);
+    showToast('Vrátené', true);
   } else if (result.error) {
     orders.splice(idx, 0, snapshot);
     renderTable();
@@ -258,17 +253,17 @@ async function deleteOrder(id) {
 async function showInvoiceImage(id) {
   try {
     var data = await api.get('/inventory/purchase-orders/' + id + '/image');
-    if (!data.imageData) { showToast('Faktura nema obrazok'); return; }
+    if (!data.imageData) { showToast('Faktúra nemá obrázok'); return; }
 
     var ov = document.createElement('div');
     ov.className = 'u-overlay';
     ov.id = 'invoiceImageModal';
-    ov.innerHTML = '<div class="u-modal" style="max-width:90vw;max-height:90vh;padding:16px;overflow:auto">'
-      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
-      + '<div class="u-modal-title" style="margin:0">Faktura #' + id + '</div>'
-      + '<button class="act-btn" id="closeImgModal" title="Zavriet" style="font-size:18px">\u2715</button>'
+    ov.innerHTML = '<div class="u-modal sk-modal" style="max-width:90vw">'
+      + '<div class="u-modal-title">Faktúra #' + id + '</div>'
+      + '<button type="button" class="sk-modal-close" id="closeImgModal" aria-label="Zavrieť">\u2715</button>'
+      + '<div class="u-modal-body">'
+      + '<img src="' + data.imageData + '" class="sk-img" alt="Faktúra #' + id + '">'
       + '</div>'
-      + '<img src="' + data.imageData + '" style="max-width:100%;border-radius:var(--radius-sm);border:1px solid var(--color-border)" alt="Faktura">'
       + '</div>';
     document.body.appendChild(ov);
     requestAnimationFrame(function () { ov.classList.add('show'); });
@@ -277,7 +272,7 @@ async function showInvoiceImage(id) {
     ov.querySelector('#closeImgModal').onclick = close;
     ov.addEventListener('click', function (e) { if (e.target === ov) close(); });
   } catch (err) {
-    showToast('Chyba nacitania obrazku: ' + err.message, 'error');
+    showToast('Chyba načítania obrázka: ' + err.message, 'error');
   }
 }
 
@@ -289,63 +284,59 @@ function openDetailModal(id) {
   var existing = document.getElementById('poDetailModal');
   if (existing) existing.remove();
 
-  var supplierName = po.supplier ? escapeHtml(po.supplier.name) : '--';
+  var supplierName = po.supplier ? escapeHtml(po.supplier.name) : '—';
 
+  // Položky ako riadky (názov + prepočet vľavo, suma + „množstvo × cena" vpravo)
+  // — tabuľka s 5 stĺpcami v paneli zdola rolovala vbok.
   var itemsHtml = '';
   if (po.items && po.items.length > 0) {
-    itemsHtml = '<div class="table-scroll-wrap"><table class="data-table" style="margin-top:12px">'
-      + '<thead><tr>'
-      + '<th>Surovina</th>'
-      + '<th>Jednotka</th>'
-      + '<th class="text-right">Množstvo</th>'
-      + '<th class="text-right">Jedn. cena</th>'
-      + '<th class="text-right">Spolu</th>'
-      + '</tr></thead><tbody>';
-    po.items.forEach(function (item) {
+    itemsHtml = '<div class="sk-items">' + po.items.map(function (item) {
       var conv = parseFloat(item.conversionFactor) || 1;
       var stockAdded = Math.round(Number(item.quantity) * conv * 1000) / 1000;
+      var qtyStr = Number(item.quantity).toLocaleString('sk-SK', { maximumFractionDigits: 2 })
+        + '\u00A0' + escapeHtml((conv !== 1 && item.invoiceUnit) ? item.invoiceUnit : (item.ingredientUnit || ''));
       var convInfo = conv !== 1
-        ? '<div style="font-size:var(--text-xs);color:var(--color-accent);margin-top:2px">' + Number(item.quantity).toLocaleString('sk-SK') + ' ' + escapeHtml(item.invoiceUnit || 'ks') + ' x ' + conv + ' = ' + stockAdded.toLocaleString('sk-SK') + ' ' + escapeHtml(item.ingredientUnit || '') + '</div>'
+        ? '<span class="sk-item-sub is-accent">' + qtyStr + ' × ' + conv + ' = ' + stockAdded.toLocaleString('sk-SK') + '\u00A0' + escapeHtml(item.ingredientUnit || '') + ' na sklad</span>'
         : '';
-      itemsHtml += '<tr>';
-      itemsHtml += '<td class="td-name">' + escapeHtml(item.ingredientName || '--') + convInfo + '</td>';
-      itemsHtml += '<td>' + escapeHtml(item.ingredientUnit || '--') + '</td>';
-      itemsHtml += '<td class="text-right num">' + Number(item.quantity).toLocaleString('sk-SK', { maximumFractionDigits: 2 }) + (item.invoiceUnit && conv !== 1 ? ' ' + escapeHtml(item.invoiceUnit) : '') + '</td>';
-      itemsHtml += '<td class="text-right num">' + fmtEur(item.unitCost || 0) + '</td>';
-      itemsHtml += '<td class="text-right num">' + fmtEur(item.totalCost || 0) + '</td>';
-      itemsHtml += '</tr>';
-    });
-    itemsHtml += '</tbody></table></div>';
+      return '<div class="sk-item">'
+        + '<div class="sk-item-main"><span class="sk-item-name">' + escapeHtml(item.ingredientName || '—') + '</span>' + convInfo + '</div>'
+        + '<div class="sk-item-side"><span class="sk-item-num">' + fmtEur(item.totalCost || 0) + '</span>'
+        + '<span class="sk-item-meta">' + qtyStr + ' × ' + fmtEur(item.unitCost || 0) + '</span></div>'
+        + '</div>';
+    }).join('') + '</div>';
   } else {
-    itemsHtml = '<div class="td-empty" style="padding:16px;text-align:center">Žiadne položky</div>';
+    itemsHtml = '<div class="empty-hint">Objednávka nemá žiadne položky.</div>';
   }
 
   var ov = document.createElement('div');
   ov.className = 'u-overlay';
   ov.id = 'poDetailModal';
-  ov.innerHTML = '<div class="u-modal" style="text-align:left;max-width:640px">'
-    + '<div class="u-modal-title" style="text-align:center">Objednavka #' + po.id + '</div>'
-    + '<div class="u-modal-body" style="gap:10px">'
-    + '<div style="display:flex;gap:16px;flex-wrap:wrap">'
-    + '<div style="flex:1;min-width:140px"><div class="form-label">Dodavatel</div><div style="font-weight:600">' + supplierName + '</div></div>'
-    + '<div style="flex:1;min-width:140px"><div class="form-label">Datum</div><div style="font-weight:600">' + fmtDate(po.createdAt) + '</div></div>'
-    + '<div style="flex:1;min-width:140px"><div class="form-label">Stav</div><div>' + statusBadge(po.status) + '</div></div>'
+  ov.innerHTML = '<div class="u-modal sk-modal" style="max-width:640px">'
+    + '<div class="u-modal-title">Objednávka #' + po.id + '</div>'
+    + '<div class="u-modal-body">'
+    + '<div class="sk-kv">'
+    + '<div><span class="sk-kv-k">Dodávateľ</span><span class="sk-kv-v">' + supplierName + '</span></div>'
+    + '<div><span class="sk-kv-k">Dátum</span><span class="sk-kv-v num">' + fmtDate(po.createdAt) + '</span></div>'
+    + '<div><span class="sk-kv-k">Stav</span><span class="sk-kv-v">' + statusPill(po.status) + '</span></div>'
     + '</div>'
-    + (po.note ? '<div><div class="form-label">Poznamka</div><div style="font-size:13px;color:var(--color-text-sec)">' + escapeHtml(po.note) + '</div></div>' : '')
-    + '<div><div class="form-label">Polozky</div>' + itemsHtml + '</div>'
-    + '<div style="text-align:right;font-weight:700;font-size:14px;padding-top:8px;border-top:1px solid rgba(255,255,255,.06)">'
-    + 'Celkova cena: <span style="color:var(--color-accent);font-family:var(--font-display)">' + fmtEur(po.totalCost || 0) + '</span>'
+    + (po.note ? '<div><span class="sk-kv-k">Poznámka</span><div class="sk-note">' + escapeHtml(po.note) + '</div></div>' : '')
+    + '<div class="sk-label">Položky</div>'
+    + itemsHtml
+    + '<div class="sk-total"><span>Celková cena</span><strong>' + fmtEur(po.totalCost || 0) + '</strong></div>'
+    + '<div class="sk-label">Zmeniť stav</div>'
+    + '<div class="sk-actions">'
+    + (po.status !== 'draft' ? '<button class="u-btn u-btn-ghost" id="poSetDraft">Vrátiť do rozpracovania</button>' : '')
+    + (po.status !== 'received' ? '<button class="u-btn u-btn-ice" id="poSetReceived">Prijať na sklad</button>' : '')
+    + (po.status !== 'cancelled' ? '<button class="u-btn u-btn-rose" id="poSetCancelled">Zrušiť objednávku</button>' : '')
+    + '</div>'
+    + '<div class="sk-actions">'
+    + (po.hasImage ? '<button class="u-btn u-btn-ghost" id="poDetailImage">Zobraziť faktúru</button>' : '')
+    + (po.status !== 'cancelled' ? '<button class="u-btn u-btn-ghost" id="poEdit">Upraviť položky</button>' : '')
+    + '<button class="u-btn u-btn-rose" id="poDetailDelete">Vymazať</button>'
     + '</div>'
     + '</div>'
-    + '<div style="display:flex;gap:8px;flex-wrap:wrap;padding-top:12px;border-top:1px solid var(--color-border);margin-top:4px">'
-    + '<div class="form-label" style="width:100%;margin-bottom:2px">Zmenit stav</div>'
-    + (po.status !== 'draft' ? '<button class="u-btn u-btn-ghost" id="poSetDraft" style="flex:1">Rozpracovana</button>' : '')
-    + (po.status !== 'received' ? '<button class="u-btn u-btn-ice" id="poSetReceived" style="flex:1">Prijata</button>' : '')
-    + (po.status !== 'cancelled' ? '<button class="u-btn u-btn-rose" id="poSetCancelled" style="flex:1">Zrusena</button>' : '')
-    + '</div>'
-    + '<div class="u-modal-btns" style="margin-top:16px">'
-    + (po.status !== 'cancelled' ? '<button class="u-btn u-btn-ghost" id="poEdit" style="flex:1">Upraviť položky</button>' : '')
-    + '<button class="u-btn u-btn-ghost" id="poDetailClose">Zavriet</button>'
+    + '<div class="u-modal-btns">'
+    + '<button class="u-btn u-btn-ghost" id="poDetailClose">Zavrieť</button>'
     + '</div>'
     + '</div>';
 
@@ -370,7 +361,7 @@ function openDetailModal(id) {
     try {
       await api.post('/inventory/purchase-orders/' + po.id + '/receive');
       closeModal();
-      showToast('Objednavka #' + po.id + ' prijata — sklad doplneny', true);
+      showToast('Objednávka #' + po.id + ' prijatá — sklad doplnený', true);
       await loadOrders();
     } catch (err) { showToast(err.message || 'Chyba', 'error'); btnReset(setReceivedBtn); }
   });
@@ -380,7 +371,7 @@ function openDetailModal(id) {
     try {
       await api.post('/inventory/purchase-orders/' + po.id + '/cancel');
       closeModal();
-      showToast('Objednavka #' + po.id + ' zrusena', true);
+      showToast('Objednávka #' + po.id + ' zrušená', true);
       await loadOrders();
     } catch (err) { showToast(err.message || 'Chyba', 'error'); btnReset(setCancelledBtn); }
   });
@@ -390,7 +381,7 @@ function openDetailModal(id) {
     try {
       await api.post('/inventory/purchase-orders/' + po.id + '/reopen');
       closeModal();
-      showToast('Objednavka #' + po.id + ' vratena do rozpracovania', true);
+      showToast('Objednávka #' + po.id + ' vrátená do rozpracovania', true);
       await loadOrders();
     } catch (err) { showToast(err.message || 'Chyba', 'error'); btnReset(setDraftBtn); }
   });
@@ -399,6 +390,16 @@ function openDetailModal(id) {
   if (editBtn) editBtn.addEventListener('click', function () {
     closeModal();
     openEditOrderModal(po);
+  });
+
+  // Faktúra a vymazanie boli ikony na každom riadku zoznamu — patria sem.
+  var imageBtn = ov.querySelector('#poDetailImage');
+  if (imageBtn) imageBtn.addEventListener('click', function () { showInvoiceImage(po.id); });
+
+  var deleteBtn = ov.querySelector('#poDetailDelete');
+  if (deleteBtn) deleteBtn.addEventListener('click', function () {
+    closeModal();
+    deleteOrder(po.id);
   });
 }
 
@@ -413,16 +414,18 @@ function openEditOrderModal(po) {
       return '<option value="' + ing.id + '">' + escapeHtml(ing.name) + ' (' + escapeHtml(ing.unit) + ')</option>';
     }).join('');
 
+  // Riadok položky: výber suroviny, množstvo, jednotka faktúry, prepočet,
+  // cena, suma, odstrániť. Na telefóne sa skladá do troch riadkov (CSS).
   function rowHtml(item, idx) {
-    var selectOpts = '<option value="">-- vyber --</option>' + ingOpts;
-    var h = '<div data-edit-row="' + idx + '" style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">';
-    h += '<select class="form-select form-select-sm edit-ing" data-idx="' + idx + '" style="flex:2;min-width:160px">' + selectOpts + '</select>';
-    h += '<input type="number" class="form-input form-input-sm edit-qty" step="0.01" min="0" value="' + (item ? item.quantity : '') + '" style="width:80px;text-align:right" placeholder="Mnoz.">';
-    h += '<input type="text" class="form-input form-input-sm edit-unit" value="' + escapeHtml(item ? (item.invoiceUnit || item.ingredientUnit || '') : '') + '" style="width:70px" placeholder="ks">';
-    h += '<input type="number" class="form-input form-input-sm edit-conv" step="0.01" min="0.01" value="' + (item ? (item.conversionFactor || 1) : 1) + '" style="width:70px;text-align:right" title="Konverzny faktor (napr. sud 50L → 50)">';
-    h += '<input type="number" class="form-input form-input-sm edit-cost" step="0.01" min="0" value="' + (item ? item.unitCost : '') + '" style="width:90px;text-align:right" placeholder="Cena">';
-    h += '<span class="edit-total" style="min-width:80px;text-align:right;font-family:var(--font-display);color:var(--color-accent)">' + (item ? fmtEur(item.totalCost || 0) : '0.00 €') + '</span>';
-    h += '<button class="act-btn del edit-remove" data-idx="' + idx + '" title="Odstranit" style="width:28px;height:28px"><svg viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round" width="12" height="12"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>';
+    var selectOpts = '<option value="">— vyberte —</option>' + ingOpts;
+    var h = '<div data-edit-row="' + idx + '" class="sk-frow sk-frow--edit">';
+    h += '<select class="form-select edit-ing sk-f-sel" data-idx="' + idx + '" aria-label="Surovina">' + selectOpts + '</select>';
+    h += '<input type="number" class="form-input edit-qty sk-f-qty" step="0.01" min="0" value="' + (item ? item.quantity : '') + '" placeholder="Množ." aria-label="Množstvo">';
+    h += '<input type="text" class="form-input edit-unit sk-f-unit" value="' + escapeHtml(item ? (item.invoiceUnit || item.ingredientUnit || '') : '') + '" placeholder="ks" aria-label="Jednotka na faktúre">';
+    h += '<input type="number" class="form-input edit-conv sk-f-conv" step="0.01" min="0.01" value="' + (item ? (item.conversionFactor || 1) : 1) + '" title="Prepočet na jednotku skladu (napr. sud 50 l → 50)" aria-label="Prepočet">';
+    h += '<input type="number" class="form-input edit-cost sk-f-cost" step="0.01" min="0" value="' + (item ? item.unitCost : '') + '" placeholder="Cena" aria-label="Cena za jednotku">';
+    h += '<span class="edit-total sk-frow-tot sk-f-tot">' + (item ? fmtEur(item.totalCost || 0) : fmtEur(0)) + '</span>';
+    h += '<button type="button" class="act-btn del edit-remove sk-f-rm" data-idx="' + idx + '" title="Odstrániť" aria-label="Odstrániť položku"><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>';
     h += '</div>';
     return h;
   }
@@ -430,30 +433,28 @@ function openEditOrderModal(po) {
   var rowsHtml = (po.items || []).map(function (it, i) { return rowHtml(it, i); }).join('');
 
   var warning = po.status === 'received'
-    ? '<div style="background:rgba(255,179,71,.1);color:#FFB347;padding:8px 12px;border-radius:var(--radius-xs);font-size:var(--text-sm);margin-bottom:10px">⚠ Faktura je uz prijata. Po ulozeni sa stare mnozstva odcitaju zo skladu a nove sa pripocitaju — historia skladu zaznamena opravu.</div>'
+    ? '<div class="sk-warn">Faktúra je už prijatá. Po uložení sa staré množstvá odpočítajú zo skladu a nové pripočítajú — história skladu zaznamená opravu.</div>'
     : '';
 
   var ov = document.createElement('div');
   ov.className = 'u-overlay';
   ov.id = 'poEditModal';
-  ov.innerHTML = '<div class="u-modal" style="text-align:left;max-width:880px;max-height:90vh;overflow-y:auto">'
-    + '<div class="u-modal-title" style="text-align:center">Upraviť objednávku #' + po.id + '</div>'
-    + '<div class="u-modal-body" style="gap:10px">'
+  ov.innerHTML = '<div class="u-modal sk-modal" style="max-width:880px">'
+    + '<div class="u-modal-title">Upraviť objednávku #' + po.id + '</div>'
+    + '<div class="u-modal-body">'
     + warning
     + '<div class="u-modal-field">'
-    + '<label for="fEditNote">Poznamka</label>'
+    + '<label for="fEditNote">Poznámka</label>'
     + '<textarea id="fEditNote" class="form-input" rows="2">' + escapeHtml(po.note || '') + '</textarea>'
     + '</div>'
-    + '<div class="form-label">Polozky</div>'
-    + '<div id="editItemsWrap">' + rowsHtml + '</div>'
-    + '<button class="u-btn u-btn-ghost btn-sm" id="btnEditAddRow" style="align-self:flex-start">+ Pridať položku</button>'
-    + '<div style="text-align:right;font-weight:700;font-size:var(--text-lg);padding-top:10px;border-top:1px solid var(--color-border)">'
-    + 'Celkom: <span id="editGrandTotal" style="color:var(--color-accent);font-family:var(--font-display);font-size:var(--text-2xl)">' + fmtEur(po.totalCost || 0) + '</span>'
+    + '<div class="sk-label">Položky</div>'
+    + '<div id="editItemsWrap" class="sk-frows">' + rowsHtml + '</div>'
+    + '<button type="button" class="btn-secondary sk-frow-add" id="btnEditAddRow"><svg aria-hidden="true" viewBox="0 0 14 14"><line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg> Pridať položku</button>'
+    + '<div class="sk-total"><span>Celkom</span><strong id="editGrandTotal">' + fmtEur(po.totalCost || 0) + '</strong></div>'
     + '</div>'
-    + '</div>'
-    + '<div class="u-modal-btns" style="margin-top:16px">'
-    + '<button class="u-btn u-btn-ghost" id="poEditCancel">Zrusit</button>'
-    + '<button class="u-btn u-btn-ice" id="poEditSave">Ulozit zmeny</button>'
+    + '<div class="u-modal-btns">'
+    + '<button class="u-btn u-btn-ghost" id="poEditCancel">Zrušiť</button>'
+    + '<button class="u-btn u-btn-ice" id="poEditSave">Uložiť zmeny</button>'
     + '</div>'
     + '</div>';
 
@@ -542,7 +543,7 @@ function openEditOrderModal(po) {
         });
       });
       if (!items.length) {
-        showToast('Pridaj aspon jednu polozku', 'error');
+        showToast('Pridajte aspoň jednu položku', 'error');
         btnReset(btn);
         return;
       }
@@ -551,10 +552,10 @@ function openEditOrderModal(po) {
         items: items,
       });
       close();
-      showToast('Objednavka upravena', true);
+      showToast('Objednávka upravená', true);
       await loadOrders();
     } catch (err) {
-      showToast(err.message || 'Chyba ukladania', 'error');
+      showToast(err.message || 'Chyba pri ukladaní', 'error');
       btnReset(btn);
     }
   });
@@ -569,7 +570,7 @@ function openNewOrderModal() {
 
   itemCounter = 0;
 
-  var supplierOpts = '<option value="">-- Vyberte dodavatela --</option>';
+  var supplierOpts = '<option value="">— vyberte dodávateľa —</option>';
   suppliers.forEach(function (s) {
     supplierOpts += '<option value="' + s.id + '">' + escapeHtml(s.name) + '</option>';
   });
@@ -577,37 +578,30 @@ function openNewOrderModal() {
   var ov = document.createElement('div');
   ov.className = 'u-overlay';
   ov.id = 'poNewModal';
-  ov.innerHTML = '<div class="u-modal" style="text-align:left;max-width:720px">'
-    + '<div class="u-modal-title" style="text-align:center">Nova objednavka</div>'
-    + '<div class="u-modal-body" style="gap:14px">'
+  ov.innerHTML = '<div class="u-modal sk-modal" style="max-width:720px">'
+    + '<div class="u-modal-title">Nová objednávka</div>'
+    + '<div class="u-modal-body">'
     + '<div class="u-modal-field">'
-    + '<label for="fPoSupplier">Dodavatel<span class="required-mark" aria-hidden="true"> *</span></label>'
+    + '<label for="fPoSupplier">Dodávateľ<span class="required-mark" aria-hidden="true"> *</span></label>'
     + '<select id="fPoSupplier" data-validate="required">' + supplierOpts + '</select>'
     + '</div>'
     + '<div class="u-modal-field">'
-    + '<label for="fPoNote">Poznamka</label>'
-    + '<textarea id="fPoNote" class="form-input" rows="2" placeholder="Dodacie podmienky, poznamky..."></textarea>'
+    + '<label for="fPoNote">Poznámka</label>'
+    + '<textarea id="fPoNote" class="form-input" rows="2" placeholder="Dodacie podmienky, poznámky…"></textarea>'
     + '</div>'
-    + '<div>'
-    + '<div class="form-label" style="margin-bottom:4px">Polozky<span class="required-mark" aria-hidden="true"> *</span></div>'
-    + '<div style="font-size:var(--text-xs);color:var(--color-text-sec);margin-bottom:8px;line-height:1.5">'
-    + 'Mnozstvo a cena su vzdy v JEDNOTKE suroviny (ks / L / kg — vidis ju pri nazve v dropdowne).'
-    + '<br>Priklad: 6× flasa 1.5L Kinley za 11.24 € → ak surovina je v <code>ks</code> zadaj <code>6</code> a <code>1.87</code>; ak v <code>L</code> zadaj <code>9</code> a <code>1.25</code>.'
-    + '<br>Zadavaj cenu BEZ DPH a BEZ vratneho obalu.'
+    + '<div class="sk-label">Položky<span class="required-mark" aria-hidden="true"> *</span></div>'
+    + '<div class="sk-help">'
+    + 'Množstvo a cena sú vždy v jednotke suroviny (ks / l / kg — vidíte ju pri názve vo výbere). '
+    + 'Príklad: 6× fľaša 1,5 l Kinley za 11,24 € → ak je surovina v <code>ks</code>, zadajte <code>6</code> a <code>1,87</code>; ak v <code>l</code>, zadajte <code>9</code> a <code>1,25</code>. '
+    + 'Cenu zadávajte bez DPH a bez vratného obalu.'
     + '</div>'
-    + '<div id="poItemsWrap"></div>'
-    + '<button class="btn-outline-accent" id="poAddItemBtn" type="button" style="margin-top:8px">'
-    + '<svg aria-hidden="true" viewBox="0 0 14 14" style="width:12px;height:12px"><line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
-    + ' Pridať položku'
-    + '</button>'
-    + '</div>'
-    + '<div id="poGrandTotal" style="text-align:right;font-weight:700;font-size:14px;padding-top:8px;border-top:1px solid rgba(255,255,255,.06)">'
-    + 'Celkova cena: <span style="color:var(--color-accent);font-family:var(--font-display)">0,00 \u20AC</span>'
-    + '</div>'
+    + '<div id="poItemsWrap" class="sk-frows"></div>'
+    + '<button class="btn-secondary sk-frow-add" id="poAddItemBtn" type="button"><svg aria-hidden="true" viewBox="0 0 14 14"><line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg> Pridať položku</button>'
+    + '<div id="poGrandTotal" class="sk-total"><span>Celková cena</span><strong>' + fmtEur(0) + '</strong></div>'
     + '</div>'
     + '<div class="u-modal-btns">'
-    + '<button class="u-btn u-btn-ghost" id="poNewCancel">Zrusit</button>'
-    + '<button class="u-btn u-btn-ice" id="poNewSave">Ulozit</button>'
+    + '<button class="u-btn u-btn-ghost" id="poNewCancel">Zrušiť</button>'
+    + '<button class="u-btn u-btn-ice" id="poNewSave">Vytvoriť objednávku</button>'
     + '</div>'
     + '</div>';
 
@@ -638,7 +632,7 @@ function openNewOrderModal() {
     var note = document.getElementById('fPoNote').value.trim();
 
     if (!supplierId) {
-      showToast('Vyberte dodavatela');
+      showToast('Vyberte dodávateľa');
       return;
     }
 
@@ -659,7 +653,7 @@ function openNewOrderModal() {
     });
 
     if (items.length === 0 || hasError) {
-      showToast('Pridajte aspon jednu polozku s platnym mnozstvom');
+      showToast('Pridajte aspoň jednu položku s platným množstvom');
       return;
     }
 
@@ -671,11 +665,11 @@ function openNewOrderModal() {
         note: note,
         items: items
       });
-      showToast('Objednavka vytvorena', true);
+      showToast('Objednávka vytvorená', true);
       closeModal();
       await loadOrders();
     } catch (err) {
-      showToast(err.message || 'Chyba pri vytvarani objednavky', 'error');
+      showToast(err.message || 'Chyba pri vytváraní objednávky', 'error');
     } finally {
       if (saveBtn) btnReset(saveBtn);
     }
@@ -689,32 +683,29 @@ function addItemRow() {
   itemCounter++;
   var rowId = 'poItem_' + itemCounter;
 
-  var ingredientOpts = '<option value="">-- Surovina --</option>';
+  var ingredientOpts = '<option value="">— surovina —</option>';
   ingredients.forEach(function (ing) {
     ingredientOpts += '<option value="' + ing.id + '">' + escapeHtml(ing.name) + ' (' + escapeHtml(ing.unit) + ')</option>';
   });
 
   var row = document.createElement('div');
-  row.className = 'po-item-row';
+  row.className = 'po-item-row sk-porow';
   row.id = rowId;
-  // Wrapper teraz vertik\u00E1lne \u2014 main row (selectova\u0165 / qty / cost / total /
-  // remove) na vrchu + last-price hint pod \u0148ou. T\u00FDm z\u00EDskame priestor pre
-  // tla\u010Didlo "Pou\u017Ei\u0165 posledn\u00FA cenu" bez stl\u00E1\u010Dania hlavn\u00E9ho layoutu.
-  row.style.cssText = 'display:flex;flex-direction:column;gap:4px;margin-bottom:8px';
+  // Hlavný riadok (surovina / množstvo / cena / suma / odstrániť) a pod ním
+  // poznámka „posledná cena". Rozloženie rieši CSS (.sk-frow), JS len prepína
+  // viditeľnosť poznámky.
   row.innerHTML = ''
-    + '<div class="po-item-main" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
-    + '<select class="po-ingredient-select" style="flex:2;min-width:140px;padding:8px 10px;border-radius:var(--radius-sm);border:1px solid var(--color-border);background:rgba(255,255,255,.04);font-family:var(--font-body);font-size:13px;color:var(--color-text);outline:none">'
+    + '<div class="po-item-main sk-frow">'
+    + '<select class="po-ingredient-select form-select sk-f-sel" aria-label="Surovina">'
     + ingredientOpts
     + '</select>'
-    + '<input class="po-qty-input" type="number" step="0.01" min="0" placeholder="Mnozstvo" title="Pocet jednotiek surovinky (ks / L / kg)" style="flex:1;min-width:80px;padding:8px 10px;border-radius:var(--radius-sm);border:1px solid var(--color-border);background:rgba(255,255,255,.04);font-family:var(--font-body);font-size:13px;color:var(--color-text);outline:none">'
-    + '<input class="po-cost-input" type="number" step="0.0001" min="0" placeholder="Cena za jednotku" title="Cena za 1 jednotku surovinky bez DPH a bez vratneho obalu" style="flex:1;min-width:80px;padding:8px 10px;border-radius:var(--radius-sm);border:1px solid var(--color-border);background:rgba(255,255,255,.04);font-family:var(--font-body);font-size:13px;color:var(--color-text);outline:none">'
-    + '<span class="po-unit-hint" aria-hidden="true" style="flex:0 0 auto;font-size:11px;color:var(--color-text-sec);font-family:var(--font-body);min-width:36px"></span>'
-    + '<span class="po-line-total" style="flex:0 0 90px;text-align:right;font-family:var(--font-display);font-weight:600;font-size:13px;color:var(--color-text-sec)">0,00 \u20AC</span>'
-    + '<button class="act-btn del po-remove-btn" type="button" title="Odstranit" style="flex-shrink:0">'
-    + '<svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
-    + '</button>'
+    + '<input class="po-qty-input form-input sk-f-qty" type="number" step="0.01" min="0" placeholder="Množstvo" title="Počet jednotiek suroviny (ks / l / kg)" aria-label="Množstvo">'
+    + '<input class="po-cost-input form-input sk-f-cost" type="number" step="0.0001" min="0" placeholder="Cena za jednotku" title="Cena za 1 jednotku suroviny bez DPH a bez vratného obalu" aria-label="Cena za jednotku">'
+    + '<span class="po-unit-hint sk-frow-hint sk-f-hint" aria-hidden="true"></span>'
+    + '<span class="po-line-total sk-frow-tot sk-f-tot">' + fmtEur(0) + '</span>'
+    + '<button class="act-btn del po-remove-btn sk-f-rm" type="button" title="Odstrániť" aria-label="Odstrániť položku"><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>'
     + '</div>'
-    + '<div class="po-last-price-hint" style="display:none;padding:0 2px;font-size:11.5px;color:var(--color-text-sec);font-family:var(--font-body);align-items:center;gap:8px"></div>';
+    + '<div class="po-last-price-hint" style="display:none"></div>';
 
   wrap.appendChild(row);
 
@@ -731,12 +722,12 @@ function addItemRow() {
     var ing = id ? ingredients.find(function (x) { return x.id === id; }) : null;
     var unit = ing && ing.unit ? ing.unit : '';
     if (unit) {
-      qtyInput.placeholder = 'Mnozstvo (' + unit + ')';
+      qtyInput.placeholder = 'Množstvo (' + unit + ')';
       costInput.placeholder = 'Cena (\u20AC/' + unit + ')';
       unitHint.textContent = '\u20AC/' + unit;
       unitHint.title = 'Cena je za 1 ' + unit;
     } else {
-      qtyInput.placeholder = 'Mnozstvo';
+      qtyInput.placeholder = 'Množstvo';
       costInput.placeholder = 'Cena za jednotku';
       unitHint.textContent = '';
       unitHint.title = '';
@@ -772,19 +763,16 @@ function addItemRow() {
       var priceStr = Number(res.unitCost).toFixed(4).replace(/\.?0+$/, '').replace('.', ',');
       lastPriceHint.style.display = 'flex';
       lastPriceHint.innerHTML = ''
-        + '<span style="color:var(--color-text-dim)">Posledn\u00E1 cena:</span>'
-        + '<strong style="font-family:var(--font-display);color:var(--color-accent);font-size:12px">'
-        + priceStr + ' \u20AC/' + escapeHtml(unit) + '</strong>'
-        + '<span style="color:var(--color-text-dim);font-size:11px">' + supplierStr + dateStr + '</span>'
-        + '<button type="button" class="po-use-last-price" data-price="' + Number(res.unitCost) + '"'
-        + ' style="margin-left:auto;padding:4px 10px;border-radius:var(--radius-xs);border:1px solid var(--color-accent-border);background:var(--color-accent-bg);color:var(--color-accent);font-family:var(--font-body);font-size:11px;font-weight:600;cursor:pointer">'
-        + 'Pou\u017Ei\u0165 posledn\u00FA cenu</button>';
+        + '<span>Posledná cena</span>'
+        + '<strong>' + priceStr + ' \u20AC/' + escapeHtml(unit) + '</strong>'
+        + '<span>' + supplierStr + dateStr + '</span>'
+        + '<button type="button" class="po-use-last-price" data-price="' + Number(res.unitCost) + '">Použiť poslednú cenu</button>';
       var btn = lastPriceHint.querySelector('.po-use-last-price');
       btn.addEventListener('click', function () {
         costInput.value = Number(res.unitCost);
         updateLineTotal();
-        btn.textContent = '\u2713 Pou\u017Eit\u00E9';
-        btn.style.opacity = '0.6';
+        btn.textContent = 'Použité';
+        btn.disabled = true;
       });
     } catch (_) { /* missing endpoint \u2192 silently skip */ }
   }
@@ -815,14 +803,16 @@ function updateGrandTotal() {
     total += qty * cost;
   });
 
-  totalEl.innerHTML = 'Celkova cena: <span style="color:var(--color-accent);font-family:var(--font-display)">' + fmtEur(total) + '</span>';
+  totalEl.innerHTML = '<span>Celková cena</span><strong>' + fmtEur(total) + '</strong>';
 }
 
 // ===== TAB SWITCHING =====
 function setActiveTab(status) {
   activeStatus = status;
   $$('.po-tab-btn').forEach(function (btn) {
-    btn.classList.toggle('active', btn.dataset.status === status);
+    var on = btn.dataset.status === status;
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
   });
   loadOrders();
 }
@@ -836,10 +826,9 @@ async function handleInvoiceScan(file) {
   ov.className = 'u-overlay';
   ov.id = 'scanOverlay';
   ov.innerHTML = '<div class="u-modal" style="text-align:center;max-width:400px">'
-    + '<div style="font-size:48px;margin-bottom:12px;animation:spin 2s linear infinite">&#128270;</div>'
-    + '<div class="u-modal-title" id="scanStatus">' + (isPdf ? 'Konvertujem PDF...' : 'Skenujem fakturu...') + '</div>'
-    + '<div class="u-modal-text">AI analyzuje dokument a extrahuje polozky. Trvanie: 5-20 sekund.</div>'
-    + '<style>@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}</style>'
+    + '<div class="sk-spin" aria-hidden="true"></div>'
+    + '<div class="u-modal-title" id="scanStatus">' + (isPdf ? 'Konvertujem PDF…' : 'Skenujem faktúru…') + '</div>'
+    + '<div class="u-modal-text">Dokument sa analyzuje a položky sa vyčítajú automaticky. Trvá to 5–20 sekúnd.</div>'
     + '</div>';
   document.body.appendChild(ov);
   requestAnimationFrame(function () { ov.classList.add('show'); });
@@ -849,7 +838,7 @@ async function handleInvoiceScan(file) {
     if (isPdf) {
       images = await pdfToImages(file);
       var statusEl = ov.querySelector('#scanStatus');
-      if (statusEl) statusEl.textContent = 'Skenujem ' + images.length + ' stran...';
+      if (statusEl) statusEl.textContent = 'Skenujem ' + images.length + ' strán…';
     } else {
       var base64 = await fileToBase64(file);
       images = [base64];
@@ -863,7 +852,7 @@ async function handleInvoiceScan(file) {
 
     for (var i = 0; i < images.length; i++) {
       var statusEl = ov.querySelector('#scanStatus');
-      if (statusEl && images.length > 1) statusEl.textContent = 'Skenujem stranu ' + (i + 1) + ' z ' + images.length + '...';
+      if (statusEl && images.length > 1) statusEl.textContent = 'Skenujem stranu ' + (i + 1) + ' z ' + images.length + '…';
 
       var result = await api.post('/invoice-scan', { image: images[i] });
       if (result.items) allItems = allItems.concat(result.items);
@@ -879,7 +868,7 @@ async function handleInvoiceScan(file) {
   } catch (err) {
     ov.classList.remove('show');
     setTimeout(function () { ov.remove(); }, 300);
-    showToast('Chyba skenovania: ' + (err.message || 'Neznama chyba'), 'error');
+    showToast('Chyba skenovania: ' + (err.message || 'Neznáma chyba'), 'error');
   }
 }
 
@@ -950,7 +939,7 @@ async function pdfToImages(file) {
 function openScanReviewModal(scanResult) {
   var items = scanResult.items || [];
   if (!items.length) {
-    showToast('AI nenasla ziadne polozky na fakture', 'error');
+    showToast('Na faktúre sa nenašli žiadne položky', 'error');
     return;
   }
 
@@ -958,21 +947,22 @@ function openScanReviewModal(scanResult) {
   ov.className = 'u-overlay';
   ov.id = 'scanReviewModal';
 
-  var html = '<div class="u-modal" style="text-align:left;max-width:860px;max-height:90vh;overflow-y:auto">';
-  html += '<div class="u-modal-title" style="text-align:center">Skenovana faktura</div>';
+  var html = '<div class="u-modal sk-modal" style="max-width:860px">';
+  html += '<div class="u-modal-title">Naskenovaná faktúra</div>';
+  html += '<div class="u-modal-body">';
 
   // Invoice info bar
   if (scanResult.supplier || scanResult.invoiceNumber || scanResult.date) {
-    html += '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;padding:12px;background:var(--color-bg-surface);border-radius:var(--radius-sm);border:1px solid var(--color-border)">';
-    if (scanResult.supplier) html += '<div><span style="font-size:var(--text-xs);color:var(--color-text-dim);text-transform:uppercase;letter-spacing:.8px;display:block">Dodavatel</span><span style="font-weight:var(--weight-bold)">' + escapeHtml(scanResult.supplier) + '</span></div>';
-    if (scanResult.invoiceNumber) html += '<div><span style="font-size:var(--text-xs);color:var(--color-text-dim);text-transform:uppercase;letter-spacing:.8px;display:block">Cislo faktury</span><span style="font-weight:var(--weight-bold)">' + escapeHtml(scanResult.invoiceNumber) + '</span></div>';
-    if (scanResult.date) html += '<div><span style="font-size:var(--text-xs);color:var(--color-text-dim);text-transform:uppercase;letter-spacing:.8px;display:block">Datum</span><span style="font-weight:var(--weight-bold)">' + escapeHtml(scanResult.date) + '</span></div>';
+    html += '<div class="sk-scan-info">';
+    if (scanResult.supplier) html += '<div><span class="sk-kv-k">Dodávateľ</span><span class="sk-kv-v">' + escapeHtml(scanResult.supplier) + '</span></div>';
+    if (scanResult.invoiceNumber) html += '<div><span class="sk-kv-k">Číslo faktúry</span><span class="sk-kv-v num">' + escapeHtml(scanResult.invoiceNumber) + '</span></div>';
+    if (scanResult.date) html += '<div><span class="sk-kv-k">Dátum</span><span class="sk-kv-v num">' + escapeHtml(scanResult.date) + '</span></div>';
     html += '</div>';
   }
 
   // Items as cards
-  html += '<div class="form-label" style="margin-bottom:10px">Polozky z faktury <span style="color:var(--color-text-dim);font-weight:400;text-transform:none;letter-spacing:0">(' + items.length + ')</span></div>';
-  html += '<div id="scanItemsWrap" style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">';
+  html += '<div class="sk-label">Položky z faktúry (' + items.length + ')</div>';
+  html += '<div id="scanItemsWrap" class="sk-frows">';
 
   items.forEach(function (item, idx) {
     html += buildScanItemCard(item, idx);
@@ -987,14 +977,13 @@ function openScanReviewModal(scanResult) {
     var tot = Number(i.totalCost) || 0;
     return s + (tot > 0 ? tot : q * uc);
   }, 0);
-  html += '<div id="scanGrandTotal" style="text-align:right;font-weight:700;font-size:var(--text-lg);padding-top:10px;border-top:1px solid var(--color-border)">';
-  html += 'Celkom: <span id="scanGrandTotalValue" style="color:var(--color-accent);font-family:var(--font-display);font-size:var(--text-2xl)">' + fmtCost(grandTotal) + ' \u20AC</span>';
-  html += '<div style="font-size:var(--text-xs);color:var(--color-text-dim);margin-top:4px">Suma sa prepocita po uprave mnozstiev. Skontroluj, ci zodpoveda sume na fakture (bez DPH).</div>';
+  html += '<div id="scanGrandTotal" class="sk-total"><span>Celkom</span><strong id="scanGrandTotalValue">' + fmtCost(grandTotal) + ' \u20AC</strong></div>';
+  html += '<div class="sk-total-hint">Suma sa prepočíta po úprave množstiev. Skontrolujte, či zodpovedá sume na faktúre (bez DPH).</div>';
   html += '</div>';
 
-  html += '<div class="u-modal-btns" style="margin-top:20px">';
-  html += '<button class="u-btn u-btn-ghost" id="scanCancel">Zrusit</button>';
-  html += '<button class="u-btn u-btn-ice" id="scanConfirm">Potvrdit a vytvorit objednavku</button>';
+  html += '<div class="u-modal-btns">';
+  html += '<button class="u-btn u-btn-ghost" id="scanCancel">Zrušiť</button>';
+  html += '<button class="u-btn u-btn-ice" id="scanConfirm">Vytvoriť objednávku</button>';
   html += '</div>';
   html += '</div>';
 
@@ -1084,7 +1073,7 @@ function openScanReviewModal(scanResult) {
     var unit = unitEl ? unitEl.textContent : '';
     if (conv !== 1 && qty > 0) {
       resultEl.textContent = '= ' + (qty * conv).toLocaleString('sk-SK', { maximumFractionDigits: 2 }) + ' ' + unit + ' na sklad';
-      resultEl.style.color = 'var(--color-success)';
+      resultEl.style.color = 'var(--color-success-strong)';
     } else {
       resultEl.textContent = '';
     }
@@ -1146,7 +1135,7 @@ function openScanReviewModal(scanResult) {
       });
 
       if (!poItems.length) {
-        showToast('Priradte suroviny k polozkam alebo vytvorte nove', 'error');
+        showToast('Priraďte suroviny k položkám alebo vytvorte nové', 'error');
         btnReset(btn);
         return;
       }
@@ -1162,7 +1151,7 @@ function openScanReviewModal(scanResult) {
       }
       if (!supplierId && suppliers.length) supplierId = suppliers[0].id;
       if (!supplierId) {
-        showToast('Najprv pridajte dodavatela v sekcii Dodavatelia', 'error');
+        showToast('Najprv pridajte dodávateľa v sekcii Dodávatelia', 'error');
         btnReset(btn);
         return;
       }
@@ -1173,10 +1162,10 @@ function openScanReviewModal(scanResult) {
 
       ov.classList.remove('show');
       setTimeout(function () { ov.remove(); }, 300);
-      showToast('Objednavka vytvorena zo skenu', true);
+      showToast('Objednávka vytvorená zo skenu', true);
       loadOrders();
     } catch (err) {
-      showToast('Chyba: ' + (err.message || 'Neznama chyba'), 'error');
+      showToast('Chyba: ' + (err.message || 'Neznáma chyba'), 'error');
       btnReset(btn);
     }
   });
@@ -1185,12 +1174,10 @@ function openScanReviewModal(scanResult) {
 function buildScanItemCard(item, idx) {
   var matched = item.matchedIngredientId || '';
   var isUnmatched = !matched;
-  var borderColor = isUnmatched ? 'rgba(224,112,112,.2)' : 'var(--color-border)';
-  var bgColor = isUnmatched ? 'rgba(224,112,112,.04)' : 'var(--color-bg-surface)';
 
   var isSupply = item.category === 'supply';
-  var ingOpts = '<option value="">-- priradit ' + (isSupply ? 'tovar' : 'surovinu') + ' --</option>';
-  ingOpts += '<option value="__new__" style="color:#5CC49E;font-weight:700">+ Vytvorit ' + (isSupply ? 'novy tovar' : 'novu surovinu') + '</option>';
+  var ingOpts = '<option value="">— priradiť ' + (isSupply ? 'tovar' : 'surovinu') + ' —</option>';
+  ingOpts += '<option value="__new__">+ Vytvoriť ' + (isSupply ? 'nový tovar' : 'novú surovinu') + '</option>';
   ingredients.forEach(function (ing) {
     // Show matching type first, then all
     var ingType = ing.type || 'ingredient';
@@ -1200,16 +1187,15 @@ function buildScanItemCard(item, idx) {
   });
 
   var h = '';
-  h += '<div data-scan-row="' + idx + '" style="padding:12px 14px;background:' + bgColor + ';border:1px solid ' + borderColor + ';border-radius:var(--radius-sm);transition:all .2s">';
+  h += '<div data-scan-row="' + idx + '" class="sk-scan' + (isUnmatched ? ' is-unmatched' : '') + '">';
 
-  // Row 1: invoice name + category badge + remove
-  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px">';
-  h += '<div style="font-size:var(--text-md);font-weight:var(--weight-bold);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(item.invoiceName || item.name || '') + '</div>';
-  var catBadge = (item.category === 'supply')
-    ? '<span style="font-size:var(--text-xs);font-weight:var(--weight-bold);padding:2px 8px;background:rgba(125,211,252,.1);color:#7DD3FC;border-radius:var(--radius-xs);white-space:nowrap">Tovar</span>'
-    : '<span style="font-size:var(--text-xs);font-weight:var(--weight-bold);padding:2px 8px;background:rgba(92,196,158,.1);color:var(--color-success-text);border-radius:var(--radius-xs);white-space:nowrap">Surovina</span>';
-  h += catBadge;
-  if (isUnmatched) h += '<span style="font-size:var(--text-xs);color:var(--color-danger);font-weight:var(--weight-bold);padding:2px 8px;background:rgba(224,112,112,.1);border-radius:var(--radius-xs);white-space:nowrap">Nepriradena</span>';
+  // Riadok 1: názov z faktúry + pilulky (výnimky) + odstrániť
+  h += '<div class="sk-scan-head">';
+  h += '<div class="sk-scan-name">' + escapeHtml(item.invoiceName || item.name || '') + '</div>';
+  h += (item.category === 'supply')
+    ? '<span class="sk-pill is-navy">Tovar</span>'
+    : '<span class="sk-pill is-ok">Surovina</span>';
+  if (isUnmatched) h += '<span class="sk-pill is-danger">Nepriradená</span>';
 
   // Detekcia podozrivého množstva: ak total/unitCost dáva iné číslo než quantity, alebo ak je quantity oveľa menšie
   // než posledné číslo v názve, upozorni manažéra — najčastejšie OCR zamení stĺpec „množstvo" s číslom v popise.
@@ -1223,46 +1209,47 @@ function buildScanItemCard(item, idx) {
   var nameMuchBigger = biggestInName > qty && biggestInName >= 4 && qty > 0 && biggestInName / qty >= 3;
   if (totalMismatch || nameMuchBigger) {
     var hint = totalMismatch && expectedFromTotal
-      ? 'Total/unit napoveda ' + Math.round(expectedFromTotal) + ' ks'
-      : 'V nazve je vacsie cislo (' + biggestInName + ')';
-    h += '<span title="Skontrolujte mnozstvo - OCR casto zamena stlpec mnozstvo s cislom v nazve" style="font-size:var(--text-xs);font-weight:var(--weight-bold);padding:2px 8px;background:rgba(255,179,71,.12);color:#FFB347;border-radius:var(--radius-xs);white-space:nowrap">? ' + escapeHtml(hint) + '</span>';
+      ? 'suma napovedá ' + Math.round(expectedFromTotal) + ' ks'
+      : 'v názve je väčšie číslo (' + biggestInName + ')';
+    h += '<span class="sk-pill is-warn" title="Skontrolujte množstvo — OCR často zamení stĺpec množstvo s číslom v názve">? ' + escapeHtml(hint) + '</span>';
   }
 
-  h += '<button class="scan-remove" data-idx="' + idx + '" title="Odstranit" style="width:28px;height:28px;border-radius:var(--radius-xs);border:none;background:transparent;color:var(--color-text-dim);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">\u2715</button>';
+  h += '<button type="button" class="scan-remove" data-idx="' + idx + '" title="Odstrániť" aria-label="Odstrániť položku">\u2715</button>';
   h += '</div>';
 
-  // Row 2: ingredient select + values
-  h += '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">';
-  h += '<select class="form-select form-select-sm scan-ing" data-idx="' + idx + '" style="flex:2;min-width:160px">' + ingOpts + '</select>';
-  h += '<input type="number" class="form-input form-input-sm scan-qty" data-idx="' + idx + '" value="' + (item.quantity || 0) + '" step="0.01" min="0" style="width:75px;text-align:right" placeholder="Mnoz.">';
-  h += '<select class="form-select form-select-sm scan-unit" data-idx="' + idx + '" style="width:65px">';
+  // Riadok 2: surovina + množstvo, jednotka, cena, suma
+  h += '<div class="sk-scan-fields">';
+  h += '<select class="form-select scan-ing" data-idx="' + idx + '" aria-label="Priradená surovina">' + ingOpts + '</select>';
+  h += '<input type="number" class="form-input scan-qty" data-idx="' + idx + '" value="' + (item.quantity || 0) + '" step="0.01" min="0" placeholder="Množ." aria-label="Množstvo">';
+  h += '<select class="form-select scan-unit" data-idx="' + idx + '" aria-label="Jednotka">';
   ['ks','kg','g','l','ml'].forEach(function (u) {
     h += '<option value="' + u + '"' + (item.unit === u ? ' selected' : '') + '>' + u + '</option>';
   });
   h += '</select>';
-  h += '<input type="number" class="form-input form-input-sm scan-cost" data-idx="' + idx + '" value="' + (item.unitCost || 0) + '" step="0.01" min="0" style="width:80px;text-align:right" placeholder="Cena">';
-  h += '<span class="scan-total-display" style="font-family:var(--font-display);font-weight:700;color:var(--color-accent);min-width:90px;text-align:right">' + fmtCost(item.totalCost) + ' \u20AC</span>';
+  h += '<input type="number" class="form-input scan-cost" data-idx="' + idx + '" value="' + (item.unitCost || 0) + '" step="0.01" min="0" placeholder="Cena" aria-label="Cena za jednotku">';
+  h += '<span class="scan-total-display">' + fmtCost(item.totalCost) + ' \u20AC</span>';
   h += '</div>';
 
-  // Row 3: conversion factor (e.g. 1 ks = 500g)
-  h += '<div style="display:flex;gap:8px;align-items:center;margin-top:8px;padding-top:8px;border-top:1px dashed var(--color-border)">';
+  // Riadok 3: prepočet (napr. 1 ks = 500 g)
+  h += '<div class="sk-scan-conv">';
   var aiConv = parseFloat(item.conversionFactor) || 1;
-  h += '<span style="font-size:var(--text-xs);color:var(--color-text-sec);white-space:nowrap">Konverzia: 1 ' + escapeHtml(item.unit || 'ks') + ' =</span>';
-  h += '<input type="number" class="form-input form-input-sm scan-conv" data-idx="' + idx + '" value="' + aiConv + '" step="0.01" min="0.01" style="width:80px;text-align:right">';
-  h += '<span class="scan-conv-unit" style="font-size:var(--text-sm);color:var(--color-accent);font-weight:var(--weight-bold);min-width:20px">—</span>';
-  h += '<span class="scan-conv-result" style="font-size:var(--text-xs);color:var(--color-text-dim)"></span>';
+  h += '<span>Prepočet: 1 ' + escapeHtml(item.unit || 'ks') + ' =</span>';
+  h += '<input type="number" class="form-input scan-conv" data-idx="' + idx + '" value="' + aiConv + '" step="0.01" min="0.01" aria-label="Prepočet na jednotku skladu">';
+  h += '<span class="scan-conv-unit">—</span>';
+  h += '<span class="scan-conv-result"></span>';
   h += '</div>';
 
-  // Row 4: new ingredient/supply form (hidden by default)
+  // Riadok 4: nová surovina / tovar (skrytý, kým si to človek nevyberie;
+  // JS prepína display, preto ostáva inline)
   var newIngUnit = isSupply ? 'ks' : (item.targetUnit || item.unit || 'ks');
-  h += '<div class="scan-new-ing" style="display:none;gap:8px;align-items:center;margin-top:8px;padding-top:8px;border-top:1px dashed var(--color-border)">';
-  h += '<input class="form-input form-input-sm scan-new-name" placeholder="Nazov ' + (isSupply ? 'noveho tovaru' : 'novej suroviny') + '" value="' + escapeHtml(item.suggestedName || '') + '" style="flex:2">';
-  h += '<select class="form-select form-select-sm scan-new-unit" style="width:70px">';
+  h += '<div class="scan-new-ing" style="display:none">';
+  h += '<input class="form-input scan-new-name" placeholder="Názov ' + (isSupply ? 'nového tovaru' : 'novej suroviny') + '" value="' + escapeHtml(item.suggestedName || '') + '" aria-label="Názov">';
+  h += '<select class="form-select scan-new-unit" aria-label="Jednotka">';
   ['ks','kg','g','l','ml'].forEach(function (u) {
     h += '<option value="' + u + '"' + (newIngUnit === u ? ' selected' : '') + '>' + u + '</option>';
   });
   h += '</select>';
-  h += '<span style="font-size:var(--text-xs);color:var(--color-success-text)">' + (isSupply ? 'Novy tovar' : 'Nova surovina') + '</span>';
+  h += '<span class="sk-pill is-ok">' + (isSupply ? 'Nový tovar' : 'Nová surovina') + '</span>';
   h += '</div>';
 
   h += '</div>';
@@ -1280,24 +1267,28 @@ export function init(container) {
   itemCounter = 0;
 
   container.innerHTML = ''
-    + '<div class="top-bar">'
+    + '<div class="sk-head">'
+    + '<div class="sk-sum" id="poSum" aria-live="polite"></div>'
+    + '<div class="sk-head-actions">'
+    + '<button class="btn-secondary" id="scanInvoiceBtn" type="button">'
+    + '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>'
+    + 'Skenovať faktúru'
+    + '</button>'
     + '<button class="btn-add" id="addOrderBtn">'
     + '<svg aria-hidden="true" viewBox="0 0 14 14"><line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
     + 'Nová objednávka'
     + '</button>'
-    + '<button class="btn-outline-accent" id="scanInvoiceBtn" style="display:inline-flex;align-items:center;gap:6px">'
-    + '<svg aria-hidden="true" viewBox="0 0 24 24" style="width:16px;height:16px" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>'
-    + 'Skenovať faktúru'
-    + '</button>'
-    + '<input type="file" id="invoiceFileInput" accept="image/*,application/pdf" capture="environment" style="display:none">'
     + '</div>'
-    + '<div class="tabs" id="poTabs">'
-    + '<button class="tab-btn po-tab-btn active" data-status="">Všetky</button>'
-    + '<button class="tab-btn po-tab-btn" data-status="draft">Rozpracované</button>'
-    + '<button class="tab-btn po-tab-btn" data-status="received">Prijaté</button>'
-    + '<button class="tab-btn po-tab-btn" data-status="cancelled">Zrušené</button>'
+    + '<input type="file" id="invoiceFileInput" accept="image/*,application/pdf" capture="environment" hidden>'
     + '</div>'
-    + '<div class="panel" id="ordersPanel">'
+    // Stav ako segmentový prepínač — vidno všetky štyri možnosti naraz.
+    + '<div class="panel-tabs sk-seg" id="poTabs" role="group" aria-label="Stav objednávky">'
+    + '<button type="button" class="panel-tab po-tab-btn active" data-status="" aria-pressed="true">Všetky</button>'
+    + '<button type="button" class="panel-tab po-tab-btn" data-status="draft" aria-pressed="false">Rozpracované</button>'
+    + '<button type="button" class="panel-tab po-tab-btn" data-status="received" aria-pressed="false">Prijaté</button>'
+    + '<button type="button" class="panel-tab po-tab-btn" data-status="cancelled" aria-pressed="false">Zrušené</button>'
+    + '</div>'
+    + '<div class="panel sk-bare" id="ordersPanel">'
     + '<div class="skeleton-row"></div>'
     + '<div class="skeleton-row"></div>'
     + '<div class="skeleton-row"></div>'
@@ -1326,7 +1317,7 @@ export function init(container) {
     setActiveTab(btn.dataset.status);
   });
 
-  // Table event delegation
+  // List event delegation
   container.addEventListener('click', function (e) {
     var detailBtn = e.target.closest('[data-detail-id]');
     if (detailBtn) {

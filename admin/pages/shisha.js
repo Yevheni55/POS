@@ -66,14 +66,14 @@ function render(data) {
   // Per-day table
   var html = '';
   if (!byDay.length) {
-    html = '<tr><td colspan="3" style="text-align:center;color:var(--color-text-sec);padding:24px">Žiadne predaje za posledných 60 dní.</td></tr>';
+    html = '<tr><td colspan="3" class="td-empty">Žiadne predaje za posledných 60 dní.</td></tr>';
   } else {
     html = byDay.map(function (d) {
       return (
         '<tr>' +
-        '<td>' + fmtDate(d.day) + '</td>' +
-        '<td style="text-align:right;font-weight:700">' + d.count + ' ks</td>' +
-        '<td style="text-align:right;font-variant-numeric:tabular-nums">' + fmtMoney(d.revenue) + '</td>' +
+        '<td class="td-name">' + fmtDate(d.day) + '</td>' +
+        '<td class="num">' + d.count + ' ks</td>' +
+        '<td class="num">' + fmtMoney(d.revenue) + '</td>' +
         '</tr>'
       );
     }).join('');
@@ -85,15 +85,15 @@ function render(data) {
   var canDelete = user && (user.role === 'manazer' || user.role === 'admin');
   var rhtml = '';
   if (!recent.length) {
-    rhtml = '<tr><td colspan="' + (canDelete ? 4 : 3) + '" style="text-align:center;color:var(--color-text-sec);padding:16px">—</td></tr>';
+    rhtml = '<tr><td colspan="' + (canDelete ? 4 : 3) + '" class="td-empty">Zatiaľ žiadny záznam — prvý pridáte tlačidlom hore.</td></tr>';
   } else {
     rhtml = recent.map(function (r) {
       var cells =
-        '<td>' + fmtTime(r.soldAt) + '</td>' +
+        '<td class="num" style="text-align:left">' + fmtTime(r.soldAt) + '</td>' +
         '<td>' + escapeHtml(r.staffName || '—') + '</td>' +
-        '<td style="text-align:right;font-variant-numeric:tabular-nums">' + fmtMoney(r.price) + '</td>';
+        '<td class="num">' + fmtMoney(r.price) + '</td>';
       if (canDelete) {
-        cells += '<td style="text-align:right"><button class="u-btn u-btn-ghost shisha-delete" data-id="' + r.id + '" title="Zmazať" style="padding:4px 10px;min-height:auto;font-size:12px">×</button></td>';
+        cells += '<td class="num"><button type="button" class="sk-shisha-del shisha-delete" data-id="' + r.id + '" title="Zmazať záznam" aria-label="Zmazať záznam">×</button></td>';
       }
       return '<tr>' + cells + '</tr>';
     }).join('');
@@ -107,7 +107,7 @@ async function recordSale() {
   var btn = _container.querySelector('#shishaAddBtn');
   btn.disabled = true;
   var origLabel = btn.innerHTML;
-  btn.innerHTML = '<span style="opacity:.7">…</span>';
+  btn.innerHTML = '…';
   try {
     await api.post('/shisha', {});
     if (typeof showToast === 'function') showToast('+1 shisha zaznamenaná', true);
@@ -135,69 +135,62 @@ async function deleteSale(id) {
 export function init(container) {
   _container = container;
   container.className = 'content';
+  // Jedna hlavná akcia (+1), dnešok ako hlavná odpoveď, mesiac a celkovo
+  // jedným riadkom súčtu. Predtým tri rovnocenné karty s 32 px číslami.
   container.innerHTML = `
-    <div style="max-width:1100px;margin:0 auto;padding:24px;display:flex;flex-direction:column;gap:24px">
-
-      <!-- Big +1 button -->
-      <div style="background:var(--surface-card);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:32px;text-align:center">
-        <div style="font-size:14px;color:var(--color-text-sec);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Predaná shisha</div>
-        <button id="shishaAddBtn" class="u-btn u-btn-mint" style="font-size:24px;padding:24px 48px;min-height:80px;width:100%;max-width:420px;margin-top:8px;display:inline-flex;align-items:center;justify-content:center;gap:12px;background:linear-gradient(135deg,var(--color-accent-bg),var(--color-accent-bg-hover));border:1px solid var(--color-accent-glow);color:var(--color-accent)">
-          <span style="font-size:32px">+1</span>
-          <span>Predaná shisha (17 €)</span>
+    <div class="sk-shisha-wrap">
+      <div>
+        <button id="shishaAddBtn" class="btn-add sk-shisha-btn" type="button">
+          <span class="sk-plus" aria-hidden="true">+1</span>
+          <span>Predaná shisha · 17 €</span>
         </button>
-        <div id="shishaStatus" style="margin-top:12px;font-size:12px;color:var(--color-text-sec)"></div>
+        <div id="shishaStatus" class="sk-status" aria-live="polite"></div>
       </div>
 
-      <!-- Counters -->
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">
-        <div style="background:var(--surface-card);border:1px solid var(--color-border);border-radius:var(--radius-md);padding:18px">
-          <div style="font-size:12px;color:var(--color-text-sec);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Dnes</div>
-          <div style="font-family:var(--font-display);font-size:32px;font-weight:800;line-height:1.1"><span id="shishaTodayCount">0</span> <span style="font-size:18px;font-weight:600;color:var(--color-text-sec)">ks</span></div>
-          <div style="font-size:14px;color:var(--color-accent);margin-top:4px;font-variant-numeric:tabular-nums" id="shishaTodayRevenue">0,00 €</div>
-        </div>
-        <div style="background:var(--surface-card);border:1px solid var(--color-border);border-radius:var(--radius-md);padding:18px">
-          <div style="font-size:12px;color:var(--color-text-sec);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Tento mesiac</div>
-          <div style="font-family:var(--font-display);font-size:32px;font-weight:800;line-height:1.1"><span id="shishaMonthCount">0</span> <span style="font-size:18px;font-weight:600;color:var(--color-text-sec)">ks</span></div>
-          <div style="font-size:14px;color:var(--color-accent);margin-top:4px;font-variant-numeric:tabular-nums" id="shishaMonthRevenue">0,00 €</div>
-        </div>
-        <div style="background:var(--surface-card);border:1px solid var(--color-border);border-radius:var(--radius-md);padding:18px">
-          <div style="font-size:12px;color:var(--color-text-sec);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Celkovo</div>
-          <div style="font-family:var(--font-display);font-size:32px;font-weight:800;line-height:1.1"><span id="shishaTotalCount">0</span> <span style="font-size:18px;font-weight:600;color:var(--color-text-sec)">ks</span></div>
-          <div style="font-size:14px;color:var(--color-accent);margin-top:4px;font-variant-numeric:tabular-nums" id="shishaTotalRevenue">0,00 €</div>
-        </div>
+      <div class="sk-hero">
+        <div class="sk-hero-k">Dnes</div>
+        <div class="sk-hero-v"><span id="shishaTodayCount">0</span> <small>ks</small></div>
+        <div class="sk-hero-sub" id="shishaTodayRevenue">0,00 €</div>
       </div>
 
-      <!-- Per-day breakdown -->
-      <div style="background:var(--surface-card);border:1px solid var(--color-border);border-radius:var(--radius-md);overflow:hidden">
-        <div style="padding:16px 20px;border-bottom:1px solid var(--color-border);font-weight:700">Predaje po dňoch (60 dní)</div>
-        <div style="overflow-x:auto;max-height:400px">
-          <table id="shishaByDay" style="width:100%;border-collapse:collapse">
-            <thead style="position:sticky;top:0;background:var(--surface-card)">
-              <tr style="border-bottom:1px solid var(--color-border)">
-                <th style="text-align:left;padding:10px 16px;font-size:12px;color:var(--color-text-sec);text-transform:uppercase">Dátum</th>
-                <th style="text-align:right;padding:10px 16px;font-size:12px;color:var(--color-text-sec);text-transform:uppercase">Počet</th>
-                <th style="text-align:right;padding:10px 16px;font-size:12px;color:var(--color-text-sec);text-transform:uppercase">Tržba</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
+      <div class="sk-sum">
+        <span>Tento mesiac <strong><span id="shishaMonthCount">0</span> ks</strong> · <strong id="shishaMonthRevenue">0,00 €</strong></span>
+        <span>Celkovo <strong><span id="shishaTotalCount">0</span> ks</strong> · <strong id="shishaTotalRevenue">0,00 €</strong></span>
+      </div>
+
+      <div>
+        <div class="sk-list-title">Predaje po dňoch (60 dní)</div>
+        <div class="sk-list">
+          <div class="sk-scroll sk-table-wrap">
+            <table id="shishaByDay" class="sk-table sh-table">
+              <thead class="is-sticky">
+                <tr>
+                  <th>Dátum</th>
+                  <th class="num">Počet</th>
+                  <th class="num">Tržba</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
       </div>
 
-      <!-- Recent sales -->
-      <div style="background:var(--surface-card);border:1px solid var(--color-border);border-radius:var(--radius-md);overflow:hidden">
-        <div style="padding:16px 20px;border-bottom:1px solid var(--color-border);font-weight:700">Posledných 20 záznamov</div>
-        <div style="overflow-x:auto">
-          <table id="shishaRecent" style="width:100%;border-collapse:collapse">
-            <thead>
-              <tr style="border-bottom:1px solid var(--color-border)">
-                <th style="text-align:left;padding:10px 16px;font-size:12px;color:var(--color-text-sec);text-transform:uppercase">Čas</th>
-                <th style="text-align:left;padding:10px 16px;font-size:12px;color:var(--color-text-sec);text-transform:uppercase">Predal</th>
-                <th style="text-align:right;padding:10px 16px;font-size:12px;color:var(--color-text-sec);text-transform:uppercase">Cena</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
+      <div>
+        <div class="sk-list-title">Posledných 20 záznamov</div>
+        <div class="sk-list">
+          <div class="sk-table-wrap">
+            <table id="shishaRecent" class="sk-table sh-table">
+              <thead>
+                <tr>
+                  <th>Čas</th>
+                  <th>Predal</th>
+                  <th class="num">Cena</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
