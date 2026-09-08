@@ -63,7 +63,7 @@ function fmtDateSk(iso){
 }
 
 async function load(){
-  $('#weeklyContent').innerHTML = '<div class="loading-text" style="text-align:center;padding:60px 20px">Načítavam...</div>';
+  $('#weeklyContent').innerHTML = '<div class="loading-hint">Načítavam…</div>';
   try {
     // Paralelný fetch — sales + weather. Počasie je len doplňujúce
     // (ak Open-Meteo zlyhá, sales sa stále zobrazia).
@@ -119,97 +119,55 @@ function render(){
     (h.kitchenRevenue > (best?.kitchenRevenue || 0)) ? h : best, null);
 
   const html = `
-    <div class="filter-bar">
-      <div class="period-btns">
-        <button class="period-btn" id="prevWeek">‹ Predošlý</button>
-        <button class="period-btn active" style="cursor:default">${fmtDateSk(_from)} – ${fmtDateSk(_to)}</button>
-        <button class="period-btn" id="nextWeek">Ďalší ›</button>
-        <button class="period-btn" id="thisWeek">Tento týždeň</button>
+    <div class="doch-head rp-head">
+      <div class="doch-chips rp-chips" role="group" aria-label="Týždeň">
+        <button type="button" class="doch-chip" id="prevWeek" aria-label="Predošlý týždeň">‹ Predošlý</button>
+        <button type="button" class="doch-chip${_from === thisMondayStr() ? ' is-on' : ''}" id="thisWeek" aria-pressed="${_from === thisMondayStr()}">Tento týždeň</button>
+        <button type="button" class="doch-chip" id="nextWeek" aria-label="Ďalší týždeň">Ďalší ›</button>
       </div>
+      <div class="doch-range">${fmtDateSk(_from)} – ${fmtDateSk(_to)}</div>
     </div>
 
-    <div class="stat-grid">
-      <div class="stat-card">
-        <div class="stat-icon ice">
-          <svg aria-hidden="true" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-        </div>
-        <div class="stat-info">
-          <div class="stat-label">Tržby týždňa</div>
-          <div class="stat-value">${fmtEur(totalRev)}</div>
-          <div class="stat-change neutral">${fmtPct(kitchenPct)} z kuchyne</div>
-        </div>
-      </div>
-
-      <div class="stat-card">
-        <div class="stat-icon mint">
-          <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18"/><path d="M9 6V3h6v3"/></svg>
-        </div>
-        <div class="stat-info">
-          <div class="stat-label">Tržby kuchyne</div>
-          <div class="stat-value">${fmtEur(totals.kitchenRevenue || 0)}</div>
-          <div class="stat-change neutral">${peakHourKitchen && peakHourKitchen.kitchenRevenue > 0 ? 'peak ' + String(peakHourKitchen.hour).padStart(2,'0') + ':00' : '—'}</div>
-        </div>
-      </div>
-
-      <div class="stat-card">
-        <div class="stat-icon lavender">
-          <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-        </div>
-        <div class="stat-info">
-          <div class="stat-label">Hodiny v kuchyni</div>
-          <div class="stat-value">${fmtHours((totals.cookHours || 0) * 60)}</div>
-          <div class="stat-change neutral">${(d.cooks || []).length} ${(d.cooks || []).length === 1 ? 'osoba' : 'os.'}</div>
-        </div>
-      </div>
-
-      <div class="stat-card">
-        <div class="stat-icon amber">
-          <svg aria-hidden="true" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-        </div>
-        <div class="stat-info">
-          <div class="stat-label">Zisk kuchyne</div>
-          <div class="stat-value" style="color:${(totals.kitchenNetProfit||0) >= 0 ? 'var(--color-success)' : 'var(--color-danger)'}">${(totals.kitchenNetProfit||0) >= 0 ? '+' : ''}${fmtEur(totals.kitchenNetProfit || 0)}</div>
-          <div class="stat-change neutral">tržby ${fmtEur(totals.kitchenRevenue||0)} − suroviny ${fmtEur(totals.kitchenCogs||0)} − mzdy ${fmtEur(totals.kitchenWage||0)} · marža ${(totals.kitchenNetMarginPct||0).toFixed(1)} %</div>
-        </div>
-      </div>
+    <div class="rp-hero">
+      <div class="rp-hero-k">Tržby týždňa</div>
+      <div class="rp-hero-v">${fmtEur(totalRev)}</div>
+      <div class="rp-hero-s">${fmtPct(kitchenPct)} z kuchyne · bar ${fmtEur(totals.barRevenue || 0)}</div>
     </div>
+    <div class="doch-sum rp-sum">
+      <span class="rp-sum-i"><strong>${fmtEur(totals.kitchenRevenue || 0)}</strong> tržby kuchyne${peakHourKitchen && peakHourKitchen.kitchenRevenue > 0 ? ' <small>špička ' + String(peakHourKitchen.hour).padStart(2,'0') + ':00</small>' : ''}</span>
+      <span class="rp-sum-i"><strong>${fmtHours((totals.cookHours || 0) * 60)}</strong> v kuchyni <small>${(d.cooks || []).length} ${(d.cooks || []).length === 1 ? 'osoba' : 'os.'}</small></span>
+      <span class="rp-sum-i"><strong class="${(totals.kitchenNetProfit||0) >= 0 ? 'is-pos' : 'is-neg'}">${(totals.kitchenNetProfit||0) >= 0 ? '+' : ''}${fmtEur(totals.kitchenNetProfit || 0)}</strong> zisk kuchyne <small>marža ${fmt1(totals.kitchenNetMarginPct||0)} %</small></span>
+    </div>
+    <div class="rp-foot" style="margin:-6px 0 14px">zisk kuchyne = tržby ${fmtEur(totals.kitchenRevenue||0)} − suroviny ${fmtEur(totals.kitchenCogs||0)} − mzdy ${fmtEur(totals.kitchenWage||0)}</div>
 
     ${d.noKitchenStaff ? `
-      <div class="panel" style="margin-bottom:16px;border-color:rgba(232,184,74,.3);background:rgba(232,184,74,.06)">
-        <div style="display:flex;gap:14px;align-items:center">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent-amber)" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><circle cx="12" cy="16" r=".5" fill="var(--accent-amber)"/></svg>
-          <div>
-            <div style="font-weight:var(--weight-semibold);color:var(--color-text);font-size:var(--text-md)">Žiadny zamestnanec s pozíciou „kuchár"</div>
-            <div style="font-size:var(--text-sm);color:var(--color-text-sec);margin-top:2px">
-              Pre presnú efektivitu kuchára nastav v admin → Zamestnanci → pozícia text obsahujúci „kuchár"/„cook"/„chef".
-              Teraz počítam s celým personálom.
-            </div>
-          </div>
-        </div>
+      <div class="doch-owe rp-note">
+        <strong>Žiadny zamestnanec s pozíciou „kuchár"</strong>
+        <span>Pre presnú efektivitu kuchára nastav v Ľudia → pozícia text obsahujúci „kuchár"/„cook"/„chef". Teraz počítam s celým personálom.</span>
       </div>
     ` : ''}
 
-    <div class="panel" style="margin-bottom:16px">
+    <div class="panel rp-panel rp-chart">
       <div class="panel-title">Predaj podľa hodín</div>
-      <div style="font-size:var(--text-sm);color:var(--color-text-sec);margin-top:-8px;margin-bottom:14px">stĺpce ukazujú tržby bar + kuchyňa</div>
+      <div class="rp-sub">stĺpce ukazujú tržby bar + kuchyňa</div>
       ${renderHourlyChart(d.byHour || [])}
     </div>
 
-    <div class="panel" style="margin-bottom:16px">
+    <div class="panel rp-panel">
       <div class="panel-title">Zaťaženosť kuchyne</div>
-      <div style="font-size:var(--text-sm);color:var(--color-text-sec);margin-top:-8px;margin-bottom:14px">tržby kuchyne podľa dňa × hodiny</div>
+      <div class="rp-sub">tržby kuchyne podľa dňa × hodiny</div>
       ${renderHeatmap(d.heatmap || [])}
     </div>
 
-    <div class="panel" style="margin-bottom:16px">
+    <div class="panel rp-panel">
       <div class="panel-title">Zisk kuchyne podľa kuchára</div>
-      <div style="font-size:var(--text-sm);color:var(--color-text-sec);margin-top:-8px;margin-bottom:14px">tržby − suroviny − mzda = čistý zisk z kuchyne pripočítaný kuchárovi</div>
+      <div class="rp-sub">tržby − suroviny − mzda = čistý zisk z kuchyne pripočítaný kuchárovi</div>
       ${renderCookTable(d.cooks || [])}
     </div>
 
-    <div class="panel">
+    <div class="panel rp-panel rp-chart">
       <div class="panel-title">Detail dňa</div>
-      <div style="font-size:var(--text-sm);color:var(--color-text-sec);margin-top:-8px;margin-bottom:14px">klikni na deň → uvidíš plnú hodinovú štatistiku s reálnym počasím tej hodiny</div>
+      <div class="rp-sub">klikni na deň → uvidíš plnú hodinovú štatistiku s reálnym počasím tej hodiny</div>
       ${renderDayTabs(d.dailyHours || [])}
       <div id="dayDetail" style="margin-top:14px"></div>
     </div>
@@ -242,7 +200,7 @@ function render(){
     if (initBtn) initBtn.classList.add('active');
     renderDayDetail(initial.date);
   } else {
-    document.getElementById('dayDetail').innerHTML = '<div class="td-empty" style="padding:30px;text-align:center;color:var(--color-text-dim)">Žiadne dni s dátami v tomto týždni</div>';
+    document.getElementById('dayDetail').innerHTML = '<div class="empty-hint">Žiadne dni s dátami v tomto týždni</div>';
   }
 }
 
@@ -270,7 +228,7 @@ function renderDayDetail(dateIso){
   const day = (_data.dailyHours || []).find(d => d.date === dateIso);
   const host = document.getElementById('dayDetail');
   if (!day){
-    host.innerHTML = '<div class="td-empty" style="padding:30px;text-align:center;color:var(--color-text-dim)">Žiadne dáta pre tento deň</div>';
+    host.innerHTML = '<div class="empty-hint">Žiadne dáta pre tento deň</div>';
     return;
   }
   const dateD = new Date(dateIso + 'T12:00:00');
@@ -285,7 +243,7 @@ function renderDayDetail(dateIso){
   const filtered = (day.hours || []).filter(h => h.totalRevenue > 0 || h.cookMinutes > 0);
   if (!filtered.length){
     host.innerHTML = `<div style="font-size:var(--text-md);color:var(--color-text);margin-bottom:8px">${dowFull} · ${fullDate}</div>
-      <div class="td-empty" style="padding:30px;text-align:center;color:var(--color-text-dim)">V tento deň nebola žiadna aktivita.</div>`;
+      <div class="empty-hint">V tento deň nebola žiadna aktivita.</div>`;
     return;
   }
 
@@ -326,59 +284,22 @@ function renderDayDetail(dateIso){
           <div class="dw-emoji">${dayWeather.emoji}</div>
           <div class="dw-meta">
             <div class="dw-label">${escapeHtml(dayWeather.label)}</div>
-            ${(peakTemp !== null && minTemp !== null) ? `<div class="dw-temps">${minTemp.toFixed(1)} – ${peakTemp.toFixed(1)} °C${avgWind !== null ? ' · vietor ' + avgWind.toFixed(0) + ' km/h' : ''}</div>` : ''}
+            ${(peakTemp !== null && minTemp !== null) ? `<div class="dw-temps">${fmt1(minTemp)} – ${fmt1(peakTemp)} °C${avgWind !== null ? ' · vietor ' + avgWind.toFixed(0) + ' km/h' : ''}</div>` : ''}
           </div>
         </div>
       ` : ''}
     </div>
 
-    <!-- 4 day stat cards — rovnaký tier ako týždeň, len per-day hodnoty -->
-    <div class="stat-grid" style="margin-bottom:16px">
-      <div class="stat-card">
-        <div class="stat-icon ice">
-          <svg aria-hidden="true" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-        </div>
-        <div class="stat-info">
-          <div class="stat-label">Tržby dňa</div>
-          <div class="stat-value">${fmtEur(day.totalRevenue)}</div>
-          <div class="stat-change neutral">${fmtInt(dayOrders)} obj.${peakHour ? ' · peak ' + String(peakHour.hour).padStart(2,'0') + ':00' : ''}</div>
-        </div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon mint">
-          <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18"/><path d="M9 6V3h6v3"/></svg>
-        </div>
-        <div class="stat-info">
-          <div class="stat-label">Tržby kuchyne</div>
-          <div class="stat-value">${fmtEur(day.kitchenRevenue)}</div>
-          <div class="stat-change neutral">${fmtInt(dayItemsKitchen)} ks · suroviny ${fmtEur(day.kitchenCogs)}</div>
-        </div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon lavender">
-          <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-        </div>
-        <div class="stat-info">
-          <div class="stat-label">Hodiny v kuchyni</div>
-          <div class="stat-value">${fmtHours(dayCookMinutes)}</div>
-          <div class="stat-change neutral">mzda ${fmtEur(dayKitchenWage)}</div>
-        </div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon amber">
-          <svg aria-hidden="true" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-        </div>
-        <div class="stat-info">
-          <div class="stat-label">Zisk kuchyne</div>
-          <div class="stat-value" style="color:${profitColor}">${dayKitchenNetProfit >= 0 ? '+' : ''}${fmtEur(dayKitchenNetProfit)}</div>
-          <div class="stat-change neutral">marža ${dayMargin.toFixed(1)} %</div>
-        </div>
-      </div>
+    <div class="doch-sum rp-sum">
+      <span class="rp-sum-i"><strong>${fmtEur(day.totalRevenue)}</strong> tržby dňa <small>${fmtInt(dayOrders)} obj.${peakHour ? ' · špička ' + String(peakHour.hour).padStart(2,'0') + ':00' : ''}</small></span>
+      <span class="rp-sum-i"><strong>${fmtEur(day.kitchenRevenue)}</strong> kuchyňa <small>${fmtInt(dayItemsKitchen)} ks · suroviny ${fmtEur(day.kitchenCogs)}</small></span>
+      <span class="rp-sum-i"><strong>${fmtHours(dayCookMinutes)}</strong> v kuchyni <small>mzda ${fmtEur(dayKitchenWage)}</small></span>
+      <span class="rp-sum-i"><strong class="${dayKitchenNetProfit >= 0 ? 'is-pos' : 'is-neg'}">${dayKitchenNetProfit >= 0 ? '+' : ''}${fmtEur(dayKitchenNetProfit)}</strong> zisk kuchyne <small>marža ${fmt1(dayMargin)} %</small></span>
     </div>
 
     <!-- Hodinová tabuľka — vyrovnané stĺpce cez colgroup pre konzistentné šírky -->
     <div class="table-scroll-wrap">
-    <table class="data-table weekly-day-table">
+    <table class="data-table weekly-day-table rp-cards rp-t-wday">
       <colgroup>
         <col style="width:60px">
         <col style="width:55px">
@@ -420,7 +341,7 @@ function renderDayDetail(dateIso){
             <td class="num text-right td-sec">${h.kitchenWage > 0 ? fmtEur(h.kitchenWage) : '<span class="td-dim">—</span>'}</td>
             <td class="num text-right" style="color:${h.kitchenRevenue > 0 ? rowProfitColor : 'var(--color-text-dim)'};font-weight:${h.kitchenRevenue > 0 ? 'var(--weight-bold)' : 'normal'}">${h.kitchenRevenue > 0 ? (netProfit >= 0 ? '+' : '') + fmtEur(netProfit) : '—'}</td>
             <td class="text-center" title="${wInfo ? escapeHtml(wInfo.label) : ''}">${wInfo ? wInfo.emoji : '<span class="td-dim">—</span>'}</td>
-            <td class="num text-right">${w && w.temperatureC !== null ? Number(w.temperatureC).toFixed(1) + ' °C' : '<span class="td-dim">—</span>'}</td>
+            <td class="num text-right">${w && w.temperatureC !== null ? fmt1(w.temperatureC) + ' °C' : '<span class="td-dim">—</span>'}</td>
             <td class="num text-right">${w && w.windSpeedKmh !== null ? Math.round(Number(w.windSpeedKmh)) + ' km/h' : '<span class="td-dim">—</span>'}</td>
           </tr>`;
         }).join('')}
@@ -435,20 +356,22 @@ function renderDayDetail(dateIso){
           <td class="num text-right td-sec">${fmtEur(dayKitchenWage)}</td>
           <td class="num text-right" style="color:${profitColor}">${dayKitchenNetProfit >= 0 ? '+' : ''}${fmtEur(dayKitchenNetProfit)}</td>
           <td class="text-center"></td>
-          <td class="num text-right">${peakTemp !== null ? peakTemp.toFixed(1) + ' °C' : '—'}</td>
+          <td class="num text-right">${peakTemp !== null ? fmt1(peakTemp) + ' °C' : '—'}</td>
           <td class="num text-right">${avgWind !== null ? avgWind.toFixed(0) + ' km/h' : '—'}</td>
         </tr>
       </tfoot>
     </table>
     </div>
-    <div style="margin-top:10px;font-size:var(--text-xs);color:var(--color-text-dim)">
+    <div class="rp-foot">
       Počasie pre presnú hodinu z Open-Meteo (Draždiak 48,1014°N, 17,1136°E).
       Footer riadok ukazuje sumár za celý deň + extrémne hodnoty počasia (max teplota, priemer vetra).
     </div>
   `;
 }
 
-function fmtPct(n){ return (Number(n) || 0).toFixed(1) + ' %'; }
+// Jedno desatinné miesto v sk-SK (čiarka), napr. 58,0.
+function fmt1(n){ return (Number(n) || 0).toLocaleString('sk-SK', { minimumFractionDigits: 1, maximumFractionDigits: 1 }); }
+function fmtPct(n){ return fmt1(n) + ' %'; }
 
 // === Hourly chart — stacked bars (bar + kitchen) ===
 function renderHourlyChart(byHour){
@@ -482,7 +405,7 @@ function renderHeatmap(heatmap){
   const max = Math.max(...heatmap.map(c => c.kitchenRevenue), 0);
   const minHour = Math.min(...heatmap.map(c => c.hour), 23);
   const maxHour = Math.max(...heatmap.map(c => c.hour), 0);
-  if (max === 0) return '<div class="td-empty" style="padding:30px;text-align:center;color:var(--color-text-dim)">Žiadne kuchynské tržby v období</div>';
+  if (max === 0) return '<div class="empty-hint">Žiadne kuchynské tržby v období</div>';
 
   const cellMap = new Map();
   for (const c of heatmap) cellMap.set(c.weekday + '|' + c.hour, c);
@@ -512,11 +435,11 @@ function renderHeatmap(heatmap){
 
 function renderCookTable(cooks){
   if (!cooks.length){
-    return '<div class="td-empty" style="padding:30px;text-align:center;color:var(--color-text-dim)">Žiadne smeny v týždni</div>';
+    return '<div class="empty-hint">Žiadne smeny v týždni</div>';
   }
   return `
     <div class="table-scroll-wrap">
-    <table class="data-table">
+    <table class="data-table rp-cards rp-t-cook">
       <thead>
         <tr>
           <th>Meno</th>
@@ -540,13 +463,13 @@ function renderCookTable(cooks){
             <td class="num text-right" style="color:var(--color-text-sec)">${fmtEur(c.kitchenCogs)}</td>
             <td class="num text-right" style="color:var(--color-text-sec)">${fmtEur(c.wage)}</td>
             <td class="num text-right" style="color:${profitColor};font-weight:var(--weight-bold)">${c.netProfit >= 0 ? '+' : ''}${fmtEur(c.netProfit)}</td>
-            <td class="num text-right" style="color:${profitColor}">${(c.netMarginPct || 0).toFixed(1)} %</td>
+            <td class="num text-right" style="color:${profitColor}">${fmt1(c.netMarginPct || 0)} %</td>
           </tr>`;
         }).join('')}
       </tbody>
     </table>
     </div>
-    <div style="margin-top:10px;font-size:var(--text-xs);color:var(--color-text-dim)">
+    <div class="rp-foot">
       Atribúcia: tržby + náklady na suroviny v kuchyni sa rozdelia medzi aktívnych kuchárov pomerom ich minút v každej hodine.
     </div>
   `;
@@ -572,7 +495,7 @@ function renderHourTable(byHour){
   // všetky dni v perióde.
   const filtered = byHour.filter(h => h.totalRevenue > 0 || h.cookMinutes > 0);
   if (!filtered.length){
-    return '<div class="td-empty" style="padding:30px;text-align:center;color:var(--color-text-dim)">Žiadne dáta</div>';
+    return '<div class="empty-hint">Žiadne dáta</div>';
   }
 
   // Aggregate weather by hour-of-day across the period (avg temp, wind).
@@ -634,7 +557,7 @@ function renderHourTable(byHour){
             <td class="num text-right" style="color:var(--color-text-sec)">${h.kitchenWage > 0 ? fmtEur(h.kitchenWage) : '<span style="color:var(--color-text-dim)">—</span>'}</td>
             <td class="num text-right" style="color:${h.kitchenRevenue > 0 ? profitColor : 'var(--color-text-dim)'};font-weight:${h.kitchenRevenue > 0 ? 'var(--weight-bold)' : 'normal'}">${h.kitchenRevenue > 0 ? (netProfit >= 0 ? '+' : '') + fmtEur(netProfit) : '—'}</td>
             <td class="text-center" title="${wInfo ? escapeHtml(wInfo.label) : ''}">${wInfo ? wInfo.emoji : '<span style="color:var(--color-text-dim)">—</span>'}</td>
-            <td class="num text-right">${avgTemp !== null ? avgTemp.toFixed(1) + ' °C' : '<span style="color:var(--color-text-dim)">—</span>'}</td>
+            <td class="num text-right">${avgTemp !== null ? fmt1(avgTemp) + ' °C' : '<span style="color:var(--color-text-dim)">—</span>'}</td>
             <td class="num text-right">${avgWind !== null ? avgWind.toFixed(0) + ' km/h' : '<span style="color:var(--color-text-dim)">—</span>'}</td>
           </tr>`;
         }).join('')}
@@ -910,7 +833,7 @@ const PAGE_CSS = `
 
 const TEMPLATE = PAGE_CSS + `
 <div id="weeklyContent">
-  <div class="loading-text" style="text-align:center;padding:80px 20px">Načítavam...</div>
+  <div class="loading-hint">Načítavam…</div>
 </div>
 `;
 

@@ -47,6 +47,8 @@ let _entries = [];
 // time they click "+ Výdavok". Stale-tolerant; suppliers rarely change
 // during a single session.
 let _suppliers = [];
+// Stav UI: rozbalený blok „Iné…" (dátumy). Prežíva re-render po loadAll().
+let _moreOpen = false;
 
 // bratislavaDayIso je zdielany global z /api.js (preco nie UTC — viz tam).
 function todayIso() { return bratislavaDayIso(new Date()); }
@@ -59,6 +61,21 @@ function todayMinusDaysIso(n) {
   return d.toISOString().slice(0, 10);
 }
 function fmtEur(n) { return fmtCost(n) + ' €'; }
+// „1. 9. – 8. 9. 2026" — človek nemá lúštiť ISO dátumy z dvoch políčok.
+function fmtRange(fromIso, toIso) {
+  const parse = (iso) => { const p = String(iso).split('-').map(Number); return { y: p[0], m: p[1], d: p[2] }; };
+  const a = parse(fromIso), b = parse(toIso);
+  if (!a.y || !b.y) return fromIso + ' – ' + toIso;
+  if (fromIso === toIso) return a.d + '. ' + a.m + '. ' + a.y;
+  const left = a.d + '. ' + a.m + '.' + (a.y === b.y ? '' : ' ' + a.y);
+  return left + ' – ' + b.d + '. ' + b.m + '. ' + b.y;
+}
+// Ktorý chip obdobia zodpovedá aktuálnemu rozsahu (0/7/30), inak null.
+function presetFor(from, to) {
+  if (to !== todayIso()) return null;
+  for (const n of [0, 7, 30]) if (todayMinusDaysIso(n) === from) return n;
+  return null;
+}
 // Jediná implementácia escapovania v projekte je /js/pos-escape.js
 // (escHtml pre textový obsah, escAttr pre atribút, escJsAttr pre inline
 // handler). Predtým mala takmer každá admin stránka vlastnú kópiu a boli
@@ -102,53 +119,62 @@ function render() {
   if (!_container) return;
   const s = _summary || { manual: { income: 0, expense: 0, incomeCount: 0, expenseCount: 0 }, posRevenue: 0, shishaRevenue: 0, netCashflow: 0, totalIncome: 0, totalExpense: 0, byCategory: { income: [], expense: [] } };
 
+  const preset = presetFor(_from, _to);
+  const chip = (n, label) =>
+    '<button type="button" class="doch-chip doch-preset' + (preset === n ? ' is-on' : '') + '" data-preset="' + n + '"' +
+    ' aria-pressed="' + (preset === n ? 'true' : 'false') + '">' + label + '</button>';
+  const seg = (v, label) =>
+    '<button type="button"' + (_typeFilter === v ? ' class="active" aria-pressed="true"' : ' aria-pressed="false"') +
+    ' data-type="' + v + '">' + label + '</button>';
+  const net = Number(s.netCashflow) || 0;
+
   _container.innerHTML =
-    '<div class="doch-toolbar">' +
-      '<div class="doch-toolbar-dates">' +
+    // Obdobie ako chipy, dátumy pod „Iné…", typ ako segment — filter sa
+    // aplikuje hneď pri zmene.
+    '<div class="doch-head rp-head">' +
+      '<div class="doch-chips rp-chips" role="group" aria-label="Obdobie">' +
+        chip(0, 'Dnes') + chip(7, '7 dní') + chip(30, '30 dní') +
+        '<button type="button" class="doch-chip' + ((_moreOpen || preset === null) ? ' is-on' : '') + '" id="cfMore"' +
+          ' aria-expanded="' + (_moreOpen ? 'true' : 'false') + '" aria-controls="cfMoreBox">Iné…</button>' +
+      '</div>' +
+      '<div class="doch-more" id="cfMoreBox"' + (_moreOpen ? '' : ' hidden') + '>' +
         '<label class="doch-toolbar-label">Od<input type="date" id="cfFrom" class="doch-input" value="' + _from + '"></label>' +
-        '<label class="doch-toolbar-label">Do<input type="date" id="cfTo"   class="doch-input" value="' + _to + '"></label>' +
-        '<label class="doch-toolbar-label">Typ' +
-          '<select id="cfType" class="doch-input">' +
-            '<option value=""'        + (_typeFilter === ''        ? ' selected' : '') + '>Všetko</option>' +
-            '<option value="income"'  + (_typeFilter === 'income'  ? ' selected' : '') + '>Len príjmy</option>' +
-            '<option value="expense"' + (_typeFilter === 'expense' ? ' selected' : '') + '>Len výdavky</option>' +
-          '</select>' +
-        '</label>' +
-        '<div class="doch-toolbar-presets">' +
-          '<button type="button" class="btn-secondary doch-preset" data-preset="0">Dnes</button>' +
-          '<button type="button" class="btn-secondary doch-preset" data-preset="7">7 dní</button>' +
-          '<button type="button" class="btn-secondary doch-preset" data-preset="30">30 dní</button>' +
-        '</div>' +
+        '<label class="doch-toolbar-label">Do<input type="date" id="cfTo" class="doch-input" value="' + _to + '"></label>' +
       '</div>' +
-      '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
-        '<button class="btn-add" id="cfAddIncome" style="background:rgba(95,200,130,.16);color:var(--color-success-text);border-color:rgba(95,200,130,.4)">+ Príjem</button>' +
-        '<button class="btn-add" id="cfAddExpense" style="background:rgba(224,112,112,.16);color:var(--color-danger);border-color:rgba(224,112,112,.4)">+ Výdavok</button>' +
+      '<div class="rp-seg" id="cfType" role="group" aria-label="Typ záznamu">' +
+        seg('', 'Všetko') + seg('income', 'Príjmy') + seg('expense', 'Výdavky') +
       '</div>' +
+      '<div class="doch-range">' + escapeHtml(fmtRange(_from, _to)) + '</div>' +
     '</div>' +
 
-    '<div class="stat-grid" style="margin-bottom:18px">' +
-      '<div class="stat-card"><div class="stat-icon mint"><svg viewBox="0 0 24 24"><path d="M12 1v22M5 8h14a3 3 0 0 1 0 6H5a3 3 0 0 0 0 6h14"/></svg></div>' +
-        '<div class="stat-info"><div class="stat-label">Príjmy spolu</div><div class="stat-value">' + escapeHtml(fmtEur(s.totalIncome)) + '</div>' +
-        '<div class="stat-change neutral">POS ' + fmtEur(s.posRevenue) + ' + manuál ' + fmtEur(s.manual.income) + (s.shishaRevenue ? ' + shisha ' + fmtEur(s.shishaRevenue) : '') + '</div></div></div>' +
-      '<div class="stat-card"><div class="stat-icon amber"><svg viewBox="0 0 24 24"><path d="M3 6h18l-2 14H5z"/></svg></div>' +
-        '<div class="stat-info"><div class="stat-label">Výdavky spolu</div><div class="stat-value">' + escapeHtml(fmtEur(s.totalExpense)) + '</div>' +
-        '<div class="stat-change neutral">' + (s.manual.expenseCount || 0) + ' záznamov</div></div></div>' +
-      '<div class="stat-card"><div class="stat-icon ' + (s.netCashflow >= 0 ? 'mint' : 'amber') + '"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 12h6M12 9v6"/></svg></div>' +
-        '<div class="stat-info"><div class="stat-label">Čistý zisk</div><div class="stat-value" style="color:' + (s.netCashflow >= 0 ? 'var(--color-success)' : 'var(--color-danger)') + '">' + escapeHtml(fmtEur(s.netCashflow)) + '</div>' +
-        '<div class="stat-change neutral">' + escapeHtml(_from) + ' → ' + escapeHtml(_to) + '</div></div></div>' +
+    // Hlavná odpoveď stránky: čistý cashflow (POS + shisha + ručné príjmy −
+    // ručné výdavky). Zdroje v jednom riadku súčtu pod ním.
+    '<div class="rp-hero">' +
+      '<div class="rp-hero-k">Čistý cashflow za obdobie</div>' +
+      '<div class="rp-hero-v ' + (net >= 0 ? 'is-pos' : 'is-neg') + '">' + (net >= 0 ? '+' : '') + escapeHtml(fmtEur(net)) + '</div>' +
+      '<div class="rp-hero-s">príjmy ' + escapeHtml(fmtEur(s.totalIncome)) + ' − výdavky ' + escapeHtml(fmtEur(s.totalExpense)) + '</div>' +
+    '</div>' +
+    '<div class="doch-sum rp-sum">' +
+      '<span class="rp-sum-i"><strong>' + escapeHtml(fmtEur(s.posRevenue)) + '</strong> tržby POS</span>' +
+      (s.shishaRevenue ? '<span class="rp-sum-i"><strong>' + escapeHtml(fmtEur(s.shishaRevenue)) + '</strong> shisha</span>' : '') +
+      '<span class="rp-sum-i"><strong>' + escapeHtml(fmtEur(s.manual.income)) + '</strong> ručné príjmy <small>' + (s.manual.incomeCount || 0) + '</small></span>' +
+      '<span class="rp-sum-i"><strong>' + escapeHtml(fmtEur(s.manual.expense)) + '</strong> výdavky <small>' + (s.manual.expenseCount || 0) + '</small></span>' +
     '</div>' +
 
-    '<div class="panel doch-panel">' +
-      '<div class="panel-title">Manuálne záznamy (' + _entries.length + ')</div>' +
-      '<div class="table-scroll-wrap"><table class="data-table">' +
-        '<thead><tr><th class="data-th">Dátum</th><th class="data-th">Typ</th><th class="data-th">Kategória</th><th class="data-th">Dodávateľ</th><th class="data-th">Suma</th><th class="data-th">Spôsob</th><th class="data-th">Poznámka</th><th class="data-th"></th></tr></thead>' +
-        '<tbody id="cfBody"></tbody>' +
-      '</table></div>' +
+    // Jedna hlavná akcia (výdavok je najčastejší zápis), príjem tónovaný.
+    '<div class="rp-actions" style="margin-bottom:12px">' +
+      '<button type="button" class="btn-add" id="cfAddExpense">+ Výdavok</button>' +
+      '<button type="button" class="btn-secondary" id="cfAddIncome">+ Príjem</button>' +
     '</div>' +
 
-    '<div class="panel doch-panel">' +
+    '<div class="panel rp-panel">' +
+      '<div class="panel-title">Záznamy <span class="rp-count-inline">' + _entries.length + '</span></div>' +
+      '<div id="cfBody"></div>' +
+    '</div>' +
+
+    '<div class="panel rp-panel">' +
       '<div class="panel-title">Rozpis kategórií</div>' +
-      '<div id="cfBreakdown" style="display:grid;grid-template-columns:1fr 1fr;gap:18px"></div>' +
+      '<div id="cfBreakdown" class="rp-2col-grid"></div>' +
     '</div>';
 
   renderBody();
@@ -157,54 +183,53 @@ function render() {
 }
 
 function renderBody() {
-  const tbody = _container.querySelector('#cfBody');
+  const host = _container.querySelector('#cfBody');
+  if (!host) return;
   if (!_entries.length) {
-    tbody.innerHTML = '<tr><td class="data-td" colspan="8"><div class="empty-hint">Žiadne manuálne záznamy v tomto období.</div></td></tr>';
+    host.innerHTML = '<div class="empty-hint">Žiadne ručné záznamy v tomto období. Pridaj výdavok alebo príjem tlačidlom hore.</div>';
     return;
   }
-  tbody.innerHTML = _entries.map((e) => {
-    const typeBadge = e.type === 'income'
-      ? '<span class="badge badge-success">Príjem</span>'
-      : '<span class="badge badge-danger">Výdavok</span>';
+  // Riadky so znamienkom: + príjem (zelená), − výdavok (červená). Celý riadok
+  // otvorí úpravu; vymazanie je v úprave, nie na každom riadku.
+  host.innerHTML = '<div class="rp-list">' + _entries.map((e) => {
+    const isInc = e.type === 'income';
     const methodLabel = { cash: 'Hotovosť', card: 'Karta', transfer: 'Prevod', other: 'Iné' }[e.method] || e.method;
-    const supplierCell = e.supplierName
-      ? escapeHtml(e.supplierName)
-      : '<span class="text-muted">—</span>';
-    return '<tr class="data-row">' +
-      '<td class="data-td">' + escapeHtml(fmtLocalDateTime(e.occurredAt)) + '</td>' +
-      '<td class="data-td">' + typeBadge + '</td>' +
-      '<td class="data-td">' + escapeHtml(CAT_LABEL[e.category] || e.category) + '</td>' +
-      '<td class="data-td">' + supplierCell + '</td>' +
-      '<td class="data-td num"><strong>' + escapeHtml(fmtEur(e.amount)) + '</strong></td>' +
-      '<td class="data-td">' + escapeHtml(methodLabel) + '</td>' +
-      '<td class="data-td">' + (e.note ? escapeHtml(e.note) : '<span class="text-muted">—</span>') + '</td>' +
-      '<td class="data-td"><button class="btn-toggle-status" data-edit="' + e.id + '" title="Upraviť">✎</button> ' +
-        '<button class="btn-toggle-status doch-event-del" data-del="' + e.id + '" title="Vymazať">✕</button></td>' +
-    '</tr>';
-  }).join('');
+    const sub = [
+      escapeHtml(fmtLocalDateTime(e.occurredAt)),
+      escapeHtml(methodLabel),
+      e.supplierName ? escapeHtml(e.supplierName) : '',
+      e.note ? escapeHtml(e.note) : '',
+    ].filter(Boolean).join(' · ');
+    return '<button type="button" class="rp-row has-chev" data-edit="' + e.id + '">' +
+      '<span class="rp-row-main">' +
+        '<span class="rp-row-t">' + escapeHtml(CAT_LABEL[e.category] || e.category) + '</span>' +
+        '<span class="rp-row-s">' + sub + '</span>' +
+      '</span>' +
+      '<span class="rp-row-side"><span class="rp-row-v ' + (isInc ? 'is-pos' : 'is-neg') + '">' + (isInc ? '+' : '−') + escapeHtml(fmtEur(e.amount)) + '</span></span>' +
+      '<svg class="rp-row-chev" aria-hidden="true" viewBox="0 0 16 16"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+    '</button>';
+  }).join('') + '</div>';
 }
 
 function renderBreakdown() {
   const host = _container.querySelector('#cfBreakdown');
   if (!host || !_summary) return;
-  const block = (title, rows, color) => {
-    if (!rows || !rows.length) return '<div><div class="doch-subhead">' + title + '</div><div class="empty-hint">Žiadne záznamy.</div></div>';
+  const block = (title, rows, cls) => {
+    if (!rows || !rows.length) return '<div><div class="rp-cat-head">' + title + '</div><div class="empty-hint">Žiadne záznamy.</div></div>';
     const total = rows.reduce((s, r) => s + Number(r.total || 0), 0);
-    return '<div><div class="doch-subhead">' + title + ' — spolu ' + fmtEur(total) + '</div>' +
+    return '<div><div class="rp-cat-head">' + title + ' <small>spolu ' + escapeHtml(fmtEur(total)) + '</small></div>' +
       rows.map((r) => {
         const pct = total > 0 ? Math.round((r.total / total) * 100) : 0;
-        return '<div style="display:grid;grid-template-columns:1fr auto;gap:6px;align-items:center;margin-bottom:6px;font-size:13px">' +
-          '<div>' + escapeHtml(CAT_LABEL[r.category] || r.category) + ' <span class="text-muted">(' + r.count + ')</span></div>' +
-          '<div style="text-align:right;font-variant-numeric:tabular-nums"><strong>' + escapeHtml(fmtEur(r.total)) + '</strong> <span class="text-muted">' + pct + '%</span></div>' +
-          '<div style="grid-column:1 / span 2;height:6px;border-radius:3px;background:rgba(255,255,255,.04);overflow:hidden">' +
-            '<div style="width:' + pct + '%;height:100%;background:' + color + '"></div>' +
-          '</div>' +
+        return '<div class="rp-cat">' +
+          '<div class="rp-cat-n">' + escapeHtml(CAT_LABEL[r.category] || r.category) + ' <small>(' + r.count + ')</small></div>' +
+          '<div class="rp-cat-v"><strong>' + escapeHtml(fmtEur(r.total)) + '</strong><small>' + pct + ' %</small></div>' +
+          '<div class="rp-bar ' + cls + '" aria-hidden="true"><span style="width:' + pct + '%"></span></div>' +
         '</div>';
       }).join('') + '</div>';
   };
   host.innerHTML =
-    block('Príjmy',  _summary.byCategory.income,  'var(--color-success)') +
-    block('Výdavky', _summary.byCategory.expense, 'var(--color-danger)');
+    block('Príjmy',  _summary.byCategory.income,  'is-pos') +
+    block('Výdavky', _summary.byCategory.expense, 'is-neg');
 }
 
 function nowForDateTimeLocal() {
@@ -225,7 +250,7 @@ function openEntryModal(mode, presetType, existing) {
     '<div class="u-overlay show" id="cfModal">' +
       '<div class="u-modal" role="dialog" aria-modal="true">' +
         '<div class="u-modal-title">' + (isEdit ? 'Upraviť záznam' : (initialType === 'income' ? 'Nový príjem' : 'Nový výdavok')) + '</div>' +
-        '<form class="doch-manual-form" id="cfForm" style="border:none;padding:0;background:none">' +
+        '<form class="rp-form doch-manual-form" id="cfForm">' +
           '<label class="doch-toolbar-label">Typ' +
             '<select id="cfMType" class="doch-input">' +
               '<option value="income"'  + (initialType === 'income'  ? ' selected' : '') + '>Príjem</option>' +
@@ -237,8 +262,7 @@ function openEntryModal(mode, presetType, existing) {
           '</label>' +
           // Supplier picker — shown only for supplier-related categories
           // (expense=supplier, income=refund). Empty option = no link.
-          // Wrapper has flex:1 1 100% so it spans the whole row when visible.
-          '<label class="doch-toolbar-label" id="cfMSupplierWrap" style="flex:1 1 100%;display:none">Dodávateľ' +
+          '<label class="doch-toolbar-label" id="cfMSupplierWrap" style="display:none">Dodávateľ' +
             '<select id="cfMSupplier" class="doch-input">' +
               '<option value="">— žiadny —</option>' +
               _suppliers.map((sup) => {
@@ -247,28 +271,31 @@ function openEntryModal(mode, presetType, existing) {
               }).join('') +
             '</select>' +
           '</label>' +
-          '<label class="doch-toolbar-label">Suma €' +
-            '<input type="number" id="cfMAmount" class="doch-input" min="0.01" step="0.01" required value="' + (isEdit ? Number(existing.amount).toFixed(2) : '') + '">' +
-          '</label>' +
-          '<label class="doch-toolbar-label">Dátum' +
+          '<div class="rp-form-2">' +
+            '<label class="doch-toolbar-label">Suma v €' +
+              '<input type="number" id="cfMAmount" class="doch-input" min="0.01" step="0.01" inputmode="decimal" required value="' + (isEdit ? Number(existing.amount).toFixed(2) : '') + '">' +
+            '</label>' +
+            '<label class="doch-toolbar-label">Spôsob' +
+              '<select id="cfMMethod" class="doch-input">' +
+                ['cash','card','transfer','other'].map((m) => {
+                  const lbl = { cash: 'Hotovosť', card: 'Karta', transfer: 'Prevod', other: 'Iné' }[m];
+                  const sel = (isEdit ? existing.method : 'cash') === m ? ' selected' : '';
+                  return '<option value="' + m + '"' + sel + '>' + lbl + '</option>';
+                }).join('') +
+              '</select>' +
+            '</label>' +
+          '</div>' +
+          '<label class="doch-toolbar-label">Dátum a čas' +
             '<input type="datetime-local" id="cfMAt" class="doch-input" required value="' + occurredLocal + '">' +
           '</label>' +
-          '<label class="doch-toolbar-label">Spôsob' +
-            '<select id="cfMMethod" class="doch-input">' +
-              ['cash','card','transfer','other'].map((m) => {
-                const lbl = { cash: 'Hotovosť', card: 'Karta', transfer: 'Prevod', other: 'Iné' }[m];
-                const sel = (isEdit ? existing.method : 'cash') === m ? ' selected' : '';
-                return '<option value="' + m + '"' + sel + '>' + lbl + '</option>';
-              }).join('') +
-            '</select>' +
-          '</label>' +
-          '<label class="doch-toolbar-label" style="flex:1 1 100%">Poznámka' +
-            '<input type="text" id="cfMNote" class="doch-input" maxlength="500" value="' + escapeHtml(isEdit ? existing.note || '' : '') + '">' +
+          '<label class="doch-toolbar-label">Poznámka' +
+            '<input type="text" id="cfMNote" class="doch-input" maxlength="500" placeholder="napr. faktúra č. 123" value="' + escapeHtml(isEdit ? existing.note || '' : '') + '">' +
           '</label>' +
         '</form>' +
         '<div class="u-modal-btns">' +
-          '<button class="u-btn u-btn-ghost" id="cfMCancel">Zrušiť</button>' +
-          '<button class="u-btn u-btn-ice" id="cfMSave">' + (isEdit ? 'Uložiť' : 'Pridať') + '</button>' +
+          (isEdit ? '<button type="button" class="u-btn u-btn-del" id="cfMDelete">Vymazať záznam</button>' : '') +
+          '<button type="button" class="u-btn u-btn-ghost" id="cfMCancel">Zrušiť</button>' +
+          '<button type="button" class="u-btn u-btn-ice" id="cfMSave">' + (isEdit ? 'Uložiť zmeny' : 'Pridať záznam') + '</button>' +
         '</div>' +
       '</div>' +
     '</div>';
@@ -307,6 +334,9 @@ function openEntryModal(mode, presetType, existing) {
 
   function close() { modal.remove(); }
   modal.querySelector('#cfMCancel').addEventListener('click', close);
+  // Vymazanie je v úprave záznamu (nie na každom riadku); má undo cez toast.
+  const delBtn = modal.querySelector('#cfMDelete');
+  if (delBtn) delBtn.addEventListener('click', () => { close(); deleteEntry(existing.id); });
   modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
 
   modal.querySelector('#cfMSave').addEventListener('click', async () => {
@@ -353,9 +383,23 @@ function bind() {
       loadAll();
     });
   });
+  // „Iné…" — rozbalí dátumy (len stav UI; loadAll() ho prekreslí zo stavu).
+  const more = _container.querySelector('#cfMore');
+  const box = _container.querySelector('#cfMoreBox');
+  if (more && box) {
+    more.addEventListener('click', () => {
+      _moreOpen = box.hidden;
+      box.hidden = !_moreOpen;
+      more.setAttribute('aria-expanded', _moreOpen ? 'true' : 'false');
+      more.classList.toggle('is-on', _moreOpen || presetFor(_from, _to) === null);
+    });
+  }
   _container.querySelector('#cfFrom').addEventListener('change', (e) => { _from = e.target.value || _from; loadAll(); });
   _container.querySelector('#cfTo').addEventListener('change',   (e) => { _to   = e.target.value || _to;   loadAll(); });
-  _container.querySelector('#cfType').addEventListener('change', (e) => { _typeFilter = e.target.value || ''; loadAll(); });
+  // Typ ako segment (predtým <select>): klik = filter hneď.
+  _container.querySelectorAll('#cfType [data-type]').forEach((b) => {
+    b.addEventListener('click', () => { _typeFilter = b.dataset.type || ''; loadAll(); });
+  });
   _container.querySelector('#cfAddIncome').addEventListener('click', () => openEntryModal('create', 'income'));
   _container.querySelector('#cfAddExpense').addEventListener('click', () => openEntryModal('create', 'expense'));
   _container.querySelectorAll('button[data-edit]').forEach((b) => {
@@ -365,35 +409,34 @@ function bind() {
       if (entry) openEntryModal('edit', null, entry);
     });
   });
+}
 
-  _container.querySelectorAll('button[data-del]').forEach((b) => {
-    b.addEventListener('click', async () => {
-      const id = parseInt(b.getAttribute('data-del'), 10);
-      const idx = _entries.findIndex((e) => e.id === id);
-      if (idx < 0) return;
-      const snapshot = _entries[idx];
+// Optimistické zmazanie s undo (toast) — rovnaký tok ako doteraz, len
+// volané z modálu úpravy namiesto tlačidla v riadku.
+async function deleteEntry(id) {
+  const idx = _entries.findIndex((e) => e.id === id);
+  if (idx < 0) return;
+  const snapshot = _entries[idx];
 
-      // Optimistic remove
-      _entries.splice(idx, 1);
-      render();
+  // Optimistic remove
+  _entries.splice(idx, 1);
+  render();
 
-      const result = await softDelete({
-        label: (CAT_LABEL[snapshot.category] || snapshot.category) + ' za ' + fmtEur(snapshot.amount) + ' zmazané',
-        deleteFn: () => api.del('/cashflow/' + id),
-      });
-      if (result.undone) {
-        _entries.splice(idx, 0, snapshot);
-        render();
-        showToast('Vratene', true);
-      } else if (result.error) {
-        _entries.splice(idx, 0, snapshot);
-        render();
-      } else {
-        // Commited — reload to refresh totals/breakdown
-        await loadAll();
-      }
-    });
+  const result = await softDelete({
+    label: (CAT_LABEL[snapshot.category] || snapshot.category) + ' za ' + fmtEur(snapshot.amount) + ' zmazané',
+    deleteFn: () => api.del('/cashflow/' + id),
   });
+  if (result.undone) {
+    _entries.splice(idx, 0, snapshot);
+    render();
+    showToast('Vrátené', true);
+  } else if (result.error) {
+    _entries.splice(idx, 0, snapshot);
+    render();
+  } else {
+    // Commited — reload to refresh totals/breakdown
+    await loadAll();
+  }
 }
 
 async function loadSuppliers() {
@@ -419,4 +462,5 @@ export function destroy() {
   _entries = [];
   _typeFilter = '';
   _suppliers = [];
+  _moreOpen = false;
 }

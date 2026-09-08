@@ -46,7 +46,7 @@ function formatSearchModeFields() {
   if (mode === 'externalId') {
     wrap.innerHTML = `
       <div class="form-group">
-        <label for="fiscalExternalId">External ID</label>
+        <label for="fiscalExternalId">Externé ID</label>
         <input class="form-input" id="fiscalExternalId" type="text" placeholder="napr. order-42-payment">
       </div>
     `;
@@ -58,13 +58,15 @@ function formatSearchModeFields() {
       <label for="fiscalCashRegisterCode">Kód pokladnice</label>
       <input class="form-input" id="fiscalCashRegisterCode" type="text" placeholder="88812345678900001">
     </div>
-    <div class="form-group">
-      <label for="fiscalYear">Rok</label>
-      <input class="form-input" id="fiscalYear" type="number" min="2020" max="2100" value="${new Date().getFullYear()}">
-    </div>
-    <div class="form-group">
-      <label for="fiscalMonth">Mesiac</label>
-      <input class="form-input" id="fiscalMonth" type="number" min="1" max="12" value="${new Date().getMonth() + 1}">
+    <div class="rp-form-2">
+      <div class="form-group">
+        <label for="fiscalYear">Rok</label>
+        <input class="form-input" id="fiscalYear" type="number" min="2020" max="2100" value="${new Date().getFullYear()}">
+      </div>
+      <div class="form-group">
+        <label for="fiscalMonth">Mesiac</label>
+        <input class="form-input" id="fiscalMonth" type="number" min="1" max="12" value="${new Date().getMonth() + 1}">
+      </div>
     </div>
     <div class="form-group">
       <label for="fiscalReceiptNumber">Číslo dokladu</label>
@@ -89,37 +91,42 @@ function gatherSearchParams() {
   };
 }
 
+function resultTone(mode) {
+  const m = String(mode || '');
+  if (/success|online|reconcil/.test(m)) return 'is-ok';
+  if (/offline|accepted|pending/.test(m)) return 'is-warn';
+  if (/ambig|error|reject|block|invalid/.test(m)) return 'is-bad';
+  return 'is-muted';
+}
+
 function renderResults() {
   const el = byId('fiscalResults');
   if (!el) return;
 
   if (!searchResults.length) {
-    el.innerHTML = '<div class="empty-hint">Zatiaľ žiadne výsledky. Vyhľadaj doklad podľa údajov z bločku.</div>';
+    el.innerHTML = '<div class="empty-hint">Zatiaľ žiadne výsledky. Zadaj údaje z bločku a klepni na „Vyhľadať doklad".</div>';
     return;
   }
 
-  let html = '<div class="table-scroll-wrap"><table class="data-table"><thead><tr>';
-  html += '<th class="data-th">Doklad</th>';
-  html += '<th class="data-th">Typ</th>';
-  html += '<th class="data-th">Objednávka</th>';
-  html += '<th class="data-th">Stôl</th>';
-  html += '<th class="data-th">Dátum</th>';
-  html += '<th class="data-th">Stav</th>';
-  html += '</tr></thead><tbody>';
-
+  // Zoznam riadkov: identifikátor + typ/čas/objednávka, stav ako pilulka
+  // vpravo. Celý riadok otvorí detail (panel zdola).
+  let html = '<div class="rp-list">';
   searchResults.forEach((item) => {
-    const active = selectedDocument && selectedDocument.id === item.id ? ' style="background:var(--color-accent-bg)"' : '';
-    html += `<tr class="data-row" data-fiscal-row="${item.id}"${active}>`;
-    html += `<td class="data-td"><strong>${escapeHtml(item.receiptId || item.externalId || ('#' + item.id))}</strong><div class="text-muted" style="font-size:12px">${escapeHtml(item.okp || '')}</div></td>`;
-    html += `<td class="data-td">${escapeHtml(item.sourceType)}</td>`;
-    html += `<td class="data-td">#${item.orderId || '-'} / payment #${item.paymentId || '-'}</td>`;
-    html += `<td class="data-td">${escapeHtml(item.tableName || '-')}</td>`;
-    html += `<td class="data-td">${escapeHtml(formatDate(item.processDate))}</td>`;
-    html += `<td class="data-td">${escapeHtml(item.resultMode)}</td>`;
-    html += '</tr>';
+    const active = selectedDocument && selectedDocument.id === item.id;
+    const sub = [
+      item.sourceType ? escapeHtml(item.sourceType) : '',
+      escapeHtml(formatDate(item.processDate)),
+      item.orderId ? 'obj. #' + item.orderId : '',
+      item.tableName ? escapeHtml(item.tableName) : '',
+    ].filter(Boolean).join(' · ');
+    html += `<button type="button" class="rp-row has-chev${active ? ' is-on' : ''}" data-fiscal-row="${item.id}" aria-pressed="${active ? 'true' : 'false'}">`
+      + `<span class="rp-row-main"><span class="rp-row-t">${escapeHtml(item.receiptId || item.externalId || ('#' + item.id))}</span>`
+      + `<span class="rp-row-s">${sub}${item.okp ? '<br>' + escapeHtml(item.okp) : ''}</span></span>`
+      + `<span class="rp-row-side"><span class="rp-pill ${resultTone(item.resultMode)}">${escapeHtml(item.resultMode || '—')}</span></span>`
+      + '<svg class="rp-row-chev" aria-hidden="true" viewBox="0 0 16 16"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+      + '</button>';
   });
-
-  html += '</tbody></table></div>';
+  html += '</div>';
   el.innerHTML = html;
 }
 
@@ -128,41 +135,51 @@ function renderDetail() {
   if (!el) return;
 
   if (!selectedDocument) {
-    el.innerHTML = '<div class="empty-hint">Vyber doklad zo zoznamu pre detail a storno.</div>';
+    el.innerHTML = '';
     return;
   }
 
-  const copyBtn = selectedDocument.paymentId
-    ? '<button class="btn-save btn-sm" id="btnFiscalCopy">Vytlačiť kópiu</button>'
+  const d = selectedDocument;
+  const copyBtn = d.paymentId
+    ? '<button type="button" class="btn-add" id="btnFiscalCopy">Vytlačiť kópiu dokladu</button>'
     : '';
-  const stornoBtn = selectedDocument.stornoEligible
-    ? '<button class="btn-save btn-sm" id="btnFiscalDocStorno" style="background:var(--color-danger, #c44)">Odoslať STORNO</button>'
+  // Zmena spôsobu platby — iba ak je doklad eligible na storno a má platbu.
+  // Backend urobí storno + nový doklad s novým spôsobom.
+  const changeMethodBtn = (d.stornoEligible && d.paymentId && d.paymentMethod)
+    ? '<button type="button" class="btn-secondary" id="btnFiscalChangeMethod">Zmeniť spôsob platby</button>'
     : '';
-  // "Zmenit sposob platby" — viditeľné iba ak je doklad eligible na storno
-  // (úspešný sale doc bez existujúceho storno) a má naviazanú platbu.
-  // Po klikuotvorí dropdown s 'hotovost' / 'karta' a zavolá change-method
-  // endpoint ktorý automaticky urobí storno + nový doklad s novou metódou.
-  const changeMethodBtn = (selectedDocument.stornoEligible && selectedDocument.paymentId && selectedDocument.paymentMethod)
-    ? '<button class="btn-save btn-sm" id="btnFiscalChangeMethod" style="background:var(--accent-amber, #d97706)">Zmeniť spôsob platby</button>'
+  const stornoBtn = d.stornoEligible
+    ? '<button type="button" class="btn-secondary rp-btn-danger" id="btnFiscalDocStorno">Odoslať STORNO</button>'
     : '';
+  const stornoState = d.stornoDone ? 'už odoslané' : (d.stornoEligible ? 'možné' : 'nie je možné');
+  const kv = (k, v) => '<dt>' + k + '</dt><dd>' + v + '</dd>';
 
   el.innerHTML = `
-    <div class="section" style="margin:0">
-      <div class="section-title">Detail dokladu</div>
-      <div class="form-grid">
-        <div class="form-group"><label>Receipt ID</label><div>${escapeHtml(selectedDocument.receiptId || '-')}</div></div>
-        <div class="form-group"><label>External ID</label><div>${escapeHtml(selectedDocument.externalId || '-')}</div></div>
-        <div class="form-group"><label>OKP</label><div>${escapeHtml(selectedDocument.okp || '-')}</div></div>
-        <div class="form-group"><label>Číslo dokladu</label><div>${escapeHtml(selectedDocument.receiptNumber || '-')}</div></div>
-        <div class="form-group"><label>Kód pokladnice</label><div>${escapeHtml(selectedDocument.cashRegisterCode || '-')}</div></div>
-        <div class="form-group"><label>Dátum</label><div>${escapeHtml(formatDate(selectedDocument.processDate))}</div></div>
-        <div class="form-group"><label>Platba</label><div>#${escapeHtml(selectedDocument.paymentId || '-')}</div></div>
-        <div class="form-group"><label>Objednávka</label><div>#${escapeHtml(selectedDocument.orderId || '-')}</div></div>
-        <div class="form-group"><label>Typ</label><div>${escapeHtml(selectedDocument.sourceType)}</div></div>
-        <div class="form-group"><label>Stav</label><div>${escapeHtml(selectedDocument.resultMode)}</div></div>
-        <div class="form-group"><label>Storno</label><div>${selectedDocument.stornoDone ? 'Už odoslané' : (selectedDocument.stornoEligible ? 'Možné' : 'Nie')}</div></div>
+    <div class="u-overlay show" role="dialog" aria-modal="true" aria-labelledby="fiscalDetailTitle">
+      <button type="button" class="rp-scrim" id="btnFiscalScrim" aria-label="Zavrieť"></button>
+      <div class="u-modal rp-sheet">
+        <div class="rp-sheet-head">
+          <div>
+            <h3 class="rp-sheet-title" id="fiscalDetailTitle">${escapeHtml(d.receiptId || d.externalId || ('Doklad #' + d.id))}</h3>
+            <div class="rp-sheet-sub">${escapeHtml(formatDate(d.processDate))}</div>
+          </div>
+          <button type="button" class="rp-sheet-close" id="btnFiscalClose" aria-label="Zavrieť">×</button>
+        </div>
+        <div class="rp-sheet-body">
+          <dl class="rp-kv">
+            ${kv('Stav', '<span class="rp-pill ' + resultTone(d.resultMode) + '">' + escapeHtml(d.resultMode || '—') + '</span>')}
+            ${kv('Typ', escapeHtml(d.sourceType || '-'))}
+            ${kv('Číslo dokladu', escapeHtml(d.receiptNumber || '-'))}
+            ${kv('OKP', escapeHtml(d.okp || '-'))}
+            ${kv('Externé ID', escapeHtml(d.externalId || '-'))}
+            ${kv('Kód pokladnice', escapeHtml(d.cashRegisterCode || '-'))}
+            ${kv('Platba', d.paymentId ? '#' + escapeHtml(d.paymentId) : '-')}
+            ${kv('Objednávka', d.orderId ? '#' + escapeHtml(d.orderId) : '-')}
+            ${kv('Storno', stornoState)}
+          </dl>
+        </div>
+        ${(copyBtn || changeMethodBtn || stornoBtn) ? '<div class="rp-sheet-actions">' + copyBtn + changeMethodBtn + stornoBtn + '</div>' : ''}
       </div>
-      <div class="flex-row gap-2 mt-3">${copyBtn}${stornoBtn}${changeMethodBtn}</div>
     </div>
   `;
 }
@@ -261,6 +278,14 @@ function onClick(event) {
     return;
   }
 
+  // Zavretie detailu (krížik alebo klepnutie mimo panel).
+  if (event.target.closest('#btnFiscalClose') || event.target.closest('#btnFiscalScrim')) {
+    selectedDocument = null;
+    renderResults();
+    renderDetail();
+    return;
+  }
+
   if (event.target.id === 'btnFiscalSearch' || event.target.closest('#btnFiscalSearch')) {
     runSearch();
     return;
@@ -289,27 +314,20 @@ function onChange(event) {
 
 function getTemplate() {
   return `
-    <div class="section">
-      <div class="section-title">Fiškálne doklady</div>
-      <div class="form-grid">
-        <div class="form-group">
-          <label for="fiscalSearchMode">Spôsob hľadania</label>
-          <select class="form-select" id="fiscalSearchMode">
-            <option value="receiptId">Identifikátor dokladu</option>
-            <option value="externalId">External ID</option>
-            <option value="receiptTriplet">Kód pokladnice + rok + mesiac + číslo dokladu</option>
-          </select>
-        </div>
+    <div class="panel rp-panel rp-form">
+      <div class="form-group">
+        <label for="fiscalSearchMode">Hľadať podľa</label>
+        <select class="form-select" id="fiscalSearchMode">
+          <option value="receiptId">Identifikátor dokladu</option>
+          <option value="externalId">Externé ID</option>
+          <option value="receiptTriplet">Kód pokladnice + rok + mesiac + číslo dokladu</option>
+        </select>
       </div>
-      <div id="fiscalSearchFields" class="form-grid"></div>
-      <div class="flex-row gap-2 mt-3">
-        <button class="btn-save btn-sm" id="btnFiscalSearch">Vyhľadať doklad</button>
-      </div>
+      <div id="fiscalSearchFields" class="rp-form"></div>
+      <button type="button" class="btn-add" id="btnFiscalSearch">Vyhľadať doklad</button>
     </div>
-    <div class="section">
-      <div class="section-title">Výsledky</div>
-      <div id="fiscalResults"></div>
-    </div>
+    <div class="rp-sub">Klepnutím na doklad otvoríš detail s kópiou, zmenou spôsobu platby a stornom.</div>
+    <div id="fiscalResults"></div>
     <div id="fiscalDetail"></div>
   `;
 }

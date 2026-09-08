@@ -63,6 +63,11 @@ function fmtEur(n) {
   return Number(n).toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' \u20AC';
 }
 
+// Percent\u00E1 s jedn\u00FDm desatinn\u00FDm miestom v sk-SK (\u010Diarka), napr. \u201E72,1".
+function fmtPct1(n) {
+  return (Number(n) || 0).toLocaleString('sk-SK', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
+
 // Vsetky tri kotvene na bratislavsky den (bratislavaDayIso / isoAddDays /
 // bratislavaMonthStartIso su zdielane globaly z /api.js).
 // Predtym isli cez `toISOString()` nad lokalnym Date, co znamenalo:
@@ -81,6 +86,41 @@ function monthStartStr() {
   return bratislavaMonthStartIso(new Date());
 }
 
+// ── Obdobie ako chipy + „Iné…" (len stav UI, dátový tok ostáva) ──────────
+// true = rozsah prišiel z polí v „Iné…", takže žiadny chip obdobia nesvieti.
+let _customPeriod = false;
+
+// „1. 9. – 8. 9. 2026" — človek nemá lúštiť ISO dátumy z dvoch políčok.
+function fmtRange(fromIso, toIso) {
+  const parse = (iso) => { const p = String(iso).split('-').map(Number); return { y: p[0], m: p[1], d: p[2] }; };
+  const a = parse(fromIso), b = parse(toIso);
+  if (!a.y || !b.y) return fromIso + ' – ' + toIso;
+  if (fromIso === toIso) return a.d + '. ' + a.m + '. ' + a.y;
+  const left = a.d + '. ' + a.m + '.' + (a.y === b.y ? '' : ' ' + a.y);
+  return left + ' – ' + b.d + '. ' + b.m + '. ' + b.y;
+}
+
+function renderRangeLine(from, to) {
+  const el = _container && _container.querySelector('#rpRange');
+  if (el) el.textContent = fmtRange(from, to);
+}
+
+// Chip „Iné…" svieti, keď je blok rozbalený alebo keď platí vlastný rozsah.
+function syncMoreChip() {
+  const moreBtn = _container && _container.querySelector('#rpMore');
+  const moreBox = _container && _container.querySelector('#rpMoreBox');
+  if (!moreBtn || !moreBox) return;
+  moreBtn.classList.toggle('is-on', _customPeriod || !moreBox.hidden);
+}
+
+// Zmena dátumu v „Iné…": chipy obdobia zhasnú, inak by „Tento týždeň"
+// svietil nad úplne iným rozsahom.
+function markCustomPeriod() {
+  _customPeriod = true;
+  $$('.period-btn').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); });
+  syncMoreChip();
+}
+
 // ===== LOAD REPORTS FROM API =====
 async function loadReports() {
   const from = $('#dateFrom').value;
@@ -90,6 +130,7 @@ async function loadReports() {
   try {
     const data = await api.get('/reports/summary?from=' + from + '&to=' + to + scopeQuery());
     if (activeTabContent) hideLoading(activeTabContent);
+    renderRangeLine(from, to);
     // Aj pri prázdnej odpovedi — pás musí zodpovedať zvolenému rozsahu.
     renderScopeNotice(data);
     if (data) {
@@ -107,7 +148,7 @@ async function loadReports() {
     }
   } catch (err) {
     if (activeTabContent) hideLoading(activeTabContent);
-    showToast(err.message || 'Chyba nacitania reportov', 'error');
+    showToast(err.message || 'Chyba načítania reportov', 'error');
   }
 }
 
@@ -126,11 +167,10 @@ function showEmptyReports() {
 }
 
 function renderStats(data) {
-  // The 9-card grid is rendered top-to-bottom: 4 sales KPIs (Trzby, Pocet,
-  // Priemerny ucet, Trzby/zam), then 4 hospodársky-výsledok cards (Vyroba,
-  // Mzdy, Zam.spotreba, Vysledok), then Predane burgery. Values flow into
-  // them by index because the template binds via .stat-value class (no IDs).
-  const statValues = $$('.stat-value');
+  // Hero (tržby) + riadok súčtu sa plnia podľa poradia .rp-kpi-v v TEMPLATE:
+  // 0 tržby, 1 objednávky, 2 priem. účet, 3 tržby/zam., 4 výroba, 5 mzdy,
+  // 6 zam. spotreba, 7 výsledok, 8 burgery, 9 odpisy (predaj).
+  const statValues = $$('.rp-kpi-v');
   if (data.totalRevenue !== undefined && statValues[0]) {
     statValues[0].innerHTML = fmtEur(data.totalRevenue);
   }
@@ -213,9 +253,8 @@ function renderScopeNotice(data) {
     if (eff === 'active') {
       const code = data && data.cashRegisterCode ? String(data.cashRegisterCode) : '';
       hint.style.display = '';
-      hint.textContent = 'obdobie začína prvým dokladom aktuálnej kasy'
-        + (code ? ' · DKP ' + code : '')
-        + ' — staršie subjekty cez „Celá história“';
+      hint.textContent = 'len táto kasa' + (code ? ' (DKP ' + code + ')' : '')
+        + ' od jej prvého dokladu — staršie subjekty cez „Celá história“';
     } else {
       hint.style.display = 'none';
       hint.textContent = '';
@@ -245,13 +284,13 @@ function renderVatSplit(data) {
 
   if (vatNote) {
     vatNote.style.display = '';
-    vatNote.textContent = 'z toho DPH na odvod ' + fmtEur(vat) + ' · zaklad dane ' + fmtEur(net);
+    vatNote.textContent = 'z toho DPH na odvod ' + fmtEur(vat) + ' · základ dane ' + fmtEur(net);
   }
   if (marginNote) {
     const profit = Number(data.totalProfit) || 0;
     const pct = net > 0 ? (profit / net) * 100 : 0;
     marginNote.style.display = '';
-    marginNote.textContent = pct.toFixed(1) + ' % marza zo zakladu dane';
+    marginNote.textContent = '· ' + fmtPct1(pct) + ' % marža zo základu dane';
   }
 }
 
@@ -263,27 +302,20 @@ function renderDestSplit(data) {
   const host = $('#destSplit');
   if (!host) return;
   const r = data.revenueByDest || { bar: 0, kuchyna: 0, itemsBar: 0, itemsKuchyna: 0 };
-  const sum = (Number(r.bar) || 0) + (Number(r.kuchyna) || 0);
+  const bar = Number(r.bar) || 0;
+  const kuch = Number(r.kuchyna) || 0;
+  const sum = bar + kuch;
   const pct = (n) => sum > 0 ? Math.round((n / sum) * 100) : 0;
+  // Jeden pruh + riadok súčtu namiesto dvoch KPI kariet (na telefóne 2 × 91 px).
   host.innerHTML =
-    '<div class="stat-card">' +
-      '<div class="stat-icon mint">' +
-        '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 11h14l-1 9H6z"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>' +
+    '<div class="rp-split">' +
+      '<div class="rp-split-bar" aria-hidden="true">' +
+        '<span class="is-bar" style="width:' + pct(bar) + '%"></span>' +
+        '<span class="is-kuch" style="width:' + pct(kuch) + '%"></span>' +
       '</div>' +
-      '<div class="stat-info">' +
-        '<div class="stat-label">Bar</div>' +
-        '<div class="stat-value">' + fmtEur(r.bar || 0) + '</div>' +
-        '<div class="stat-change neutral">' + (r.itemsBar || 0) + ' ks · ' + pct(r.bar || 0) + '%</div>' +
-      '</div>' +
-    '</div>' +
-    '<div class="stat-card">' +
-      '<div class="stat-icon amber">' +
-        '<svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18"/><path d="M9 6V3h6v3"/></svg>' +
-      '</div>' +
-      '<div class="stat-info">' +
-        '<div class="stat-label">Kuchyňa</div>' +
-        '<div class="stat-value">' + fmtEur(r.kuchyna || 0) + '</div>' +
-        '<div class="stat-change neutral">' + (r.itemsKuchyna || 0) + ' ks · ' + pct(r.kuchyna || 0) + '%</div>' +
+      '<div class="doch-sum rp-sum">' +
+        '<span class="rp-sum-i"><span class="rp-dot is-bar" aria-hidden="true"></span><strong>' + fmtEur(bar) + '</strong> bar <small>' + (r.itemsBar || 0) + ' ks · ' + pct(bar) + ' %</small></span>' +
+        '<span class="rp-sum-i"><span class="rp-dot is-kuch" aria-hidden="true"></span><strong>' + fmtEur(kuch) + '</strong> kuchyňa <small>' + (r.itemsKuchyna || 0) + ' ks · ' + pct(kuch) + ' %</small></span>' +
       '</div>' +
     '</div>';
 }
@@ -320,7 +352,7 @@ function renderPaymentMethods(data) {
       '<td class="td-name">' + label + '</td>' +
       '<td class="num text-right">' + (m.count || 0) + '×</td>' +
       '<td class="num highlight-cell text-right">' + fmtEur(total) + '</td>' +
-      '<td><div class="progress-wrap"><div class="progress-fill" style="width:' + barW + '%"></div></div>' + share + '%</td>' +
+      '<td><div class="progress-wrap"><div class="progress-fill" style="width:' + barW + '%"></div></div>' + fmtPct1(share) + ' %</td>' +
     '</tr>';
   });
 
@@ -331,7 +363,7 @@ function renderPaymentMethods(data) {
       '<td class="td-name">Hotovosť <span style="color:var(--color-text-dim);font-size:11px">(shisha, mimo fiškál)</span></td>' +
       '<td class="num text-right">' + shishaCnt + '×</td>' +
       '<td class="num highlight-cell text-right">' + fmtEur(shishaRev) + '</td>' +
-      '<td><div class="progress-wrap"><div class="progress-fill" style="width:' + barW + '%"></div></div>' + share + '%</td>' +
+      '<td><div class="progress-wrap"><div class="progress-fill" style="width:' + barW + '%"></div></div>' + fmtPct1(share) + ' %</td>' +
     '</tr>');
   }
 
@@ -539,8 +571,8 @@ function renderProdukty(data) {
     // Dest pill — visual ukazovatel zony (kuchyna vs bar) pri kazdom riadku
     const dest = p.dest || 'bar';
     const destPill = dest === 'kuchyna'
-      ? '<span style="display:inline-block;font-size:10px;font-weight:600;padding:2px 6px;border-radius:6px;background:rgba(217,119,6,.12);color:#92400e;margin-left:6px;letter-spacing:.02em">🍳 KUCH</span>'
-      : '<span style="display:inline-block;font-size:10px;font-weight:600;padding:2px 6px;border-radius:6px;background:rgba(99,102,241,.12);color:#4338ca;margin-left:6px;letter-spacing:.02em">🍹 BAR</span>';
+      ? ' <span class="rp-pill is-warn rp-pill-xs">kuchyňa</span>'
+      : ' <span class="rp-pill is-info rp-pill-xs">bar</span>';
     const categoryCell = (p.category || '') + (_productDestFilter === 'all' ? destPill : '');
     // Per-product Výroba & Výsledok — položky bez receptu majú cogs=0,
     // takže ich Výsledok = Tržba (čisté marže). Farba Výsledku zvýrazní
@@ -558,7 +590,7 @@ function renderProdukty(data) {
       <td class="num highlight-cell">${fmtEur(p.revenue)}</td>
       <td class="num">${fmtEur(cogs)}</td>
       <td class="num" style="font-weight:700;color:${profitColor}">${fmtEur(profit)}</td>
-      <td><div class="progress-wrap"><div class="progress-fill" style="width:${barW}%"></div></div>${pct}%</td>
+      <td><div class="progress-wrap"><div class="progress-fill" style="width:${barW}%"></div></div>${fmtPct1(pct)} %</td>
     </tr>`;
   }).join('');
 
@@ -589,10 +621,9 @@ function updateProductFilterStats() {
   const filterStats = _container.querySelector('#productFilterStats');
   if (filterStats) {
     const filterLabel = _productDestFilter === 'all' ? 'Všetko'
-                      : _productDestFilter === 'kuchyna' ? '🍳 Kuchyňa'
-                      : '🍹 Bar';
-    filterStats.innerHTML = '<strong>' + filterLabel + ':</strong> '
-      + stat.q + ' ks · <strong>' + fmtEur(stat.r) + '</strong>';
+                      : _productDestFilter === 'kuchyna' ? 'Kuchyňa'
+                      : 'Bar';
+    filterStats.innerHTML = filterLabel + ': ' + stat.q + ' ks · ' + fmtEur(stat.r);
   }
   // Toggle active state on chips
   ['chipDestAll', 'chipDestKuch', 'chipDestBar'].forEach(id => {
@@ -681,8 +712,8 @@ function renderProductsByDay(data) {
     // Pri zoskupení podľa kategórie nedáva dest pill zmysel per riadok
     // (kategória má vlastnú zónu) — pill necháme len pri jednotlivých položkách.
     const destPill = it.dest === 'kuchyna'
-      ? '<span style="display:inline-block;font-size:9px;font-weight:600;padding:1px 5px;border-radius:5px;background:rgba(217,119,6,.12);color:#92400e;margin-right:5px;vertical-align:middle">🍳</span>'
-      : '<span style="display:inline-block;font-size:9px;font-weight:600;padding:1px 5px;border-radius:5px;background:rgba(99,102,241,.12);color:#4338ca;margin-right:5px;vertical-align:middle">🍹</span>';
+      ? '<span class="rp-dot is-kuch" title="kuchyňa"></span>'
+      : '<span class="rp-dot is-bar" title="bar"></span>';
     html += '<tr>';
     html += '<td class="td-name">' + (byCat ? '' : destPill) + escapeHtml(it.name) + '</td>';
     for (const d of dates) {
@@ -888,13 +919,13 @@ async function loadStaffReport() {
   const from = $('#dateFrom').value;
   const to = $('#dateTo').value;
   const tabContent = _container.querySelector('#tab-cisnicky');
-  if (tabContent) showLoading(tabContent, 'Načítavam cisnicky...');
+  if (tabContent) showLoading(tabContent, 'Načítavam čašníkov…');
   try {
     const data = await api.get('/reports/staff?from=' + from + '&to=' + to + scopeQuery());
     if (tabContent) hideLoading(tabContent);
     if (!data || data.length === 0) {
-      $('#staffTableBody').innerHTML = '<tr><td colspan="9" class="td-empty">Žiadne data</td></tr>';
-      $('#staffBars').innerHTML = '<div class="loading-placeholder">Žiadne data pre zvolené obdobie</div>';
+      $('#staffTableBody').innerHTML = '<tr><td colspan="9" class="td-empty">Žiadne dáta pre toto obdobie</td></tr>';
+      $('#staffBars').innerHTML = '<div class="loading-placeholder">Žiadne dáta pre zvolené obdobie</div>';
       return;
     }
 
@@ -924,7 +955,7 @@ async function loadStaffReport() {
     ).join('');
   } catch (err) {
     if (tabContent) hideLoading(tabContent);
-    showToast(err.message || 'Chyba nacitania cisnikov', 'error');
+    showToast(err.message || 'Chyba načítania čašníkov', 'error');
     $('#staffTableBody').innerHTML = '<tr><td colspan="9" class="td-empty color-danger">Chyba: ' + err.message + '</td></tr>';
   }
 }
@@ -1044,7 +1075,7 @@ async function doZReport(digital) {
     } else if (w && w.created) {
       showToast(prefix + '. Cashflow výber ' + amt + '.', true);
     } else {
-      showToast(digital ? 'Digitálna uzávierka zaznamenaná.' : 'Z-report odoslany na tlaciaren', true);
+      showToast(digital ? 'Digitálna uzávierka zaznamenaná.' : 'Z-report odoslaný na tlačiareň', true);
     }
   } catch (err) {
     showToast('Chyba tlace: ' + err.message, 'error');
@@ -1118,7 +1149,7 @@ function exportAPI() {
       a.download = 'pos-export-' + from + '-' + to + '.' + format;
       a.click();
       URL.revokeObjectURL(blobUrl);
-      showToast('Export stiahnuty', true);
+      showToast('Export stiahnutý', true);
     })
     .catch(err => showToast('Chyba exportu: ' + err.message, 'error'))
     .finally(() => { if (btn) btnReset(btn); });
@@ -1151,8 +1182,16 @@ function bindEvents() {
       const dateTo = $('#dateTo');
       const dateSingle = $('#dateSingleInput');
 
+      // Chip s obdobím zvolený → vlastný rozsah z „Iné…" už neplatí.
+      _customPeriod = false;
+      $$('.period-btn').forEach(b => b.setAttribute('aria-pressed', String(b === btn)));
+      syncMoreChip();
+
       if (btn.dataset.period === 'today') {
         dateTo.value = todayStr();
+        dateFrom.value = dateTo.value;
+      } else if (btn.dataset.period === 'yesterday') {
+        dateTo.value = isoAddDays(todayStr(), -1);
         dateFrom.value = dateTo.value;
       } else if (btn.dataset.period === 'single') {
         // Default the picker to today on first reveal so the user can just
@@ -1170,6 +1209,18 @@ function bindEvents() {
       if (btn.dataset.period !== 'custom') loadReports();
     });
   });
+
+  // „Iné…" rozbalí dátumy a export. Čisto stav UI — filter sa aplikuje až
+  // zmenou poľa (handlery nižšie), žiadne tlačidlo „Obnoviť".
+  const moreBtn = $('#rpMore');
+  const moreBox = $('#rpMoreBox');
+  if (moreBtn && moreBox) {
+    moreBtn.addEventListener('click', () => {
+      moreBox.hidden = !moreBox.hidden;
+      moreBtn.setAttribute('aria-expanded', String(!moreBox.hidden));
+      syncMoreChip();
+    });
+  }
 
   // Rozsah dát — prepnutie znamená nový request (filter je na strane servera),
   // nie len re-render cache-u ako pri dest chipoch.
@@ -1194,6 +1245,7 @@ function bindEvents() {
     if (!v) return;
     $('#dateFrom').value = v;
     $('#dateTo').value = v;
+    markCustomPeriod();
     loadReports();
     if (_container.querySelector('.tab-btn[data-tab="cisnicky"]').classList.contains('active')) {
       loadStaffReport();
@@ -1202,12 +1254,14 @@ function bindEvents() {
 
   // Custom date change
   $('#dateFrom').addEventListener('change', () => {
+    markCustomPeriod();
     loadReports();
     if (_container.querySelector('.tab-btn[data-tab="cisnicky"]').classList.contains('active')) {
       loadStaffReport();
     }
   });
   $('#dateTo').addEventListener('change', () => {
+    markCustomPeriod();
     loadReports();
     if (_container.querySelector('.tab-btn[data-tab="cisnicky"]').classList.contains('active')) {
       loadStaffReport();
@@ -1279,183 +1333,101 @@ function bindEvents() {
 
 // ===== TEMPLATE =====
 const TEMPLATE = `
-  <!-- FILTER BAR -->
-  <div class="filter-bar">
-    <div class="period-btns">
-      <button class="period-btn" data-period="today">Dnes</button>
-      <button class="period-btn" data-period="single">Vybra\u0165 de\u0148</button>
-      <button class="period-btn active" data-period="week">Tento tyzden</button>
-      <button class="period-btn" data-period="month">Tento mesiac</button>
-      <button class="period-btn" data-period="custom">Vlastne obdobie</button>
+  <!-- OBDOBIE: chipy + „Iné…" (dátumy, export). JS: .period-btn[data-period]
+       nastaví #dateFrom/#dateTo a načíta; .active = zvolené obdobie. -->
+  <div class="doch-head rp-head">
+    <div class="doch-chips rp-chips" role="group" aria-label="Obdobie">
+      <button type="button" class="doch-chip period-btn" data-period="today" aria-pressed="false">Dnes</button>
+      <button type="button" class="doch-chip period-btn" data-period="yesterday" aria-pressed="false">Včera</button>
+      <button type="button" class="doch-chip period-btn active" data-period="week" aria-pressed="true">Tento týždeň</button>
+      <button type="button" class="doch-chip period-btn" data-period="month" aria-pressed="false">Tento mesiac</button>
+      <button type="button" class="doch-chip" id="rpMore" aria-expanded="false" aria-controls="rpMoreBox">Iné…</button>
     </div>
-    <!-- Rozsah dat — 'active' (default, len aktualna kasa) vs 'all' (cela
-         historia vratane predoslych danovych subjektov). Aktivny stav sa
-         nastavuje v init() podla localStorage. -->
-    <div class="scope-switch" role="group" aria-label="Rozsah dát">
+    <div class="doch-more" id="rpMoreBox" hidden>
+      <div class="date-single" id="dateSingle">
+        <label class="doch-toolbar-label">Jeden deň
+          <input type="date" class="date-input" id="dateSingleInput">
+        </label>
+      </div>
+      <div class="date-range" id="dateRange">
+        <label class="doch-toolbar-label">Od
+          <input type="date" class="date-input" id="dateFrom">
+        </label>
+        <span class="date-sep">\u2014</span>
+        <label class="doch-toolbar-label">Do
+          <input type="date" class="date-input" id="dateTo">
+        </label>
+      </div>
+      <div class="rp-more-row">
+        <label class="doch-toolbar-label">Formát exportu
+          <select id="exportFormat" class="filter-select">
+            <option value="csv">CSV</option>
+            <option value="json">JSON</option>
+          </select>
+        </label>
+        <button type="button" class="btn-secondary" id="btnExportAPI">Export do účtovníctva</button>
+        <button type="button" class="btn-secondary" id="btnExport">Exportovať CSV</button>
+      </div>
+    </div>
+    <!-- Rozsah dát — 'active' (len aktuálna kasa) vs 'all' (celá história
+         vrátane predošlých daňových subjektov). Aktívny stav nastavuje init(). -->
+    <div class="scope-switch rp-seg" role="group" aria-label="Rozsah dát">
       <button type="button" class="scope-btn active" data-scope="active" aria-pressed="true">Táto kasa</button>
       <button type="button" class="scope-btn" data-scope="all" aria-pressed="false">Celá história</button>
     </div>
-    <div class="date-single" id="dateSingle">
-      <input type="date" class="date-input" id="dateSingleInput">
-    </div>
-    <div class="date-range" id="dateRange">
-      <input type="date" class="date-input" id="dateFrom">
-      <span class="date-sep">\u2014</span>
-      <input type="date" class="date-input" id="dateTo">
-    </div>
-    <div class="filter-bar-actions">
-      <select id="exportFormat" class="filter-select">
-        <option value="csv">CSV</option>
-        <option value="json">JSON</option>
-      </select>
-      <button class="btn-export" id="btnExportAPI">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        Export do uctovania
-      </button>
-      <button class="btn-export" id="btnExport">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        Exportovat CSV
-      </button>
-    </div>
+    <div class="doch-range" id="rpRange"></div>
   </div>
 
-  <!-- Vysvetlujuci pas — zobrazi sa len pri rozsahu 'all' (renderScopeNotice) -->
-  <div class="scope-note" id="scopeNotice" role="note" style="display:none"></div>
+  <!-- Vysvetľujúci pás — zobrazí sa len pri rozsahu 'all' (renderScopeNotice) -->
+  <div class="doch-owe rp-note" id="scopeNotice" role="note" style="display:none"></div>
 
-  <!-- STAT CARDS -->
-  <div class="stat-grid">
-    <div class="stat-card">
-      <div class="stat-icon ice">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-      </div>
-      <div class="stat-info">
-        <div class="stat-label">Celkove trzby</div>
-        <div class="stat-value">-- &euro;</div>
-        <!-- Rozpad DPH sa zobrazi len ked je firma platitel (server posle
-             totalRevenueNet). U neplatitela ostava karta nezmenena. -->
-        <div class="stat-change neutral" id="statVatNote" style="display:none"></div>
-        <!-- Rozsah 'active': zobrazene obdobie zacina prvym dokladom
-             aktualnej kasy — inak vyzeraju starsie subjekty ako prepad trzieb. -->
-        <div class="stat-change neutral" id="statScopeNote" style="display:none"></div>
-      </div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-icon lavender">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
-      </div>
-      <div class="stat-info">
-        <div class="stat-label">Pocet objednavok</div>
-        <div class="stat-value">--</div>
-      </div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-icon mint">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
-      </div>
-      <div class="stat-info">
-        <div class="stat-label">Priemerny ucet</div>
-        <div class="stat-value">-- &euro;</div>
-      </div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-icon amber">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
-      </div>
-      <div class="stat-info">
-        <div class="stat-label">Trzby na zamestnanca</div>
-        <div class="stat-value">-- &euro;</div>
-      </div>
-    </div>
-    <!-- Náklady na výrobu — sum recipe_qty × ingredient_cost over predaj.
-         Položky bez receptu = 0 € (po dohode s prevádzkou). -->
-    <div class="stat-card">
-      <div class="stat-icon amber">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 3h18v4H3z"/><path d="M5 7v14h14V7"/><path d="M9 11h6"/><path d="M9 15h6"/></svg>
-      </div>
-      <div class="stat-info">
-        <div class="stat-label">Naklady na vyrobu</div>
-        <div class="stat-value">-- &euro;</div>
-      </div>
-    </div>
+  <!-- KPI: jedno veľké číslo (tržby) + jeden riadok súčtu. renderStats()
+       plní hodnoty podľa poradia .rp-kpi-v v dokumente (0 = tržby … 9 = odpisy
+       predaj), preto poradie prvkov nemeň. -->
+  <div class="rp-hero">
+    <div class="rp-hero-k">Tržby za obdobie</div>
+    <div class="rp-hero-v rp-kpi-v">-- &euro;</div>
+    <!-- Rozpad DPH sa zobrazí len platiteľovi (server pošle totalRevenueNet). -->
+    <div class="stat-change neutral" id="statVatNote" style="display:none"></div>
+    <!-- Rozsah 'active': obdobie začína prvým dokladom aktuálnej kasy. -->
+    <div class="stat-change neutral" id="statScopeNote" style="display:none"></div>
+  </div>
+  <div class="doch-sum rp-sum">
+    <span class="rp-sum-i"><strong class="rp-kpi-v">--</strong> objednávok</span>
+    <span class="rp-sum-i"><strong class="rp-kpi-v">-- &euro;</strong> priemerný účet</span>
+    <span class="rp-sum-i"><strong class="rp-kpi-v">-- &euro;</strong> na zamestnanca</span>
+    <!-- Náklady na výrobu — recept × predaj; položky bez receptu = 0 €. -->
+    <span class="rp-sum-i"><strong class="rp-kpi-v">-- &euro;</strong> výroba</span>
     <!-- Mzdy — clock_in→clock_out × hourly_rate. -->
-    <div class="stat-card">
-      <div class="stat-icon lavender">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-      </div>
-      <div class="stat-info">
-        <div class="stat-label">Mzdy</div>
-        <div class="stat-value">-- &euro;</div>
-      </div>
-    </div>
-    <!-- Zamestnanecka spotreba — naklad na suroviny pre staff meals
-         uzatvorene cez "Pre zamestnanca" v zone Zamestanci. Nepride do
-         Trzieb (ziadna platba), ale ide z Vysledku ako naklad firmy. -->
-    <div class="stat-card">
-      <div class="stat-icon amber">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="7" r="4"/><path d="M5.5 21a6.5 6.5 0 0 1 13 0"/></svg>
-      </div>
-      <div class="stat-info">
-        <div class="stat-label">Zam. spotreba</div>
-        <div class="stat-value">-- &euro;</div>
-      </div>
-    </div>
-    <!-- Výsledok = Tržby − Výroba − Mzdy − Zam. spotreba. Hospodársky
-         výsledok pred ostatnými nákladmi (energie, nájom, prac. ochranné).
-         Zelená/červená farba sa nastavuje v renderStats(). -->
-    <div class="stat-card">
-      <div class="stat-icon mint">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-      </div>
-      <div class="stat-info">
-        <div class="stat-label">Vysledok</div>
-        <div class="stat-value">-- &euro;</div>
-        <div class="stat-change neutral" id="statProfitMargin" style="display:none"></div>
-      </div>
-    </div>
-    <!-- Predane burgery — pocet kusov (4 burgery + 4 comba dokopy, bez
-         omacky) z kategorie 'burgre' za zvolene obdobie. -->
-    <div class="stat-card">
-      <div class="stat-icon amber">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 11h18a0 0 0 0 1 0 0 3 3 0 0 1-3 3H6a3 3 0 0 1-3-3 0 0 0 0 1 0 0z"/><path d="M4 7a8 8 0 0 1 16 0"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-      </div>
-      <div class="stat-info">
-        <div class="stat-label">Predane burgery</div>
-        <div class="stat-value">--</div>
-      </div>
-    </div>
-    <!-- Odpisy (predaj) — predajná hodnota účtov uzavretých ako manažérsky
-         odpis "na účet podniku" (closure_type='odpis', mimo fiškál). MUSÍ
-         ostať poslednou kartou v gride — renderStats() ju plní cez index 9. -->
-    <div class="stat-card">
-      <div class="stat-icon" style="background:var(--color-danger-bg,rgba(176,56,48,.12));color:var(--color-danger,#b03830)">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
-      </div>
-      <div class="stat-info">
-        <div class="stat-label">Odpisy (predaj)</div>
-        <div class="stat-value">-- &euro;</div>
-      </div>
-    </div>
+    <span class="rp-sum-i"><strong class="rp-kpi-v">-- &euro;</strong> mzdy</span>
+    <!-- Zamestnanecká spotreba — náklad na suroviny pre staff meals. -->
+    <span class="rp-sum-i"><strong class="rp-kpi-v">-- &euro;</strong> zam. spotreba</span>
+    <!-- Výsledok = Tržby − Výroba − Mzdy − Zam. spotreba; farbu dáva renderStats(). -->
+    <span class="rp-sum-i"><strong class="rp-kpi-v">-- &euro;</strong> výsledok <small id="statProfitMargin" style="display:none"></small></span>
+    <span class="rp-sum-i"><strong class="rp-kpi-v">--</strong> burgerov</span>
+    <!-- Odpisy (predaj) — MUSÍ ostať posledný: renderStats() ho plní cez index 9. -->
+    <span class="rp-sum-i"><strong class="rp-kpi-v">-- &euro;</strong> odpisy</span>
   </div>
 
   <!-- TABS -->
-  <div class="tabs">
-    <button class="tab-btn active" data-tab="trzby">Trzby</button>
+  <div class="tabs rp-tabs" role="tablist" aria-label="Časti reportu">
+    <button class="tab-btn active" data-tab="trzby">Tržby</button>
     <button class="tab-btn" data-tab="produkty">Produkty</button>
     <button class="tab-btn" data-tab="zamestnanci">Zamestnanci</button>
-    <button class="tab-btn" data-tab="cisnicky">Cisnicky</button>
+    <button class="tab-btn" data-tab="cisnicky">Čašníci</button>
     <button class="tab-btn" data-tab="hodiny">Hodiny</button>
-    <button class="tab-btn" data-tab="uzavierka">Uzavierka</button>
+    <button class="tab-btn" data-tab="uzavierka">Uzávierka</button>
   </div>
 
   <!-- TAB: TRZBY -->
   <div class="tab-content active" id="tab-trzby">
-    <div class="stat-grid" id="destSplit" style="margin-bottom:18px"></div>
+    <div id="destSplit"></div>
 
     <!-- Tržby podľa spôsobu platby — rešpektuje from/to filter (predtým len dashboard/dnes) -->
-    <div class="panel" style="margin-bottom:18px">
+    <div class="panel rp-panel">
       <div class="panel-title">Tržby podľa spôsobu platby</div>
       <div class="table-scroll-wrap">
-        <table class="data-table" id="table-payments">
+        <table class="data-table rp-cards rp-t-pay" id="table-payments">
           <thead>
             <tr>
               <th>Spôsob platby</th>
@@ -1470,9 +1442,9 @@ const TEMPLATE = `
       </div>
     </div>
 
-    <div class="panel">
+    <div class="panel rp-panel">
       <div class="table-scroll-wrap">
-      <table class="data-table" id="table-trzby">
+      <table class="data-table rp-cards rp-t-trzby" id="table-trzby">
         <thead>
           <tr>
             <th>Dátum</th>
@@ -1495,13 +1467,13 @@ const TEMPLATE = `
 
     <!-- Mzdy podla zamestnancov — viditelny len ked > 0. Renderuje sa
          cez renderLaborByStaff() z dat.laborByStaff. -->
-    <div class="panel" id="laborByStaffPanel" style="display:none;margin-top:18px">
+    <div class="panel rp-panel" id="laborByStaffPanel" style="display:none">
       <div class="panel-title">Mzdy podľa zamestnancov</div>
-      <div style="font-size:var(--text-sm);color:var(--color-text-sec);margin-top:-8px;margin-bottom:14px">
+      <div class="rp-sub">
         odpracované hodiny × hodinová sadzba — len uzavreté zmeny (clock_in → clock_out) v tomto období
       </div>
       <div class="table-scroll-wrap">
-        <table class="data-table" id="table-labor-staff">
+        <table class="data-table rp-cards rp-t-labor" id="table-labor-staff">
           <thead>
             <tr>
               <th>Meno</th>
@@ -1521,17 +1493,17 @@ const TEMPLATE = `
     <!-- Zamestnanecka spotreba podla mena — viditelny len ked total > 0.
          Renderuje sa cez renderStaffMealByPerson() z dat.staffMealByPerson.
          Naklad rozdeleny na jedlo (kuchyna) vs napoje (bar) cez category.dest. -->
-    <div class="panel" id="staffMealPanel" style="display:none;margin-top:18px">
+    <div class="panel rp-panel" id="staffMealPanel" style="display:none">
       <div class="panel-title">Zamestnanecká spotreba podľa mena</div>
-      <div style="font-size:var(--text-sm);color:var(--color-text-sec);margin-top:-8px;margin-bottom:14px">
-        atribúcia podľa mena stola v zóne Zamestanci (Alex / Oleh / Tania / Yevhen…) — náklad firmy na jedlo + nápoje zamestnanca
+      <div class="rp-sub">
+        podľa mena stola v zóne Zamestnanci — náklad firmy na jedlo a nápoje zamestnanca
       </div>
       <div class="table-scroll-wrap">
-        <table class="data-table" id="table-staff-meal">
+        <table class="data-table rp-cards rp-t-meal" id="table-staff-meal">
           <thead>
             <tr>
               <th>Meno</th>
-              <th class="text-right">Pocet</th>
+              <th class="text-right">Počet</th>
               <th class="text-right">Jedlo (kuchyňa)</th>
               <th class="text-right">Nápoje (bar)</th>
               <th class="text-right">Náklad spolu</th>
@@ -1551,28 +1523,18 @@ const TEMPLATE = `
          Pomaha managerovi rychlo videt "len kuchyna" alebo "len bar" bez
          scrollovania zmiesanym zoznamom. Style: vlozenne inline aby sa zladil
          s ostatnymi pages bez extra CSS edit-u. -->
-    <div class="panel" style="margin-bottom:14px">
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <div style="font-size:12px;color:var(--color-text-sec);font-weight:600;text-transform:uppercase;letter-spacing:.04em">Filter zóny:</div>
-        <button type="button" id="chipDestAll" class="filter-chip chip-active"
-          style="cursor:pointer;padding:7px 14px;border-radius:999px;border:1px solid var(--color-border);background:transparent;font-size:13px;font-weight:600;transition:all .15s">
-          Všetko <span class="chip-count" style="opacity:.6;font-weight:500">(0)</span>
-        </button>
-        <button type="button" id="chipDestKuch" class="filter-chip"
-          style="cursor:pointer;padding:7px 14px;border-radius:999px;border:1px solid var(--color-border);background:transparent;font-size:13px;font-weight:600;transition:all .15s">
-          🍳 Kuchyňa <span class="chip-count" style="opacity:.6;font-weight:500">(0)</span>
-        </button>
-        <button type="button" id="chipDestBar" class="filter-chip"
-          style="cursor:pointer;padding:7px 14px;border-radius:999px;border:1px solid var(--color-border);background:transparent;font-size:13px;font-weight:600;transition:all .15s">
-          🍹 Bar <span class="chip-count" style="opacity:.6;font-weight:500">(0)</span>
-        </button>
-        <div id="productFilterStats" style="margin-left:auto;font-size:13px;color:var(--color-text-sec)"></div>
+    <div class="doch-head rp-head">
+      <div class="doch-chips rp-chips" role="group" aria-label="Zóna">
+        <button type="button" id="chipDestAll" class="doch-chip filter-chip chip-active">Všetko <span class="chip-count">(0)</span></button>
+        <button type="button" id="chipDestKuch" class="doch-chip filter-chip">Kuchyňa <span class="chip-count">(0)</span></button>
+        <button type="button" id="chipDestBar" class="doch-chip filter-chip">Bar <span class="chip-count">(0)</span></button>
       </div>
+      <div id="productFilterStats" class="doch-range"></div>
     </div>
 
-    <div class="panel">
+    <div class="panel rp-panel">
       <div class="table-scroll-wrap">
-      <table class="data-table sortable-table" id="table-produkty">
+      <table class="data-table sortable-table rp-cards rp-t-prod" id="table-produkty">
         <thead>
           <tr>
             <th>Poradie</th>
@@ -1595,25 +1557,22 @@ const TEMPLATE = `
     <!-- Per-day pivot — burgers per day per day matrix. Filter (kuchyna/bar)
          zdielany s tabulkou nad. Top-N items, heat-map farby pre rychlu
          identifikaciu peak dni. -->
-    <div class="panel" style="margin-top:18px">
-      <div class="panel-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <svg viewBox="0 0 24 24" aria-hidden="true" style="width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 3v18"/></svg>
-        <span>Predaj za deň</span>
-        <span id="pbdSubtitle" style="font-size:12px;font-weight:400;color:var(--color-text-sec);margin-left:6px">počet kusov podľa položky každý deň</span>
-      </div>
-      <!-- Prepínače pivotu: metrika (Ks / Tržba €) + zoskupenie (Položka /
-           Kategória). Umožňujú vidieť napr. "tržba podľa kategórie po dňoch".
-           Reuse .filter-chip / .chip-active (injektované v init) — žiaden nový CSS. -->
-      <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin:2px 0 14px">
-        <div style="display:flex;gap:6px;align-items:center">
-          <span style="font-size:12px;color:var(--color-text-sec);font-weight:600">Zobraziť:</span>
-          <button type="button" id="pbdMetricQty" class="filter-chip chip-active" style="cursor:pointer;padding:5px 12px;border-radius:999px;border:1px solid var(--color-border);background:transparent;font-size:12px;font-weight:600;transition:all .15s">Ks</button>
-          <button type="button" id="pbdMetricRev" class="filter-chip" style="cursor:pointer;padding:5px 12px;border-radius:999px;border:1px solid var(--color-border);background:transparent;font-size:12px;font-weight:600;transition:all .15s">Tržba €</button>
+    <!-- Per-day pivot — matica položky/kategórie × dni. Filter (kuchyňa/bar)
+         zdieľaný s tabuľkou nad. Top-N riadkov, heat-map pre rýchlu
+         identifikáciu silných dní. -->
+    <div class="panel rp-panel">
+      <div class="panel-title">Predaj za deň</div>
+      <div class="rp-sub" id="pbdSubtitle">počet kusov podľa položky každý deň</div>
+      <!-- Prepínače pivotu: metrika (kusy / tržba €) + zoskupenie (položka /
+           kategória). JS prepína .chip-active, vzhľad segmentu je v ios-reporty.css. -->
+      <div class="rp-seg-wrap" style="margin-bottom:12px">
+        <div class="rp-seg rp-seg-sm" role="group" aria-label="Zobraziť">
+          <button type="button" id="pbdMetricQty" class="filter-chip chip-active">Kusy</button>
+          <button type="button" id="pbdMetricRev" class="filter-chip">Tržba €</button>
         </div>
-        <div style="display:flex;gap:6px;align-items:center">
-          <span style="font-size:12px;color:var(--color-text-sec);font-weight:600">Zoskupenie:</span>
-          <button type="button" id="pbdGroupItem" class="filter-chip chip-active" style="cursor:pointer;padding:5px 12px;border-radius:999px;border:1px solid var(--color-border);background:transparent;font-size:12px;font-weight:600;transition:all .15s">Položka</button>
-          <button type="button" id="pbdGroupCat" class="filter-chip" style="cursor:pointer;padding:5px 12px;border-radius:999px;border:1px solid var(--color-border);background:transparent;font-size:12px;font-weight:600;transition:all .15s">Kategória</button>
+        <div class="rp-seg rp-seg-sm" role="group" aria-label="Zoskupenie">
+          <button type="button" id="pbdGroupItem" class="filter-chip chip-active">Položka</button>
+          <button type="button" id="pbdGroupCat" class="filter-chip">Kategória</button>
         </div>
       </div>
       <div id="productsByDayHost"></div>
@@ -1622,9 +1581,9 @@ const TEMPLATE = `
 
   <!-- TAB: ZAMESTNANCI -->
   <div class="tab-content" id="tab-zamestnanci">
-    <div class="panel">
+    <div class="panel rp-panel">
       <div class="table-scroll-wrap">
-      <table class="data-table" id="table-zamestnanci">
+      <table class="data-table rp-cards rp-t-zam" id="table-zamestnanci">
         <thead>
           <tr>
             <th>Meno</th>
@@ -1645,13 +1604,13 @@ const TEMPLATE = `
 
   <!-- TAB: CISNICKY -->
   <div class="tab-content" id="tab-cisnicky">
-    <div class="panel" style="margin-bottom:16px">
-      <div class="panel-subtitle">Vykon cisnikov</div>
-      <div id="staffBars" class="staff-bars-container"></div>
+    <div class="panel rp-panel">
+      <div class="panel-title">Výkon čašníkov</div>
+      <div id="staffBars" class="staff-bars-container rp-staffbars"></div>
     </div>
-    <div class="panel">
+    <div class="panel rp-panel">
       <div class="table-scroll-wrap">
-      <table class="data-table" id="table-cisnicky">
+      <table class="data-table rp-cards rp-t-cis" id="table-cisnicky">
         <thead>
           <tr>
             <th>Meno</th>
@@ -1675,9 +1634,9 @@ const TEMPLATE = `
 
   <!-- TAB: HODINY -->
   <div class="tab-content" id="tab-hodiny">
-    <div class="panel">
+    <div class="panel rp-panel">
       <div class="table-scroll-wrap">
-      <table class="data-table" id="table-hodiny">
+      <table class="data-table rp-cards rp-t-hod" id="table-hodiny">
         <thead>
           <tr>
             <th>Hodina</th>
@@ -1699,90 +1658,56 @@ const TEMPLATE = `
 
   <!-- TAB: UZAVIERKA -->
   <div class="tab-content" id="tab-uzavierka">
-    <div class="z-report-bar">
-      <label class="z-report-label">Datum:</label>
-      <input type="date" class="date-input" id="zReportDate">
-      <button class="btn-outline-accent" id="btnGenZReport">
-        <svg aria-hidden="true" viewBox="0 0 24 24" style="width:14px;height:14px"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-        Generovat Z-report
-      </button>
-      <button class="btn-outline-accent" id="btnPrintZReport">
-        <svg aria-hidden="true" viewBox="0 0 24 24" style="width:14px;height:14px"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
-        Tlacit Z-report
-      </button>
-      <button class="btn-outline-accent" id="btnDigitalZReport" title="Bez tlače papiera. Cashflow zápis prebehne, Portos paragón výberu sa nevytvorí.">
-        <svg aria-hidden="true" viewBox="0 0 24 24" style="width:14px;height:14px"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-        Digitálna uzávierka
-      </button>
+    <div class="doch-head rp-head">
+      <div class="rp-actions">
+        <label class="doch-toolbar-label">Deň uzávierky
+          <input type="date" class="date-input" id="zReportDate">
+        </label>
+        <button type="button" class="btn-add" id="btnGenZReport">Zobraziť uzávierku</button>
+      </div>
+      <div class="rp-actions-2">
+        <button type="button" class="btn-secondary" id="btnPrintZReport">Tlačiť Z-report</button>
+        <button type="button" class="btn-secondary" id="btnDigitalZReport" title="Bez tlače papiera. Cashflow zápis prebehne, Portos paragón výberu sa nevytvorí.">Digitálna uzávierka</button>
+      </div>
     </div>
 
     <!-- Uzávierka zámerne NEreaguje na prepínač rozsahu: je to fiškálny
          doklad aktuálnej pokladne a tlačová cesta (POST /print/z-report)
          rozsah neprijíma. Keby preview bežal v 'all', papier a obrazovka
          by si protirečili. -->
-    <div class="scope-note" id="zScopeNote" role="note" style="display:none">
+    <div class="doch-owe rp-note is-info" id="zScopeNote" role="note" style="display:none">
       <span>Uzávierka sa vždy počíta len za aktuálnu kasu, aj keď je zapnutý
       rozsah „Celá história“. Je to fiškálny doklad jedného daňového subjektu,
       preto sa čísla tu môžu líšiť od ostatných záložiek.</span>
     </div>
 
     <div id="zReportContent" style="display:none">
-      <div class="stat-grid">
-        <div class="stat-card">
-          <div class="stat-icon ice">
-            <svg aria-hidden="true" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-          </div>
-          <div class="stat-info">
-            <div class="stat-label">Celkove trzby</div>
-            <div class="stat-value" id="zTotalRevenue">--</div>
-          </div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-icon lavender">
-            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
-          </div>
-          <div class="stat-info">
-            <div class="stat-label">Objednavky / Polozky</div>
-            <div class="stat-value" id="zOrdersItems">--</div>
-          </div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-icon mint">
-            <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
-          </div>
-          <div class="stat-info">
-            <div class="stat-label">Priemerna objednavka</div>
-            <div class="stat-value" id="zAvgOrder">--</div>
-          </div>
-        </div>
-        <!-- Odpisy (predaj) — manažérsky odpis "na účet podniku" (mimo fiškál).
-             Predajná hodnota účtov s closure_type='odpis' za daný deň. -->
-        <div class="stat-card">
-          <div class="stat-icon" style="background:var(--color-danger-bg,rgba(176,56,48,.12));color:var(--color-danger,#b03830)">
-            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
-          </div>
-          <div class="stat-info">
-            <div class="stat-label">Odpisy (predaj)</div>
-            <div class="stat-value" id="zOdpis">--</div>
-          </div>
-        </div>
+      <div class="rp-hero">
+        <div class="rp-hero-k">Tržby dňa</div>
+        <div class="rp-hero-v" id="zTotalRevenue">--</div>
+      </div>
+      <div class="doch-sum rp-sum">
+        <span class="rp-sum-i"><strong id="zOrdersItems">--</strong> objednávok / položiek</span>
+        <span class="rp-sum-i"><strong id="zAvgOrder">--</strong> priemerná objednávka</span>
+        <!-- Odpisy (predaj) — manažérsky odpis "na účet podniku" (mimo fiškál). -->
+        <span class="rp-sum-i"><strong id="zOdpis">--</strong> odpisy (predaj)</span>
       </div>
 
-      <div class="grid-2col">
-        <div class="panel">
-          <div class="panel-subtitle">Platobne metody</div>
+      <div class="grid-2col rp-2col">
+        <div class="panel rp-panel">
+          <div class="panel-title">Platobné metódy</div>
           <div id="zPaymentMethods"></div>
         </div>
-        <div class="panel">
-          <div class="panel-subtitle">Storna</div>
+        <div class="panel rp-panel">
+          <div class="panel-title">Storná</div>
           <div id="zCancelled" class="loading-placeholder">--</div>
         </div>
       </div>
 
-      <div class="panel" style="margin-bottom:16px">
-        <div class="panel-subtitle">Kategórie</div>
+      <div class="panel rp-panel">
+        <div class="panel-title">Kategórie</div>
         <div class="table-scroll-wrap">
-        <table class="data-table" id="zCategoryTable">
+        <table class="data-table rp-cards rp-t-zcat" id="zCategoryTable">
           <thead>
             <tr>
               <th>Kategória</th>
@@ -1795,10 +1720,10 @@ const TEMPLATE = `
         </div>
       </div>
 
-      <div class="panel">
-        <div class="panel-subtitle">Top 10 položky</div>
+      <div class="panel rp-panel">
+        <div class="panel-title">Top 10 položiek</div>
         <div class="table-scroll-wrap">
-        <table class="data-table" id="zTopItemsTable">
+        <table class="data-table rp-cards rp-t-ztop" id="zTopItemsTable">
           <thead>
             <tr>
               <th class="text-right">#</th>
@@ -1819,46 +1744,15 @@ export function init(container) {
   _container = container;
   container.innerHTML = TEMPLATE;
 
-  // Active-state styling pre filter chips. Inline aby sme nemuseli upravovat
-  // admin.css — page-scoped <style> bude existovat len pocas zivota tejto
-  // stranky a destroy() innerHTML reset ho vycisti.
-  if (!document.getElementById('reports-chip-style')) {
-    const st = document.createElement('style');
-    st.id = 'reports-chip-style';
-    st.textContent =
-      '.filter-chip:hover{background:var(--color-bg-hover) !important;border-color:var(--color-text-sec) !important}'
-      + '.filter-chip.chip-active{background:var(--color-accent, #B85C2A) !important;color:#fff !important;border-color:transparent !important}'
-      + '.filter-chip.chip-active .chip-count{color:rgba(255,255,255,.75) !important;opacity:1 !important}';
-    document.head.appendChild(st);
-  }
+  // Vzhľad chipov, prepínača rozsahu a vysvetľujúceho pásu je v
+  // admin/ios-reporty.css (predtým injektované <style> s !important).
 
-  // Prepínač rozsahu + vysvetľujúci pás. Vizuálne rodina .period-btn
-  // (existujúci prepínač obdobia), len min-height na plný 44 px tap target.
-  if (!document.getElementById('reports-scope-style')) {
-    const ss = document.createElement('style');
-    ss.id = 'reports-scope-style';
-    ss.textContent =
-      '.scope-switch{display:flex;gap:4px}'
-      + '.scope-btn{padding:var(--space-2) var(--space-4);border-radius:var(--radius-sm);'
-      + 'border:1px solid var(--color-border);background:transparent;color:var(--color-text-sec);'
-      + 'font-family:var(--font-body);font-size:var(--text-base);font-weight:var(--weight-semibold);'
-      + 'cursor:pointer;transition:all var(--transition-fast);min-height:var(--btn-h-md)}'
-      + '.scope-btn:hover{color:var(--color-text);background:var(--color-bg-hover)}'
-      + '.scope-btn.active{color:var(--color-accent-text);background:var(--color-accent-bg);border-color:var(--color-accent-border)}'
-      + '.scope-btn:focus-visible{outline:none;border-color:var(--color-focus);box-shadow:0 0 0 3px var(--border-focus)}'
-      + '.scope-note{padding:var(--space-3) var(--space-4);margin-bottom:var(--space-4);'
-      + 'border:1px solid var(--color-accent-border);border-left:3px solid var(--color-accent);'
-      + 'border-radius:var(--radius-sm);background:var(--color-accent-bg);color:var(--color-text-sec);'
-      + 'font-size:var(--text-md);line-height:1.5}'
-      + '.scope-note strong{color:var(--color-text);font-weight:var(--weight-semibold)}'
-      + '@media (max-width:640px){.scope-switch{flex:1 1 100%}.scope-btn{flex:1 1 0;text-align:center}}';
-    document.head.appendChild(ss);
-  }
-
+  // Set default dates
   // Set default dates
   $('#dateFrom').value = weekAgoStr();
   $('#dateTo').value = todayStr();
   $('#zReportDate').value = todayStr();
+  renderRangeLine($('#dateFrom').value, $('#dateTo').value);
 
   // Obnov zapamätanú voľbu rozsahu (TEMPLATE má natvrdo 'active').
   _scope = readScope();
@@ -1872,6 +1766,7 @@ export function destroy() {
   _container = null;
   _lastZData = null;
   _lastProductsData = null;
+  _customPeriod = false;
   _productSort = { col: 'qty', dir: 'desc' };
   _productDestFilter = 'all';
   _productByDayMetric = 'qty';

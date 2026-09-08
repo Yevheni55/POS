@@ -14,6 +14,10 @@ let _typeFilter = '';
 let _orderFilter = '';
 let _staffList = [];
 let _typeList = [];
+// Stav UI: ktorý chip obdobia svieti (0/1/7/30, null = vlastný rozsah) a či
+// je rozbalený blok „Iné…". Dátový tok (from/to/filtre) ostáva ako doteraz.
+let _preset = 0;
+let _moreOpen = false;
 
 // bratislavaDayIso je zdielany global z /api.js (preco nie UTC — viz tam).
 function todayIso() { return bratislavaDayIso(new Date()); }
@@ -149,7 +153,7 @@ function renderCount(data) {
   const el = _container.querySelector('#auditCount');
   if (!el) return;
   const c = data.count || 0;
-  el.textContent = c + ' záznamov' + (data.truncated ? ' (orezané — sprísni filter)' : '');
+  el.textContent = c + ' záznamov' + (data.truncated ? ' · zoznam je orezaný, sprísni filter' : '');
 }
 
 function renderBody(data) {
@@ -188,9 +192,20 @@ function render() {
   const typeOptionsHtml = '<option value="">Všetky akcie</option>' +
     _typeList.map((t) => '<option value="' + escapeHtml(t) + '"' + (t === _typeFilter ? ' selected' : '') + '>' + escapeHtml(TYPE_LABELS[t] || t) + '</option>').join('');
 
+  const chip = (n, label) =>
+    '<button type="button" class="doch-chip doch-preset' + (_preset === n ? ' is-on' : '') + '" data-preset="' + n + '"' +
+    ' aria-pressed="' + (_preset === n ? 'true' : 'false') + '">' + label + '</button>';
+
   _container.innerHTML =
-    '<div class="doch-toolbar">' +
-      '<div class="doch-toolbar-dates">' +
+    // Obdobie ako chipy; dátumy a ostatné filtre pod „Iné…". Filter sa
+    // aplikuje pri zmene poľa — žiadne tlačidlo „Obnoviť".
+    '<div class="doch-head rp-head">' +
+      '<div class="doch-chips rp-chips" role="group" aria-label="Obdobie">' +
+        chip(0, 'Dnes') + chip(1, 'Včera') + chip(7, '7 dní') + chip(30, '30 dní') +
+        '<button type="button" class="doch-chip' + ((_moreOpen || _preset === null) ? ' is-on' : '') + '" id="aMore"' +
+          ' aria-expanded="' + (_moreOpen ? 'true' : 'false') + '" aria-controls="aMoreBox">Iné…</button>' +
+      '</div>' +
+      '<div class="doch-more" id="aMoreBox"' + (_moreOpen ? '' : ' hidden') + '>' +
         '<label class="doch-toolbar-label">Od' +
           '<input type="date" id="aFrom" class="doch-input" value="' + _from + '">' +
         '</label>' +
@@ -203,29 +218,17 @@ function render() {
         '<label class="doch-toolbar-label">Typ akcie' +
           '<select id="aType" class="doch-input">' + typeOptionsHtml + '</select>' +
         '</label>' +
-        '<label class="doch-toolbar-label">Č. objednávky' +
-          '<input type="number" id="aOrder" class="doch-input" value="' + escapeHtml(_orderFilter) + '" placeholder="napr. 123" style="width:120px">' +
+        '<label class="doch-toolbar-label">Číslo objednávky' +
+          '<input type="number" id="aOrder" class="doch-input" inputmode="numeric" value="' + escapeHtml(_orderFilter) + '" placeholder="napr. 123">' +
         '</label>' +
-        '<div class="doch-toolbar-presets">' +
-          '<button type="button" class="btn-secondary doch-preset" data-preset="0">Dnes</button>' +
-          '<button type="button" class="btn-secondary doch-preset" data-preset="1">Včera</button>' +
-          '<button type="button" class="btn-secondary doch-preset" data-preset="7">7 dní</button>' +
-          '<button type="button" class="btn-secondary doch-preset" data-preset="30">30 dní</button>' +
-        '</div>' +
       '</div>' +
-      '<div style="display:flex;align-items:center;gap:12px">' +
-        '<span id="auditCount" class="text-muted" style="font-size:13px"></span>' +
-        '<button class="btn-add" id="aRefresh">Obnoviť</button>' +
-      '</div>' +
+      '<div class="doch-range" id="auditCount"></div>' +
     '</div>' +
 
-    '<div class="panel doch-panel">' +
-      '<div class="panel-title">' +
-        '<svg viewBox="0 0 24 24" aria-hidden="true" style="width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><path d="M9 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>' +
-        ' História operácií nad objednávkami' +
-      '</div>' +
+    '<div class="panel rp-panel">' +
+      '<div class="panel-title">Operácie nad objednávkami</div>' +
       '<div class="table-scroll-wrap">' +
-        '<table class="data-table">' +
+        '<table class="data-table rp-cards rp-t-audit">' +
           '<thead><tr>' +
             '<th class="data-th">Čas</th>' +
             '<th class="data-th">Čašník</th>' +
@@ -243,25 +246,54 @@ function render() {
   loadEvents();
 }
 
-function bind() {
-  _container.querySelector('#aRefresh').addEventListener('click', () => {
-    _from = _container.querySelector('#aFrom').value || _from;
-    _to = _container.querySelector('#aTo').value || _to;
-    _staffFilter = _container.querySelector('#aStaff').value || '';
-    _typeFilter = _container.querySelector('#aType').value || '';
-    _orderFilter = (_container.querySelector('#aOrder').value || '').trim();
-    loadEvents();
+function syncPresetChips() {
+  _container.querySelectorAll('.doch-preset').forEach((b) => {
+    const on = parseInt(b.dataset.preset, 10) === _preset;
+    b.classList.toggle('is-on', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
   });
+  const more = _container.querySelector('#aMore');
+  if (more) more.classList.toggle('is-on', _moreOpen || _preset === null);
+}
 
+function bind() {
   _container.querySelectorAll('.doch-preset').forEach((btn) => {
     btn.addEventListener('click', () => {
       const n = parseInt(btn.dataset.preset, 10);
+      _preset = n;
       _to = todayIso();
       _from = todayMinusDaysIso(n);
       _container.querySelector('#aFrom').value = _from;
       _container.querySelector('#aTo').value = _to;
+      syncPresetChips();
       loadEvents();
     });
+  });
+
+  // „Iné…" — rozbalí dátumy a ostatné filtre (len stav UI).
+  const more = _container.querySelector('#aMore');
+  const box = _container.querySelector('#aMoreBox');
+  if (more && box) {
+    more.addEventListener('click', () => {
+      _moreOpen = box.hidden;
+      box.hidden = !_moreOpen;
+      more.setAttribute('aria-expanded', _moreOpen ? 'true' : 'false');
+      syncPresetChips();
+    });
+  }
+
+  // Dátumy sa aplikujú hneď pri zmene (predtým až po „Obnoviť").
+  _container.querySelector('#aFrom').addEventListener('change', (e) => {
+    _from = e.target.value || _from;
+    _preset = null;
+    syncPresetChips();
+    loadEvents();
+  });
+  _container.querySelector('#aTo').addEventListener('change', (e) => {
+    _to = e.target.value || _to;
+    _preset = null;
+    syncPresetChips();
+    loadEvents();
   });
 
   // Live filter on selects/order field — saves a click vs hitting Refresh
@@ -295,4 +327,6 @@ export function destroy() {
   _staffFilter = '';
   _typeFilter = '';
   _orderFilter = '';
+  _preset = 0;
+  _moreOpen = false;
 }

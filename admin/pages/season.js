@@ -48,7 +48,9 @@ function fmtEur(n, opts){
   }) + ' €';
 }
 function fmtInt(n){ return (Number(n) || 0).toLocaleString('sk-SK'); }
-function fmtPct(n){ return (Number(n) || 0).toFixed(1) + ' %'; }
+// Jedno desatinné miesto v sk-SK (čiarka), napr. 58,0.
+function fmt1(n){ return (Number(n) || 0).toLocaleString('sk-SK', { minimumFractionDigits: 1, maximumFractionDigits: 1 }); }
+function fmtPct(n){ return fmt1(n) + ' %'; }
 function fmtNumNoEur(n){
   return (Number(n) || 0).toLocaleString('sk-SK', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
@@ -103,7 +105,7 @@ function productNetRevenue(p){
 // (prepínač obdobia), len s väčším tap targetom.
 function renderScopeSwitch(){
   const isActive = _scope === 'active';
-  return `<div class="scope-switch" role="group" aria-label="Rozsah dát">
+  return `<div class="scope-switch rp-seg" role="group" aria-label="Rozsah dát">
     <button type="button" class="scope-btn${isActive ? ' active' : ''}" data-scope="active" aria-pressed="${isActive}">Táto kasa</button>
     <button type="button" class="scope-btn${isActive ? '' : ' active'}" data-scope="all" aria-pressed="${!isActive}">Celá história</button>
   </div>`;
@@ -113,7 +115,7 @@ function renderScopeSwitch(){
 // čísla iné než v daňovom podklade.
 function renderScopeBanner(d){
   if (effectiveScope(d) !== 'all') return '';
-  return `<div class="scope-note" role="note">
+  return `<div class="doch-owe rp-note" role="note">
     <span>Zobrazenie zahŕňa aj obdobia predchádzajúcich daňových subjektov,
     ktoré na tejto kase pracovali pred aktuálnym. Súčty sú preto prehľadové a
     <strong>nie sú podkladom pre priznanie DPH</strong>. Pre daňové účely
@@ -126,7 +128,7 @@ function renderScopeBanner(d){
 function renderScopeHint(d){
   if (effectiveScope(d) !== 'active') return '';
   const code = d && d.cashRegisterCode ? String(d.cashRegisterCode) : '';
-  return `<div class="stat-change neutral">obdobie začína prvým dokladom aktuálnej kasy${code ? ' · DKP ' + escapeHtml(code) : ''} — staršie subjekty cez „Celá história“</div>`;
+  return `<div class="rp-hero-s">obdobie začína prvým dokladom aktuálnej kasy${code ? ' · DKP ' + escapeHtml(code) : ''} — staršie subjekty cez „Celá história“</div>`;
 }
 
 const DAY_LABEL_SK = ['Ne','Po','Ut','St','Št','Pi','So'];
@@ -151,7 +153,7 @@ async function load(){
     // Prepínač rozsahu vykresli aj do chybového stavu — inak by sa používateľ
     // pri zlyhaní requestu nemal ako prepnúť späť.
     $('#seasonContent').innerHTML =
-      '<div class="filter-bar">' + renderScopeSwitch() + '</div>'
+      '<div class="doch-head rp-head">' + renderScopeSwitch() + '</div>'
       + '<div class="empty-state" style="padding:60px;text-align:center"><div class="empty-state-title" style="color:var(--color-danger)">Chyba načítania</div><div class="empty-state-text">' + escapeHtml(err.message || 'API zlyhalo') + '</div></div>';
   }
 }
@@ -184,110 +186,69 @@ function render(){
   const profitSign = vysledok >= 0 ? '+' : '';
 
   const html = `
-    <!-- Filter bar — perioda info, no editable dates (sezóna je fixná) -->
-    <div class="filter-bar">
-      <div class="period-btns">
-        <span class="period-btn active" style="cursor:default">Sezóna</span>
-      </div>
+    <!-- Rozsah kasy ako segment + rozsah sezóny (dátumy sú fixné) -->
+    <div class="doch-head rp-head">
       ${renderScopeSwitch()}
-      <div style="font-size:var(--text-md);color:var(--color-text-sec);margin-left:auto">
-        ${formatDateSk(SEASON_START)} – ${formatDateSk(todayStr())} ·
-        <strong style="color:var(--color-text)">${daysActual}</strong>/${days} aktívnych dní
-      </div>
+      <div class="doch-range">Sezóna ${formatDateSk(SEASON_START)} – ${formatDateSk(todayStr())} · <strong>${daysActual}</strong>/${days} aktívnych dní</div>
     </div>
 
     ${renderScopeBanner(d)}
 
-    <!-- 4 main stat cards — same structure as Reporty page -->
-    <div class="stat-grid">
-      <div class="stat-card">
-        <div class="stat-icon ice">
-          <svg aria-hidden="true" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-        </div>
-        <div class="stat-info">
-          <div class="stat-label">Celkové tržby</div>
-          <div class="stat-value">${fmtEur(trzba)}</div>
-          <div class="stat-change neutral">${fmtEur(avgDaily)} priemer/deň · ${fmtInt(d.totalOrders)} obj.</div>
-          ${netVat ? `<div class="stat-change neutral">z toho DPH na odvod ${fmtEur(dphOdvod)} · základ dane ${fmtEur(trzbaNet)}</div>` : ''}
-          ${renderScopeHint(d)}
-        </div>
-      </div>
-
-      <div class="stat-card">
-        <div class="stat-icon amber">
-          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 3h18v4H3z"/><path d="M5 7v14h14V7"/><path d="M9 11h6"/><path d="M9 15h6"/></svg>
-        </div>
-        <div class="stat-info">
-          <div class="stat-label">Náklady na výrobu</div>
-          <div class="stat-value">${fmtEur(cogs)}</div>
-          <div class="stat-change neutral">${trzbaNet>0 ? fmtPct(cogs/trzbaNet*100) + ' z tržieb' + zaklad : '—'}</div>
-        </div>
-      </div>
-
-      <div class="stat-card">
-        <div class="stat-icon lavender">
-          <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-        </div>
-        <div class="stat-info">
-          <div class="stat-label">Mzdy</div>
-          <div class="stat-value">${fmtEur(mzdy)}</div>
-          <div class="stat-change neutral">${trzbaNet>0 ? fmtPct(mzdy/trzbaNet*100) + ' z tržieb' + zaklad : '—'}</div>
-        </div>
-      </div>
-
-      <div class="stat-card">
-        <div class="stat-icon mint">
-          <svg aria-hidden="true" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-        </div>
-        <div class="stat-info">
-          <div class="stat-label">Výsledok</div>
-          <div class="stat-value" style="color:${profitColor}">${profitSign}${fmtEur(vysledok)}</div>
-          <div class="stat-change ${profitClass}">${vysledokPct.toFixed(1)} % marža${netVat ? ' zo základu dane' : ''}</div>
-        </div>
-      </div>
+    <!-- Jedno veľké číslo (tržby) + riadok súčtu -->
+    <div class="rp-hero">
+      <div class="rp-hero-k">Tržby za sezónu</div>
+      <div class="rp-hero-v">${fmtEur(trzba)}</div>
+      <div class="rp-hero-s">${fmtEur(avgDaily)} priemer na deň · ${fmtInt(d.totalOrders)} objednávok</div>
+      ${netVat ? `<div class="rp-hero-s">z toho DPH na odvod ${fmtEur(dphOdvod)} · základ dane ${fmtEur(trzbaNet)}</div>` : ''}
+      ${renderScopeHint(d)}
+    </div>
+    <div class="doch-sum rp-sum">
+      <span class="rp-sum-i"><strong>${fmtEur(cogs)}</strong> náklady na výrobu <small>${trzbaNet>0 ? fmtPct(cogs/trzbaNet*100) + ' z tržieb' + zaklad : '—'}</small></span>
+      <span class="rp-sum-i"><strong>${fmtEur(mzdy)}</strong> mzdy <small>${trzbaNet>0 ? fmtPct(mzdy/trzbaNet*100) + ' z tržieb' + zaklad : '—'}</small></span>
+      <span class="rp-sum-i"><strong class="${vysledok >= 0 ? 'is-pos' : 'is-neg'}">${profitSign}${fmtEur(vysledok)}</strong> výsledok <small>${fmt1(vysledokPct)} % marža${netVat ? ' zo základu dane' : ''}</small></span>
     </div>
 
     <!-- Predaj podla kategorie — pre fotku majitelovi: hned za KPI kartami
          vidi kolko sa predalo burgerov, salatov, pizz, kavy, piva atd. -->
-    <div class="panel" style="margin-bottom:16px">
+    <div class="panel rp-panel">
       <div class="panel-title">Predaj podľa kategórie</div>
-      <div style="font-size:12px;color:var(--color-text-sec);margin-top:-8px;margin-bottom:14px">
+      <div class="rp-sub">
         koľko kusov a koľko tržieb dostal každý druh tovaru za sezónu
       </div>
       ${renderCategoryBreakdown(d.products || [], trzba)}
     </div>
 
     <!-- Daily revenue chart panel -->
-    <div class="panel" style="margin-bottom:16px">
+    <div class="panel rp-panel rp-chart">
       <div class="panel-title">Tržby po dňoch</div>
       ${renderDailyChart(d.daily || [])}
     </div>
 
     <!-- Best / worst day panels (2-col grid) -->
-    <div class="row" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px">
+    <div class="row rp-2col-grid" style="margin-bottom:16px">
       ${bestDay ? renderDayCard(bestDay, 'success', 'Najlepší deň') : ''}
       ${worstDayWithSales && worstDayWithSales.date !== (bestDay && bestDay.date) ? renderDayCard(worstDayWithSales, 'danger', 'Najslabší deň') : ''}
     </div>
 
     <!-- Top products + Bar/Kuchyňa split (2-col grid) -->
-    <div class="row" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px">
+    <div class="row rp-2col-grid" style="margin-bottom:16px">
       <div class="panel">
         <div class="panel-title">Top 10 produktov</div>
-        <div style="font-size:12px;color:var(--color-text-sec);margin-top:-8px;margin-bottom:14px">podľa tržieb za sezónu</div>
+        <div class="rp-sub">podľa tržieb za sezónu</div>
         ${renderTopProducts(d.products || [])}
       </div>
 
       <div class="panel">
         <div class="panel-title">Bar vs Kuchyňa</div>
-        <div style="font-size:12px;color:var(--color-text-sec);margin-top:-8px;margin-bottom:14px">distribúcia tržieb</div>
+        <div class="rp-sub">distribúcia tržieb</div>
         ${renderDestSplit(d.revenueByDest)}
       </div>
     </div>
 
     <!-- Day-of-week heatmap -->
-    <div class="panel" style="margin-bottom:16px">
+    <div class="panel rp-panel">
       <div class="panel-title">Deň v týždni</div>
-      <div style="font-size:12px;color:var(--color-text-sec);margin-top:-8px;margin-bottom:14px">priemerná tržba podľa dňa v týždni</div>
+      <div class="rp-sub">priemerná tržba podľa dňa v týždni</div>
       ${renderDowHeatmap(d.daily || [])}
     </div>
   `;
@@ -297,7 +258,7 @@ function render(){
 
 // === Daily chart — vertical bars with profit dot under each ===
 function renderDailyChart(daily){
-  if (!daily.length) return '<div class="td-empty" style="padding:30px;text-align:center;color:var(--color-text-dim)">Žiadne dni</div>';
+  if (!daily.length) return '<div class="empty-hint">Žiadne dni</div>';
   const maxRev = Math.max(...daily.map(d => d.revenue));
   return `
     <div class="season-chart">
@@ -333,7 +294,7 @@ function renderDayCard(day, kind, title){
   const accentClass = kind === 'success' ? 'season-day-success' : 'season-day-danger';
   return `<div class="panel ${accentClass}">
     <div class="panel-title">${title}</div>
-    <div style="font-size:12px;color:var(--color-text-sec);margin-top:-8px;margin-bottom:14px">${dow} · ${fullDate}</div>
+    <div class="rp-sub">${dow} · ${fullDate}</div>
     <table class="data-table" style="margin-bottom:0">
       <tbody>
         <tr><td>Tržby</td><td class="num text-right highlight-cell">${fmtEur(day.revenue)}</td></tr>
@@ -358,7 +319,7 @@ function renderDayCard(day, kind, title){
 // vyplavali nahor.
 function renderCategoryBreakdown(products, totalRev){
   if (!products.length) {
-    return '<div class="td-empty" style="padding:30px;text-align:center;color:var(--color-text-dim)">Žiadne dáta</div>';
+    return '<div class="empty-hint">Žiadne dáta</div>';
   }
   // Agreguj per kategoria
   const byCategory = new Map();
@@ -392,10 +353,10 @@ function renderCategoryBreakdown(products, totalRev){
     return `<tr>
       <td class="td-name" style="font-weight:var(--weight-semibold)">${escapeHtml(r.name)}</td>
       <td class="num text-right" style="font-weight:var(--weight-bold)">${fmtInt(r.qty)} ks</td>
-      <td class="text-right" style="min-width:160px">
+      <td class="text-right rp-scat-rev">
         <div class="progress-wrap"><div class="progress-fill" style="width:${w}%"></div></div>
         <div class="num" style="font-size:13px;margin-top:4px;font-weight:var(--weight-semibold)">${fmtEur(r.revenue)}</div>
-        <div style="font-size:10px;color:var(--color-text-dim)">${pct.toFixed(1)} % z tržieb</div>
+        <div style="font-size:10px;color:var(--color-text-dim)">${fmt1(pct)} % z tržieb</div>
       </td>
       <td class="num text-right" style="color:var(--color-text-sec)">${fmtEur(r.cogs)}</td>
       <td class="num text-right" style="color:${profitColor};font-weight:var(--weight-bold)">${r.profit >= 0 ? '+' : ''}${fmtEur(r.profit)}</td>
@@ -405,7 +366,7 @@ function renderCategoryBreakdown(products, totalRev){
 
   const totalMargin = totalRevNetSum > 0 ? (totalProfit / totalRevNetSum) * 100 : 0;
   return `<div class="table-scroll-wrap">
-    <table class="data-table">
+    <table class="data-table rp-cards rp-t-scat">
       <thead>
         <tr>
           <th>Kategória</th>
@@ -434,9 +395,9 @@ function renderCategoryBreakdown(products, totalRev){
 // === Top products list ===
 function renderTopProducts(products){
   const top = products.slice(0, 10);
-  if (!top.length) return '<div class="td-empty" style="padding:30px;text-align:center;color:var(--color-text-dim)">Žiadne produkty</div>';
+  if (!top.length) return '<div class="empty-hint">Žiadne produkty</div>';
   const max = Math.max(...top.map(p => p.revenue));
-  return `<table class="data-table">
+  return `<table class="data-table rp-cards rp-t-stop">
     <thead>
       <tr>
         <th style="width:32px">#</th>
@@ -481,21 +442,21 @@ function renderDestSplit(rev){
   const barPct = total > 0 ? (bar/total)*100 : 0;
   const kuchPct = total > 0 ? (kuch/total)*100 : 0;
   return `
-    <div style="display:flex;height:10px;border-radius:5px;overflow:hidden;background:rgba(255,255,255,.05);margin-bottom:18px">
+    <div class="rp-split-bar" style="height:10px;margin-bottom:14px" aria-hidden="true">
       <div style="width:${barPct}%;background:var(--color-accent)" title="Bar — ${fmtEur(bar)}"></div>
       <div style="width:${kuchPct}%;background:var(--color-success)" title="Kuchyňa — ${fmtEur(kuch)}"></div>
     </div>
-    <table class="data-table">
+    <table class="data-table rp-cards rp-t-dest">
       <tbody>
         <tr>
-          <td><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--color-accent);margin-right:8px;vertical-align:middle"></span>Bar</td>
-          <td class="num text-right" style="color:var(--color-text-sec);width:60px">${barPct.toFixed(1)} %</td>
+          <td><span class="rp-dot is-bar" aria-hidden="true"></span>Bar</td>
+          <td class="num text-right" style="color:var(--color-text-sec);width:60px">${fmt1(barPct)} %</td>
           <td class="num text-right highlight-cell">${fmtEur(bar)}</td>
           <td class="num text-right" style="color:var(--color-text-dim);font-size:11px">${fmtInt(rev.itemsBar)} ks</td>
         </tr>
         <tr>
-          <td><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--color-success);margin-right:8px;vertical-align:middle"></span>Kuchyňa</td>
-          <td class="num text-right" style="color:var(--color-text-sec)">${kuchPct.toFixed(1)} %</td>
+          <td><span class="rp-dot is-kuch" aria-hidden="true"></span>Kuchyňa</td>
+          <td class="num text-right" style="color:var(--color-text-sec)">${fmt1(kuchPct)} %</td>
           <td class="num text-right highlight-cell">${fmtEur(kuch)}</td>
           <td class="num text-right" style="color:var(--color-text-dim);font-size:11px">${fmtInt(rev.itemsKuchyna)} ks</td>
         </tr>
@@ -538,52 +499,8 @@ function renderDowHeatmap(daily){
 //     Dodržuje DESIGN-CODE.md: tokens-first, mobile-first, motion-safe. ===
 const PAGE_CSS = `
 <style>
-  /* Prepínač rozsahu — vizuálne rodina .period-btn (prepínač obdobia),
-     len min-height na plný tap target 44 px. */
-  .scope-switch{ display:flex; gap:4px }
-  .scope-btn{
-    padding: var(--space-2) var(--space-4);
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--color-border);
-    background: transparent;
-    color: var(--color-text-sec);
-    font-family: var(--font-body);
-    font-size: var(--text-base);
-    font-weight: var(--weight-semibold);
-    cursor: pointer;
-    transition: all var(--transition-fast);
-    min-height: var(--btn-h-md);
-  }
-  .scope-btn:hover{ color: var(--color-text); background: var(--color-bg-hover) }
-  .scope-btn.active{
-    color: var(--color-accent);
-    background: var(--color-accent-bg);
-    border-color: var(--color-accent-border);
-  }
-  .scope-btn:focus-visible{
-    outline: none;
-    border-color: var(--color-focus);
-    box-shadow: 0 0 0 3px var(--border-focus);
-  }
-
-  /* Vysvetľujúci pás nad reportom pri „Celá história“ */
-  .scope-note{
-    padding: var(--space-3) var(--space-4);
-    margin-bottom: var(--space-4);
-    border: 1px solid var(--color-accent-border);
-    border-left: 3px solid var(--color-accent);
-    border-radius: var(--radius-sm);
-    background: var(--color-accent-bg);
-    color: var(--color-text-sec);
-    font-size: var(--text-md);
-    line-height: 1.5;
-  }
-  .scope-note strong{ color: var(--color-text); font-weight: var(--weight-semibold) }
-
-  @media (max-width: 640px){
-    .scope-switch{ flex: 1 1 100% }
-    .scope-btn{ flex: 1 1 0; text-align: center }
-  }
+  /* Prepínač rozsahu (.rp-seg) a vysvetľujúci pás (.rp-note) sú v
+     admin/ios-reporty.css — spoločné s denným reportom. */
 
   /* Best/worst panel accent — left border in semantic color */
   .season-day-success{ border-left: 3px solid var(--color-success); }
@@ -701,7 +618,7 @@ const PAGE_CSS = `
   /* Progress bar (used in Top 10 produktov) — used existing tokens */
   .progress-wrap{
     height: 4px;
-    background: rgba(255,255,255,.05);
+    background: var(--ios-track);
     border-radius: 2px;
     overflow: hidden;
   }
@@ -734,7 +651,7 @@ const PAGE_CSS = `
 
 const TEMPLATE = PAGE_CSS + `
 <div id="seasonContent">
-  <div class="loading-text" style="text-align:center;padding:80px 20px">Načítavam štatistiky sezóny...</div>
+  <div class="loading-hint">Načítavam štatistiky sezóny…</div>
 </div>
 `;
 

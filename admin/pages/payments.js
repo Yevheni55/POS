@@ -50,30 +50,49 @@ function methodLabel(method) {
   return method || '-';
 }
 
-function statusBadge(status, tone) {
-  var palette = {
-    success: 'background:#1f8a4c33;color:#4fd491;border:1px solid #1f8a4c66',
-    warning: 'background:#c8991e33;color:#ffd37a;border:1px solid #c8991e66',
-    error: 'background:#c4434333;color:#ff8b8b;border:1px solid #c4434366',
-    muted: 'background:#2a2a2f;color:#b9b9c7;border:1px solid #3a3a44',
-  };
-  var style = palette[tone] || palette.muted;
-  return '<span style="display:inline-flex;align-items:center;padding:3px 9px;border-radius:999px;font-size:12px;font-weight:600;' + style + '">' + escapeHtml(status) + '</span>';
+// Stav fiškalizácie ako pilulka (tokeny v ios-reporty.css, nie inline hex).
+function statusPill(status, tone) {
+  var cls = { success: 'is-ok', warning: 'is-warn', error: 'is-bad', muted: 'is-muted' }[tone] || 'is-muted';
+  return '<span class="rp-pill ' + cls + '">' + escapeHtml(status) + '</span>';
 }
 
-function fiscalCell(item) {
-  if (item.storno) {
-    return statusBadge('Stornované', 'warning') + '<div class="text-muted" style="font-size:12px;margin-top:2px">' + escapeHtml(item.storno.externalId || '') + '</div>';
-  }
-  if (!item.fiscal) {
-    return statusBadge('bez eKasa', 'muted');
-  }
-  var s = item.fiscal.status;
-  var tone = /success/.test(s) ? 'success' : (/accepted/.test(s) ? 'warning' : (/ambig|error|reject|block|valid/.test(s) ? 'error' : 'muted'));
+function fiscalTone(s) {
+  return /success/.test(s) ? 'success' : (/accepted/.test(s) ? 'warning' : (/ambig|error|reject|block|valid/.test(s) ? 'error' : 'muted'));
+}
+
+// Stav dokladu po slovensky; neznámy stav ostáva surový (nič sa neskryje).
+var FISCAL_LABELS = {
+  online_success: 'eKasa online',
+  offline_success: 'eKasa offline',
+  offline_accepted: 'offline, čaká',
+  reconciled: 'eKasa',
+  mismatch_rejected: 'nesúlad položiek',
+  ambiguous: 'nejasný stav',
+  rejected: 'zamietnuté',
+  blocked: 'blokované',
+  invalid: 'neplatné',
+};
+function fiscalLabel(s) {
+  return FISCAL_LABELS[s] || s;
+}
+
+// Pilulka do riadku zoznamu: stornované / bez eKasa / stav dokladu.
+function fiscalPill(item) {
+  if (item.storno) return statusPill('Stornované', 'warning');
+  if (!item.fiscal) return statusPill('bez eKasa', 'muted');
+  var s = String(item.fiscal.status || '');
+  return statusPill(fiscalLabel(s), fiscalTone(s));
+}
+
+// Číslo dokladu / OKP — druhý riadok pod stavom v detaile.
+function fiscalMeta(item) {
   var meta = '';
-  if (item.fiscal.receiptNumber) meta += 'č. ' + escapeHtml(item.fiscal.receiptNumber);
-  if (item.fiscal.okp) meta += (meta ? ' · ' : '') + escapeHtml(item.fiscal.okp);
-  return statusBadge(s, tone) + (meta ? '<div class="text-muted" style="font-size:12px;margin-top:2px">' + meta + '</div>' : '');
+  if (item.storno && item.storno.externalId) meta += escapeHtml(item.storno.externalId);
+  if (item.fiscal && item.fiscal.receiptNumber) meta += (meta ? ' · ' : '') + 'č. ' + escapeHtml(item.fiscal.receiptNumber);
+  if (item.fiscal && item.fiscal.okp) meta += (meta ? ' · ' : '') + escapeHtml(item.fiscal.okp);
+  // Surový stav z Portosu — pre reklamácie a ladenie musí ostať čitateľný.
+  if (item.fiscal && item.fiscal.status && FISCAL_LABELS[item.fiscal.status]) meta += (meta ? ' · ' : '') + escapeHtml(item.fiscal.status);
+  return meta;
 }
 
 // Doklad vystavený pod iným kódom pokladnice (predchádzajúca firma / stará
@@ -90,60 +109,50 @@ function foreignCashRegisterCode(item) {
   return docCode === activeCode ? '' : docCode;
 }
 
-function actionsCell(item) {
+// Akcie dokladu — v detaile, nie na každom riadku. Jedna plná (kópia, keď je
+// k dispozícii), ostatné tónované; STORNO ako posledné a červené.
+function actionsBlock(item) {
   var html = '';
   var foreignCode = foreignCashRegisterCode(item);
-  if (item.orderId) {
-    var isOpen = !!expanded[item.id];
-    html += '<button class="btn-save btn-sm" data-payment-items="' + item.id + '">'
-          + (isOpen ? 'Skryť položky' : 'Položky') + '</button>';
-  }
   if (item.copyAvailable) {
     var copyTitle = foreignCode
       ? 'Doklad patrí predchádzajúcej firme (kód ' + foreignCode + ') — dotlač prejde iba ak Portos ešte má certifikát pre starý alias.'
       : 'Vytlačí kópiu dokladu na CHDU';
-    html += '<button class="btn-save btn-sm" data-payment-copy="' + item.id + '" title="' + escapeHtml(copyTitle) + '">Kópia dokladu</button>';
+    html += '<button type="button" class="btn-add" data-payment-copy="' + item.id + '" title="' + escapeHtml(copyTitle) + '">Vytlačiť kópiu dokladu</button>';
   }
-  // Re-fiškalizácia: pre prípady keď doklad v Portos nezodpovedá objednávke
-  // (mismatch_rejected) alebo keď cashier hlási že blok nevyšiel / vyšiel cudzí.
-  // Pošle nový request s reálnymi položkami pod novým unique externalId
-  // a hneď vytlačí kópiu. Vyžaduje manazer/admin role.
-  // Tlačidlo renderujeme IBA keď doklad refiškalizáciu naozaj potrebuje —
-  // pre platne zaevidovaný doklad server vracia 409 (inak by v eKase vznikli
-  // DVA doklady na tú istú tržbu, po prepnutí na platiteľa navyše s inou
-  // sadzbou DPH); správna cesta je STORNO.
+  // Re-fiškalizácia: iba keď to doklad naozaj potrebuje (mismatch / ambiguous /
+  // rejected) — pre platne zaevidovaný doklad server vracia 409, správna cesta
+  // je STORNO.
   if (item.fiscal) {
     var fiscalStatus = String(item.fiscal.status || '');
     var needsRefiscalize = fiscalStatus === 'mismatch_rejected' || fiscalStatus === 'ambiguous' || fiscalStatus === 'rejected';
     if (needsRefiscalize) {
-      html += '<button class="btn-save btn-sm" data-payment-refiscalize="' + item.id + '" style="background:var(--color-warning,#E0A830)" title="Pošle nový fiškálny request a vytlačí blok">Re-fiškalizovať</button>';
+      html += '<button type="button" class="btn-secondary rp-btn-warn" data-payment-refiscalize="' + item.id + '" title="Pošle nový fiškálny request a vytlačí blok">Re-fiškalizovať</button>';
     }
   }
-  // Zmena sposobu platby — dostupna iba ak je platba storno-eligible
-  // (= povodny doklad je v stave kde sa da storno + nie je uz stornovany).
-  // Backend urobi: storno povodneho + novy sale s novym sposobom.
+  // Zmena spôsobu platby — iba ak je platba storno-eligible. Backend urobí
+  // storno pôvodného + nový doklad s novým spôsobom.
   if (item.stornoEligible) {
     var swapTo = item.method === 'hotovost' ? 'karta' : 'hotovost';
-    var swapLabel = item.method === 'hotovost' ? 'Karta' : 'Hotovost';
-    html += '<button class="btn-save btn-sm" data-payment-change-method="' + item.id + '" data-new-method="' + swapTo + '" style="background:var(--color-accent)" title="Storno povodneho dokladu + novy doklad s novym sposobom">→ ' + swapLabel + '</button>';
-  }
-  if (item.stornoEligible) {
-    html += '<button class="btn-save btn-sm" data-payment-storno="' + item.id + '" style="background:var(--color-danger,#c44)">STORNO</button>';
+    var swapLabel = item.method === 'hotovost' ? 'kartu' : 'hotovosť';
+    html += '<button type="button" class="btn-secondary" data-payment-change-method="' + item.id + '" data-new-method="' + swapTo + '" title="Storno pôvodného dokladu + nový doklad s novým spôsobom">Zmeniť spôsob na ' + swapLabel + '</button>';
+    html += '<button type="button" class="btn-secondary rp-btn-danger" data-payment-storno="' + item.id + '">Odoslať STORNO</button>';
   } else if (foreignCode && !item.storno) {
     // Storno by v Portose skončilo na „certifikát s aliasom … nebol nájdený".
-    html += '<button class="btn-save btn-sm" disabled aria-disabled="true"'
-          + ' style="background:var(--color-text-dim);opacity:.55;cursor:not-allowed"'
-          + ' title="Storno treba vystaviť v eKase pôvodnej firmy">STORNO</button>'
-          + '<div class="text-muted" style="font-size:12px;margin-top:2px">Doklad patrí predchádzajúcej firme (kód '
-          + escapeHtml(foreignCode) + ') — storno treba vystaviť v jej eKase.</div>';
+    html += '<button type="button" class="btn-secondary rp-btn-danger" disabled aria-disabled="true" title="Storno treba vystaviť v eKase pôvodnej firmy">Odoslať STORNO</button>'
+          + '<div class="rp-foot">Doklad patrí predchádzajúcej firme (kód ' + escapeHtml(foreignCode) + ') — storno treba vystaviť v jej eKase.</div>';
   } else if (item.storno) {
-    html += '<span class="text-muted" style="font-size:12px">Už stornované</span>';
-  } else if (!item.fiscal) {
-    html += '<span class="text-muted" style="font-size:12px">—</span>';
-  } else {
-    html += '<span class="text-muted" style="font-size:12px">Nedostupné</span>';
+    html += '<div class="rp-foot">Doklad je už stornovaný.</div>';
+  } else if (item.fiscal) {
+    html += '<div class="rp-foot">Storno nie je dostupné — doklad nie je v stave, ktorý sa dá stornovať.</div>';
   }
-  return '<div class="pay-actions">' + html + '</div>';
+  return html ? '<div class="rp-sheet-actions">' + html + '</div>' : '';
+}
+
+function rowTitle(item) {
+  var t = item.tableName ? escapeHtml(item.tableName) : 'Platba #' + item.id;
+  if (item.orderLabel) t += ' <small>' + escapeHtml(item.orderLabel) + '</small>';
+  return t;
 }
 
 function renderTable() {
@@ -151,42 +160,60 @@ function renderTable() {
   if (!el) return;
 
   if (loading) {
-    el.innerHTML = '<div class="loading-hint">Načítavam históriu platieb...</div>';
+    el.innerHTML = '<div class="loading-hint">Načítavam históriu platieb…</div>';
     return;
   }
-
   if (!items.length) {
-    el.innerHTML = '<div class="empty-hint">Žiadne platby podľa filtra.</div>';
+    el.innerHTML = '<div class="empty-hint">Žiadne platby podľa filtra. Skús iný spôsob platby, rozsah „Všetky" alebo vymaž hľadanie.</div>';
     return;
   }
 
-  var html = '<div class="table-scroll-wrap"><table class="data-table"><thead><tr>';
-  html += '<th class="data-th">ID</th>';
-  html += '<th class="data-th">Kedy</th>';
-  html += '<th class="data-th">Stôl / Účet</th>';
-  html += '<th class="data-th">Spôsob</th>';
-  html += '<th class="data-th text-right">Suma</th>';
-  html += '<th class="data-th">Fiškalizácia</th>';
-  html += '<th class="data-th">Akcie</th>';
-  html += '</tr></thead><tbody>';
-
+  // Zoznam riadkov: stôl/účet + čas a spôsob, suma vpravo, stav ako pilulka.
+  // Celý riadok je tap target — otvorí detail (položky + akcie).
+  var html = '<div class="rp-list">';
   items.forEach(function (item) {
-    html += '<tr class="data-row">';
-    html += '<td class="data-td"><strong>#' + item.id + '</strong><div class="text-muted" style="font-size:12px">obj. #' + (item.orderId || '-') + '</div></td>';
-    html += '<td class="data-td">' + escapeHtml(fmtDate(item.createdAt)) + '</td>';
-    html += '<td class="data-td">' + escapeHtml(item.tableName || '-') + '<div class="text-muted" style="font-size:12px">' + escapeHtml(item.orderLabel || '') + '</div></td>';
-    html += '<td class="data-td">' + escapeHtml(methodLabel(item.method)) + '</td>';
-    html += '<td class="data-td num text-right">' + escapeHtml(fmtEur(item.amount)) + '</td>';
-    html += '<td class="data-td">' + fiscalCell(item) + '</td>';
-    html += '<td class="data-td">' + actionsCell(item) + '</td>';
-    html += '</tr>';
-    if (expanded[item.id]) {
-      html += '<tr><td class="data-td" colspan="7" style="padding:0;border-bottom:1px solid var(--color-border,#3a3a44)">'
-            + detailCell(expanded[item.id]) + '</td></tr>';
-    }
+    var isOpen = !!expanded[item.id];
+    html += '<button type="button" class="rp-row has-chev' + (isOpen ? ' is-on' : '') + '" data-payment-items="' + item.id + '" aria-expanded="' + (isOpen ? 'true' : 'false') + '">'
+      + '<span class="rp-row-main">'
+        + '<span class="rp-row-t">' + rowTitle(item) + '</span>'
+        + '<span class="rp-row-s">' + escapeHtml(fmtDate(item.createdAt)) + ' · ' + escapeHtml(methodLabel(item.method)) + ' · #' + item.id + (item.orderId ? ' / obj. #' + item.orderId : '') + '</span>'
+      + '</span>'
+      + '<span class="rp-row-side">'
+        + '<span class="rp-row-v">' + escapeHtml(fmtEur(item.amount)) + '</span>'
+        + fiscalPill(item)
+      + '</span>'
+      + '<svg class="rp-row-chev" aria-hidden="true" viewBox="0 0 16 16"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+      + '</button>';
   });
-  html += '</tbody></table></div>';
+  html += '</div>';
+
+  // Detail otvorenej platby — panel zdola (telefón) / modál (desktop).
+  Object.keys(expanded).forEach(function (id) {
+    var item = items.find(function (x) { return String(x.id) === String(id); });
+    if (item) html += detailSheet(item, expanded[id]);
+  });
   el.innerHTML = html;
+}
+
+function detailSheet(item, d) {
+  var meta = fiscalMeta(item);
+  return '<div class="u-overlay show" role="dialog" aria-modal="true" aria-labelledby="payDetailTitle' + item.id + '">'
+    + '<button type="button" class="rp-scrim" data-payment-items="' + item.id + '" aria-label="Zavrieť"></button>'
+    + '<div class="u-modal rp-sheet">'
+      + '<div class="rp-sheet-head"><div>'
+        + '<h3 class="rp-sheet-title" id="payDetailTitle' + item.id + '">' + rowTitle(item) + '</h3>'
+        + '<div class="rp-sheet-sub">' + escapeHtml(fmtDate(item.createdAt)) + ' · platba #' + item.id + (item.orderId ? ' · obj. #' + item.orderId : '') + '</div>'
+      + '</div><button type="button" class="rp-sheet-close" data-payment-items="' + item.id + '" aria-label="Zavrieť">×</button></div>'
+      + '<div class="rp-sheet-body">'
+        + '<dl class="rp-kv">'
+          + '<dt>Suma</dt><dd>' + escapeHtml(fmtEur(item.amount)) + '</dd>'
+          + '<dt>Spôsob</dt><dd>' + escapeHtml(methodLabel(item.method)) + '</dd>'
+          + '<dt>Fiškalizácia</dt><dd>' + fiscalPill(item) + (meta ? '<small>' + meta + '</small>' : '') + '</dd>'
+        + '</dl>'
+        + detailCell(d)
+      + '</div>'
+      + actionsBlock(item)
+    + '</div></div>';
 }
 
 // Detail dokladu — položky objednávky. Ceny sú z AKTUÁLNEHO menu
@@ -194,51 +221,45 @@ function renderTable() {
 // dokladu rozdiel priznáva namiesto tichého dopočítavania.
 function detailCell(d) {
   if (d.loading) {
-    return '<div class="loading-hint" style="padding:12px 16px">Načítavam položky…</div>';
+    return '<div class="loading-hint">Načítavam položky…</div>';
   }
   if (d.error) {
-    return '<div class="empty-hint" style="padding:12px 16px;color:var(--color-danger,#ff8b8b)">' + escapeHtml(d.error) + '</div>';
+    return '<div class="error-hint">' + escapeHtml(d.error) + '</div>';
   }
   var data = d.data || {};
   var list = data.items || [];
   if (!list.length) {
-    return '<div class="empty-hint" style="padding:12px 16px">Objednávka nemá položky (zmazané alebo presunuté).</div>';
+    return '<div class="empty-hint">Objednávka nemá položky (zmazané alebo presunuté).</div>';
   }
-  var html = '<div style="padding:10px 16px 14px;background:rgba(255,255,255,0.02)">';
-  html += '<table style="width:100%;border-collapse:collapse;font-size:13px">';
+  var html = '<div class="rp-items">';
   list.forEach(function (it) {
-    html += '<tr>';
-    html += '<td style="padding:4px 8px 4px 0;width:46px;white-space:nowrap"><strong>' + it.qty + '×</strong></td>';
-    html += '<td style="padding:4px 8px 4px 0">' + escapeHtml((it.emoji ? it.emoji + ' ' : '') + it.name)
-          + (it.note ? '<div class="text-muted" style="font-size:12px">+ ' + escapeHtml(it.note) + '</div>' : '')
-          + '</td>';
-    html += '<td class="num" style="padding:4px 8px;text-align:right;white-space:nowrap;color:var(--color-text-sec,#b9b9c7)">'
-          + (it.price == null ? '—' : escapeHtml(fmtEur(it.price))) + '</td>';
-    html += '<td class="num" style="padding:4px 0;text-align:right;white-space:nowrap;width:90px"><strong>'
-          + (it.lineTotal == null ? '—' : escapeHtml(fmtEur(it.lineTotal))) + '</strong></td>';
-    html += '</tr>';
+    html += '<div class="rp-item">'
+      + '<span class="rp-item-q">' + it.qty + '×</span>'
+      + '<span class="rp-item-n">' + escapeHtml((it.emoji ? it.emoji + ' ' : '') + it.name)
+        + (it.note ? '<small>+ ' + escapeHtml(it.note) + '</small>' : '') + '</span>'
+      + '<span class="rp-item-p">' + (it.lineTotal == null ? '—' : escapeHtml(fmtEur(it.lineTotal)))
+        + (it.price == null ? '' : '<small>' + escapeHtml(fmtEur(it.price)) + ' / ks</small>') + '</span>'
+      + '</div>';
   });
-  html += '</table>';
+  html += '</div>';
 
   var amount = Number(data.amount);
   var itemsTotal = Number(data.itemsTotal);
-  var foot = '<div style="display:flex;gap:18px;justify-content:flex-end;margin-top:8px;padding-top:8px;border-top:1px dashed var(--color-border,#3a3a44);font-size:13px">';
+  html += '<div class="rp-item-sum">';
   if (data.discountAmount > 0) {
-    foot += '<span class="text-muted">Zľava: −' + escapeHtml(fmtEur(data.discountAmount)) + '</span>';
+    html += '<span>Zľava −' + escapeHtml(fmtEur(data.discountAmount)) + '</span>';
   }
-  foot += '<span class="text-muted">Súčet položiek: ' + escapeHtml(fmtEur(itemsTotal)) + '</span>';
-  foot += '<span><strong>Suma dokladu: ' + escapeHtml(fmtEur(amount)) + '</strong></span>';
-  foot += '</div>';
-  html += foot;
+  html += '<span>Súčet položiek ' + escapeHtml(fmtEur(itemsTotal)) + '</span>';
+  html += '<strong>Suma dokladu ' + escapeHtml(fmtEur(amount)) + '</strong>';
+  html += '</div>';
 
   var diff = Math.abs((itemsTotal - (data.discountAmount > 0 ? data.discountAmount : 0)) - amount);
   if (data.priceMissing || (Number.isFinite(diff) && diff > 0.01)) {
-    html += '<div class="text-muted" style="font-size:12px;margin-top:6px">'
-          + 'Pozn.: ceny položiek sú z aktuálneho menu — pri zmene cien po platbe sa súčet môže líšiť od sumy dokladu.'
+    html += '<div class="rp-foot">'
+          + 'Ceny položiek sú z aktuálneho menu — pri zmene cien po platbe sa súčet môže líšiť od sumy dokladu.'
           + (data.priceMissing ? ' Niektoré položky už nie sú v menu.' : '')
           + '</div>';
   }
-  html += '</div>';
   return html;
 }
 
@@ -291,20 +312,20 @@ function renderScopeHint() {
   var el = byId('paymentsScopeHint');
   if (!el) return;
   if (filter.scope === 'all') {
-    el.innerHTML = 'Zobrazené sú <strong>všetky</strong> platby (vrátane platieb zo starej eKasy / inej firmy).';
+    el.innerHTML = 'Zobrazené sú všetky platby vrátane starej eKasy / inej firmy.';
     return;
   }
   if (lastMeta.hiddenByScope > 0) {
-    el.innerHTML = 'Zobrazené sú iba platby <strong>aktuálnej eKasy</strong> (' + escapeHtml(lastMeta.activeCashRegisterCode || '-') + '). Skrytých: <strong>' + lastMeta.hiddenByScope + '</strong> zo starej eKasy. Prepni na „Všetky" pre zobrazenie celej histórie.';
+    el.innerHTML = 'Iba aktuálna eKasa (' + escapeHtml(lastMeta.activeCashRegisterCode || '-') + ') · skrytých ' + lastMeta.hiddenByScope + ' zo starej eKasy — prepni na „Všetky".';
     return;
   }
-  el.innerHTML = 'Zobrazené sú iba platby aktuálnej eKasy (' + escapeHtml(lastMeta.activeCashRegisterCode || '-') + ').';
+  el.innerHTML = 'Iba aktuálna eKasa (' + escapeHtml(lastMeta.activeCashRegisterCode || '-') + ').';
 }
 
 async function printCopy(id) {
   try {
     var r = await api.printReceiptCopy(id);
-    showToast(r && r.printed ? 'Kópia odoslaná na CHDU' : 'Požiadavka na kópiu prijatá', true);
+    showToast(r && r.printed ? 'Kópia dokladu odoslaná na CHDU' : 'Požiadavka na kópiu prijatá', true);
   } catch (e) {
     var msg = (e && e.data && (e.data.error || e.data.detail)) || e.message || 'Kópiu sa nepodarilo vytlačiť';
     showToast(msg, 'error');
@@ -335,7 +356,7 @@ function confirmRefiscalize(id) {
 // (volaca operacia stornuje povodny doklad cez Portos a vytlaci novy s
 // novym sposobom — preto manazerske confirm-uje).
 function confirmChangeMethod(id, newMethod) {
-  var newLabel = newMethod === 'karta' ? 'Karta' : 'Hotovost';
+  var newLabel = newMethod === 'karta' ? 'Karta' : 'Hotovosť';
   showConfirm(
     'Zmena spôsobu platby',
     'Zmeniť platbu #' + id + ' na <strong>' + newLabel + '</strong>?<br><br>'
@@ -374,7 +395,31 @@ function confirmStorno(id) {
   );
 }
 
+function setSegActive(groupId, attr, value) {
+  var group = byId(groupId);
+  if (!group) return;
+  Array.prototype.forEach.call(group.querySelectorAll('[' + attr + ']'), function (b) {
+    var on = b.getAttribute(attr) === value;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', String(on));
+  });
+}
+
 function onClick(event) {
+  var scopeBtn = event.target.closest('[data-pay-scope]');
+  if (scopeBtn) {
+    filter.scope = scopeBtn.dataset.payScope || 'current';
+    setSegActive('paymentsScope', 'data-pay-scope', filter.scope);
+    loadHistory();
+    return;
+  }
+  var methodBtn = event.target.closest('[data-pay-method]');
+  if (methodBtn) {
+    filter.method = methodBtn.dataset.payMethod || '';
+    setSegActive('paymentsMethod', 'data-pay-method', filter.method);
+    loadHistory();
+    return;
+  }
   var itemsBtn = event.target.closest('[data-payment-items]');
   if (itemsBtn) {
     toggleItems(Number(itemsBtn.dataset.paymentItems));
@@ -430,38 +475,21 @@ function onInput(event) {
 
 function getTemplate() {
   return `
-    <div class="section">
-      <div class="section-title">História platieb</div>
-      <div class="text-muted" style="font-size:13px;line-height:1.5;margin-bottom:12px">
-        Zoznam platieb s fiškálnym stavom. Pri úspešne zaevidovanom doklade sa dá priamo vytlačiť kópia alebo odoslať <strong>STORNO</strong>. STORNO je dostupné iba pre platby registrované v Portos (online/offline/reconciled) a pokiaľ ešte nebolo odoslané.
+    <div class="doch-head rp-head">
+      <div class="rp-seg" id="paymentsScope" role="group" aria-label="Rozsah">
+        <button type="button" class="active" data-pay-scope="current" aria-pressed="true">Táto eKasa</button>
+        <button type="button" data-pay-scope="all" aria-pressed="false">Všetky</button>
       </div>
-      <div class="form-grid" style="margin-bottom:12px">
-        <div class="form-group">
-          <label for="paymentsScope">Rozsah</label>
-          <select class="form-select" id="paymentsScope">
-            <option value="current" selected>Iba aktuálna eKasa</option>
-            <option value="all">Všetky (vrátane starej firmy)</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="paymentsMethod">Spôsob platby</label>
-          <select class="form-select" id="paymentsMethod">
-            <option value="">Všetky</option>
-            <option value="hotovost">Hotovosť</option>
-            <option value="karta">Karta</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="paymentsQuery">Hľadať</label>
-          <input class="form-input" id="paymentsQuery" type="text" placeholder="ID platby, stôl, objednávka...">
-        </div>
-        <div class="form-group" style="display:flex;align-items:flex-end">
-          <button class="btn-save btn-sm" id="btnPaymentsRefresh">Obnoviť</button>
-        </div>
+      <div class="rp-seg" id="paymentsMethod" role="group" aria-label="Spôsob platby">
+        <button type="button" class="active" data-pay-method="" aria-pressed="true">Všetky</button>
+        <button type="button" data-pay-method="hotovost" aria-pressed="false">Hotovosť</button>
+        <button type="button" data-pay-method="karta" aria-pressed="false">Karta</button>
       </div>
-      <div id="paymentsScopeHint" class="text-muted" style="font-size:12px;margin:0 0 10px"></div>
-      <div id="paymentsTable"></div>
+      <input class="search-input" id="paymentsQuery" type="search" placeholder="Hľadať číslo platby, stôl alebo objednávku" aria-label="Hľadať">
+      <div id="paymentsScopeHint" class="doch-range"></div>
     </div>
+    <div class="rp-sub">Klepnutím na platbu otvoríš položky a akcie: kópia dokladu, zmena spôsobu platby, storno.</div>
+    <div id="paymentsTable"></div>
   `;
 }
 
