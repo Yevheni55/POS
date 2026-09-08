@@ -1,4 +1,5 @@
 // Tables page module
+import { mountEmptyState } from '../components/empty-state.js';
 
 // Escapovanie: jediná implementácia je /js/pos-escape.js (načítaná v
 // admin/index.html). Táto stránka predtým NEescapovala vôbec nič — názov
@@ -34,13 +35,27 @@ function addDocListener(event, handler, opts) {
 }
 
 function $(sel) {
-  return _container.querySelector(sel);
+  return _container.querySelector(sel) || (sel.charAt(0) === '#' ? document.getElementById(sel.slice(1)) : null);
+}
+
+const SHAPE_LABEL = { rect: 'obdĺžnik', round: 'kruh', large: 'veľký' };
+const STATUS_LABEL = { occupied: 'obsadený', reserved: 'rezervovaný', paying: 'platí' };
+function tablesWord(n) { return n === 1 ? 'stôl' : (n >= 2 && n <= 4 ? 'stoly' : 'stolov'); }
+function zonesWord(n) { return n === 1 ? 'zóna' : (n >= 2 && n <= 4 ? 'zóny' : 'zón'); }
+function seatsWord(n) { return n === 1 ? 'miesto' : (n >= 2 && n <= 4 ? 'miesta' : 'miest'); }
+
+function updateTableCount() {
+  const el = $('#tableCount');
+  if (!el) return;
+  const busy = TABLES.filter((t) => t.status && t.status !== 'free').length;
+  el.textContent = TABLES.length + ' ' + tablesWord(TABLES.length) + ' · ' + ZONES.length + ' ' + zonesWord(ZONES.length)
+    + (busy ? ' · ' + busy + (busy === 1 ? ' obsadený' : (busy <= 4 ? ' obsadené' : ' obsadených')) : '');
 }
 
 // ===== PERSISTENCE (API) =====
 async function loadTables() {
   const canvas = $('#floorCanvas');
-  if (canvas) showLoading(canvas, 'Načítavam stoly...');
+  if (canvas) showLoading(canvas, 'Načítavam stoly…');
   try {
     // Fetch tables and zone labels in parallel — zones is tiny so no
     // perf concern; doing it together keeps the floor layout and the
@@ -67,17 +82,24 @@ async function loadTables() {
     if (zoneSet.size > 0) {
       ZONES = Array.from(zoneSet.values());
     } else {
-      ZONES = [{ id: 'interior', label: 'Interier' }, { id: 'bar', label: 'Bar' }, { id: 'terasa', label: 'Terasa' }];
+      ZONES = [{ id: 'interior', label: 'Interiér' }, { id: 'bar', label: 'Bar' }, { id: 'terasa', label: 'Terasa' }];
     }
     renderZoneBtns();
     populateZoneSelects();
     renderFloor();
     if (!TABLES || TABLES.length === 0) {
-      if (canvas) canvas.innerHTML = '<div class="empty-state"><div class="empty-state-icon">\uD83E\uDE91</div><div class="empty-state-title">Žiadne stoly</div><div class="empty-state-text">Pridajte prvý stol do planocky</div><button class="btn-outline-accent" onclick="document.getElementById(\'addTableBtn\').click()">Pridať stol</button></div>';
+      const list = $('#tableList');
+      if (list) mountEmptyState(list, {
+        icon: '\uD83E\uDE91',
+        title: 'Zatiaľ žiadne stoly',
+        text: 'Stoly, ktoré tu pridáš, uvidí obsluha na kase pri otváraní účtu. Začni prvým stolom.',
+        ctaLabel: 'Pridať stôl',
+        onCta: openAddTable,
+      });
     }
   } catch (err) {
     if (canvas) hideLoading(canvas);
-    renderError(canvas, err.message || 'Chyba pri nacitani stolov', loadTables);
+    renderError($('#tableList') || canvas, err.message || 'Chyba pri načítaní stolov', loadTables);
   }
 }
 
@@ -86,9 +108,9 @@ async function savePositions() {
     for (const t of TABLES) {
       await api.put('/tables/' + t.id, { x: t.x, y: t.y });
     }
-    showToast('Pozicie ulozene', true);
+    showToast('Pozície uložené', true);
   } catch (err) {
-    showToast(err.message || 'Chyba pri ukladani pozicii', 'error');
+    showToast(err.message || 'Chyba pri ukladaní pozícií', 'error');
   }
 }
 
@@ -98,25 +120,21 @@ function saveState() {
 }
 
 // ===== ZONES =====
+// Zóny sú rad chipov (na telefóne roluje vbok) + chip „Zóna" na pridanie.
+// Premenovanie nie je ceruzka pri každom chipe — je v hlavičke skupiny zóny
+// v zozname stolov (renderTableList).
 function renderZoneBtns() {
-  const allZones = [{ id: 'all', label: 'Vsetky' }, ...ZONES];
+  const allZones = [{ id: 'all', label: 'Všetky' }, ...ZONES];
   const el = $('#zoneBtns');
   if (!el) return;
-  // 'Vsetky' has no slug to rename — only real zones get the pencil.
   el.innerHTML = allZones.map((z) => {
-    const active = z.id === activeZone ? ' active' : '';
-    if (z.id === 'all') {
-      return '<button class="zone-btn' + active + '" data-zone="' + z.id + '">' + escapeHtml(z.label) + '</button>';
-    }
-    return '<span class="zone-btn-wrap">' +
-      '<button class="zone-btn' + active + '" data-zone="' + z.id + '">' + escapeHtml(z.label) + '</button>' +
-      '<button class="zone-rename-btn" data-rename-zone="' + z.id + '" title="Premenovať zónu" aria-label="Premenovať zónu ' + escapeHtml(z.label) + '">' +
-        '<svg viewBox="0 0 16 16" aria-hidden="true" width="12" height="12">' +
-          '<path d="M11.5 1.5l3 3-9 9H2.5v-3l9-9z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>' +
-        '</svg>' +
-      '</button>' +
-    '</span>';
-  }).join('');
+    const on = z.id === activeZone;
+    return '<button type="button" class="doch-chip mn-cat zone-btn' + (on ? ' is-on' : '') + '" data-zone="' + escapeHtml(z.id) + '"'
+      + ' aria-pressed="' + (on ? 'true' : 'false') + '">' + escapeHtml(z.label) + '</button>';
+  }).join('')
+  + '<button type="button" class="doch-chip mn-cat mn-cat-add" id="addZoneBtn">'
+  + '<svg aria-hidden="true" viewBox="0 0 14 14"><line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
+  + 'Zóna</button>';
 }
 
 function setZone(id) {
@@ -173,7 +191,7 @@ function renderFloor() {
   const canvas = $('#floorCanvas');
   if (!canvas) return;
   const filtered = activeZone === 'all' ? TABLES : TABLES.filter(t => t.zone === activeZone);
-  const zoneLabels = { interior: 'Interier', bar: 'Bar', terasa: 'Terasa' };
+  const zoneLabels = { interior: 'Interiér', bar: 'Bar', terasa: 'Terasa' };
   ZONES.forEach(z => { if (!zoneLabels[z.id]) zoneLabels[z.id] = z.label; });
 
   canvas.innerHTML = filtered.map(t => {
@@ -181,10 +199,52 @@ function renderFloor() {
     return `<div class="table-chip ${t.shape} z-${t.zone} ${isSel ? 'selected' : ''}"
       data-id="${t.id}" style="left:${t.x}px;top:${t.y}px">
       <div class="chip-name">${escapeHtml(t.name)}</div>
-      <div class="chip-seats">${t.seats} miest</div>
-      <div class="chip-zone">${zoneLabels[t.zone] || t.zone}</div>
+      <div class="chip-seats">${t.seats} ${seatsWord(t.seats)}</div>
+      <div class="chip-zone">${escapeHtml(zoneLabels[t.zone] || t.zone)}</div>
     </div>`;
   }).join('');
+  renderTableList();
+}
+
+// ===== LIST (zóny ako skupiny, stoly ako riadky) =====
+function renderTableList() {
+  const list = $('#tableList');
+  if (!list) return;
+  if (!TABLES.length) return; // prázdny stav rieši loadTables
+  const zones = activeZone === 'all' ? ZONES : ZONES.filter((z) => z.id === activeZone);
+  // Stoly v zóne, ktorú nikto nepomenoval (stará hodnota v DB) — nech nezmiznú.
+  const known = new Set(ZONES.map((z) => z.id));
+  const orphans = TABLES.filter((t) => !known.has(t.zone));
+  const groups = zones.map((z) => ({ zone: z, tables: TABLES.filter((t) => t.zone === z.id) }));
+  if (activeZone === 'all' && orphans.length) groups.push({ zone: { id: '', label: 'Bez zóny' }, tables: orphans });
+
+  list.innerHTML = groups.map((g) => {
+    const rows = g.tables.map((t) => {
+      const status = t.status && t.status !== 'free' ? (STATUS_LABEL[t.status] || t.status) : '';
+      const shape = SHAPE_LABEL[t.shape] || t.shape || '';
+      return '<button type="button" class="mn-row tb-row' + (t.id === selectedTableId ? ' is-selected' : '') + '" data-table-id="' + t.id + '">'
+        + '<span class="mn-row-lead tb-shape" aria-hidden="true"><span class="tb-shape-i is-' + escapeHtml(t.shape || 'rect') + '"></span></span>'
+        + '<span class="mn-row-main">'
+          + '<span class="mn-row-name">' + escapeHtml(t.name) + '</span>'
+          + '<span class="mn-row-sub">' + t.seats + ' ' + seatsWord(t.seats) + (shape ? ' · ' + shape : '') + '</span>'
+        + '</span>'
+        + '<span class="mn-row-side">' + (status ? '<span class="mn-pill is-warn">' + escapeHtml(status) + '</span>' : '') + '</span>'
+        + '<svg class="mn-chev" aria-hidden="true" viewBox="0 0 16 16"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+        + '</button>';
+    }).join('');
+    const rename = g.zone.id
+      ? '<button type="button" class="btn-secondary mn-group-edit zone-rename-btn" data-rename-zone="' + escapeHtml(g.zone.id) + '" aria-label="Premenovať zónu ' + escapeHtml(g.zone.label) + '">Premenovať</button>'
+      : '';
+    return '<div class="mn-group tb-group">'
+      + '<div class="mn-group-head">'
+        + '<div class="mn-group-title"><span class="mn-group-name">' + escapeHtml(g.zone.label) + '</span>'
+        + '<span class="mn-group-n">' + g.tables.length + ' ' + tablesWord(g.tables.length) + '</span></div>'
+        + rename
+      + '</div>'
+      + '<div class="mn-list">' + (rows || '<div class="empty-hint tb-group-empty">V tejto zóne zatiaľ nie je žiadny stôl.</div>') + '</div>'
+      + '</div>';
+  }).join('');
+  updateTableCount();
 }
 
 // ===== TABLE SELECTION =====
@@ -340,17 +400,17 @@ function onTouchEnd() {
 function deleteTable() {
   const t = TABLES.find(x => x.id === selectedTableId);
   if (!t) return;
-  showConfirm('Zmazať', 'Tato akcia sa neda vratit.', async function () {
+  showConfirm('Odstrániť stôl „' + t.name + '"?', 'Stôl zmizne z plánu aj z kasy. Túto akciu sa nedá vrátiť.', async function () {
     try {
       await api.del('/tables/' + selectedTableId);
       TABLES = TABLES.filter(t => t.id !== selectedTableId);
       closeProps();
       renderFloor();
-      showToast('Stol odstraneny', true);
+      showToast('Stôl odstránený', true);
     } catch (err) {
       showToast('Chyba: ' + err.message);
     }
-  }, { type: 'danger' });
+  }, { type: 'danger', confirmText: 'Odstrániť stôl' });
 }
 
 // ===== ADD TABLE MODAL =====
@@ -360,7 +420,7 @@ function openAddTable() {
   const atSeats = $('#atSeats');
   const atZone = $('#atZone');
   const atShape = $('#atShape');
-  if (atName) atName.value = 'Stol ' + (TABLES.length + 1);
+  if (atName) atName.value = 'Stôl ' + (TABLES.length + 1);
   if (atSeats) atSeats.value = '4';
   // Default zone = aktívna zóna v hornom paneli (ak nie je 'all'). Operátor
   // typicky stoji na zóne kde chce nový stôl (klikne Zamestnanci → "Pridať
@@ -409,7 +469,7 @@ async function saveNewTable() {
     renderFloor();
     selectedTableId = id;
     openProps();
-    showToast('Stol pridany', true);
+    showToast('Stôl pridaný', true);
   } catch (err) {
     showToast(err.message || 'Chyba pridania stola', 'error');
   } finally {
@@ -437,9 +497,9 @@ async function saveNewZone() {
 
   const azName = $('#azName');
   const name = azName ? azName.value.trim() : '';
-  if (!name) { showToast('Zadajte názov zony'); return; }
+  if (!name) { showToast('Zadaj názov zóny'); return; }
   const id = name.toLowerCase().replace(/[^a-z0-9]/g, '_');
-  if (ZONES.find(z => z.id === id)) { showToast('Zona uz existuje'); return; }
+  if (ZONES.find(z => z.id === id)) { showToast('Zóna už existuje'); return; }
   // Persist before touching local state so a server-side reject (auth,
   // validation) doesn't leave a ghost zone in the UI.
   try {
@@ -453,7 +513,7 @@ async function saveNewZone() {
   saveState();
   renderZoneBtns();
   populateZoneSelects();
-  showToast('Zona pridana', true);
+  showToast('Zóna pridaná', true);
 }
 
 // ===== KEYBOARD =====
@@ -480,67 +540,72 @@ function onKeydown(e) {
 // ===== INIT / DESTROY =====
 export function init(container) {
   _container = container;
-  container.className = 'content admin-page-fill-col';
+  container.className = 'content tb-page';
 
   container.innerHTML = `
-    <div class="toolbar">
-      <div class="toolbar-left">
-        <div class="zone-btns" id="zoneBtns">
-          <button class="zone-btn active" data-zone="all">Vsetky</button>
-          <button class="zone-btn" data-zone="interior">Interier</button>
-          <button class="zone-btn" data-zone="bar">Bar</button>
-          <button class="zone-btn" data-zone="terasa">Terasa</button>
-        </div>
+    <div class="mn-head">
+      <div class="mn-count" id="tableCount" aria-live="polite"></div>
+      <button class="btn-add" id="addTableBtn">
+        <svg aria-hidden="true" viewBox="0 0 14 14"><line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        Pridať stôl
+      </button>
+    </div>
+    <div class="mn-cats tb-zones" id="zoneBtns" role="group" aria-label="Zóny">
+      <button type="button" class="doch-chip mn-cat zone-btn is-on" data-zone="all" aria-pressed="true">Všetky</button>
+    </div>
+    <div class="tb-body">
+      <div class="tb-list" id="tableList">
+        <div class="mn-group"><div class="mn-list">
+          <div class="skeleton-row"></div>
+          <div class="skeleton-row"></div>
+          <div class="skeleton-row"></div>
+        </div></div>
       </div>
-      <div class="toolbar-right">
-        <label class="grid-toggle" id="gridToggle">
-          <div class="grid-check on" id="gridCheck"><svg aria-hidden="true" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-          Mriezka
-        </label>
-        <button class="toolbar-btn" id="addZoneBtn">
-          <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
-          Pridať zónu
-        </button>
-        <button class="toolbar-btn primary" id="addTableBtn">
-          <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
-          Pridať stôl
-        </button>
+      <div class="tb-plan">
+        <div class="tb-tools">
+          <div class="tb-tools-hint">Plán kasy — stôl presunieš ťahaním, pozícia sa uloží sama.</div>
+          <label class="grid-toggle" id="gridToggle">
+            <div class="grid-check on" id="gridCheck"><svg aria-hidden="true" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+            Prichytávať k mriežke
+          </label>
+        </div>
+        <div class="floor-wrap tb-floor">
+          <div class="floor-canvas grid-on" id="floorCanvas"></div>
+        </div>
       </div>
     </div>
-    <div class="floor-wrap">
-      <div class="floor-canvas grid-on" id="floorCanvas"></div>
-      <div class="props-backdrop" id="propsBackdrop"></div>
-      <div class="props-panel" id="propsPanel">
-        <div class="props-header">
-          <div class="props-title">Vlastnosti stola</div>
-          <button class="props-close" id="propsClose" aria-label="Zavriet">&times;</button>
+    <div class="props-backdrop tb-backdrop" id="propsBackdrop"></div>
+    <div class="props-panel tb-props" id="propsPanel" role="dialog" aria-labelledby="propsTitle">
+      <div class="props-header">
+        <div class="props-title" id="propsTitle">Upraviť stôl</div>
+        <button class="props-close" id="propsClose" aria-label="Zavrieť">&times;</button>
+      </div>
+      <div class="props-body">
+        <div class="form-group">
+          <label class="form-label" for="pName">Názov<span class="required-mark" aria-hidden="true"> *</span></label>
+          <input class="form-input" id="pName" type="text" data-validate="required">
         </div>
-        <div class="props-body">
-          <div class="form-group">
-            <label class="form-label" for="pName">Nazov<span class="required-mark" aria-hidden="true"> *</span></label>
-            <input class="form-input" id="pName" type="text" data-validate="required">
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="pSeats">Pocet miest</label>
-            <input class="form-input" id="pSeats" type="number" min="1" max="20" data-validate="number">
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="pZone">Zona</label>
-            <select class="form-select" id="pZone"></select>
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="pShape">Tvar</label>
-            <select class="form-select" id="pShape">
-              <option value="rect">Obdlznik</option>
-              <option value="round">Kruh</option>
-              <option value="large">Velky</option>
-            </select>
-          </div>
+        <div class="form-group">
+          <label class="form-label" for="pSeats">Počet miest</label>
+          <input class="form-input" id="pSeats" type="number" min="1" max="20" inputmode="numeric" data-validate="number">
         </div>
-        <div class="props-actions">
-          <button class="btn btn-danger" id="deleteTableBtn">Odstranit stol</button>
-          <button class="btn btn-secondary" id="closePanelBtn">Zavriet</button>
+        <div class="form-group">
+          <label class="form-label" for="pZone">Zóna</label>
+          <select class="form-select" id="pZone"></select>
         </div>
+        <div class="form-group">
+          <label class="form-label" for="pShape">Tvar na pláne</label>
+          <select class="form-select" id="pShape">
+            <option value="rect">Obdĺžnik</option>
+            <option value="round">Kruh</option>
+            <option value="large">Veľký</option>
+          </select>
+        </div>
+        <div class="mn-hint tb-props-hint">Zmeny sa ukladajú hneď po opustení poľa.</div>
+      </div>
+      <div class="props-actions">
+        <button class="btn btn-danger" id="deleteTableBtn">Odstrániť stôl</button>
+        <button class="btn btn-secondary" id="closePanelBtn">Hotovo</button>
       </div>
     </div>
 
@@ -550,29 +615,29 @@ export function init(container) {
         <div class="u-modal-title text-center">Pridať stôl</div>
         <div class="u-modal-body">
           <div class="u-modal-field">
-            <label for="atName">Nazov<span class="required-mark" aria-hidden="true"> *</span></label>
-            <input id="atName" type="text" placeholder="napr. Stol 9" aria-required="true" data-validate="required">
+            <label for="atName">Názov<span class="required-mark" aria-hidden="true"> *</span></label>
+            <input id="atName" type="text" placeholder="napr. Stôl 9" aria-required="true" data-validate="required">
           </div>
           <div class="u-modal-field">
-            <label for="atSeats">Pocet miest</label>
-            <input id="atSeats" type="number" min="1" max="20" value="4" data-validate="number">
+            <label for="atSeats">Počet miest</label>
+            <input id="atSeats" type="number" min="1" max="20" value="4" inputmode="numeric" data-validate="number">
           </div>
           <div class="u-modal-field">
-            <label for="atZone">Zona</label>
+            <label for="atZone">Zóna</label>
             <select id="atZone"></select>
           </div>
           <div class="u-modal-field">
-            <label for="atShape">Tvar</label>
+            <label for="atShape">Tvar na pláne</label>
             <select id="atShape">
-              <option value="rect">Obdlznik</option>
+              <option value="rect">Obdĺžnik</option>
               <option value="round">Kruh</option>
-              <option value="large">Velky</option>
+              <option value="large">Veľký</option>
             </select>
           </div>
         </div>
         <div class="u-modal-btns">
-          <button class="u-btn u-btn-ghost" id="cancelAddTable">Zrusit</button>
-          <button class="u-btn u-btn-ice" id="saveAddTable">Ulozit</button>
+          <button class="u-btn u-btn-ghost" id="cancelAddTable">Zrušiť</button>
+          <button class="u-btn u-btn-ice" id="saveAddTable">Pridať stôl</button>
         </div>
       </div>
     </div>
@@ -583,13 +648,14 @@ export function init(container) {
         <div class="u-modal-title text-center">Pridať zónu</div>
         <div class="u-modal-body">
           <div class="u-modal-field">
-            <label for="azName">Nazov zony<span class="required-mark" aria-hidden="true"> *</span></label>
-            <input id="azName" type="text" placeholder="napr. VIP" data-validate="required">
+            <label for="azName">Názov zóny<span class="required-mark" aria-hidden="true"> *</span></label>
+            <input id="azName" type="text" placeholder="napr. Terasa pri mori" data-validate="required">
           </div>
+          <div class="mn-hint">Zóna zoskupuje stoly na kase aj v tomto zozname. Premenovať ju vieš neskôr v hlavičke skupiny.</div>
         </div>
         <div class="u-modal-btns">
-          <button class="u-btn u-btn-ghost" id="cancelAddZone">Zrusit</button>
-          <button class="u-btn u-btn-ice" id="saveAddZone">Ulozit</button>
+          <button class="u-btn u-btn-ghost" id="cancelAddZone">Zrušiť</button>
+          <button class="u-btn u-btn-ice" id="saveAddZone">Pridať zónu</button>
         </div>
       </div>
     </div>
@@ -597,21 +663,25 @@ export function init(container) {
 
   // Wire up event listeners via delegation and direct binding
   $('#zoneBtns').addEventListener('click', function (e) {
-    // Pencil takes priority — if the user clicked the rename icon we
-    // shouldn't switch the active zone too.
+    // Chip „Zóna" sa prekresľuje spolu so zónami — preto delegácia.
+    if (e.target.closest('#addZoneBtn')) { openAddZone(); return; }
+    const btn = e.target.closest('.zone-btn');
+    if (btn) setZone(btn.dataset.zone);
+  });
+  // Zoznam: riadok otvára úpravu stola, „Premenovať" v hlavičke skupiny zónu.
+  $('#tableList').addEventListener('click', function (e) {
     const renameBtn = e.target.closest('.zone-rename-btn');
     if (renameBtn) {
       e.stopPropagation();
       renameZone(renameBtn.dataset.renameZone);
       return;
     }
-    const btn = e.target.closest('.zone-btn');
-    if (btn) setZone(btn.dataset.zone);
+    const row = e.target.closest('.tb-row');
+    if (row) selectTable(e, Number(row.dataset.tableId));
   });
 
   $('#gridToggle').addEventListener('click', toggleGrid);
   $('#addTableBtn').addEventListener('click', openAddTable);
-  $('#addZoneBtn').addEventListener('click', openAddZone);
   $('#propsClose').addEventListener('click', closeProps);
   $('#propsBackdrop').addEventListener('click', closeProps);
   $('#deleteTableBtn').addEventListener('click', deleteTable);
@@ -667,6 +737,13 @@ export function init(container) {
   // Keyboard
   addDocListener('keydown', onKeydown);
 
+  // Panel stola a modálne okná idú do <body>: .app má stacking context
+  // (z-index:2) a spodný tab bar (z-index:50) by ich inak prekrýval.
+  ['propsBackdrop', 'propsPanel', 'addTableModal', 'addZoneModal'].forEach(function (id) {
+    const el = _container.querySelector('#' + id);
+    if (el) document.body.appendChild(el);
+  });
+
   // Load data
   loadTables();
 }
@@ -684,6 +761,11 @@ export function destroy() {
 
   // Clear timers
   clearTimeout(saveTimer);
+
+  ['propsBackdrop', 'propsPanel', 'addTableModal', 'addZoneModal'].forEach(function (id) {
+    const el = document.getElementById(id);
+    if (el) el.remove();
+  });
 
   // Reset state
   ZONES = [];

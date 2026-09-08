@@ -1,5 +1,6 @@
 // Recipes page module — two-panel recipe editor
 import { fmtCost } from '../../components/fmt.js';
+import { mountEmptyState } from '../components/empty-state.js';
 
 let menuItems = [];
 let ingredientsList = [];
@@ -83,7 +84,7 @@ async function loadSalesByMenu() {
 
 async function loadMenuItems() {
   var listEl = $('#itemList');
-  if (listEl) showLoading(listEl, 'Načítavam položky...');
+  if (listEl) showLoading(listEl, 'Načítavam položky…');
   try {
     const [items] = await Promise.all([
       api.get('/inventory/menu-items'),
@@ -107,7 +108,7 @@ async function loadMenuItems() {
     }
   } catch (err) {
     if (listEl) hideLoading(listEl);
-    renderError(listEl, err.message || 'Chyba pri nacitani poloziek', loadMenuItems);
+    renderError(listEl, err.message || 'Chyba pri načítaní položiek', loadMenuItems);
   }
 }
 
@@ -126,7 +127,7 @@ async function loadRecipeForItem(itemId) {
   if (!item) return;
 
   if (item.trackMode === 'recipe') {
-    showLoading(editorEl, 'Načítavam recept...');
+    showLoading(editorEl, 'Načítavam recept…');
     try {
       currentRecipe = await api.get('/inventory/recipes/' + itemId);
     } catch (_) {
@@ -191,18 +192,19 @@ function _renderFilterTabs() {
   if (!tabsEl) return;
   var c = getModeCounts();
   var tabs = [
-    { f: 'all',    label: 'Všetky',  badge: c.all },
-    { f: 'recipe', label: 'Recept',  badge: c.recipe },
-    { f: 'simple', label: 'Simple',  badge: c.simple },
-    { f: 'none',   label: 'Bez',     badge: c.none },
-    // Predáva sa, ale ešte nemá recept — žltá, lebo to je TODO list pre operátora.
-    { f: 'sold-no-recipe', label: '⚠ Bez receptu (predáva sa)', badge: c.soldNoRecipe },
+    { f: 'all',    label: 'Všetky',         badge: c.all },
+    { f: 'recipe', label: 'Recept',         badge: c.recipe },
+    { f: 'simple', label: 'Jednoduché',     badge: c.simple },
+    { f: 'none',   label: 'Bez sledovania', badge: c.none },
+    // Predáva sa, ale ešte nemá recept — TODO list pre operátora.
+    { f: 'sold-no-recipe', label: 'Predáva sa bez receptu', badge: c.soldNoRecipe },
   ];
   tabsEl.innerHTML = tabs.map(function(t) {
-    var active = t.f === activeFilter ? ' active' : '';
-    return '<button class="zone-btn recipe-filter-btn' + active + '" data-filter="' + t.f + '" type="button">'
-      + escHtml(t.label)
-      + ' <span style="font-size:10px;opacity:.7;margin-left:4px">' + t.badge + '</span>'
+    var on = t.f === activeFilter;
+    return '<button class="doch-chip mn-cat recipe-filter-btn' + (on ? ' is-on' : '') + '" data-filter="' + t.f + '" type="button"'
+      + ' aria-pressed="' + (on ? 'true' : 'false') + '">'
+      + '<span class="mn-cat-label">' + escHtml(t.label) + '</span>'
+      + '<span class="mn-cat-n">' + t.badge + '</span>'
       + '</button>';
   }).join('');
   // Re-bind clicks (innerHTML wipes listeners).
@@ -211,7 +213,25 @@ function _renderFilterTabs() {
   });
 }
 
+function itemsWord(n) { return n === 1 ? 'položka' : (n >= 2 && n <= 4 ? 'položky' : 'položiek'); }
+function ingWord(n) { return n === 1 ? 'surovina' : (n >= 2 && n <= 4 ? 'suroviny' : 'surovín'); }
+
+// Food cost ako pilulka: zelená < 30 %, jantárová 30–35 %, červená > 35 %
+// (bežné prahy v HoReCa). Bez ceny (0 €) percento nedáva zmysel — len suma.
+function foodCostPill(foodCost, netPrice, big) {
+  var pct = (netPrice > 0) ? (foodCost / netPrice) * 100 : 0;
+  var cls = pct === 0 ? 'is-muted' : pct < 30 ? 'is-ok' : pct < 35 ? 'is-warn' : 'is-danger';
+  var title = netPrice > 0
+    ? 'Food cost na 1 porciu: ' + pct.toFixed(1).replace('.', ',') + ' % z ceny' + vatNote() + ' ' + fmtCost(netPrice) + ' €'
+    : 'Food cost na 1 porciu; cena položky je 0 €';
+  return '<span class="mn-pill ' + cls + (big ? ' is-lg' : '') + '" title="' + escHtml(title) + '">'
+    + fmtCost(foodCost) + ' €' + (netPrice > 0 ? ' · ' + pct.toFixed(0) + ' %' : '') + '</span>';
+}
+
 // === Render left panel: menu item list ===
+// Jeden riadok na položku: ikona, názov, pod ním režim sledovania (+ počet
+// surovín, predaj), vpravo food cost ako pilulka. Kategórie sú nadpisy
+// skupín. Riadok otvára editor (na telefóne ako ďalšiu obrazovku).
 function renderItemList() {
   _renderFilterTabs();
   var listEl = $('#itemList');
@@ -223,21 +243,27 @@ function renderItemList() {
   var countEl = $('#recipeResultCount');
   if (countEl) {
     if (searchQuery) {
-      countEl.textContent = filtered.length + ' / ' + menuItems.length + ' (vyh\u013Ead\u00E1vanie)';
+      countEl.textContent = filtered.length + ' z ' + menuItems.length + ' ' + itemsWord(menuItems.length) + ' pre „' + searchQuery + '"';
+    } else if (activeFilter !== 'all') {
+      countEl.textContent = filtered.length + ' z ' + menuItems.length + ' ' + itemsWord(menuItems.length);
     } else {
-      countEl.textContent = filtered.length + ' polo\u017Eiek';
+      countEl.textContent = filtered.length + ' ' + itemsWord(filtered.length);
     }
   }
 
   if (!filtered.length) {
-    var msg;
-    if (searchQuery) msg = '\u017Diadne v\u00FDsledky pre \u201E' + searchQuery + '"';
-    else if (activeFilter === 'all') msg = 'Žiadne položky v menu';
-    else msg = 'Žiadne položky s modom "' + activeFilter + '"';
-    listEl.innerHTML = '<div class="empty-state" style="padding:32px 16px">'
-      + '<div class="empty-state-icon">\uD83D\uDD0D</div>'
-      + '<div class="empty-state-title">Pr\u00E1zdne</div>'
-      + '<div class="empty-state-text">' + escHtml(msg) + '</div></div>';
+    var opts;
+    if (searchQuery) {
+      opts = { icon: '🔍', title: 'Nič sa nenašlo', text: 'Pre „' + searchQuery + '" nie je žiadna položka ani kategória. Skús kratšie slovo alebo hľadanie vymaž.',
+        ctaLabel: 'Vymazať hľadanie', onCta: function () { var i = $('#recipeSearch'); if (i) { i.value = ''; searchQuery = ''; renderItemList(); } var cb = $('#recipeSearchClear'); if (cb) cb.style.display = 'none'; } };
+    } else if (activeFilter === 'sold-no-recipe') {
+      opts = { icon: '✅', title: 'Všetko predávané má recept', text: 'Každá položka, ktorá sa od začiatku sezóny predala, má nastavený recept alebo sledovanie.' };
+    } else if (activeFilter === 'all') {
+      opts = { icon: '🍽', title: 'Žiadne položky v menu', text: 'Receptúry sa viažu na produkty. Najprv pridaj produkty v sekcii Menu.' };
+    } else {
+      opts = { icon: '🔍', title: 'Nič v tomto režime', text: 'Žiadna položka nemá tento režim sledovania. Skús filter „Všetky".' };
+    }
+    mountEmptyState(listEl, opts);
     return;
   }
 
@@ -247,7 +273,7 @@ function renderItemList() {
   filtered.forEach(function(item) {
     var catKey = item.categorySlug || item.categoryId || 'other';
     if (!catMap[catKey]) {
-      catMap[catKey] = { label: item.categoryLabel || 'Ostatne', items: [] };
+      catMap[catKey] = { label: item.categoryLabel || 'Ostatné', items: [] };
       categories.push(catMap[catKey]);
     }
     catMap[catKey].items.push(item);
@@ -255,68 +281,62 @@ function renderItemList() {
 
   var html = '';
   categories.forEach(function(cat) {
-    html += '<div style="padding:8px 12px 2px;font-size:10px;font-weight:700;color:var(--color-text-dim);text-transform:uppercase;letter-spacing:1px">'
-      + escHtml(cat.label) + '</div>';
+    html += '<div class="mn-group-label">' + escHtml(cat.label) + '</div>';
     cat.items.forEach(function(item) {
       var summary = recipeSummary[item.id] || { count: 0, cost: 0 };
       var count = summary.count;
       var foodCost = summary.cost;
       var sold = salesByMenu[item.id] || 0;
       var price = parseFloat(item.price) || 0;
-      var badgeClass = 'badge-info';
-      var badgeLabel = 'none';
-      if (item.trackMode === 'recipe') { badgeClass = 'badge-purple'; badgeLabel = 'recept'; }
-      else if (item.trackMode === 'simple') { badgeClass = 'badge-success'; badgeLabel = 'simple'; }
-      var ingredientsLabel = count > 0
-        ? '<span class="text-muted" style="margin-left:6px;font-size:11px">' + count + ' surov.</span>'
-        : '';
-      // Food cost badge — €/porcia + % z predajnej ceny.
-      // Industry rule of thumb pre HoReCa: food cost <30 % je dobré,
-      // 30-35 % OK, >35 % zle. Farba badge mení sa podľa toho:
-      // zelená < 30 %, amber 30-35 %, červená > 35 %.
-      var foodCostBadge = '';
-      if (count > 0 && foodCost > 0) {
-        var netPrice = netBase(item, price);
-        var pct = (netPrice > 0) ? (foodCost / netPrice) * 100 : 0;
-        var fcColor;
-        if (pct === 0) fcColor = 'background:rgba(255,255,255,.06);color:var(--color-text-dim)';
-        else if (pct < 30) fcColor = 'background:rgba(34,197,94,.15);color:#22c55e';
-        else if (pct < 35) fcColor = 'background:rgba(245,158,11,.15);color:var(--accent-amber-text)';
-        else fcColor = 'background:rgba(239,68,68,.18);color:#ef4444';
-        var pctLabel = (netPrice > 0) ? ' · ' + pct.toFixed(0) + '%' : '';
-        foodCostBadge = '<span title="Food cost na 1 porciu (' + (netPrice>0?(pct.toFixed(1)+'% z ceny' + vatNote() + ' ' + fmtCost(netPrice) + '€'):'cena 0') + ')"'
-          + ' style="margin-left:6px;font-size:11px;padding:1px 6px;border-radius:4px;font-weight:700;'
-          + fcColor + '">' + fmtCost(foodCost) + ' €' + pctLabel + '</span>';
-      }
-      // "Predalo sa Xx" badge \u2014 \u017Elt\u00FD ak nem\u00E1 recept (oper\u00E1tor vid\u00ED \u010Do
-      // ch\u00FDba v evidencii); \u0161ed\u00FD ak recept existuje (informa\u010Dn\u00FD).
       var hasRecipe = (item.trackMode === 'recipe') && (count > 0);
-      var soldBadge = '';
+
+      var sub = [];
+      if (item.trackMode === 'recipe') sub.push(count > 0 ? count + ' ' + ingWord(count) : 'recept bez surovín');
+      else if (item.trackMode === 'simple') sub.push('jednoduché sledovanie · na sklade ' + fmtCost(item.stockQty || 0));
+      else sub.push('bez sledovania');
       if (sold > 0) {
-        var soldColor = hasRecipe
-          ? 'background:rgba(255,255,255,.06);color:var(--color-text-dim)'
-          : 'background:rgba(245,158,11,.15);color:var(--accent-amber-text);font-weight:700';
-        soldBadge = '<span style="margin-left:6px;font-size:11px;padding:1px 6px;border-radius:4px;'
-          + soldColor + '">' + sold + 'x</span>';
+        sub.push(hasRecipe
+          ? 'predané ' + sold + '×'
+          : '<span class="mn-warn">predané ' + sold + '× bez receptu</span>');
       }
 
-      html += '<button class="cat-item' + (item.id === selectedItemId ? ' active' : '') + '" data-item-id="' + item.id + '" type="button">'
-        + '<span class="cat-icon">' + (item.emoji || '\uD83C\uDF7D') + '</span>'
-        + '<div class="cat-info">'
-        + '<div class="cat-name">' + escHtml(item.name) + '</div>'
-        + '<div class="cat-count"><span class="badge ' + badgeClass + '">' + badgeLabel + '</span>' + ingredientsLabel + foodCostBadge + soldBadge + '</div>'
-        + '</div>'
+      var side = '';
+      if (count > 0 && foodCost > 0) side = foodCostPill(foodCost, netBase(item, price), false);
+
+      html += '<button class="mn-row rc-item' + (item.id === selectedItemId ? ' is-selected' : '') + '" data-item-id="' + item.id + '" type="button"'
+        + (item.id === selectedItemId ? ' aria-current="true"' : '') + '>'
+        + '<span class="mn-row-lead" aria-hidden="true">' + (item.emoji || '🍽') + '</span>'
+        + '<span class="mn-row-main">'
+        + '<span class="mn-row-name">' + escHtml(item.name) + '</span>'
+        + '<span class="mn-row-sub">' + sub.join(' · ') + '</span>'
+        + '</span>'
+        + '<span class="mn-row-side">' + side + '</span>'
+        + '<svg class="mn-chev" aria-hidden="true" viewBox="0 0 16 16"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'
         + '</button>';
     });
   });
 
   listEl.innerHTML = html;
 
-  listEl.querySelectorAll('.cat-item').forEach(function(el) {
+  listEl.querySelectorAll('.rc-item').forEach(function(el) {
     el.addEventListener('click', function() {
       selectItem(Number(el.dataset.itemId));
+      openEditor();
     });
   });
+}
+
+// Na telefóne je editor ďalšia obrazovka (zoznam → detail a späť), nie
+// bočný panel, ktorý sa pod 768 px skrýval. Na širokých obrazovkách ostáva
+// vedľa zoznamu — trieda tam nič nemení.
+function openEditor() {
+  if (!_container) return;
+  _container.classList.add('is-detail');
+  _container.scrollTop = 0;
+}
+function closeEditor() {
+  if (!_container) return;
+  _container.classList.remove('is-detail');
 }
 
 // Jediná implementácia escapovania v projekte je /js/pos-escape.js
@@ -347,10 +367,7 @@ function renderEditor() {
 
   var item = menuItems.find(function(m) { return m.id === selectedItemId; });
   if (!item) {
-    editorEl.innerHTML = '<div class="empty-state" style="padding:60px 20px">'
-      + '<div class="empty-state-icon">\uD83D\uDC48</div>'
-      + '<div class="empty-state-title">Vyberte polozku</div>'
-      + '<div class="empty-state-text">Vyberte polozku z laveho panelu pre upravu receptury</div></div>';
+    editorEl.innerHTML = '<div class="empty-hint rc-empty">Vyber položku zo zoznamu — tu sa ukáže jej recept a sledovanie skladu.</div>';
     return;
   }
 
@@ -373,57 +390,45 @@ function renderEditor() {
     liveFoodCost = recipeSummary[item.id].cost;
   }
   var netPrice = netBase(item, price);
-  var fcPct = (netPrice > 0 && liveFoodCost > 0) ? (liveFoodCost / netPrice) * 100 : 0;
-  // Prahy food costu cez TEXTOVE tokeny palety — natvrdo zapisane #22c55e /
-  // #f59e0b / #ef4444 nepatrili do palety projektu a jantarova mala na
-  // kremovom podklade kontrast 1,88:1 (AA vyzaduje 4,5).
-  var fcColor = fcPct === 0 ? 'var(--color-text-dim)'
-    : fcPct < 30 ? 'var(--color-success-text)'
-    : fcPct < 35 ? 'var(--accent-amber-text)'
-    : 'var(--color-danger)';
 
-  html += '<div class="prod-header" style="border-bottom:1px solid rgba(255,255,255,.05);display:flex;flex-direction:column;gap:8px">';
-  html += '<div class="prod-header-title">' + (item.emoji || '') + ' ' + escHtml(item.name) + '</div>';
-  html += '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:13px">';
-  html += '<span style="color:var(--color-text-sec)">Cena: <strong style="color:var(--color-text)">' + fmtCost(price) + ' €</strong>'
-    + (vatPayer && netPrice > 0 && netPrice !== price
-      ? '<span style="color:var(--color-text-dim);font-size:12px"> (bez DPH ' + fmtCost(netPrice) + ' €)</span>'
-      : '')
-    + '</span>';
+  html += '<div class="rc-ed-head">';
+  html += '<span class="mn-row-lead" aria-hidden="true">' + (item.emoji || '🍽') + '</span>';
+  html += '<div class="rc-ed-main">';
+  html += '<div class="rc-ed-name">' + escHtml(item.name) + '</div>';
+  html += '<div class="rc-ed-price">' + escHtml(item.categoryLabel || '') + (item.categoryLabel ? ' · ' : '') + 'cena <strong>' + fmtCost(price) + ' €</strong>'
+    + (vatPayer && netPrice > 0 && netPrice !== price ? ' <span class="rc-ed-net">(bez DPH ' + fmtCost(netPrice) + ' €)</span>' : '')
+    + '</div>';
+  html += '</div>';
+  html += '</div>';
+
+  // Súčet: jeden riadok — food cost ako pilulka, marža ako číslo.
+  html += '<div class="rc-sum">';
   if (liveFoodCost > 0) {
-    html += '<span style="color:var(--color-text-sec)">Food cost: <strong style="color:' + fcColor + '">' + fmtCost(liveFoodCost) + ' €</strong></span>';
-    if (fcPct > 0) {
-      html += '<span style="padding:3px 10px;border-radius:6px;font-weight:700;background:' + fcColor + '22;color:' + fcColor + '">'
-        + fcPct.toFixed(1) + ' % z ceny' + vatNote() + '</span>';
-    }
+    html += '<span class="rc-sum-i">Food cost ' + foodCostPill(liveFoodCost, netPrice, true) + '</span>';
     if (netPrice > 0) {
       var marza = netPrice - liveFoodCost;
-      html += '<span style="color:var(--color-text-sec)">Marža' + vatNote() + ': <strong style="color:var(--color-text)">+' + fmtCost(marza) + ' €</strong></span>';
+      html += '<span class="rc-sum-i">marža' + vatNote() + ' <strong>' + (marza < 0 ? '−' : '+') + fmtCost(Math.abs(marza)) + ' €</strong></span>';
     }
   } else {
-    html += '<span style="color:var(--color-text-dim);font-style:italic">Food cost: nie je recept</span>';
+    html += '<span class="rc-sum-i">Food cost sa počíta až z receptu.</span>';
   }
-  html += '</div>';
   html += '</div>';
 
   // Track mode selector
-  html += '<div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,.05)">';
-  html += '<div class="form-label">Rezim sledovania skladu</div>';
-  html += '<div style="display:flex;gap:6px;margin-top:8px">';
+  html += '<div class="rc-mode">';
+  html += '<div class="mn-label">Sledovanie skladu</div>';
+  html += '<div class="panel-tabs" role="group" aria-label="Režim sledovania skladu">';
   html += modeBtn('none', 'Žiadne', item.trackMode);
-  html += modeBtn('simple', 'Jednoduche', item.trackMode);
+  html += modeBtn('simple', 'Jednoduché', item.trackMode);
   html += modeBtn('recipe', 'Recept', item.trackMode);
   html += '</div>';
   html += '</div>';
 
   // Content based on track mode
-  html += '<div style="padding:16px 20px;flex:1;overflow-y:auto">';
+  html += '<div class="rc-body">';
 
   if (item.trackMode === 'none') {
-    html += '<div class="empty-state" style="padding:40px 20px">'
-      + '<div class="empty-state-icon">\uD83D\uDEAB</div>'
-      + '<div class="empty-state-title">Sledovanie skladu vypnute</div>'
-      + '<div class="empty-state-text">Zvolte rezim "Jednoduche" alebo "Recept" pre sledovanie tejto polozky</div></div>';
+    html += '<div class="empty-hint">Sklad sa pri predaji tejto položky nemení. Zvoľ „Jednoduché" (počíta kusy) alebo „Recept" (odpisuje suroviny).</div>';
   } else if (item.trackMode === 'simple') {
     html += renderSimpleForm(item);
   } else if (item.trackMode === 'recipe') {
@@ -438,24 +443,24 @@ function renderEditor() {
 
 function modeBtn(mode, label, current) {
   var isActive = current === mode;
-  var cls = isActive ? 'zone-btn active' : 'zone-btn';
-  return '<button class="' + cls + '" data-mode="' + mode + '" type="button">' + label + '</button>';
+  var cls = isActive ? 'panel-tab active' : 'panel-tab';
+  return '<button class="' + cls + '" data-mode="' + mode + '" type="button" aria-pressed="' + (isActive ? 'true' : 'false') + '">' + label + '</button>';
 }
 
 // === Simple mode form ===
 function renderSimpleForm(item) {
   var html = '';
+  html += '<div class="rc-fields">';
   html += '<div class="form-group">';
-  html += '<label class="form-label" for="fStockQty">Aktualne mnozstvo na sklade</label>';
-  html += '<input class="form-input" id="fStockQty" type="number" step="0.01" min="0" value="' + (item.stockQty || 0) + '">';
+  html += '<label class="mn-label" for="fStockQty">Aktuálne množstvo na sklade (ks)</label>';
+  html += '<input class="form-input" id="fStockQty" type="number" step="0.01" min="0" inputmode="decimal" value="' + (item.stockQty || 0) + '">';
   html += '</div>';
   html += '<div class="form-group">';
-  html += '<label class="form-label" for="fMinStockQty">Minimalne mnozstvo (upozornenie)</label>';
-  html += '<input class="form-input" id="fMinStockQty" type="number" step="0.01" min="0" value="' + (item.minStockQty || 0) + '">';
+  html += '<label class="mn-label" for="fMinStockQty">Upozorniť, keď klesne pod (ks)</label>';
+  html += '<input class="form-input" id="fMinStockQty" type="number" step="0.01" min="0" inputmode="decimal" value="' + (item.minStockQty || 0) + '">';
   html += '</div>';
-  html += '<div style="margin-top:16px">';
-  html += '<button class="btn-save" id="saveSimpleBtn">Ulozit</button>';
   html += '</div>';
+  html += '<button class="btn-save rc-save" id="saveSimpleBtn" type="button">Uložiť množstvá</button>';
   return html;
 }
 
@@ -463,95 +468,47 @@ function renderSimpleForm(item) {
 function renderRecipeForm(item) {
   var html = '';
 
-  // Recipe ingredient cards
+  // Riadky receptu: surovina vľavo, množstvo (upraviteľné) + jednotka vpravo.
   if (currentRecipe.length) {
-    html += '<div class="recipe-cards" style="display:flex;flex-direction:column;gap:6px;margin-bottom:20px">';
+    html += '<div class="rc-lines" role="list" aria-label="Suroviny receptu">';
     currentRecipe.forEach(function(line, idx) {
-      // RGB trojice pre rgba(...) badge jednotiek. 'ks' malo fialovú z vyradenej
-      // palety; teraz drží terra akcent rovnako ako zvyšok admina.
-      var unitColors = { ks:'184,84,42', kg:'74,122,58', g:'74,122,58', l:'31,58,92', ml:'31,58,92' };
-      var uc = unitColors[line.ingredientUnit] || '184,84,42';
-      html += '<div class="recipe-card" style="'
-        + 'display:flex;align-items:center;gap:12px;padding:12px 14px;'
-        + 'background:rgba(' + uc + ',.04);border:1px solid rgba(' + uc + ',.12);'
-        + 'border-radius:var(--radius-sm);transition:all .15s;position:relative;overflow:hidden'
-        + '">';
-      // Left accent bar
-      html += '<div style="position:absolute;left:0;top:0;bottom:0;width:3px;background:rgba(' + uc + ',.4);border-radius:3px 0 0 3px"></div>';
-      // Name
-      html += '<div style="flex:1;min-width:0;padding-left:4px">';
-      html += '<div style="font-size:var(--text-md);font-weight:var(--weight-bold);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(line.ingredientName || '') + '</div>';
-      html += '</div>';
-      // Quantity — editable inline. Was static text before; users were
-      // clicking the number expecting to change it, hitting "Ulozit
-      // recept", and seeing nothing happen because the value wasn't
-      // bound to anything. data-qty-idx → bindEditorEvents wires a
-      // change handler that mutates currentRecipe[idx] + auto-saves
-      // on blur, so the saved state actually matches what the user typed.
-      html += '<input type="number" step="0.001" min="0.001"'
+      html += '<div class="rc-line" role="listitem">';
+      html += '<div class="rc-line-name">' + escHtml(line.ingredientName || '') + '</div>';
+      // Quantity — editable inline. data-qty-idx → bindEditorEvents wires a
+      // change handler that mutates currentRecipe[idx] + auto-saves on blur.
+      html += '<input class="rc-qty" type="number" step="0.001" min="0.001" inputmode="decimal"'
         + ' data-qty-idx="' + idx + '"'
-        + ' value="' + Number(line.qtyPerUnit) + '"'
-        + ' style="font-family:var(--font-display);font-size:var(--text-xl);font-weight:var(--weight-bold);'
-        +        'color:rgba(' + uc + ',1);letter-spacing:var(--tracking-tight);'
-        +        'width:90px;text-align:right;'
-        +        'background:rgba(' + uc + ',.05);border:1px solid rgba(' + uc + ',.2);'
-        +        'border-radius:var(--radius-xs);padding:6px 8px;outline:none">';
-      // Unit badge
-      html += '<div style="'
-        + 'font-size:var(--text-xs);font-weight:var(--weight-bold);text-transform:uppercase;letter-spacing:.5px;'
-        + 'padding:4px 8px;border-radius:var(--radius-xs);min-width:32px;text-align:center;'
-        + 'background:rgba(' + uc + ',.12);color:rgba(' + uc + ',1)'
-        + '">' + escHtml(line.ingredientUnit || '') + '</div>';
-      // Remove button
-      html += '<button data-remove-idx="' + idx + '" title="Odstranit" style="'
-        + 'width:28px;height:28px;border-radius:var(--radius-xs);border:1px solid transparent;'
-        + 'background:transparent;color:var(--color-text-dim);font-size:14px;cursor:pointer;'
-        + 'display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0'
-        + '" onmouseover="this.style.background=\'rgba(224,112,112,.15)\';this.style.color=\'var(--color-danger)\';this.style.borderColor=\'rgba(224,112,112,.2)\'"'
-        + ' onmouseout="this.style.background=\'transparent\';this.style.color=\'var(--color-text-dim)\';this.style.borderColor=\'transparent\'"'
-        + '>\u2715</button>';
+        + ' aria-label="Množstvo: ' + escHtml(line.ingredientName || '') + '"'
+        + ' value="' + Number(line.qtyPerUnit) + '">';
+      html += '<span class="rc-unit">' + escHtml(line.ingredientUnit || '') + '</span>';
+      html += '<button type="button" class="rc-remove" data-remove-idx="' + idx + '" aria-label="Odstrániť ' + escHtml(line.ingredientName || 'surovinu') + '" title="Odstrániť z receptu">✕</button>';
       html += '</div>';
     });
     html += '</div>';
   } else {
-    html += '<div style="padding:32px 16px;text-align:center;border:1.5px dashed var(--color-accent-border);border-radius:var(--radius-md);margin-bottom:20px">'
-      + '<div style="font-size:20px;margin-bottom:6px;opacity:.4">\uD83E\uDDEA</div>'
-      + '<div style="font-size:var(--text-md);font-weight:var(--weight-semibold);color:var(--color-text-sec);margin-bottom:2px">Prazdny recept</div>'
-      + '<div style="font-size:var(--text-sm);color:var(--color-text-dim)">Pridajte suroviny nizsie</div>'
-      + '</div>';
+    html += '<div class="empty-hint rc-lines-empty">Recept je zatiaľ prázdny. Pridaj prvú surovinu nižšie — uloží sa hneď.</div>';
   }
 
   // Add ingredient row — search input with diacritic-insensitive
-  // autocomplete dropdown. Skladová evidencia má 150+ surovín, dropdown
-  // je nepoužiteľný; tu môže operátor písať 'cibu' a hneď vidí biele +
-  // červené cibule. Hidden #fNewIngredient drží vybrané ID pre addLineBtn.
-  // Suroviny už použité v aktuálnom recepte sú vylúčené.
-  var usedIds = currentRecipe.map(function(r) { return r.ingredientId; });
-  html += '<div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:24px;flex-wrap:wrap;padding:14px;background:var(--color-bg-surface);border:1px solid var(--color-border);border-radius:var(--radius-sm)">';
-  html += '<div class="form-group" style="flex:2;min-width:200px;margin-bottom:0;position:relative">';
-  html += '<label class="form-label" for="fNewIngredientSearch">Pridať surovinu</label>';
+  // autocomplete dropdown (150+ surovín, select je nepoužiteľný). Hidden
+  // #fNewIngredient drží vybrané ID pre addLineBtn.
+  html += '<div class="rc-add">';
+  html += '<div class="rc-add-search">';
+  html += '<label class="mn-label" for="fNewIngredientSearch">Pridať surovinu</label>';
   html += '<input class="form-input" id="fNewIngredientSearch" type="text" autocomplete="off"'
-    + ' placeholder="Piš názov suroviny… (napr. cibu, kač, hov)">';
+    + ' placeholder="Začni písať názov, napr. cibu…">';
   html += '<input type="hidden" id="fNewIngredient" value="">';
-  // Dropdown panel — pozícia absolútna pod input, max-height + scroll;
-  // skrytý kým input nie je focused alebo nemá písmená.
-  html += '<div id="fNewIngredientDropdown" style="display:none;position:absolute;left:0;right:0;top:100%;'
-    + 'z-index:50;max-height:280px;overflow-y:auto;background:var(--color-bg-surface);'
-    + 'border:1px solid var(--color-border);border-top:none;border-radius:0 0 var(--radius-sm) var(--radius-sm);'
-    + 'box-shadow:0 8px 24px rgba(0,0,0,.4)"></div>';
+  html += '<div id="fNewIngredientDropdown" class="rc-dd" style="display:none" role="listbox"></div>';
   html += '</div>';
-  html += '<div class="form-group" style="flex:1;min-width:100px;margin-bottom:0">';
-  html += '<label class="form-label" for="fNewQty">Mnozstvo na 1ks</label>';
-  html += '<input class="form-input" id="fNewQty" type="number" step="0.001" min="0.001" placeholder="0.00">';
+  html += '<div class="rc-add-qty">';
+  html += '<label class="mn-label" for="fNewQty">Množstvo na 1 ks</label>';
+  html += '<input class="form-input" id="fNewQty" type="number" step="0.001" min="0.001" inputmode="decimal" placeholder="0,000">';
   html += '</div>';
-  html += '<button class="btn-add" id="addLineBtn" type="button" style="margin-bottom:0">';
-  html += '<svg aria-hidden="true" viewBox="0 0 14 14"><line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
-  html += 'Pridať surovinu';
-  html += '</button>';
+  html += '<button class="btn-secondary rc-add-btn" id="addLineBtn" type="button">Pridať</button>';
   html += '</div>';
 
   // Save button
-  html += '<button class="btn-save" id="saveRecipeBtn">Ulozit recept</button>';
+  html += '<button class="btn-save rc-save" id="saveRecipeBtn" type="button">Uložiť recept</button>';
 
   return html;
 }
@@ -584,7 +541,7 @@ function bindEditorEvents(item) {
       renderEditor();
       try {
         await saveRecipeLines(item.id, { silent: true, skipReload: true });
-        showToast('Surovina odstranena', true);
+        showToast('Surovina odstránená', true);
       } catch (_) {
         currentRecipe = snapshot;
         renderEditor();
@@ -600,7 +557,7 @@ function bindEditorEvents(item) {
       var idx = Number(input.dataset.qtyIdx);
       var v = parseFloat(input.value);
       if (!Number.isFinite(v) || v <= 0) {
-        showToast('Mnozstvo musi byt > 0', 'error');
+        showToast('Množstvo musí byť väčšie ako 0', 'error');
         input.value = input.dataset.prevValue || '';
         input.focus();
         return;
@@ -613,7 +570,7 @@ function bindEditorEvents(item) {
         // Re-render editor — food cost summary v hlavičke sa prerátá
         // (saveRecipeLines volá renderItemList ale nie renderEditor).
         renderEditor();
-        showToast('Mnozstvo upravene a recept ulozeny', true);
+        showToast('Množstvo upravené, recept uložený', true);
       } catch (err) {
         currentRecipe[idx].qtyPerUnit = prev;
         input.value = prev;
@@ -657,19 +614,17 @@ function bindEditorEvents(item) {
       // Top 25 výsledkov stačí — operátor ak nevidí čo chce, doplní viac písmen.
       visibleList = visibleList.slice(0, 25);
       if (!visibleList.length) {
-        dropdown.innerHTML = '<div style="padding:14px;color:var(--color-text-dim);font-size:13px">Žiadna surovina nenájdená</div>';
+        dropdown.innerHTML = '<div class="rc-dd-empty">Žiadna surovina sa nenašla. Skús kratšie slovo.</div>';
         dropdown.style.display = 'block';
         highlighted = -1;
         return;
       }
       dropdown.innerHTML = visibleList.map(function(ing, i) {
         var hi = i === highlighted;
-        var bg = hi ? 'background:var(--color-accent-bg-hover)' : 'background:transparent';
-        return '<div class="ing-row" data-ing-id="' + ing.id + '" data-idx="' + i + '" style="'
-          + 'padding:10px 14px;cursor:pointer;font-size:14px;border-bottom:1px solid rgba(255,255,255,.04);'
-          + bg + '">'
-          + '<span style="font-weight:600">' + escHtml(ing.name) + '</span>'
-          + ' <span style="color:var(--color-text-dim);font-size:12px">(' + escHtml(ing.unit) + ')</span>'
+        return '<div class="ing-row rc-dd-row' + (hi ? ' is-hi' : '') + '" data-ing-id="' + ing.id + '" data-idx="' + i + '" role="option"'
+          + (hi ? ' aria-selected="true"' : '') + '>'
+          + '<span class="rc-dd-name">' + escHtml(ing.name) + '</span>'
+          + ' <span class="rc-dd-unit">' + escHtml(ing.unit) + '</span>'
           + '</div>';
       }).join('');
       dropdown.style.display = 'block';
@@ -757,9 +712,9 @@ async function changeTrackMode(itemId, newMode) {
     if (item) item.trackMode = newMode;
     renderItemList();
     await loadRecipeForItem(itemId);
-    showToast('Rezim sledovania zmeneny', true);
+    showToast('Režim sledovania zmenený', true);
   } catch (err) {
-    showToast(err.message || 'Chyba zmeny rezimu', 'error');
+    showToast(err.message || 'Chyba zmeny režimu', 'error');
   }
 }
 
@@ -785,7 +740,7 @@ async function saveSimpleConfig(itemId) {
       item.stockQty = stockQty;
       item.minStockQty = minStockQty;
     }
-    showToast('Konfiguracia ulozena', true);
+    showToast('Množstvá uložené', true);
   } catch (err) {
     showToast(err.message || 'Chyba ukladania', 'error');
   } finally {
@@ -802,11 +757,11 @@ async function addRecipeLine() {
   var qty = parseFloat(qtyEl.value);
 
   if (!ingredientId) {
-    showToast('Vyberte surovinu');
+    showToast('Vyber surovinu zo zoznamu');
     return;
   }
   if (!qty || qty <= 0) {
-    showToast('Zadajte platné množstvo');
+    showToast('Zadaj množstvo väčšie ako 0');
     return;
   }
 
@@ -824,7 +779,7 @@ async function addRecipeLine() {
   try {
     await saveRecipeLines(selectedItemId, { silent: true, skipReload: true });
     renderEditor();
-    showToast('Surovina pridana a recept ulozeny', true);
+    showToast('Surovina pridaná, recept uložený', true);
   } catch (_) {
     // pri chybe vratime zmenu
     currentRecipe = currentRecipe.filter(function (l) { return l.ingredientId !== ingredientId; });
@@ -853,7 +808,7 @@ async function saveRecipeLines(itemId, opts) {
     if (!opts.skipReload) {
       await loadRecipeForItem(itemId);
     }
-    if (!opts.silent) showToast('Recept ulozeny', true);
+    if (!opts.silent) showToast('Recept uložený', true);
   } catch (err) {
     console.error('[recipes] save error:', err);
     showToast(err.message || 'Chyba ukladania receptu', 'error');
@@ -867,7 +822,9 @@ async function saveRecipeLines(itemId, opts) {
 function setFilter(filter) {
   activeFilter = filter;
   $$('.recipe-filter-btn').forEach(function(btn) {
-    btn.classList.toggle('active', btn.dataset.filter === filter);
+    var on = btn.dataset.filter === filter;
+    btn.classList.toggle('is-on', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
   });
   selectedItemId = null;
   currentRecipe = [];
@@ -883,7 +840,7 @@ function setFilter(filter) {
 // === EXPORTS ===
 export function init(container) {
   _container = container;
-  container.className = 'content admin-page-fill';
+  container.className = 'content rc-page';
 
   // Reset state
   menuItems = [];
@@ -893,40 +850,34 @@ export function init(container) {
   activeFilter = 'all';
 
   container.innerHTML = ''
-    + '<div class="cat-panel">'
-    + '<div class="cat-panel-header">Polo\u017Eky menu</div>'
-    // Search input \u2014 diacritic-insensitive substring match across name + category.
-    + '<div style="padding:8px 10px 0;position:relative">'
-    + '<input type="search" id="recipeSearch" class="form-input"'
-    + ' placeholder="H\u013Eada\u0165 surovinu, jedlo, kateg\u00F3riu\u2026" autocomplete="off"'
-    + ' style="padding-left:32px;font-size:13px;height:34px">'
-    + '<svg viewBox="0 0 24 24" aria-hidden="true"'
-    + ' style="position:absolute;left:18px;top:50%;transform:translateY(-50%);width:14px;height:14px;'
-    +        'stroke:var(--color-text-dim);fill:none;stroke-width:2;stroke-linecap:round;pointer-events:none">'
-    + '<circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="22" y2="22"/></svg>'
-    + '<button id="recipeSearchClear" type="button" aria-label="Vy\u010Disti\u0165"'
-    + ' style="position:absolute;right:18px;top:50%;transform:translateY(-50%);width:22px;height:22px;'
-    +        'border:none;background:rgba(255,255,255,.06);border-radius:50%;color:var(--color-text-sec);'
-    +        'cursor:pointer;display:none;align-items:center;justify-content:center;font-size:12px">\u00D7</button>'
+    + '<div class="rc-master">'
+    // Hľadanie — bez diakritiky, v názve aj kategórii.
+    + '<div class="search-wrap rc-search">'
+    + '<svg aria-hidden="true" viewBox="0 0 16 16"><circle cx="6.5" cy="6.5" r="5" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="10.5" y1="10.5" x2="15" y2="15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>'
+    + '<input type="search" id="recipeSearch" class="search-input"'
+    + ' placeholder="Hľadať položku alebo kategóriu…" aria-label="Hľadať položku alebo kategóriu" autocomplete="off">'
+    + '<button id="recipeSearchClear" type="button" class="rc-search-clear" aria-label="Vyčistiť hľadanie" style="display:none">×</button>'
     + '</div>'
-    // Filter tabs (counts injected by _renderFilterTabs).
-    + '<div id="recipeFilterTabs" style="padding:8px 10px 4px;display:flex;gap:4px;flex-wrap:wrap"></div>'
-    // Result count line.
-    + '<div id="recipeResultCount" style="padding:0 12px 6px;font-size:11px;color:var(--color-text-dim);font-weight:600;letter-spacing:.4px;text-transform:uppercase">\u2026</div>'
-    + '<div class="cat-list" id="itemList">'
+    // Filter režimu ako chipy (počty dopĺňa _renderFilterTabs).
+    + '<div id="recipeFilterTabs" class="mn-cats rc-filters" role="group" aria-label="Filter režimu sledovania"></div>'
+    + '<div id="recipeResultCount" class="mn-count rc-count" aria-live="polite">…</div>'
+    + '<div class="mn-group mn-list rc-list" id="itemList">'
     + '<div class="skeleton-row"></div>'
     + '<div class="skeleton-row"></div>'
     + '<div class="skeleton-row"></div>'
     + '</div>'
     + '</div>'
-    + '<div class="prod-panel">'
-    + '<div id="editorContent" style="display:flex;flex-direction:column;flex:1;overflow:hidden">'
-    + '<div class="empty-state" style="padding:60px 20px">'
-    + '<div class="empty-state-icon">\u23F3</div>'
-    + '<div class="empty-state-title">Načítavam...</div>'
-    + '</div>'
+    + '<div class="rc-detail">'
+    + '<button type="button" class="rc-back" id="recipeBack">'
+    + '<svg aria-hidden="true" viewBox="0 0 16 16"><path d="M10 3L5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    + 'Položky</button>'
+    + '<div class="mn-group rc-editor" id="editorContent">'
+    + '<div class="empty-hint rc-empty">Načítavam…</div>'
     + '</div>'
     + '</div>';
+
+  var backBtn = $('#recipeBack');
+  if (backBtn) backBtn.addEventListener('click', closeEditor);
 
   // Search input \u2014 debounced re-render so heavy menus (200+ items) stay snappy.
   var searchInput = $('#recipeSearch');

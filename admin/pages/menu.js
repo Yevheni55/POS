@@ -1,4 +1,5 @@
 import { softDelete } from '../components/toast-undo.js';
+import { mountEmptyState } from '../components/empty-state.js';
 import { fmtCost } from '../../components/fmt.js';
 
 // Escapovanie: jediná implementácia je /js/pos-escape.js (načítaná v
@@ -52,10 +53,20 @@ const CATEGORY_VAT_DEFAULTS = Object.freeze({
 // === DOM helpers (scoped to container) ===
 function qs(sel) { return _container.querySelector(sel); }
 function qsAll(sel) { return _container.querySelectorAll(sel); }
-function byId(id) { return _container.querySelector('#' + id); }
+function byId(id) { return _container.querySelector('#' + id) || document.getElementById(id); }
 
 // === Helpers ===
 function fmt(n) { return fmtCost(n) + ' \u20AC'; }
+function itemsWord(n) { return n === 1 ? 'položka' : (n >= 2 && n <= 4 ? 'položky' : 'položiek'); }
+function catsWord(n) { return n === 1 ? 'kategória' : (n >= 2 && n <= 4 ? 'kategórie' : 'kategórií'); }
+function updateMenuCount() {
+  const el = byId('menuCount');
+  if (!el) return;
+  const total = MENU_DATA.reduce((a, c) => a + c.items.length, 0);
+  const off = MENU_DATA.reduce((a, c) => a + c.items.filter((i) => !(i.available !== undefined ? i.available : i.active)).length, 0);
+  el.textContent = total + ' ' + itemsWord(total) + ' · ' + MENU_DATA.length + ' ' + catsWord(MENU_DATA.length)
+    + (off ? ' · ' + off + (off === 1 ? ' nedostupná' : ' nedostupných') : '');
+}
 function getCat(id) { return MENU_DATA.find(c => c.id === id); }
 function getActiveCat() { return getCat(activeCatId); }
 function normalizeText(value) { return String(value || '').trim().toLowerCase(); }
@@ -137,18 +148,18 @@ function renderVatRateHint(inferred) {
   if (inferred === null) {
     if (Number.isFinite(current)) return hide();
     host.style.display = '';
-    host.innerHTML = '<span style="color:var(--color-warning-strong)">Kategoria nema predvolenu DPH — vyber sadzbu rucne.</span>';
+    host.innerHTML = '<span style="color:var(--color-warning-strong)">Kategória nemá predvolenú DPH — vyber sadzbu ručne.</span>';
     return;
   }
   if (!Number.isFinite(current) || current === inferred) return hide();
 
   const category = findCategory(byId('fCategory') ? byId('fCategory').value : activeCatId);
-  const catLabel = (category && (category.label || category.slug)) || 'Kategoria';
+  const catLabel = (category && (category.label || category.slug)) || 'Kategória';
   host.style.display = '';
-  host.innerHTML = '<span style="color:var(--color-warning-strong)">Kategoria ' + escapeHtml(catLabel)
-    + ' ocakava ' + formatVatRate(inferred) + ' %, polozka ma ' + formatVatRate(current) + ' %.</span>'
+  host.innerHTML = '<span style="color:var(--color-warning-strong)">Kategória ' + escapeHtml(catLabel)
+    + ' očakáva ' + formatVatRate(inferred) + ' %, položka má ' + formatVatRate(current) + ' %.</span>'
     + '<button type="button" id="fVatRateApply" class="u-btn u-btn-ghost" data-vat-apply="' + formatVatRate(inferred) + '"'
-    + ' style="margin-left:8px;min-height:44px;padding:6px 12px;font-size:12px">Pouzit ' + formatVatRate(inferred) + ' %</button>';
+    + ' style="margin-left:8px;min-height:44px;padding:6px 12px;font-size:12px">Použiť ' + formatVatRate(inferred) + ' %</button>';
 }
 
 // === Prompt modal (not available globally in admin SPA) ===
@@ -162,7 +173,7 @@ function showPrompt(title, placeholder, onSubmit, opts) {
     '</span><div class="u-modal-title">' + title +
     '</div><div class="u-modal-body"><div class="u-modal-field"><input type="text" id="dynInput" placeholder="' +
     (placeholder || '') + '" value="' + (opts.defaultValue || '') +
-    '"></div></div><div class="u-modal-btns"><button class="u-btn u-btn-ghost" id="dynCancel">Zrusit</button><button class="u-btn u-btn-ice" id="dynOk">' +
+    '"></div></div><div class="u-modal-btns"><button class="u-btn u-btn-ghost" id="dynCancel">Zrušiť</button><button class="u-btn u-btn-ice" id="dynOk">' +
     (opts.confirmText || 'Potvrdiť') + '</button></div></div>';
   document.body.appendChild(ov);
   requestAnimationFrame(() => ov.classList.add('show'));
@@ -182,75 +193,57 @@ function showPrompt(title, placeholder, onSubmit, opts) {
 async function loadMenu() {
   const catList = byId('catList');
   const prodList = byId('prodList');
-  if (catList) showLoading(catList, 'Načítavam menu...');
+  if (prodList) showLoading(prodList, 'Načítavam menu…');
   try {
     const menu = await api.get('/menu');
-    if (catList) hideLoading(catList);
+    if (prodList) hideLoading(prodList);
     MENU_DATA = normalizeMenuData(menu);
     if (MENU_DATA.length > 0 && !activeCatId) {
       activeCatId = MENU_DATA[0].id;
     }
+    updateMenuCount();
     renderCategories();
     renderProducts();
     if (MENU_DATA.length === 0) {
-      if (catList) catList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">\uD83D\uDCC2</div><div class="empty-state-title">Žiadne kategórie</div><div class="empty-state-text">Vytvorte prvú kategóriu pre vaše menu</div><button class="btn-outline-accent" onclick="document.getElementById(\'addCatBtn\').click()">Pridať kategóriu</button></div>';
-      if (prodList) prodList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">\uD83D\uDCE6</div><div class="empty-state-title">Žiadne produkty</div><div class="empty-state-text">Najprv pridajte kategóriu</div></div>';
+      // Bez kategórie sa produkt nemá kam pridať — jediná zmysluplná akcia je
+      // založiť prvú kategóriu, preto je CTA priamo v prázdnom zozname.
+      if (catList) catList.innerHTML = '';
+      if (prodList) mountEmptyState(prodList, {
+        icon: '\uD83D\uDCC2',
+        title: 'Zatiaľ žiadne kategórie',
+        text: 'Menu sa skladá z kategórií (káva, pivo, jedlo…) a produktov v nich. Začni prvou kategóriou.',
+        ctaLabel: 'Pridať kategóriu',
+        onCta: addCategory,
+      });
     }
   } catch (err) {
-    if (catList) hideLoading(catList);
-    renderError(catList, err.message || 'Chyba pri nacitani menu', loadMenu);
+    if (prodList) hideLoading(prodList);
+    renderError(prodList, err.message || 'Chyba pri načítaní menu', loadMenu);
   }
 }
 
 // === Categories ===
+// Kategórie sú rad chipov nad zoznamom (na telefóne roluje vbok), nie bočný
+// panel, ktorý sa pod 768 px skrýval a manažér sa ku kategóriám nedostal.
+// Úprava a mazanie kategórie sú vo formulári kategórie (tlačidlo „Upraviť
+// kategóriu" v hlavičke zoznamu), nie na každom chipe.
 function renderCategories() {
   const list = byId('catList');
-  list.innerHTML = MENU_DATA.map((cat, i) => `
-    <div class="cat-item ${cat.id === activeCatId ? 'active' : ''}" data-cat-idx="${i}" style="display:flex;align-items:center;gap:6px;cursor:pointer" data-cat-select="${cat.id}">
-      <span class="cat-drag-handle">\u22EE\u22EE</span>
-      <span class="cat-icon">${cat.icon}</span>
-      <div class="cat-info" style="flex:1;min-width:0">
-        <div class="cat-name">${escapeHtml(cat.label)}</div>
-        <div class="cat-count">${cat.items.length} poloziek</div>
-      </div>
-      <div class="cat-actions" style="display:flex;gap:2px;opacity:.7">
-        <button type="button" class="act-btn cat-edit-btn" data-cat-edit="${cat.id}" title="Upraviť" style="width:28px;height:28px">
-          <svg viewBox="0 0 24 24" width="12" height="12" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-        </button>
-        <button type="button" class="act-btn del cat-del-btn" data-cat-del="${cat.id}" title="Zmazať" style="width:28px;height:28px">
-          <svg viewBox="0 0 24 24" width="12" height="12" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-        </button>
-      </div>
-    </div>
-  `).join('');
+  if (!list) return;
+  list.innerHTML = MENU_DATA.map((cat) => {
+    const on = cat.id === activeCatId;
+    return '<button type="button" class="doch-chip mn-cat' + (on ? ' is-on' : '') + '"'
+      + ' data-cat-select="' + cat.id + '" aria-pressed="' + (on ? 'true' : 'false') + '">'
+      + '<span class="mn-cat-icon" aria-hidden="true">' + escapeHtml(cat.icon || '') + '</span>'
+      + '<span class="mn-cat-label">' + escapeHtml(cat.label) + '</span>'
+      + '<span class="mn-cat-n">' + cat.items.length + '</span>'
+      + '</button>';
+  }).join('');
 
-  list.querySelectorAll('[data-cat-select]').forEach((el, i) => {
-    el.addEventListener('click', (e) => {
-      if (e.target.closest('.cat-actions')) return;
-      if (e.target.closest('.cat-drag-handle')) return;
-      selectCategory(MENU_DATA[i].id);
-    });
-    el.addEventListener('mousedown', (e) => {
-      if (e.target.closest('.cat-actions')) return;
-      startCatDrag(e, i);
-    });
-  });
-
-  list.querySelectorAll('[data-cat-edit]').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const id = Number(btn.dataset.catEdit);
-      const cat = MENU_DATA.find((c) => c.id === id);
-      if (cat) openCategoryModal('edit', cat);
-    });
-  });
-
-  list.querySelectorAll('[data-cat-del]').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const id = Number(btn.dataset.catDel);
-      const cat = MENU_DATA.find((c) => c.id === id);
-      if (cat) deleteCategory(cat);
+  list.querySelectorAll('[data-cat-select]').forEach((el) => {
+    el.addEventListener('click', () => {
+      const cat = findCategory(el.dataset.catSelect);
+      if (cat) selectCategory(cat.id);
     });
   });
 }
@@ -259,7 +252,7 @@ async function deleteCategory(cat) {
   const hasItems = cat.items && cat.items.length > 0;
   if (hasItems) {
     // Cannot delete non-empty category — show error toast, navigate to it.
-    showToast('Kategória „' + cat.label + '" obsahuje ' + cat.items.length + ' produktov. Najprv ich zmaž alebo presuň.', 'error');
+    showToast('Kategória „' + cat.label + '" obsahuje ' + cat.items.length + ' ' + itemsWord(cat.items.length) + '. Najprv ich zmaž alebo presuň do inej kategórie.', 'error');
     selectCategory(cat.id);
     return;
   }
@@ -283,7 +276,7 @@ async function deleteCategory(cat) {
     if (wasActive) activeCatId = cat.id;
     renderCategories();
     renderProducts();
-    showToast('Vratene', true);
+    showToast('Vrátené', true);
   } else if (result.error) {
     // Server rejected (e.g. concurrent items added) — restore + show error
     MENU_DATA.splice(idx, 0, snapshot);
@@ -371,7 +364,7 @@ function openCategoryModal(mode, initial) {
   // inferencia nepokryje a polozky by ticho dostali 23 %).
   const initialVat = categoryDefaultVatRate(current);
   const vatOptions = SUPPORTED_VAT_RATES.map(function (rate) {
-    const label = rate === 5 ? '5 % - jedlo' : (rate === 19 ? '19 % - nealko napoje' : rate + ' % - alkohol / standard');
+    const label = rate === 5 ? '5 % – jedlo' : (rate === 19 ? '19 % – nealko nápoje' : rate + ' % – alkohol a ostatné');
     return '<option value="' + rate + '"' + (initialVat === rate ? ' selected' : '') + '>' + label + '</option>';
   }).join('');
 
@@ -386,41 +379,43 @@ function openCategoryModal(mode, initial) {
 
   ov.innerHTML = ''
     + '<div class="u-modal" style="text-align:left;max-width:520px">'
-    + '<div class="u-modal-title" style="text-align:center">' + (mode === 'edit' ? 'Upraviť kategóriu' : 'Nova kategoria') + '</div>'
+    + '<div class="u-modal-title" style="text-align:center">' + (mode === 'edit' ? 'Upraviť kategóriu' : 'Nová kategória') + '</div>'
     + '<div class="u-modal-body" style="gap:14px">'
     + '<div class="u-modal-field">'
-    + '<label for="fCatName">Nazov<span class="required-mark" aria-hidden="true"> *</span></label>'
+    + '<label for="fCatName">Názov<span class="required-mark" aria-hidden="true"> *</span></label>'
     + '<input id="fCatName" type="text" placeholder="napr. Dezerty" data-validate="required" value="' + String(initialLabel || '').replace(/"/g, '&quot;') + '">'
     + '</div>'
     + '<div class="u-modal-field">'
-    + '<label>Emoji ikona</label>'
+    + '<label>Ikona</label>'
     + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">'
     + '<span id="fCatIconPreview" style="font-size:32px;line-height:1;width:48px;height:48px;display:inline-flex;align-items:center;justify-content:center;background:var(--color-bg-surface);border:1px solid var(--color-border);border-radius:var(--radius-sm)">' + initialIcon + '</span>'
     + '<input id="fCatIcon" type="text" maxlength="4" value="' + initialIcon + '" style="width:120px;text-align:center;font-size:20px" placeholder="\uD83C\uDF7D">'
-    + '<div class="text-muted" style="font-size:12px;line-height:1.3">Klikni na ikonu nizsie alebo zadaj vlastne emoji.</div>'
+    + '<div class="text-muted" style="font-size:12px;line-height:1.3">Klepni na ikonu nižšie alebo napíš vlastné emoji.</div>'
     + '</div>'
     + '<div id="fCatEmojiGrid" style="display:grid;grid-template-columns:repeat(8,1fr);gap:6px;max-height:220px;overflow-y:auto;padding:8px;background:var(--color-bg-surface);border:1px solid var(--color-border);border-radius:var(--radius-sm)">' + emojiGrid + '</div>'
     + '</div>'
     + '<div class="u-modal-field">'
-    + '<label for="fCatDest">Kam sa tlacia polozky</label>'
+    + '<label for="fCatDest">Kam sa tlačia položky</label>'
     + '<select id="fCatDest">'
     + '<option value="bar"' + (initialDest === 'bar' ? ' selected' : '') + '>Bar</option>'
-    + '<option value="kuchyna"' + (initialDest === 'kuchyna' ? ' selected' : '') + '>Kuchyna</option>'
-    + '<option value="all"' + (initialDest === 'all' ? ' selected' : '') + '>Vsetko (bar aj kuchyna)</option>'
+    + '<option value="kuchyna"' + (initialDest === 'kuchyna' ? ' selected' : '') + '>Kuchyňa</option>'
+    + '<option value="all"' + (initialDest === 'all' ? ' selected' : '') + '>Všetko (bar aj kuchyňa)</option>'
     + '</select>'
     + '</div>'
     + '<div class="u-modal-field">'
-    + '<label for="fCatVatRate">Predvolena DPH<span class="required-mark" aria-hidden="true"> *</span></label>'
+    + '<label for="fCatVatRate">Predvolená DPH<span class="required-mark" aria-hidden="true"> *</span></label>'
     + '<select id="fCatVatRate" aria-required="true" data-validate="required">'
     + '<option value="">Vyber sadzbu DPH</option>'
     + vatOptions
     + '</select>'
-    + '<div class="text-muted" style="font-size:12px;margin-top:6px;line-height:1.4">Predvyplni sa kazdej novej polozke v tejto kategorii. Jednotliva polozka moze mat vlastnu sadzbu (napr. nealko pivo 19 %).</div>'
+    + '<div class="text-muted" style="font-size:12px;margin-top:6px;line-height:1.4">Predvyplní sa každej novej položke v tejto kategórii. Jednotlivá položka môže mať vlastnú sadzbu (napr. nealko pivo 19 %).</div>'
     + '</div>'
     + '</div>'
+    // Zmazanie patrí do formulára kategórie, nie na každý chip v zozname.
+    + (mode === 'edit' ? '<button type="button" class="u-btn mn-btn-danger" id="catDelete">Zmazať kategóriu</button>' : '')
     + '<div class="u-modal-btns">'
-    + '<button class="u-btn u-btn-ghost" id="catCancel">Zrusit</button>'
-    + '<button class="u-btn u-btn-ice" id="catSave">' + (mode === 'edit' ? 'Uložiť' : 'Pridať') + '</button>'
+    + '<button class="u-btn u-btn-ghost" id="catCancel">Zrušiť</button>'
+    + '<button class="u-btn u-btn-ice" id="catSave">' + (mode === 'edit' ? 'Uložiť zmeny' : 'Pridať kategóriu') + '</button>'
     + '</div>'
     + '<style>.emoji-pick{font-size:22px;line-height:1;padding:6px;border:1px solid transparent;background:transparent;border-radius:var(--radius-xs);cursor:pointer;transition:all .1s ease}.emoji-pick:hover{background:var(--color-accent-bg);border-color:var(--color-accent)}.emoji-pick.active{background:var(--color-accent-bg-hover);border-color:var(--color-accent);transform:scale(1.1)}</style>'
     + '</div>';
@@ -461,6 +456,14 @@ function openCategoryModal(mode, initial) {
 
   ov.querySelector('#catCancel').onclick = closeModal;
   ov.addEventListener('click', function (e) { if (e.target === ov) closeModal(); });
+  const delBtn = ov.querySelector('#catDelete');
+  if (delBtn) {
+    delBtn.addEventListener('click', function () {
+      closeModal();
+      const cat = (current.id != null && findCategory(current.id)) || current;
+      deleteCategory(cat);
+    });
+  }
 
   const saveBtn = ov.querySelector('#catSave');
   saveBtn.addEventListener('click', async function () {
@@ -470,18 +473,18 @@ function openCategoryModal(mode, initial) {
     const dest = ov.querySelector('#fCatDest').value || 'bar';
     const defaultVatRate = parseFloat(ov.querySelector('#fCatVatRate').value);
     if (!label) {
-      showToast('Zadaj nazov kategorie', 'error');
+      showToast('Zadaj názov kategórie', 'error');
       return;
     }
     if (!isSupportedVatRate(defaultVatRate)) {
-      showToast('Vyber predvolenu DPH kategorie', 'error');
+      showToast('Vyber predvolenú DPH kategórie', 'error');
       return;
     }
     btnLoading(saveBtn);
     try {
       if (mode === 'edit' && current.id) {
         await api.put('/menu/categories/' + current.id, { label: label, icon: icon, dest: dest, defaultVatRate: defaultVatRate });
-        showToast('Kategoria upravena', true);
+        showToast('Kategória upravená', true);
       } else {
         const slug = 'cat_' + Date.now();
         const created = await api.post('/menu/categories', {
@@ -489,13 +492,13 @@ function openCategoryModal(mode, initial) {
           defaultVatRate: defaultVatRate,
         });
         activeCatId = (created && created.id) || slug;
-        showToast('Kategoria pridana', true);
+        showToast('Kategória pridaná', true);
       }
       closeModal();
       await loadMenu();
     } catch (err) {
       btnReset(saveBtn);
-      showToast(err.message || 'Chyba ulozenia', 'error');
+      showToast(err.message || 'Chyba uloženia', 'error');
     }
   });
 
@@ -608,8 +611,7 @@ function renderProductEmojiGrid(filter) {
     ? PRODUCT_EMOJI_PALETTE.filter(item => item.k.indexOf(query) !== -1)
     : PRODUCT_EMOJI_PALETTE;
   grid.innerHTML = list.map(item => (
-    '<button type="button" class="prod-emoji-pick" data-emoji="' + item.e + '" title="' + item.k + '" ' +
-    'style="font-size:22px;line-height:1;padding:6px;border:1px solid transparent;background:transparent;border-radius:var(--radius-xs);cursor:pointer">' +
+    '<button type="button" class="prod-emoji-pick" data-emoji="' + item.e + '" title="' + item.k + '">' +
     item.e + '</button>'
   )).join('');
 }
@@ -627,69 +629,80 @@ function wireProductEmojiPicker() {
     if (wrap.style.display === 'none' || !wrap.style.display) {
       renderProductEmojiGrid(search ? search.value : '');
       wrap.style.display = 'block';
+      btn.setAttribute('aria-expanded', 'true');
       if (search) setTimeout(function () { search.focus(); }, 30);
     } else {
       wrap.style.display = 'none';
+      btn.setAttribute('aria-expanded', 'false');
     }
   });
-  if (close) close.addEventListener('click', function () { wrap.style.display = 'none'; });
+  if (close) close.addEventListener('click', function () { wrap.style.display = 'none'; btn.setAttribute('aria-expanded', 'false'); });
   if (search) search.addEventListener('input', function () { renderProductEmojiGrid(search.value); });
   grid.addEventListener('click', function (e) {
     const b = e.target.closest('.prod-emoji-pick');
     if (!b) return;
     input.value = b.dataset.emoji;
     wrap.style.display = 'none';
+    btn.setAttribute('aria-expanded', 'false');
     input.focus();
   });
 }
 
 // === Products ===
+// Jeden riadok na produkt: ikona, názov (+ popis), cena vpravo. Celý riadok
+// otvára úpravu; dostupnosť, fotka aj odstránenie sú vo formulári. Výnimky
+// (nedostupný, DPH mimo kategórie) sa hlásia len tam, kde nastali.
 function renderProducts() {
   const cat = getActiveCat();
   const prodTitle = byId('prodTitle');
   const prodList = byId('prodList');
-  if (!cat) { prodList.innerHTML = ''; prodTitle.textContent = ''; return; }
-  prodTitle.textContent = cat.icon + ' ' + cat.label;
-  if (!cat.items.length) {
-    prodList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">\uD83D\uDCE6</div><div class="empty-state-title">Žiadne produkty</div><div class="empty-state-text">Pridajte prvý produkt do tejto kategórie</div><button class="btn-outline-accent" onclick="document.getElementById(\'addProdBtn\').click()">Pridať produkt</button></div>';
+  const editBtn = byId('editCatBtn');
+  if (!prodList || !prodTitle) return;
+  if (!cat) {
+    prodList.innerHTML = '';
+    prodTitle.textContent = '';
+    if (editBtn) editBtn.hidden = true;
     return;
   }
-  prodList.innerHTML = cat.items.map((item, i) => `
-    <div class="prod-row" data-prod-idx="${i}">
-      <span class="prod-drag">\u22EE\u22EE</span>
-      <span class="prod-emoji">${item.emoji}</span>
-      <div class="prod-info">
-        <div class="prod-name">${escapeHtml(item.name)}</div>
-        <div class="prod-desc">${escapeHtml(item.desc)}</div>
-        <div style="font-size:12px;color:var(--color-text-sec);margin-top:4px">DPH ${formatVatRate(item.vatRate)}%</div>
-      </div>
-      <div class="prod-price">${fmt(item.price)}</div>
-      <div class="toggle-wrap">
-        <div class="toggle ${(item.available !== undefined ? item.available : item.active) ? 'on' : ''}" data-item-id="${item.id}"><div class="toggle-knob"></div></div>
-      </div>
-      <div class="prod-actions">
-        <button class="act-btn" data-edit-id="${item.id}" title="Upraviť">
-          <svg viewBox="0 0 16 16"><path d="M12.1 1.3a1.5 1.5 0 012.1 2.1L5.8 11.8l-3.3.8.8-3.3z"/></svg>
-        </button>
-        <button class="act-btn del" data-del-id="${item.id}" title="Odstranit">
-          <svg viewBox="0 0 16 16"><path d="M5 2V1h6v1h4v2H1V2h4zm0 4v7h6V6H5zm-3 9h12V5H2v10z"/></svg>
-        </button>
-      </div>
-    </div>
-  `).join('');
+  prodTitle.innerHTML = '<span class="mn-group-icon" aria-hidden="true">' + escapeHtml(cat.icon || '') + '</span>'
+    + '<span class="mn-group-name">' + escapeHtml(cat.label) + '</span>'
+    + '<span class="mn-group-n">' + cat.items.length + ' ' + itemsWord(cat.items.length) + '</span>';
+  if (editBtn) editBtn.hidden = false;
+  if (!cat.items.length) {
+    mountEmptyState(prodList, {
+      icon: '📦',
+      title: 'Zatiaľ žiadne produkty',
+      text: 'V kategórii „' + cat.label + '" nič nie je. Pridaj prvý produkt — objaví sa na kase hneď po uložení.',
+      ctaLabel: 'Pridať produkt',
+      onCta: openAddProduct,
+    });
+    return;
+  }
+  prodList.innerHTML = cat.items.map((item) => {
+    const avail = item.available !== undefined ? item.available : item.active;
+    const expected = inferVatRateForForm(cat.id, item.name);
+    const vatOff = expected !== null && Number(item.vatRate) !== Number(expected);
+    const sub = [];
+    if (item.desc) sub.push(escapeHtml(item.desc));
+    if (expected === null) sub.push('DPH ' + formatVatRate(item.vatRate) + ' %');
+    const side = vatOff
+      ? '<span class="mn-num-sub mn-warn">DPH ' + formatVatRate(item.vatRate) + ' %, kat. ' + formatVatRate(expected) + ' %</span>'
+      : '';
+    return '<button type="button" class="mn-row' + (avail ? '' : ' is-off') + '" data-edit-id="' + item.id + '">'
+      + '<span class="mn-row-lead" aria-hidden="true">' + escapeHtml(item.emoji || '🍽') + '</span>'
+      + '<span class="mn-row-main">'
+        + '<span class="mn-row-name">' + escapeHtml(item.name)
+          + (avail ? '' : ' <span class="mn-pill is-off">nedostupný</span>')
+        + '</span>'
+        + (sub.length ? '<span class="mn-row-sub">' + sub.join(' · ') + '</span>' : '')
+      + '</span>'
+      + '<span class="mn-row-side"><span class="mn-num">' + fmt(item.price) + '</span>' + side + '</span>'
+      + '<svg class="mn-chev" aria-hidden="true" viewBox="0 0 16 16"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    + '</button>';
+  }).join('');
 
-  // Bind events
-  prodList.querySelectorAll('.prod-row').forEach((el, i) => {
-    el.addEventListener('mousedown', (e) => startProdDrag(e, i));
-  });
-  prodList.querySelectorAll('.toggle').forEach(el => {
-    el.addEventListener('click', (e) => { e.stopPropagation(); toggleAvail(Number(el.dataset.itemId)); });
-  });
   prodList.querySelectorAll('[data-edit-id]').forEach(el => {
     el.addEventListener('click', () => openEditProduct(Number(el.dataset.editId)));
-  });
-  prodList.querySelectorAll('[data-del-id]').forEach(el => {
-    el.addEventListener('click', () => deleteProduct(Number(el.dataset.delId)));
   });
 }
 
@@ -857,6 +870,7 @@ function openAddProduct() {
   if (byId('fDestOverride')) byId('fDestOverride').value = ''; // default (inherit kategória)
   const wrap = byId('fEmojiGridWrap');
   if (wrap) wrap.style.display = 'none';
+  if (byId('prodDeleteBtn')) byId('prodDeleteBtn').hidden = true;
   byId('productModal').classList.add('show');
   setTimeout(() => byId('fName').focus(), 100);
 }
@@ -890,6 +904,7 @@ function openEditProduct(id) {
   if (byId('fDestOverride')) {
     byId('fDestOverride').value = item.destOverride || '';
   }
+  if (byId('prodDeleteBtn')) byId('prodDeleteBtn').hidden = false;
   byId('productModal').classList.add('show');
   setTimeout(() => byId('fName').focus(), 100);
 }
@@ -915,7 +930,7 @@ function updateFormToggle() {
   const t = byId('fAvailToggle');
   const l = byId('fAvailLabel');
   t.classList.toggle('on', formAvailable);
-  l.textContent = formAvailable ? 'Dostupny' : 'Nedostupny';
+  l.textContent = formAvailable ? 'Dostupný — na kase sa ponúka' : 'Nedostupný — na kase sa skryje';
 }
 
 async function saveProduct() {
@@ -938,7 +953,7 @@ async function saveProduct() {
   if (!Number.isFinite(vatRate)) {
     // Neznama kategoria (slug `cat_<timestamp>`) — sadzba sa neda odvodit a
     // predvyplnit 23 % by pri jedle znamenalo 18 p.b. preplatenu DPH.
-    showToast('Vyber sadzbu DPH — kategoria ju nema nastavenu');
+    showToast('Vyber sadzbu DPH — kategória ju nemá nastavenú');
     return;
   }
   if (!isSupportedVatRate(vatRate)) {
@@ -969,7 +984,7 @@ async function saveProduct() {
       }
     }
 
-    showToast(editingProductId !== null ? 'Produkt upraveny' : 'Produkt pridany', true);
+    showToast(editingProductId !== null ? 'Produkt upravený' : 'Produkt pridaný', true);
     closeProductModal();
     activeCatId = catId;
     await loadMenu();
@@ -997,14 +1012,14 @@ async function deleteProduct(id) {
   renderCategories();
 
   const result = await softDelete({
-    label: '„' + item.label + '" odstránené',
+    label: '„' + item.name + '" odstránené',
     deleteFn: () => api.del('/menu/items/' + id),
   });
   if (result.undone) {
     parentCat.items.splice(itemIdx, 0, item);
     renderProducts();
     renderCategories();
-    showToast('Vratene', true);
+    showToast('Vrátené', true);
   } else if (result.error) {
     parentCat.items.splice(itemIdx, 0, item);
     renderProducts();
@@ -1032,7 +1047,7 @@ function onKeydown(e) {
 // === EXPORTS ===
 export function init(container) {
   _container = container;
-  container.className = 'content admin-page-fill';
+  container.className = 'content mn-page';
 
   // Reset state
   MENU_DATA = [];
@@ -1047,24 +1062,26 @@ export function init(container) {
   prodDragEl = null;
 
   container.innerHTML = `
-    <div class="cat-panel">
-      <div class="cat-panel-header">Kategorie <span id="catCount"></span></div>
-      <div class="cat-list" id="catList">
-        <div class="skeleton-row"></div>
-        <div class="skeleton-row"></div>
-        <div class="skeleton-row"></div>
-      </div>
-      <button class="cat-add-btn" id="addCatBtn">+ Pridať kategóriu</button>
+    <div class="mn-head">
+      <div class="mn-count" id="menuCount" aria-live="polite"></div>
+      <button class="btn-add" id="addProdBtn">
+        <svg aria-hidden="true" viewBox="0 0 14 14"><line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        Pridať produkt
+      </button>
     </div>
-    <div class="prod-panel">
-      <div class="prod-header">
-        <div class="prod-header-title" id="prodTitle">Polozky</div>
-        <button class="prod-add-btn" id="addProdBtn">
-          <svg aria-hidden="true" viewBox="0 0 24 24" class="icon-plus"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Pridat
-        </button>
+    <div class="mn-cats" role="group" aria-label="Kategórie">
+      <div class="mn-cats-list" id="catList"></div>
+      <button type="button" class="doch-chip mn-cat mn-cat-add" id="addCatBtn">
+        <svg aria-hidden="true" viewBox="0 0 14 14"><line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        Kategória
+      </button>
+    </div>
+    <div class="mn-group">
+      <div class="mn-group-head">
+        <div class="mn-group-title" id="prodTitle"></div>
+        <button type="button" class="btn-secondary mn-group-edit" id="editCatBtn" hidden>Upraviť kategóriu</button>
       </div>
-      <div class="prod-list" id="prodList">
+      <div class="mn-list" id="prodList">
         <div class="skeleton-row"></div>
         <div class="skeleton-row"></div>
         <div class="skeleton-row"></div>
@@ -1073,96 +1090,97 @@ export function init(container) {
     </div>
     <!-- Product Modal -->
     <div class="u-overlay" id="productModal">
-      <div class="u-modal u-modal-left">
+      <div class="u-modal u-modal-left mn-modal">
         <div class="u-modal-title text-center" id="modalTitle">Pridať produkt</div>
         <div class="u-modal-body">
-          <div class="u-modal-row">
+          <div class="u-modal-row mn-row-emoji">
             <div class="u-modal-field field-emoji">
-              <label for="fEmoji">Emoji</label>
-              <div style="display:flex;gap:6px;align-items:center">
-                <input id="fEmoji" type="text" placeholder="napr. &#9749;" maxlength="4" class="input-emoji" style="flex:1;text-align:center;font-size:20px">
-                <button type="button" id="fEmojiPickBtn" class="u-btn u-btn-ghost" style="padding:6px 10px;font-size:18px" title="Vybrat emoji">\u{1F642}</button>
+              <label for="fEmoji">Ikona</label>
+              <div class="mn-emoji-field">
+                <input id="fEmoji" type="text" placeholder="&#9749;" maxlength="4" class="input-emoji mn-emoji-input" aria-label="Emoji ikona produktu">
+                <button type="button" id="fEmojiPickBtn" class="btn-secondary mn-emoji-pick" aria-expanded="false" aria-controls="fEmojiGridWrap">Vybrať</button>
               </div>
             </div>
             <div class="u-modal-field field-flex-3">
-              <label for="fName">Nazov<span class="required-mark" aria-hidden="true"> *</span></label>
-              <input id="fName" type="text" placeholder="Nazov produktu" aria-required="true" data-validate="required">
+              <label for="fName">Názov<span class="required-mark" aria-hidden="true"> *</span></label>
+              <input id="fName" type="text" placeholder="napr. Cappuccino" aria-required="true" data-validate="required">
             </div>
           </div>
-          <div id="fEmojiGridWrap" style="display:none;margin:-8px 0 6px;padding:8px;background:var(--color-bg-surface);border:1px solid var(--color-border);border-radius:var(--radius-sm)">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-              <input id="fEmojiSearch" type="text" placeholder="Hladaj (kava, pivo, jedlo...)" class="form-input form-input-sm" style="flex:1">
-              <button type="button" class="act-btn" id="fEmojiClose" title="Zavriet" style="margin-left:6px">\u2715</button>
+          <div id="fEmojiGridWrap" class="mn-emoji-wrap" style="display:none">
+            <div class="mn-emoji-head">
+              <input id="fEmojiSearch" type="text" placeholder="Hľadaj: káva, pivo, jedlo…" class="form-input form-input-sm" aria-label="Hľadať emoji">
+              <button type="button" class="btn-secondary mn-emoji-close" id="fEmojiClose" aria-label="Zavrieť výber ikony">&#10005;</button>
             </div>
-            <div id="fEmojiGrid" style="display:grid;grid-template-columns:repeat(10,1fr);gap:4px;max-height:200px;overflow-y:auto"></div>
+            <div id="fEmojiGrid" class="mn-emoji-grid"></div>
           </div>
           <div class="u-modal-field">
             <label for="fDesc">Popis</label>
-            <input id="fDesc" type="text" placeholder="Kratky popis">
+            <input id="fDesc" type="text" placeholder="Krátky popis, nepovinné (napr. s mliekovou penou)">
           </div>
           <div class="u-modal-row">
             <div class="u-modal-field">
-              <label for="fPrice">Cena (EUR)<span class="required-mark" aria-hidden="true"> *</span></label>
-              <input id="fPrice" type="number" aria-required="true" data-validate="required|number" step="0.10" min="0" placeholder="0.00">
+              <label for="fPrice">Cena (€)<span class="required-mark" aria-hidden="true"> *</span></label>
+              <input id="fPrice" type="number" aria-required="true" data-validate="required|number" step="0.10" min="0" placeholder="0,00" inputmode="decimal">
             </div>
             <div class="u-modal-field">
-              <label for="fCategory">Kategoria</label>
+              <label for="fCategory">Kategória</label>
               <select id="fCategory"></select>
             </div>
           </div>
           <div class="u-modal-row">
             <div class="u-modal-field">
-              <label for="fVatRate">DPH sadzba (%)<span class="required-mark" aria-hidden="true"> *</span></label>
+              <label for="fVatRate">Sadzba DPH<span class="required-mark" aria-hidden="true"> *</span></label>
               <select id="fVatRate" aria-required="true" data-validate="required">
                 <option value="">Vyber sadzbu DPH</option>
-                <option value="5">5 % - jedlo</option>
-                <option value="19">19 % - nealko napoje</option>
-                <option value="23">23 % - alkohol</option>
+                <option value="5">5 % – jedlo</option>
+                <option value="19">19 % – nealko nápoje</option>
+                <option value="23">23 % – alkohol a ostatné</option>
               </select>
-              <div id="fVatRateHint" style="display:none;font-size:12px;margin-top:6px;line-height:1.4"></div>
+              <div id="fVatRateHint" class="mn-hint" style="display:none"></div>
             </div>
             <div class="u-modal-field">
-              <label for="fDestOverride">Tlač do <span style="color:var(--color-text-sec);font-weight:400">(stanica)</span></label>
+              <label for="fDestOverride">Tlačiť na stanicu</label>
               <select id="fDestOverride">
-                <option value="">Default (podľa kategórie)</option>
-                <option value="kuchyna">🍳 Kuchyňa</option>
-                <option value="bar">🍹 Bar</option>
+                <option value="">Podľa kategórie</option>
+                <option value="kuchyna">Kuchyňa</option>
+                <option value="bar">Bar</option>
               </select>
-              <small style="color:var(--color-text-sec);font-size:11px;margin-top:3px;display:block">Default = kuchyna pre jedlo kategórie, bar pre nápoje. Override použi keď chceš tlačiť inde (napr. shisha tabak v bar kategórii, ale tlač na kuchynskú stanicu).</small>
+              <small class="mn-hint">Jedlo ide do kuchyne, nápoje na bar. Zmeň len vtedy, keď sa má položka tlačiť inde.</small>
             </div>
           </div>
           <div class="u-modal-field">
-            <label for="fCompanion">Automaticka priložená položka</label>
+            <label for="fCompanion">Automaticky priložená položka</label>
             <select id="fCompanion">
               <option value="">— žiadna —</option>
             </select>
-            <small style="color:var(--color-text-sec);font-size:12px">Napr. "Záloha fľaša" k flaške Coly. Pri pridaní/zmazaní hlavnej položky sa pridá/zmaže aj táto automaticky.</small>
+            <small class="mn-hint">Napr. „Záloha fľaša" k fľaškovej kole — pridá a zmaže sa spolu s hlavnou položkou.</small>
           </div>
           <div class="u-modal-field">
-            <label>Fotka (max 4 MB; JPEG / PNG / WebP)</label>
-            <div id="fImageWrap" style="display:flex;align-items:center;gap:12px;padding:10px;border:1px dashed var(--color-border);border-radius:var(--radius-sm);background:rgba(255,255,255,.02)">
-              <div id="fImagePreview" style="width:80px;height:80px;border-radius:var(--radius-sm);background:rgba(255,255,255,.04) center/cover no-repeat;border:1px solid var(--color-border);display:flex;align-items:center;justify-content:center;font-size:32px;flex-shrink:0">—</div>
-              <div style="flex:1">
-                <label class="u-btn u-btn-ghost" style="margin:0;cursor:pointer;display:inline-block;padding:8px 14px;font-size:13px">
+            <label>Fotka</label>
+            <div id="fImageWrap" class="mn-photo">
+              <div id="fImagePreview" class="mn-photo-preview" aria-hidden="true">—</div>
+              <div class="mn-photo-actions">
+                <label class="btn-secondary mn-photo-btn">
                   Vybrať fotku
                   <input id="fImageInput" type="file" accept="image/jpeg,image/png,image/webp" style="display:none">
                 </label>
-                <button type="button" id="fImageClear" class="u-btn u-btn-ghost" style="display:none;margin-left:6px;padding:8px 14px;font-size:13px">Zmazať</button>
-                <div id="fImageHint" style="font-size:11px;color:var(--color-text-sec);margin-top:4px">Po výbere fotky stlač <b>Uložiť</b>.</div>
+                <button type="button" id="fImageClear" class="btn-secondary mn-photo-btn" style="display:none">Zmazať fotku</button>
+                <div id="fImageHint" class="mn-hint">JPEG, PNG alebo WebP do 4 MB. Uloží sa spolu s produktom.</div>
               </div>
             </div>
           </div>
           <div class="u-modal-field">
-            <label>Dostupnost</label>
+            <label>Dostupnosť</label>
             <div class="u-toggle" id="fAvailToggleWrap">
               <div class="u-toggle-track on" id="fAvailToggle"><div class="u-toggle-knob"></div></div>
-              <span class="u-toggle-label" id="fAvailLabel">Dostupny</span>
+              <span class="u-toggle-label" id="fAvailLabel">Dostupný — na kase sa ponúka</span>
             </div>
           </div>
         </div>
+        <button type="button" class="u-btn mn-btn-danger" id="prodDeleteBtn" hidden>Odstrániť produkt</button>
         <div class="u-modal-btns">
-          <button class="u-btn u-btn-ghost" id="modalCancelBtn">Zrusit</button>
-          <button class="u-btn u-btn-ice" id="modalSaveBtn">Ulozit</button>
+          <button class="u-btn u-btn-ghost" id="modalCancelBtn">Zrušiť</button>
+          <button class="u-btn u-btn-ice" id="modalSaveBtn">Uložiť</button>
         </div>
       </div>
     </div>
@@ -1171,8 +1189,18 @@ export function init(container) {
   // Bind button events
   byId('addCatBtn').addEventListener('click', addCategory);
   byId('addProdBtn').addEventListener('click', openAddProduct);
+  byId('editCatBtn').addEventListener('click', function () {
+    const cat = getActiveCat();
+    if (cat) openCategoryModal('edit', cat);
+  });
   byId('modalCancelBtn').addEventListener('click', closeProductModal);
   byId('modalSaveBtn').addEventListener('click', saveProduct);
+  // Odstránenie je vo formulári produktu (nie na každom riadku zoznamu).
+  byId('prodDeleteBtn').addEventListener('click', function () {
+    const id = editingProductId;
+    closeProductModal();
+    if (id !== null) deleteProduct(id);
+  });
   wireProductEmojiPicker();
   // Image picker — read file → data URL → preview; clear button drops both
   // pendingImage and (if currentImage) flags clearImage so the saved photo
@@ -1241,6 +1269,11 @@ export function init(container) {
   // Global keyboard handler
   document.addEventListener('keydown', onKeydown);
 
+  // Modálne okno ide do <body>: .app má stacking context (z-index:2) a spodný
+  // tab bar (z-index:50) by inak prekrýval tlačidlá panelu zdola.
+  const pm = byId('productModal');
+  if (pm) document.body.appendChild(pm);
+
   // Load data
   loadMenu();
 }
@@ -1254,6 +1287,10 @@ export function destroy() {
   // Remove any lingering dynamic modals created by this module
   const dyn = document.getElementById('dynModal');
   if (dyn) dyn.remove();
+  const pm = document.getElementById('productModal');
+  if (pm) pm.remove();
+  const cm = document.getElementById('catModal');
+  if (cm) cm.remove();
   _container = null;
   formVatRate = 23;
   vatRateTouched = false;

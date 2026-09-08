@@ -202,6 +202,24 @@ function fmtEur(n) {
   return Number(n).toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' \u20AC';
 }
 
+// Jediná implementácia escapovania je /js/pos-escape.js (načítaná v
+// admin/index.html); mená ľudí a názvy produktov idú z DB do innerHTML.
+function esc(v) {
+  if (typeof window !== 'undefined' && typeof window.escHtml === 'function') return window.escHtml(v);
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// Server beží v UTC — čas príchodu vždy v prevádzkovej zóne.
+var _fmtTime = new Intl.DateTimeFormat('sk-SK', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Bratislava' });
+
+function paymentsWord(n) {
+  if (n === 1) return 'platba';
+  if (n >= 2 && n <= 4) return 'platby';
+  return 'platieb';
+}
+
 function skOpenOrdersLabel(n) {
   if (n === 0) return 'žiadna otvorená';
   if (n === 1) return '1 otvorená objednávka';
@@ -327,24 +345,36 @@ async function loadBarChart() {
     var max = Math.max.apply(null, dailyRevenues);
     if (max === 0) max = 1;
     var weekTotal = dailyRevenues.reduce(function(a, b) { return a + b; }, 0);
+    var todayIdx = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
     var html = '';
     for (var j = 0; j < 7; j++) {
       var rev = dailyRevenues[j];
       var pct = Math.round((rev / max) * 100);
       var isMax = rev === max && rev > 0;
-      // Farba nezvýrazneného stĺpca ide cez triedu, nie inline.
-      // Predtým tu bolo natvrdo rgba(139,124,246,.3) — fialová z VYRADENEJ
-      // palety, ktorá na krémovom Daylight dashboarde nesedela s ničím
-      // a v tmavom režime sa nemenila.
-      var barStyle = 'height:' + pct + '%';
+      // Farba nezvýrazneného stĺpca ide cez triedu, nie inline. Veľkosť pásu
+      // ide cez --pct: na desktope je to výška stĺpca, na telefóne šírka
+      // vodorovného pásu (ios-menu.css) — inline height by to nedovolil.
       var barClass = isMax ? 'bar highlight' : 'bar bar-muted';
-      html += '<div class="bar-col">' +
+      html += '<div class="bar-col' + (j === todayIdx ? ' is-today' : '') + '">' +
         '<div class="bar-amount">' + fmtEur(rev) + '</div>' +
-        '<div class="bar-wrapper"><div class="' + barClass + '" style="' + barStyle + '"></div></div>' +
-        '<div class="bar-label">' + dayLabels[j] + '</div>' +
+        '<div class="bar-wrapper"><div class="' + barClass + '" style="--pct:' + pct + '%"></div></div>' +
+        '<div class="bar-label">' + dayLabels[j] + (j === todayIdx ? ' <span class="sr-only">(dnes)</span>' : '') + '</div>' +
         '</div>';
     }
+    chartEl.classList.add('db-week');
     chartEl.innerHTML = html;
+
+    // Súčet za týždeň — jeden riadok pod grafom, nie ďalšia karta.
+    var oldSum = chartEl.parentNode.querySelector('.db-week-sum');
+    if (oldSum) oldSum.remove();
+    if (weekTotal > 0) {
+      var bestIdx = dailyRevenues.indexOf(max);
+      chartEl.insertAdjacentHTML('afterend',
+        '<div class="db-week-sum">' +
+          '<span>Spolu <strong>' + fmtEur(weekTotal) + '</strong></span>' +
+          '<span>Najsilnejší deň <strong>' + dayLabels[bestIdx] + '</strong> · ' + fmtEur(max) + '</span>' +
+        '</div>');
+    }
 
     // Hláška „žiadne tržby" ide POD graf, nie dovnútra neho.
     // .bar-chart má pevnú výšku 180 px a `flex-wrap:wrap` s
@@ -368,18 +398,18 @@ function renderTopProducts(topItems) {
   var listEl = _container.querySelector('#topProducts');
   if (!listEl) return;
   if (!topItems || topItems.length === 0) {
-    listEl.innerHTML = '<div class="loading-placeholder">Žiadne produkty dnes</div>';
+    listEl.innerHTML = '<div class="empty-hint db-empty">Dnes sa zatiaľ nič nepredalo.</div>';
     return;
   }
   var maxQty = topItems[0].qty || 1;
   var html = '';
   topItems.forEach(function(p, i) {
     var barW = Math.round(((p.qty || 0) / maxQty) * 100);
-    var displayName = (p.emoji ? p.emoji + ' ' : '') + (p.name || '');
+    var displayName = (p.emoji ? esc(p.emoji) + ' ' : '') + esc(p.name || '');
     html += '<div class="product-row">' +
       '<div class="product-rank">' + (i + 1) + '</div>' +
       '<div class="product-name">' + displayName + '</div>' +
-      '<div class="product-qty">' + (p.qty || 0) + '</div>' +
+      '<div class="product-qty">' + (p.qty || 0) + '×</div>' +
       '<div class="product-bar-wrap"><div class="product-bar-fill" style="width:' + barW + '%"></div></div>' +
       '<div class="product-revenue">' + fmtEur(p.revenue || 0) + '</div>' +
       '</div>';
@@ -392,22 +422,29 @@ function renderPaymentMethods(methods) {
   var chartEl = _container.querySelector('#occChart');
   if (!chartEl) return;
   if (!methods || methods.length === 0) {
-    chartEl.innerHTML = '<div class="loading-placeholder">Žiadne platby</div>';
+    chartEl.innerHTML = '<div class="empty-hint db-empty">Zatiaľ žiadne platby.</div>';
     return;
   }
-  var methodLabels = {hotovost: 'Hotovosť', karta: 'Karta', cash: 'Hotovosť', card: 'Karta'};
+  var methodLabels = {hotovost: 'Hotovosť', karta: 'Karta', cash: 'Hotovosť', card: 'Karta', prevod: 'QR platba', qr: 'QR platba'};
   var totalAmt = 0;
-  methods.forEach(function(m) { totalAmt += Number(m.total) || 0; });
+  var totalCount = 0;
+  methods.forEach(function(m) { totalAmt += Number(m.total) || 0; totalCount += Number(m.count) || 0; });
   if (totalAmt <= 0) {
-    chartEl.innerHTML = '<div class="loading-placeholder">Žiadne platby</div>';
+    chartEl.innerHTML = '<div class="empty-hint db-empty">Zatiaľ žiadne platby.</div>';
     return;
   }
 
-  // Kategoriálna paleta grafu — terra / zelená / navy / jantár, teda tie isté
-  // odtiene, aké používa zvyšok Daylight témy. Prvá bola fialová z vyradenej.
-  var colors = ['#b8542a', '#4a7a3a', '#1f3a5c', '#b87c1a'];
+  // Kategoriálna paleta grafu — terra / zelená / navy / jantár z tokenov,
+  // tie isté odtiene, aké používa zvyšok Daylight témy.
+  var colors = ['var(--color-accent)', 'var(--color-success)', 'var(--color-accent-secondary)', 'var(--color-warning)'];
   var html = '';
   var useDonut = methods.length <= 4;
+
+  function labelOf(m) {
+    return methodLabels[m.method] || (m.method.charAt(0).toUpperCase() + m.method.slice(1));
+  }
+
+  html += '<div class="db-pay-total">Spolu <strong>' + fmtEur(totalAmt) + '</strong> · ' + totalCount + ' ' + paymentsWord(totalCount) + '</div>';
 
   if (useDonut) {
     var cumPct = 0;
@@ -422,12 +459,14 @@ function renderPaymentMethods(methods) {
     html += '<div class="dashboard-pay-donut" style="background:conic-gradient(' + stops.join(',') + ')" role="img" aria-hidden="true"></div>';
     html += '<ul class="dashboard-pay-legend">';
     methods.forEach(function(m, i) {
-      var label = methodLabels[m.method] || (m.method.charAt(0).toUpperCase() + m.method.slice(1));
       var share = Math.round((Number(m.total) / totalAmt) * 100);
-      html += '<li class="dashboard-pay-legend-row">' +
+      html += '<li class="dashboard-pay-legend-row db-pay-row">' +
         '<span class="dashboard-pay-swatch" style="background:' + colors[i % colors.length] + '"></span>' +
-        '<span class="dashboard-pay-legend-label">' + label + '</span>' +
-        '<span class="dashboard-pay-legend-val">' + fmtEur(m.total) + ' · ' + share + '% · ' + m.count + '×</span></li>';
+        '<span class="db-pay-main">' +
+          '<span class="dashboard-pay-legend-label">' + esc(labelOf(m)) + '</span>' +
+          '<span class="db-pay-sub">' + m.count + '× · ' + share + ' %</span>' +
+        '</span>' +
+        '<span class="dashboard-pay-legend-val">' + fmtEur(m.total) + '</span></li>';
     });
     html += '</ul></div>';
   } else {
@@ -437,11 +476,10 @@ function renderPaymentMethods(methods) {
     html += '<div class="dashboard-pay-bars">';
     methods.forEach(function(m) {
       var pct = Math.round((m.total / maxTotal) * 100);
-      var label = methodLabels[m.method] || (m.method.charAt(0).toUpperCase() + m.method.slice(1));
       html += '<div class="occ-row">' +
-        '<div class="occ-hour">' + label + '</div>' +
-        '<div class="occ-bar-wrap"><div class="occ-bar-fill" style="width:' + pct + '%;background:linear-gradient(90deg,var(--color-accent),var(--color-accent-dim))"></div></div>' +
-        '<div class="occ-pct" style="width:auto;min-width:60px;text-align:right">' + fmtEur(m.total) + ' (' + m.count + 'x)</div>' +
+        '<div class="occ-hour">' + esc(labelOf(m)) + '</div>' +
+        '<div class="occ-bar-wrap"><div class="occ-bar-fill db-occ-fill" style="width:' + pct + '%"></div></div>' +
+        '<div class="occ-pct" style="width:auto;min-width:60px;text-align:right">' + fmtEur(m.total) + ' (' + m.count + '×)</div>' +
         '</div>';
     });
     html += '</div>';
@@ -516,22 +554,28 @@ async function loadActiveStaff() {
     listEl.classList.remove('loading-placeholder');
     const rows = (data && data.active) || [];
     if (!rows.length) {
-      listEl.innerHTML = '<div class="text-muted" style="padding:8px 0">Nikto sa zatiaľ neoznačil.</div>';
+      listEl.innerHTML = '<div class="empty-hint db-empty">Nikto nie je v práci — zatiaľ sa nikto neprihlásil na termináli dochádzky.</div>';
       return;
     }
+    // Riadok na človeka: meno a pozícia vľavo, odpracovaný čas a príchod
+    // vpravo. Čas príchodu v prevádzkovej zóne (server beží v UTC).
     listEl.innerHTML = '<div class="kto-list">' + rows.map((r) => {
       const h = Math.floor(r.minutes / 60);
       const m = r.minutes % 60;
-      const since = new Date(r.clockedInAt).toLocaleTimeString('sk-SK', { hour: '2-digit', minute: '2-digit' });
-      return '<div class="kto-row">' +
-        '<div class="kto-name">' + (r.name || '?') + '</div>' +
-        (r.position ? '<div class="kto-pos">' + r.position + '</div>' : '') +
-        '<div class="kto-time">od ' + since + '</div>' +
-        '<div class="kto-mins"><strong>' + h + 'h ' + m + 'm</strong></div>' +
+      const since = _fmtTime.format(new Date(r.clockedInAt));
+      return '<div class="kto-row db-kto">' +
+        '<div class="kto-main">' +
+          '<div class="kto-name">' + esc(r.name || '?') + '</div>' +
+          (r.position ? '<div class="kto-pos">' + esc(r.position) + '</div>' : '') +
+        '</div>' +
+        '<div class="kto-side">' +
+          '<div class="kto-mins">' + (h > 0 ? h + ' h ' : '') + m + ' min</div>' +
+          '<div class="kto-time">od ' + since + '</div>' +
+        '</div>' +
       '</div>';
     }).join('') + '</div>';
   } catch (err) {
     listEl.classList.remove('loading-placeholder');
-    listEl.innerHTML = '<div class="text-muted">Chyba načítania (' + (err.message || 'unknown') + ')</div>';
+    listEl.innerHTML = '<div class="error-hint">Prítomných sa nepodarilo načítať (' + esc(err.message || 'neznáma chyba') + ').</div>';
   }
 }
