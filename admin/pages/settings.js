@@ -11,7 +11,7 @@ const DEFAULTS = {
   sIco: '12345678',
   sDic: 'SK2012345678',
   sIcDph: '',
-  sBranchName: 'Hlavna prevadzka',
+  sBranchName: 'Hlavná prevádzka',
   sBranchAddress: 'Hlavna 15, 811 01 Bratislava',
   sCashRegisterCode: '88812345678900001',
   // sVat / sShowVat su prec: boli mrtve (nikto ich necital) a default 20 %
@@ -23,7 +23,7 @@ const DEFAULTS = {
   sTipDefault: 10,
   sQrPaymentEnabled: true,
   sReceiptName: 'Kaviaren & Bar',
-  sReceiptFooter: 'Dakujeme za navstevu!',
+  sReceiptFooter: 'Ďakujeme za návštevu!',
   sReceiptFormat: '80mm',
   sAutoPrint: true,
   sPrimaryColor: '#b8542a',
@@ -32,18 +32,18 @@ const DEFAULTS = {
     { day: 'Pondelok', open: true, from: '08:00', to: '22:00' },
     { day: 'Utorok',   open: true, from: '08:00', to: '22:00' },
     { day: 'Streda',   open: true, from: '08:00', to: '22:00' },
-    { day: 'Stvrtok',  open: true, from: '08:00', to: '22:00' },
+    { day: 'Štvrtok',  open: true, from: '08:00', to: '22:00' },
     { day: 'Piatok',   open: true, from: '08:00', to: '22:00' },
     { day: 'Sobota',   open: true, from: '09:00', to: '23:00' },
-    { day: 'Nedela',   open: true, from: '10:00', to: '20:00' }
+    { day: 'Nedeľa',   open: true, from: '10:00', to: '20:00' }
   ]
 };
 
 const DEST_LABELS = {
   all: 'Všetko',
-  kuchyna: 'Kuchyna',
+  kuchyna: 'Kuchyňa',
   bar: 'Bar',
-  uctenka: 'Uctenka'
+  uctenka: 'Účtenka'
 };
 
 let settings = {};
@@ -64,306 +64,180 @@ function qsAll(sel) { return _container.querySelectorAll(sel); }
 /* ─── TEMPLATE ─── */
 function getTemplate() {
   return `
-    <!-- SECTION 1: Zakladne udaje -->
-    <div class="section">
-      <div class="section-title">
-        <svg aria-hidden="true" viewBox="0 0 20 20"><path d="M4 4h12v12H4z" fill="none" stroke="currentColor" stroke-width="1.5" rx="2"/><path d="M7 8h6M7 11h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
-        Identifikačné údaje
-      </div>
-      <div class="text-muted" style="font-size:12px;margin:0 0 14px;line-height:1.5">
-        Identifikačné údaje (názov firmy, IČO, DIČ, IČ DPH, pobočka, kód pokladne, sídlo) sa automaticky synchronizujú z Portos/eKasa a sú <strong>iba na čítanie</strong>. Zmeniť ich možno len priamo v Portos cez oficiálny postup. Telefón a e-mail sa ukladajú lokálne pre hlavičku účtenky.
-      </div>
-      <div class="form-grid">
-        <div class="form-group">
-          <label for="sName">Nazov firmy (z Portos)</label>
-          <input class="form-input" id="sName" type="text" readonly tabindex="-1" aria-readonly="true">
-        </div>
-        <div class="form-group">
-          <label for="sAddress">Sidlo firmy (z Portos)</label>
-          <input class="form-input" id="sAddress" type="text" readonly tabindex="-1" aria-readonly="true">
-        </div>
-        <div class="form-group">
-          <label for="sPhone">Telefon</label>
-          <input class="form-input" id="sPhone" type="text" placeholder="napr. +421 900 123 456">
-        </div>
-        <div class="form-group">
-          <label for="sEmail">Email</label>
-          <input class="form-input" id="sEmail" type="text" data-validate="email">
-        </div>
-        <div class="form-group">
-          <label for="sIco">ICO (z Portos)</label>
-          <input class="form-input" id="sIco" type="text" readonly tabindex="-1" aria-readonly="true" placeholder="napr. 12345678">
-        </div>
-        <div class="form-group">
-          <label for="sDic">DIC (z Portos)</label>
-          <input class="form-input" id="sDic" type="text" readonly tabindex="-1" aria-readonly="true" placeholder="napr. 2023456789">
-        </div>
-        <div class="form-group">
-          <label for="sIcDph">IC DPH (z Portos)</label>
-          <input class="form-input" id="sIcDph" type="text" readonly tabindex="-1" aria-readonly="true" placeholder="napr. SK2023456789">
-        </div>
-        <div class="form-group">
-          <label for="sBranchName">Nazov prevadzky (z Portos)</label>
-          <input class="form-input" id="sBranchName" type="text" readonly tabindex="-1" aria-readonly="true" placeholder="Portos nevratil nazov pobocky">
-        </div>
-        <div class="form-group">
-          <label for="sBranchAddress">Adresa prevadzky (z Portos)</label>
-          <input class="form-input" id="sBranchAddress" type="text" readonly tabindex="-1" aria-readonly="true">
-        </div>
-        <div class="form-group">
-          <label for="sCashRegisterCode">Kod pokladnice (z Portos)</label>
-          <input class="form-input" id="sCashRegisterCode" type="text" readonly tabindex="-1" aria-readonly="true" placeholder="88812345678900001">
-        </div>
-      </div>
-    </div>
+    <div class="set-page">
 
-    <!-- SECTION 2: Financne nastavenia -->
-    <div class="section">
-      <div class="section-title">
-        <svg aria-hidden="true" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10 5v10M7 7.5h4.5a2 2 0 010 4H7M8 11.5h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
-        Financne nastavenia
+      <h2 class="set-head">Firma</h2>
+      <p class="set-lead">Názov, IČO, DIČ, IČ DPH, prevádzka a kód pokladnice sa preberajú z Portos/eKasa a sú iba na čítanie — menia sa výhradne v Portose. Telefón a e-mail sa ukladajú tu, pre hlavičku účtenky.</p>
+      <div class="set-group">
+        <label class="set-row is-ro"><span class="set-k">Názov firmy</span><input class="set-v" id="sName" type="text" readonly tabindex="-1" aria-readonly="true"></label>
+        <label class="set-row is-ro is-stack"><span class="set-k">Sídlo firmy</span><input class="set-v" id="sAddress" type="text" readonly tabindex="-1" aria-readonly="true"></label>
+        <label class="set-row is-ro"><span class="set-k">IČO</span><input class="set-v set-mono" id="sIco" type="text" readonly tabindex="-1" aria-readonly="true" placeholder="—"></label>
+        <label class="set-row is-ro"><span class="set-k">DIČ</span><input class="set-v set-mono" id="sDic" type="text" readonly tabindex="-1" aria-readonly="true" placeholder="—"></label>
+        <label class="set-row is-ro"><span class="set-k">IČ DPH</span><input class="set-v set-mono" id="sIcDph" type="text" readonly tabindex="-1" aria-readonly="true" placeholder="—"></label>
+        <label class="set-row is-ro"><span class="set-k">Prevádzka</span><input class="set-v" id="sBranchName" type="text" readonly tabindex="-1" aria-readonly="true" placeholder="Portos nevrátil názov"></label>
+        <label class="set-row is-ro is-stack"><span class="set-k">Adresa prevádzky</span><input class="set-v" id="sBranchAddress" type="text" readonly tabindex="-1" aria-readonly="true"></label>
+        <label class="set-row is-ro"><span class="set-k">Kód pokladnice</span><input class="set-v set-mono" id="sCashRegisterCode" type="text" readonly tabindex="-1" aria-readonly="true" placeholder="—"></label>
+        <label class="set-row"><span class="set-k">Telefón</span><input class="set-v" id="sPhone" type="text" inputmode="tel" autocomplete="off" placeholder="+421 900 123 456"></label>
+        <label class="set-row"><span class="set-k">E-mail</span><input class="set-v" id="sEmail" type="text" inputmode="email" autocomplete="off" data-validate="email" placeholder="info@…"></label>
       </div>
-      <div class="form-grid">
-        <div class="form-group full">
-          <label>DPH</label>
-          <div id="vatStatusBox" style="padding:10px 12px;border:1px solid var(--color-border);border-radius:var(--radius-sm);background:var(--color-bg-surface);line-height:1.5">
-            <span class="text-muted">Načítavam režim DPH…</span>
+
+      <h2 class="set-head">DPH</h2>
+      <div class="set-group" id="vatStatusBox">
+        <div class="set-row"><span class="set-k">Režim DPH</span><span class="set-r"><span class="set-val">Načítavam…</span></span></div>
+      </div>
+
+      <h2 class="set-head">Predaj</h2>
+      <div class="set-group">
+        <label class="set-row"><span class="set-k">Mena</span><select class="set-v set-sel" id="sCurrency">
+          <option value="EUR">EUR</option>
+          <option value="CZK">CZK</option>
+          <option value="USD">USD</option>
+        </select></label>
+        <label class="set-row"><span class="set-k">Zaokrúhľovanie</span><select class="set-v set-sel" id="sRounding">
+          <option value="centy">Na centy</option>
+          <option value="5centov">Na 5 centov</option>
+          <option value="10centov">Na 10 centov</option>
+        </select></label>
+        <div class="set-row"><span class="set-k">Sprepitné</span><span class="set-r"><span class="set-sr" id="sTipLabel">Zapnuté</span><button type="button" class="set-sw on" id="sTipToggle" role="switch" aria-checked="true" aria-label="Sprepitné"></button></span></div>
+        <div class="set-row is-seg" id="tipOptions"><span class="set-k">Predvolené sprepitné</span><span class="set-seg" role="group" aria-label="Predvolené sprepitné">
+          <button type="button" class="tip-opt" data-val="5">5 %</button>
+          <button type="button" class="tip-opt active" data-val="10">10 %</button>
+          <button type="button" class="tip-opt" data-val="15">15 %</button>
+        </span></div>
+        <div class="set-row"><span class="set-k">QR platba (Portos PayMe)</span><span class="set-r"><span class="set-sr" id="sQrPaymentLabel">Zapnuté</span><button type="button" class="set-sw on" id="sQrPaymentEnabled" role="switch" aria-checked="true" aria-label="QR platba"></button></span></div>
+        <p class="set-note">Po vypnutí QR platby zmizne tlačidlo „QR platba“ z pokladne po ďalšom prihlásení. Nastavenie je uložené v prehliadači — na každej kase zvlášť.</p>
+      </div>
+
+      <h2 class="set-head">Otváracie hodiny</h2>
+      <div class="set-group" id="hoursBody"></div>
+
+      <h2 class="set-head">Účtenka a tlač</h2>
+      <div class="set-group">
+        <label class="set-row"><span class="set-k">Názov na účtenke</span><input class="set-v" id="sReceiptName" type="text" autocomplete="off"></label>
+        <label class="set-row"><span class="set-k">Formát</span><select class="set-v set-sel" id="sReceiptFormat">
+          <option value="80mm">80 mm termálna</option>
+          <option value="A4">A4</option>
+          <option value="none">Bez tlače</option>
+        </select></label>
+        <label class="set-row is-stack"><span class="set-k">Päta účtenky</span><textarea class="set-v set-ta" id="sReceiptFooter" rows="2"></textarea></label>
+        <div class="set-row"><span class="set-k">Tlačiť automaticky</span><span class="set-r"><button type="button" class="set-sw on" id="sAutoPrint" role="switch" aria-checked="true" aria-label="Tlačiť automaticky"></button></span></div>
+        <p class="set-note">Názov a päta sa na fiškálny doklad zatiaľ netlačia — hlavičku aj pätu berie eKasa z profilu firmy v Portose.</p>
+      </div>
+
+      <h2 class="set-head">Tlačiarne</h2>
+      <div class="set-group">
+        <div id="printersTable"></div>
+        <button type="button" class="set-add" id="btnAddPrinter">Pridať tlačiareň</button>
+      </div>
+      <div id="addPrinterForm" class="set-sheet" style="display:none" role="dialog" aria-modal="true" aria-labelledby="printerSheetTitle">
+        <div class="set-sheet-card">
+          <h3 class="set-sheet-title" id="printerSheetTitle">Nová tlačiareň</h3>
+          <div class="set-field">
+            <label for="newPrinterName">Názov</label>
+            <input class="form-input" id="newPrinterName" type="text" autocomplete="off" placeholder="napr. Kuchynská tlačiareň">
           </div>
-        </div>
-        <div class="form-group">
-          <label for="sCurrency">Mena</label>
-          <select class="form-select" id="sCurrency">
-            <option value="EUR">EUR</option>
-            <option value="CZK">CZK</option>
-            <option value="USD">USD</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="sRounding">Zaokruhlovanie</label>
-          <select class="form-select" id="sRounding" title="Zaokruhlovanie na najblizsi cent">
-            <option value="centy">Na centy</option>
-            <option value="5centov">Na 5 centov</option>
-            <option value="10centov">Na 10 centov</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Sprepitne</label>
-          <div class="flex-row flex-wrap align-center gap-3 mt-1">
-            <div class="toggle-row">
-              <button class="toggle on" id="sTipToggle"></button>
-              <span class="toggle-label" id="sTipLabel">Zapnute</span>
+          <div class="set-field-row">
+            <div class="set-field">
+              <label for="newPrinterIp">IP adresa</label>
+              <input class="form-input" id="newPrinterIp" type="text" inputmode="decimal" autocomplete="off" placeholder="192.168.0.107">
             </div>
-            <div class="tip-options" id="tipOptions">
-              <button class="tip-opt" data-val="5">5%</button>
-              <button class="tip-opt active" data-val="10">10%</button>
-              <button class="tip-opt" data-val="15">15%</button>
+            <div class="set-field set-field-sm">
+              <label for="newPrinterPort">Port</label>
+              <input class="form-input" id="newPrinterPort" type="number" inputmode="numeric" value="9100" min="1" max="65535">
             </div>
           </div>
-        </div>
-        <div class="form-group">
-          <label>QR platba (Portos PayMe)</label>
-          <div class="toggle-row mt-1">
-            <button class="toggle on" id="sQrPaymentEnabled"></button>
-            <span class="toggle-label" id="sQrPaymentLabel">Zapnute</span>
-          </div>
-        </div>
-      </div>
-      <div class="text-muted" style="font-size:12px;margin:8px 0 0;line-height:1.5">
-        Ak QR platbu vypnete, tlačidlo „QR platba“ zmizne z pokladne po ďalšom
-        prihlásení/obnovení stránky na danom zariadení. Nastavenie je uložené
-        lokálne v prehliadači — treba ho nastaviť na každej kase zvlášť.
-      </div>
-    </div>
-
-    <!-- SECTION 3: Otvaracie hodiny -->
-    <div class="section">
-      <div class="section-title">
-        <svg aria-hidden="true" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10 5v5l3.5 2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Otvaracie hodiny
-      </div>
-      <!-- .table-scroll-wrap je povinny: tabulka ma 506 px, na telefone sa do
-           350 px sekcie nezmesti a bez wrappera sa CAST ORIEZLA — nedalo sa k nej
-           doskrolovat vobec. Ostatne admin tabulky wrapper uz maju. -->
-      <div class="table-scroll-wrap">
-        <table class="hours-table">
-          <thead>
-            <tr><th>Den</th><th>Stav</th><th>Od</th><th></th><th>Do</th></tr>
-          </thead>
-          <tbody id="hoursBody"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- SECTION 4: Tlac a uctenky -->
-    <div class="section">
-      <div class="section-title">
-        <svg aria-hidden="true" viewBox="0 0 20 20"><rect x="4" y="2" width="12" height="6" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="2" y="7" width="16" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6 15v3h8v-3" fill="none" stroke="currentColor" stroke-width="1.3"/><line x1="7" y1="11" x2="13" y2="11" stroke="currentColor" stroke-width="1" stroke-linecap="round"/></svg>
-        Tlac a uctenky
-      </div>
-      <div class="form-grid">
-        <div class="form-group">
-          <label for="sReceiptName">Nazov na uctenke</label>
-          <input class="form-input" id="sReceiptName" type="text">
-        </div>
-        <div class="form-group">
-          <label for="sReceiptFormat">Format uctenky</label>
-          <select class="form-select" id="sReceiptFormat">
-            <option value="80mm">80mm termalna</option>
-            <option value="A4">A4</option>
-            <option value="none">Bez tlace</option>
-          </select>
-        </div>
-        <div class="form-group full">
-          <label for="sReceiptFooter">Pata uctenky</label>
-          <textarea class="form-input" id="sReceiptFooter" rows="2"></textarea>
-        </div>
-        <div class="form-group">
-          <label>Tlacit automaticky</label>
-          <div class="toggle-row mt-1">
-            <button class="toggle on" id="sAutoPrint"></button>
-            <span class="toggle-label">Zapnute</span>
-          </div>
-        </div>
-      </div>
-      <div class="text-muted" style="font-size:12px;margin:8px 0 0;line-height:1.5">
-        Nazov a pata uctenky sa zatial na fiskalny doklad NEtlacia — hlavicku
-        aj patu berie eKasa z firemneho profilu v Portose.
-      </div>
-    </div>
-
-    <!-- SECTION: Tlaciarni -->
-    <div class="section">
-      <div class="section-title">
-        <svg aria-hidden="true" viewBox="0 0 20 20"><rect x="4" y="2" width="12" height="6" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="2" y="7" width="16" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6 15v3h8v-3" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="14" cy="10" r="1" fill="currentColor"/></svg>
-        Tlaciarni
-      </div>
-      <div class="mb-3">
-        <button class="btn-save btn-sm" id="btnAddPrinter">+ Pridať tlačiareň</button>
-      </div>
-      <div id="addPrinterForm" class="inline-form-panel" style="display:none">
-        <div class="form-grid form-grid-printer">
-          <div class="form-group">
-            <label for="newPrinterName">Nazov</label>
-            <input class="form-input" id="newPrinterName" type="text" placeholder="napr. Kuchynska tlaciaren">
-          </div>
-          <div class="form-group">
-            <label for="newPrinterIp">IP adresa</label>
-            <input class="form-input" id="newPrinterIp" type="text" placeholder="192.168.0.107">
-          </div>
-          <div class="form-group">
-            <label for="newPrinterPort">Port</label>
-            <input class="form-input" id="newPrinterPort" type="number" value="9100" min="1" max="65535">
-          </div>
-          <div class="form-group">
-            <label for="newPrinterDest">Ucel</label>
+          <div class="set-field">
+            <label for="newPrinterDest">Čo sa na nej tlačí</label>
             <select class="form-select" id="newPrinterDest">
-              <option value="all">Vsetko</option>
-              <option value="kuchyna">Kuchyna</option>
+              <option value="all">Všetko</option>
+              <option value="kuchyna">Kuchyňa</option>
               <option value="bar">Bar</option>
-              <option value="uctenka">Uctenka</option>
+              <option value="uctenka">Účtenka</option>
             </select>
           </div>
-        </div>
-        <div class="flex-row gap-2 mt-3">
-          <button class="btn-save btn-sm" id="btnSavePrinter">Ulozit</button>
-          <button class="btn-reset btn-sm" id="btnCancelPrinter">Zrusit</button>
-        </div>
-      </div>
-      <div id="printersTable"></div>
-    </div>
-
-    <!-- SECTION 5: Portos diagnostika -->
-    <div class="section">
-      <div class="section-title">
-        <svg aria-hidden="true" viewBox="0 0 20 20"><path d="M10 2l7 4v8l-7 4-7-4V6l7-4z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10 6v4l3 2" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
-        Portos eKasa diagnostika
-      </div>
-      <div id="portosDiagnostics"></div>
-      <div id="companyProfileCompare" class="mt-3"></div>
-      <div class="flex-row gap-2 mt-3">
-        <button class="btn-save btn-sm" id="btnRefreshPortos">Obnovit stav</button>
-        <button class="btn-save btn-sm" id="btnSyncProfileFromPortos" style="background:var(--color-accent)">Obnovit udaje z Portos</button>
-      </div>
-      <div id="fiscalStornoPanel" class="mt-3" style="padding-top:12px;border-top:1px solid var(--color-border, #2a2638)">
-        <div class="form-group" style="max-width:420px">
-          <label for="fiscalStornoPaymentId">Fiškálne STORNO (omyl, už vytlačený blok)</label>
-          <p class="text-muted" style="font-size:12px;margin:0 0 8px;line-height:1.4">ID platby z databázy (rovnaké ako pri kopii dokladu). Iba manažér/admin. Odošle opravný doklad do eKasy cez Portos a vytlačí na CHDU podľa nastavenia.</p>
-          <div class="flex-row gap-2" style="align-items:center;flex-wrap:wrap">
-            <input class="form-input" id="fiscalStornoPaymentId" type="number" min="1" step="1" placeholder="napr. 42" style="max-width:140px">
-            <button type="button" class="btn-save btn-sm" id="btnFiscalStorno" style="background:var(--color-danger, #c44)">Odoslať STORNO</button>
+          <div class="set-sheet-aux" id="printerSheetActions" hidden>
+            <button type="button" class="btn-secondary" id="btnTestPrinter" data-printer-test="">Skúšobná tlač</button>
+            <button type="button" class="btn-secondary is-danger" id="btnDeletePrinter" data-printer-delete="" data-printer-name="">Zmazať tlačiareň</button>
+          </div>
+          <div class="set-sheet-btns">
+            <button type="button" class="btn-secondary" id="btnCancelPrinter">Zrušiť</button>
+            <button type="button" class="btn-save" id="btnSavePrinter">Uložiť tlačiareň</button>
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- SECTION 6: Vzhladove nastavenia -->
-    <div class="section">
-      <div class="section-title">
-        <svg aria-hidden="true" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="7" cy="8" r="1.5" fill="currentColor"/><circle cx="13" cy="8" r="1.5" fill="currentColor"/><path d="M6.5 13c1 1.5 5.5 1.5 7 0" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
-        Vzhladove nastavenia
+      <h2 class="set-head">Zľavy</h2>
+      <div class="set-group">
+        <div id="discountsTable"></div>
+        <button type="button" class="set-add" id="btnAddDiscount">Pridať zľavu</button>
       </div>
-      <div class="form-grid">
-        <div class="form-group">
-          <label>Primarna farba</label>
-          <div class="color-input-wrap">
-            <div class="color-swatch">
-              <input type="color" id="sPrimaryColor">
+      <div id="addDiscountForm" class="set-sheet" style="display:none" role="dialog" aria-modal="true" aria-labelledby="discountSheetTitle">
+        <div class="set-sheet-card">
+          <h3 class="set-sheet-title" id="discountSheetTitle">Nová zľava</h3>
+          <div class="set-field">
+            <label for="newDiscName">Názov</label>
+            <input class="form-input" id="newDiscName" type="text" autocomplete="off" placeholder="napr. Happy hour −20 %">
+          </div>
+          <div class="set-field-row">
+            <div class="set-field">
+              <label for="newDiscType">Typ</label>
+              <select class="form-select" id="newDiscType">
+                <option value="percent">Percento (%)</option>
+                <option value="fixed">Pevná suma (€)</option>
+              </select>
             </div>
-            <span class="color-hex" id="primaryHex">#b8542a</span>
-          </div>
-        </div>
-        <div class="form-group">
-          <label>Sekundarna farba</label>
-          <div class="color-input-wrap">
-            <div class="color-swatch">
-              <input type="color" id="sSecondaryColor">
+            <div class="set-field set-field-sm">
+              <label for="newDiscValue">Hodnota</label>
+              <input class="form-input" id="newDiscValue" type="number" min="0" step="0.01" inputmode="decimal" placeholder="10">
             </div>
-            <span class="color-hex" id="secondaryHex">#1f3a5c</span>
+          </div>
+          <div class="set-sheet-btns">
+            <button type="button" class="btn-secondary" id="btnCancelDiscount">Zrušiť</button>
+            <button type="button" class="btn-save" id="btnSaveDiscount">Uložiť zľavu</button>
           </div>
         </div>
       </div>
-    </div>
+      <div id="discountDetail" class="set-sheet" style="display:none" role="dialog" aria-modal="true" aria-labelledby="discountDetailTitle">
+        <div class="set-sheet-card">
+          <h3 class="set-sheet-title" id="discountDetailTitle">Zľava</h3>
+          <p class="set-sheet-text" id="discountDetailText"></p>
+          <div class="set-sheet-btns">
+            <button type="button" class="btn-secondary" id="btnCloseDiscountDetail">Zavrieť</button>
+            <button type="button" class="btn-secondary is-danger" id="btnDeleteDiscount" data-disc-delete="" data-disc-name="">Zmazať zľavu</button>
+          </div>
+        </div>
+      </div>
 
-    <!-- SECTION 7: Zlavy -->
-    <div class="section">
-      <div class="section-title">
-        <svg aria-hidden="true" viewBox="0 0 20 20"><path d="M17.7 11.3l-6.4 6.4a2 2 0 01-2.8 0L2 11.2V2h9.2l6.5 6.5a2 2 0 010 2.8z" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="6.5" cy="6.5" r="1.5" fill="currentColor"/></svg>
-        Zlavy
+      <h2 class="set-head">Vzhľad</h2>
+      <div class="set-group">
+        <label class="set-row" for="sPrimaryColor"><span class="set-k">Primárna farba</span><span class="set-r color-input-wrap"><span class="color-hex" id="primaryHex">#b8542a</span><span class="color-swatch"><input type="color" id="sPrimaryColor" aria-label="Primárna farba"></span></span></label>
+        <label class="set-row" for="sSecondaryColor"><span class="set-k">Sekundárna farba</span><span class="set-r color-input-wrap"><span class="color-hex" id="secondaryHex">#1f3a5c</span><span class="color-swatch"><input type="color" id="sSecondaryColor" aria-label="Sekundárna farba"></span></span></label>
       </div>
-      <div class="mb-3">
-        <button class="btn-save btn-sm" id="btnAddDiscount">+ Pridať zľavu</button>
-      </div>
-      <div id="addDiscountForm" class="inline-form-panel" style="display:none">
-        <div class="form-grid three-col">
-          <div class="form-group">
-            <label for="newDiscName">Nazov</label>
-            <input class="form-input" id="newDiscName" type="text" placeholder="napr. Happy Hour -20%">
-          </div>
-          <div class="form-group">
-            <label for="newDiscType">Typ</label>
-            <select class="form-select" id="newDiscType">
-              <option value="percent">Percento (%)</option>
-              <option value="fixed">Pevna suma (EUR)</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label for="newDiscValue">Hodnota</label>
-            <input class="form-input" id="newDiscValue" type="number" min="0" step="0.01" placeholder="10">
-          </div>
-        </div>
-        <div class="flex-row gap-2 mt-3">
-          <button class="btn-save btn-sm" id="btnSaveDiscount">Ulozit</button>
-          <button class="btn-reset btn-sm" id="btnCancelDiscount">Zrusit</button>
-        </div>
-      </div>
-      <div id="discountsTable"></div>
-    </div>
 
-    <!-- FOOTER -->
-    <div id="profileLoadWarning" style="display:none;color:var(--color-danger);font-size:13px;text-align:right;padding-top:12px;line-height:1.5"></div>
-    <div class="settings-footer">
-      <button class="btn-reset" id="resetBtn">Obnovit povodne</button>
-      <button class="btn-save" id="saveBtn">Ulozit zmeny</button>
+      <h2 class="set-head">Portos eKasa</h2>
+      <div class="set-group" id="portosDiagnostics"></div>
+      <div id="companyProfileCompare"></div>
+      <div class="set-actions">
+        <button type="button" class="btn-secondary" id="btnRefreshPortos">Obnoviť stav</button>
+        <button type="button" class="btn-secondary" id="btnSyncProfileFromPortos">Prevziať údaje z Portos</button>
+      </div>
+
+      <div id="fiscalStornoPanel">
+        <h2 class="set-head">Fiškálne storno</h2>
+        <p class="set-lead">Ak bol doklad vytlačený omylom, do eKasy sa odošle opravný doklad a vytlačí sa podľa nastavenia Portosu. ID platby je v Histórii platieb (rovnaké ako pri kópii dokladu). Iba manažér alebo admin.</p>
+        <div class="set-group">
+          <label class="set-row"><span class="set-k">ID platby</span><input class="set-v" id="fiscalStornoPaymentId" type="number" min="1" step="1" inputmode="numeric" placeholder="napr. 42"></label>
+        </div>
+        <div class="set-actions">
+          <button type="button" class="btn-secondary is-danger" id="btnFiscalStorno">Odoslať storno do eKasy</button>
+        </div>
+      </div>
+
+      <div id="profileLoadWarning" class="error-hint set-warn" style="display:none"></div>
+      <div class="settings-footer set-footer">
+        <button type="button" class="btn-reset" id="resetBtn">Obnoviť pôvodné</button>
+        <button type="button" class="btn-save" id="saveBtn">Uložiť zmeny</button>
+      </div>
     </div>
   `;
 }
@@ -425,7 +299,8 @@ function applyToForm() {
 
   var tipToggle = byId('sTipToggle');
   tipToggle.classList.toggle('on', settings.sTipEnabled);
-  byId('sTipLabel').textContent = settings.sTipEnabled ? 'Zapnute' : 'Vypnute';
+  syncSwitch(tipToggle);
+  byId('sTipLabel').textContent = settings.sTipEnabled ? 'Zapnuté' : 'Vypnuté';
   byId('tipOptions').style.opacity = settings.sTipEnabled ? '1' : '.3';
   byId('tipOptions').style.pointerEvents = settings.sTipEnabled ? 'all' : 'none';
   qsAll('.tip-opt').forEach(function (btn) {
@@ -433,12 +308,14 @@ function applyToForm() {
   });
 
   byId('sQrPaymentEnabled').classList.toggle('on', settings.sQrPaymentEnabled);
-  byId('sQrPaymentLabel').textContent = settings.sQrPaymentEnabled ? 'Zapnute' : 'Vypnute';
+  syncSwitch(byId('sQrPaymentEnabled'));
+  byId('sQrPaymentLabel').textContent = settings.sQrPaymentEnabled ? 'Zapnuté' : 'Vypnuté';
 
   byId('sReceiptName').value = settings.sReceiptName;
   byId('sReceiptFooter').value = settings.sReceiptFooter;
   byId('sReceiptFormat').value = settings.sReceiptFormat;
   byId('sAutoPrint').classList.toggle('on', settings.sAutoPrint);
+  syncSwitch(byId('sAutoPrint'));
 
   byId('sPrimaryColor').value = settings.sPrimaryColor;
   byId('sSecondaryColor').value = settings.sSecondaryColor;
@@ -457,26 +334,22 @@ function renderVatStatus() {
   if (!el) return;
 
   if (!companyProfile) {
-    el.innerHTML = '<span style="color:var(--color-danger)">Rezim DPH sa nenacital</span>'
-      + '<div class="text-muted" style="font-size:12px;margin-top:4px">'
-      + 'Firemny profil sa nepodarilo nacitat zo servera — pouzi „Obnovit udaje z Portos".</div>';
+    el.innerHTML = '<div class="set-row"><span class="set-k">Režim DPH</span>'
+      + '<span class="set-r"><span class="set-pill is-danger">nenačítal sa</span></span></div>'
+      + '<p class="set-note">Firemný profil sa nepodarilo načítať zo servera — použite „Prevziať údaje z Portos“.</p>';
     return;
   }
 
   var icDph = String(companyProfile.icDph || '').trim();
   var isPayer = icDph.length > 0;
-  // Textovy odtien, nie vyplnovy: --color-success ma ako text na kreme
-  // len 4,43:1 (pod AA 4,5). --color-success-text je stmaveny variant.
-  var tone = isPayer ? 'var(--color-success-text)' : 'var(--color-text-sec)';
-  el.innerHTML = '<div style="font-weight:var(--weight-bold);color:' + tone + '">'
-      + 'Platitel DPH: ' + (isPayer ? 'ano' : 'nie') + '</div>'
-    + (isPayer ? '<div class="text-muted" style="font-size:12px;margin-top:2px">IC DPH ' + escapeHtml(icDph) + '</div>' : '')
-    + '<div class="text-muted" style="font-size:12px;margin-top:6px;line-height:1.5">'
-    + 'Sadzby DPH sa nastavuju per polozka v <a href="#menu" class="settings-inline-link">Admin -&gt; Menu</a> (5 / 19 / 23 %). '
+  el.innerHTML = '<div class="set-row"><span class="set-k">Platiteľ DPH</span>'
+      + '<span class="set-r"><span class="set-pill ' + (isPayer ? 'is-success' : 'is-neutral') + '">' + (isPayer ? 'áno' : 'nie') + '</span></span></div>'
+    + (isPayer ? '<div class="set-row"><span class="set-k">IČ DPH</span><span class="set-r"><span class="set-val set-mono">' + escapeHtml(icDph) + '</span></span></div>' : '')
+    + '<p class="set-note">Sadzby DPH sa nastavujú pri každej položke v <a href="#menu" class="settings-inline-link">Menu</a> (5 / 19 / 23 %). '
     + (isPayer
-      ? 'Doklady sa fiskalizuju so sadzbou konkretnej polozky.'
-      : 'Kym firma nie je platitel, kazdy doklad ide s 0 % DPH.')
-    + '</div>';
+      ? 'Doklady sa fiškalizujú so sadzbou konkrétnej položky.'
+      : 'Kým firma nie je platiteľ, každý doklad ide s 0 % DPH.')
+    + '</p>';
 }
 
 // Identifikacne polia (ICO, DIC, IC DPH, kod pokladnice, nazov/adresa) su
@@ -506,7 +379,7 @@ function renderSaveGuard() {
   if (warn) {
     warn.style.display = blocked ? '' : 'none';
     warn.textContent = blocked
-      ? 'Firemne udaje sa nenacitali — ukladanie je zablokovane, aby sa neprepisala identita firmy. Skus „Obnovit udaje z Portos".'
+      ? 'Firemné údaje sa nenačítali — ukladanie je zablokované, aby sa neprepísala identita firmy. Skúste „Prevziať údaje z Portos“.'
       : '';
   }
 }
@@ -535,7 +408,7 @@ function gatherSettings() {
 
 async function saveSettingsAction() {
   if (!companyProfile) {
-    showToast('Firemne udaje sa nenacitali — ulozenie by prepisalo identitu firmy', 'error');
+    showToast('Firemné údaje sa nenačítali — uloženie by prepísalo identitu firmy', 'error');
     renderSaveGuard();
     return;
   }
@@ -548,51 +421,63 @@ async function saveSettingsAction() {
     gatherSettings();
     localStorage.setItem('pos_settings', JSON.stringify(settings));
     await loadCompanyProfileCompare();
-    showToast('Nastavenia ulozene', true);
+    showToast('Nastavenia uložené', true);
   } catch (e) {
-    showToast(e.message || 'Chyba pri ukladani nastaveni', 'error');
+    showToast(e.message || 'Chyba pri ukladaní nastavení', 'error');
   } finally {
     if (btn) btnReset(btn);
   }
 }
 
 function resetDefaults() {
-  showConfirm('Obnovit nastavenia', 'Vsetky nastavenia budu obnovene na povodne hodnoty.', function () {
+  showConfirm('Obnoviť pôvodné nastavenia?', 'Všetky nastavenia sa vrátia na pôvodné hodnoty. Firemné údaje z Portosu to nemení.', function () {
     settings = JSON.parse(JSON.stringify(DEFAULTS));
     localStorage.removeItem('pos_settings');
     applyToForm();
     renderCompanyProfileCompare();
-    showToast('Nastavenia obnovene na povodne', true);
-  }, { type: 'warning', icon: '\u{1F504}', confirmText: 'Obnoviť' });
+    showToast('Nastavenia obnovené na pôvodné', true);
+  }, { type: 'warning', confirmText: 'Obnoviť pôvodné' });
 }
 
 /* ─── HOURS ─── */
 
+// Ulozene nastavenia mozu niest nazvy dni este bez diakritiky (DEFAULTS
+// pred opravou) — zobrazenie ich opravi, data sa nemenia.
+var DAY_LABEL = { Stvrtok: 'Štvrtok', Nedela: 'Nedeľa' };
+
 function renderHours() {
-  var tbody = byId('hoursBody');
-  tbody.innerHTML = settings.hours.map(function (h, i) {
-    return '<tr>' +
-      '<td class="day-name">' + h.day + '</td>' +
-      '<td><button class="toggle ' + (h.open ? 'on' : '') + '" data-day-idx="' + i + '"></button></td>' +
-      '<td>' + (h.open
-        ? '<input class="time-input" type="time" value="' + h.from + '" data-hour-idx="' + i + '" data-hour-field="from">'
-        : '<span class="closed-label">Zatvorene</span>') + '</td>' +
-      '<td>' + (h.open ? '<span class="time-separator">\u2014</span>' : '') + '</td>' +
-      '<td>' + (h.open
-        ? '<input class="time-input" type="time" value="' + h.to + '" data-hour-idx="' + i + '" data-hour-field="to">'
-        : '') + '</td>' +
-    '</tr>';
+  var host = byId('hoursBody');
+  host.innerHTML = settings.hours.map(function (h, i) {
+    var day = DAY_LABEL[h.day] || h.day;
+    return '<div class="set-row set-hours' + (h.open ? '' : ' is-closed') + '">' +
+      '<span class="set-k">' + escapeHtml(day) + '</span>' +
+      '<span class="set-r">' +
+        (h.open
+          ? '<input class="time-input set-time" type="time" value="' + h.from + '" data-hour-idx="' + i + '" data-hour-field="from" aria-label="' + escapeHtml(day) + ' — otvorené od">' +
+            '<span class="set-dash" aria-hidden="true">–</span>' +
+            '<input class="time-input set-time" type="time" value="' + h.to + '" data-hour-idx="' + i + '" data-hour-field="to" aria-label="' + escapeHtml(day) + ' — otvorené do">'
+          : '<span class="set-closed">Zatvorené</span>') +
+        '<button type="button" class="set-sw' + (h.open ? ' on' : '') + '" data-day-idx="' + i + '" role="switch" aria-checked="' + (h.open ? 'true' : 'false') + '" aria-label="' + escapeHtml(day) + ' — otvorené"></button>' +
+      '</span>' +
+    '</div>';
   }).join('');
 }
 
 /* ─── TIP ─── */
 
+function syncSwitch(btn) {
+  if (btn && btn.getAttribute('role') === 'switch') {
+    btn.setAttribute('aria-checked', btn.classList.contains('on') ? 'true' : 'false');
+  }
+}
+
 function toggleTip() {
   var toggle = byId('sTipToggle');
   toggle.classList.toggle('on');
+  syncSwitch(toggle);
   var isOn = toggle.classList.contains('on');
   settings.sTipEnabled = isOn;
-  byId('sTipLabel').textContent = isOn ? 'Zapnute' : 'Vypnute';
+  byId('sTipLabel').textContent = isOn ? 'Zapnuté' : 'Vypnuté';
   byId('tipOptions').style.opacity = isOn ? '1' : '.3';
   byId('tipOptions').style.pointerEvents = isOn ? 'all' : 'none';
 }
@@ -602,9 +487,10 @@ function toggleTip() {
 function toggleQrPayment() {
   var toggle = byId('sQrPaymentEnabled');
   toggle.classList.toggle('on');
+  syncSwitch(toggle);
   var isOn = toggle.classList.contains('on');
   settings.sQrPaymentEnabled = isOn;
-  byId('sQrPaymentLabel').textContent = isOn ? 'Zapnute' : 'Vypnute';
+  byId('sQrPaymentLabel').textContent = isOn ? 'Zapnuté' : 'Vypnuté';
 }
 
 /* ─── COLOR ─── */
@@ -618,59 +504,66 @@ function updateColorHex(inputId, hexId) {
 
 async function loadPrinters() {
   var el = byId('printersTable');
-  if (el) showLoading(el, 'Načítavam tlačiarne...');
+  if (el) showLoading(el, 'Načítavam tlačiarne…');
   try {
     adminPrinters = await api.get('/printers');
     if (el) hideLoading(el);
     renderPrinters();
   } catch (e) {
     if (el) hideLoading(el);
-    showToast(e.message || 'Chyba nacitania tlaciarni', 'error');
-    if (el) el.innerHTML = '<div class="error-hint">Chyba nacitania tlaciarni</div>';
+    showToast(e.message || 'Chyba načítania tlačiarní', 'error');
+    if (el) el.innerHTML = '<p class="set-note is-danger">Tlačiarne sa nepodarilo načítať. Skúste stránku obnoviť.</p>';
   }
 }
+
+// Chevron na konci riadka: hovori, ze klepnutie na text otvori panel s upravou.
+var CHEVRON = '<svg class="set-chev" aria-hidden="true" viewBox="0 0 16 16"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 function renderPrinters() {
   var el = byId('printersTable');
   if (!adminPrinters.length) {
-    el.innerHTML = '<div class="empty-hint">Žiadne tlačiarne. Kliknite „+ Pridať tlačiareň“ pre vytvorenie.</div>';
+    el.innerHTML = '<p class="set-empty">Zatiaľ žiadna tlačiareň. Bez nej sa bončeky do kuchyne ani na bar netlačia — pridajte prvú.</p>';
     return;
   }
-  var html = '<div class="table-scroll-wrap"><table class="data-table">';
-  html += '<thead><tr>';
-  var ths = ['Názov', 'IP', 'Port', 'Účel', 'Aktívna', 'Stav', 'Akcie'];
-  var alignClasses = ['', '', '', '', 'text-center', 'text-center', 'text-right'];
-  ths.forEach(function (t, idx) {
-    html += '<th class="data-th ' + alignClasses[idx] + '">' + t + '</th>';
-  });
-  html += '</tr></thead><tbody>';
-
-  adminPrinters.forEach(function (p) {
+  // XSS: nazov/IP/ucel su volny text z DB (POST /printers) — vzdy escapovat.
+  el.innerHTML = adminPrinters.map(function (p) {
     var destLabel = DEST_LABELS[p.dest] || p.dest;
-    var activeClass = p.active ? 'on' : '';
-    var statusId = 'printerStatus_' + p.id;
+    return '<div class="set-row set-item' + (p.active ? '' : ' is-off') + '">' +
+      '<button type="button" class="set-main" data-printer-edit="' + p.id + '">' +
+        '<span class="set-main-txt">' +
+          '<span class="set-title">' + escapeHtml(p.name) + (p.active ? '' : ' <span class="set-off">vypnutá</span>') + '</span>' +
+          '<span class="set-sub"><span class="set-mono">' + escapeHtml(p.ip) + ':' + escapeHtml(p.port) + '</span> · ' + escapeHtml(destLabel) + '</span>' +
+        '</span>' +
+        CHEVRON +
+      '</button>' +
+      '<span class="set-r">' +
+        '<span id="printerStatus_' + p.id + '" class="status-dot set-dot" aria-hidden="true"></span>' +
+        '<button type="button" class="set-sw' + (p.active ? ' on' : '') + '" data-printer-toggle="' + p.id + '" data-printer-active="' + p.active + '"' +
+          ' role="switch" aria-checked="' + (p.active ? 'true' : 'false') + '" aria-label="' + escapeHtml(p.name) + ' — aktívna"></button>' +
+      '</span>' +
+    '</div>';
+  }).join('');
+}
 
-    // XSS: nazov/IP/ucel su volny text z DB (POST /printers) — vzdy escapovat.
-    html += '<tr class="data-row">';
-    html += '<td class="data-td td-name">' + escapeHtml(p.name) + '</td>';
-    html += '<td class="data-td td-mono td-sec">' + escapeHtml(p.ip) + '</td>';
-    html += '<td class="data-td td-sec">' + escapeHtml(p.port) + '</td>';
-    html += '<td class="data-td td-accent">' + escapeHtml(destLabel) + '</td>';
-    html += '<td class="data-td text-center"><button class="toggle ' + activeClass + '" data-printer-toggle="' + p.id + '" data-printer-active="' + p.active + '"></button></td>';
-    html += '<td class="data-td text-center"><span id="' + statusId + '" class="status-dot"></span></td>';
-    html += '<td class="data-td text-right nowrap">';
-    html += '<button class="action-btn action-btn-accent" data-printer-test="' + p.id + '">Test</button>';
-    html += '<button class="action-btn action-btn-dim" data-printer-edit="' + p.id + '">Upraviť</button>';
-    // XSS: samotne &quot; nestaci — pri ' alebo > sa da vyskocit z atributu.
-    html += '<button class="action-btn action-btn-danger" data-printer-delete="' + p.id + '" data-printer-name="' + escapeHtml(p.name) + '">Zmazať</button>';
-    html += '</td></tr>';
-  });
-  html += '</tbody></table></div>';
-  el.innerHTML = html;
+// Panel zdola je jeden pre pridanie aj upravu; pri uprave sa v nom odkryje
+// skusobna tlac a zmazanie (destruktivna akcia nepatri na kazdy riadok).
+function setPrinterSheet(title, p) {
+  var t = byId('printerSheetTitle');
+  if (t) t.textContent = title;
+  var aux = byId('printerSheetActions');
+  if (aux) aux.hidden = !p;
+  var test = byId('btnTestPrinter');
+  var del = byId('btnDeletePrinter');
+  if (test) test.setAttribute('data-printer-test', p ? String(p.id) : '');
+  if (del) {
+    del.setAttribute('data-printer-delete', p ? String(p.id) : '');
+    del.setAttribute('data-printer-name', p ? String(p.name) : '');
+  }
 }
 
 function showAddPrinterForm() {
   editingPrinterId = null;
+  setPrinterSheet('Nová tlačiareň', null);
   byId('addPrinterForm').style.display = 'block';
   byId('newPrinterName').value = '';
   byId('newPrinterIp').value = '';
@@ -692,23 +585,23 @@ async function saveNewPrinter() {
 
   if (!name) { showToast('Zadajte názov tlačiarne'); return; }
   if (!ip) { showToast('Zadajte IP adresu'); return; }
-  if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip)) { showToast('Neplatna IP adresa'); return; }
-  if (port < 1 || port > 65535) { showToast('Port musi byt 1-65535'); return; }
+  if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip)) { showToast('Neplatná IP adresa — očakáva sa tvar 192.168.0.107'); return; }
+  if (port < 1 || port > 65535) { showToast('Port musí byť 1 – 65535'); return; }
 
   var btn = byId('btnSavePrinter');
   if (btn) btnLoading(btn);
   try {
     if (editingPrinterId) {
       await api.put('/printers/' + editingPrinterId, { name: name, ip: ip, port: port, dest: dest });
-      showToast('Tlaciaren aktualizovana', true);
+      showToast('Tlačiareň upravená', true);
     } else {
       await api.post('/printers', { name: name, ip: ip, port: port, dest: dest });
-      showToast('Tlaciaren pridana', true);
+      showToast('Tlačiareň pridaná', true);
     }
     hideAddPrinterForm();
     await loadPrinters();
   } catch (e) {
-    showToast(e.message || 'Chyba ukladania tlaciarni', 'error');
+    showToast(e.message || 'Tlačiareň sa nepodarilo uložiť', 'error');
   } finally {
     if (btn) btnReset(btn);
   }
@@ -718,6 +611,7 @@ function editPrinter(id) {
   var p = adminPrinters.find(function (pr) { return pr.id === id; });
   if (!p) return;
   editingPrinterId = id;
+  setPrinterSheet('Upraviť tlačiareň', p);
   byId('addPrinterForm').style.display = 'block';
   byId('newPrinterName').value = p.name;
   byId('newPrinterIp').value = p.ip;
@@ -730,22 +624,22 @@ async function togglePrinterActive(id, currentActive) {
   try {
     await api.put('/printers/' + id, { active: !currentActive });
     await loadPrinters();
-    showToast(currentActive ? 'Tlaciaren deaktivovana' : 'Tlaciaren aktivovana', true);
+    showToast(currentActive ? 'Tlačiareň vypnutá' : 'Tlačiareň zapnutá', true);
   } catch (e) {
     showToast('Chyba: ' + e.message);
   }
 }
 
 async function deletePrinter(id, name) {
-  showConfirm('Zmazať tlačiareň', 'Naozaj chcete zmazať tlačiareň "' + name + '"?', async function () {
+  showConfirm('Zmazať tlačiareň?', 'Tlačiareň „' + name + '“ sa odstráni zo zoznamu. Bončeky, ktoré na ňu smerovali, sa prestanú tlačiť.', async function () {
     try {
       await api.del('/printers/' + id);
-      showToast('Tlaciaren zmazana', true);
+      showToast('Tlačiareň zmazaná', true);
       await loadPrinters();
     } catch (e) {
       showToast('Chyba: ' + e.message);
     }
-  }, { type: 'danger', icon: '\u26A0\uFE0F', confirmText: 'Zmazať' });
+  }, { type: 'danger', confirmText: 'Zmazať tlačiareň' });
 }
 
 async function testPrinter(id) {
@@ -756,10 +650,10 @@ async function testPrinter(id) {
   try {
     await api.post('/printers/' + id + '/test', {});
     if (statusEl) statusEl.style.background = 'var(--color-success)';
-    showToast('Test uspesny', true);
+    showToast('Skúšobná tlač prešla', true);
   } catch (e) {
     if (statusEl) statusEl.style.background = 'var(--color-danger)';
-    showToast('Test zlyhal: ' + e.message, 'error');
+    showToast('Skúšobná tlač zlyhala: ' + e.message, 'error');
   } finally {
     if (testBtn) btnReset(testBtn);
   }
@@ -803,7 +697,7 @@ function formatPortosValue(value) {
 }
 
 function formatPortosDate(value) {
-  if (!value) return 'Neznamy';
+  if (!value) return 'Neznámy';
   var date = new Date(value);
   if (isNaN(date.getTime())) return String(value);
   return date.toLocaleString('sk-SK');
@@ -841,25 +735,29 @@ function statusTone(value) {
   return 'neutral';
 }
 
-function toneStyle(tone) {
-  if (tone === 'success') return 'background:rgba(16,185,129,.12);color:#047857;border:1px solid rgba(16,185,129,.25);';
-  if (tone === 'warning') return 'background:rgba(245,158,11,.12);color:#b45309;border:1px solid rgba(245,158,11,.25);';
-  if (tone === 'danger') return 'background:rgba(239,68,68,.12);color:#b91c1c;border:1px solid rgba(239,68,68,.25);';
-  return 'background:rgba(148,163,184,.14);color:#334155;border:1px solid rgba(148,163,184,.22);';
+function toneClass(tone) {
+  return 'set-pill is-' + (tone || 'neutral');
 }
 
-function renderPortosCard(title, value, details) {
-  var tone = statusTone(value);
-  var html = '<div style="border:1px solid rgba(148,163,184,.22);border-radius:14px;padding:12px;background:rgba(255,255,255,.65);min-height:96px;display:flex;flex-direction:column;gap:10px;">';
-  html += '<div style="font-size:12px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:#64748b;">' + escapeHtml(title) + '</div>';
-  html += '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start;">';
-  html += '<span style="display:inline-flex;align-items:center;padding:6px 10px;border-radius:999px;font-size:12px;font-weight:700;' + toneStyle(tone) + '">' + escapeHtml(formatPortosValue(value) || 'Neznamy') + '</span>';
-  html += '</div>';
-  if (details) {
-    html += '<div style="font-size:12px;line-height:1.5;color:#475569;white-space:pre-wrap;">' + escapeHtml(details) + '</div>';
-  }
-  html += '</div>';
-  return html;
+// Jeden riadok diagnostiky: nazov vlavo, stav ako pilulka (alebo hodnota,
+// ked to nie je stav) vpravo, detail drobnym pismom pod nazvom.
+function renderPortosCard(title, value, details, plain) {
+  var text = formatPortosValue(value) || 'Neznámy';
+  var right = plain
+    ? '<span class="set-val">' + escapeHtml(text) + '</span>'
+    : '<span class="' + toneClass(statusTone(value)) + '">' + escapeHtml(text) + '</span>';
+  return '<div class="set-row">' +
+    '<span class="set-k">' + escapeHtml(title) +
+      (details ? '<span class="set-sub">' + escapeHtml(details) + '</span>' : '') +
+    '</span>' +
+    '<span class="set-r">' + right + '</span>' +
+  '</div>';
+}
+
+function mismatchWord(n) {
+  if (n === 1) return '1 nezhoda';
+  if (n >= 2 && n <= 4) return n + ' nezhody';
+  return n + ' nezhôd';
 }
 
 function renderCompanyProfileCompare() {
@@ -881,40 +779,39 @@ function renderCompanyProfileCompare() {
   var portos = companyCompare.portos || {};
   var matches = summary.matches || {};
   var fields = [
-    ['businessName', 'Nazov firmy'],
-    ['ico', 'ICO'],
-    ['dic', 'DIC'],
-    ['icDph', 'IC DPH'],
-    ['registeredAddress', 'Sidlo firmy'],
-    ['branchName', 'Nazov prevadzky'],
-    ['branchAddress', 'Adresa prevadzky'],
-    ['cashRegisterCode', 'Kod pokladnice']
+    ['businessName', 'Názov firmy'],
+    ['ico', 'IČO'],
+    ['dic', 'DIČ'],
+    ['icDph', 'IČ DPH'],
+    ['registeredAddress', 'Sídlo firmy'],
+    ['branchName', 'Prevádzka'],
+    ['branchAddress', 'Adresa prevádzky'],
+    ['cashRegisterCode', 'Kód pokladnice']
   ];
 
-  var html = '<div style="border:1px solid rgba(148,163,184,.22);border-radius:16px;padding:14px;background:rgba(255,255,255,.68);">';
-  html += '<div class="flex-row" style="justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">';
-  html += '<div style="font-size:13px;font-weight:700;color:#334155">Porovnanie s Portos</div>';
-  html += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
-  html += '<span style="display:inline-flex;align-items:center;padding:6px 10px;border-radius:999px;font-size:12px;font-weight:700;' + toneStyle(summary.mismatchCount ? 'warning' : 'success') + '">';
-  html += summary.mismatchCount ? ('Nezhoda: ' + summary.mismatchCount) : 'Udaje sa zhoduju';
-  html += '</span>';
-  if (summary.lastComparedAt) {
-    html += '<span class="text-muted" style="font-size:12px">Posledne porovnanie: ' + escapeHtml(formatPortosDate(summary.lastComparedAt)) + '</span>';
-  }
-  html += '</div></div>';
-  html += '<div class="text-muted" style="font-size:12px;line-height:1.5;margin-top:10px">Pri prihlásení manažéra alebo admina sa údaje z aktuálneho Portos automaticky uložia do databázy a do lokálnych nastavení (názov prevádzky na POS). POS tieto údaje do Portos nezapisuje — zmena firmy vždy v Portos/eKasa. Ak vidíš nezhodu po zmene v Portos, obnov stránku adminu.</div>';
-  html += '<div style="margin-top:12px;overflow:auto"><table class="data-table"><thead><tr><th class="data-th">Pole</th><th class="data-th">Nase udaje</th><th class="data-th">Portos</th><th class="data-th">Stav</th></tr></thead><tbody>';
+  var html = '<div class="set-group set-compare">';
+  html += '<div class="set-row"><span class="set-k">Porovnanie s Portos'
+    + (summary.lastComparedAt ? '<span class="set-sub">naposledy ' + escapeHtml(formatPortosDate(summary.lastComparedAt)) + '</span>' : '')
+    + '</span><span class="set-r"><span class="set-pill ' + (summary.mismatchCount ? 'is-warning' : 'is-success') + '">'
+    + (summary.mismatchCount ? mismatchWord(summary.mismatchCount) : 'údaje sa zhodujú')
+    + '</span></span></div>';
   fields.forEach(function (field) {
     var key = field[0];
     var ok = matches[key];
-    html += '<tr class="data-row">';
-    html += '<td class="data-td">' + escapeHtml(field[1]) + '</td>';
-    html += '<td class="data-td">' + escapeHtml(local[key] || '-') + '</td>';
-    html += '<td class="data-td">' + escapeHtml(portos[key] || '-') + '</td>';
-    html += '<td class="data-td"><span style="display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;font-size:12px;font-weight:700;' + toneStyle(ok ? 'success' : 'warning') + '">' + (ok ? 'Zhoda' : 'Nezhoda') + '</span></td>';
-    html += '</tr>';
+    var ours = local[key] || '—';
+    var theirs = portos[key] || '—';
+    // Pri zhode staci hodnota raz; obe strany ukazujeme len tam, kde sa lisia.
+    html += '<div class="set-row' + (ok ? '' : ' is-mismatch') + '">';
+    html += '<span class="set-k">' + escapeHtml(field[1])
+      + (ok ? '' : '<span class="set-sub">u nás: ' + escapeHtml(ours) + '<br>Portos: ' + escapeHtml(theirs) + '</span>')
+      + '</span>';
+    html += '<span class="set-r">' + (ok
+      ? '<span class="set-val">' + escapeHtml(ours) + '</span>'
+      : '<span class="set-pill is-warning">nezhoda</span>') + '</span>';
+    html += '</div>';
   });
-  html += '</tbody></table></div>';
+  html += '<p class="set-note">Pri prihlásení manažéra alebo admina sa údaje z Portosu uložia do databázy a do nastavení kasy. POS do Portosu nezapisuje — firma sa mení vždy v Portose. Ak po zmene vidíte nezhodu, obnovte stránku.</p>';
+  html += '</div>';
   el.innerHTML = html;
 }
 
@@ -923,37 +820,46 @@ function renderPortosDiagnostics() {
   if (!el) return;
 
   if (portosStatusLoading) {
-    el.innerHTML = '<div class="loading-hint">Načítavam Portos stav...</div>';
+    el.innerHTML = '<div class="loading-hint">Načítavam stav Portosu…</div>';
     return;
   }
 
   if (portosStatusError && !portosStatus) {
-    el.innerHTML = '<div class="error-hint">' + escapeHtml(portosStatusError) + '</div>';
+    el.innerHTML = '<p class="set-note is-danger">' + escapeHtml(portosStatusError) + '</p>';
     return;
   }
 
   if (!portosStatus) {
-    el.innerHTML = '<div class="empty-hint">Zatiaľ nie sú dostupné Portos dáta.</div>';
+    el.innerHTML = '<p class="set-note">Zatiaľ nie sú dostupné dáta z Portosu. Skúste „Obnoviť stav“.</p>';
     return;
   }
 
   var status = normalizePortosStatus(portosStatus);
   var connectivityValue = formatPortosValue(status.connectivity) || formatPortosValue(status.raw.state) || formatPortosValue(status.raw.status);
-  var printerValue = formatPortosValue(status.printer) || formatPortosValue(status.raw.printerState) || formatPortosValue(status.raw.printerStatus);
+  // Objekt (state | serialNumber | …) do pilulky nepatri: stav ide do pilulky,
+  // cely zaznam drobnym pismom pod nazov.
+  var stateOf = function (v) {
+    if (v && typeof v === 'object' && !Array.isArray(v)) return firstDefined(v.state, v.status, v.connected, v.name);
+    return v;
+  };
+  var storageState = stateOf(status.storage);
   var storageDetails = formatPortosValue(status.storage);
+  var printerState = stateOf(status.printer);
+  var printerValue = formatPortosValue(printerState) || formatPortosValue(status.raw.printerState) || formatPortosValue(status.raw.printerStatus);
+  var printerDetails = formatPortosValue(status.raw.printerMessage || status.raw.printerInfo || '')
+    || (printerState !== status.printer ? formatPortosValue(status.printer) : '');
   var certExpiry = formatPortosDate(status.certExpiry);
   var certCount = Array.isArray(status.certificates) ? status.certificates.length : (status.certificates ? 1 : 0);
 
-  var html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;">';
-  html += renderPortosCard('Connectivity', connectivityValue || 'Neznamy', formatPortosValue(status.raw.connectivityInfo || status.raw.connectivityMessage || ''));
-  html += renderPortosCard('CHDU / storage', formatPortosValue(status.storage) || 'Neznamy', storageDetails && storageDetails !== formatPortosValue(status.storage) ? storageDetails : '');
-  html += renderPortosCard('Printer state', printerValue || 'Neznamy', formatPortosValue(status.raw.printerMessage || status.raw.printerInfo || ''));
-  html += renderPortosCard('Cash register', status.cashRegisterCode || 'Neznamy', certCount ? 'Certificates: ' + certCount : '');
-  html += renderPortosCard('Cert expiry', certExpiry, 'Raw: ' + (status.certExpiry ? String(status.certExpiry) : 'Neznamy'));
-  html += '</div>';
+  var html = '';
+  html += renderPortosCard('Pripojenie', connectivityValue || 'Neznámy', formatPortosValue(status.raw.connectivityInfo || status.raw.connectivityMessage || ''));
+  html += renderPortosCard('CHDU / úložisko', formatPortosValue(storageState) || 'Neznámy', storageState !== status.storage ? storageDetails : '');
+  html += renderPortosCard('Tlačiareň Portosu', printerValue || 'Neznámy', printerDetails);
+  html += renderPortosCard('Kód pokladnice', status.cashRegisterCode || 'Neznámy', certCount ? (certCount === 1 ? '1 certifikát' : certCount + ' certifikáty') : '', true);
+  html += renderPortosCard('Certifikát platný do', certExpiry, '', true);
 
   if (portosStatusError) {
-    html += '<div class="error-hint" style="margin-top:12px;">' + escapeHtml(portosStatusError) + '</div>';
+    html += '<p class="set-note is-danger">' + escapeHtml(portosStatusError) + '</p>';
   }
 
   el.innerHTML = html;
@@ -971,7 +877,7 @@ async function loadCompanyProfile(options) {
     companyProfile = null;
     renderVatStatus();
     renderSaveGuard();
-    showToast(e.message || 'Chyba nacitania firemnych udajov', 'error');
+    showToast(e.message || 'Firemné údaje sa nepodarilo načítať', 'error');
   }
 }
 
@@ -980,7 +886,7 @@ async function syncProfileFromPortosAction() {
   if (btn) {
     btn.disabled = true;
     btn.dataset.originalText = btn.textContent;
-    btn.textContent = 'Synchronizujem...';
+    btn.textContent = 'Preberám…';
   }
   try {
     var profile = await api.syncCompanyProfileFromPortos();
@@ -993,14 +899,14 @@ async function syncProfileFromPortosAction() {
       applyToForm();
     }
     await loadCompanyProfileCompare();
-    showToast('Udaje z Portos aktualizovane', true);
+    showToast('Údaje z Portosu prevzaté', true);
   } catch (e) {
-    var msg = e && (e.data && e.data.detail || e.message) || 'Chyba synchronizacie z Portos';
+    var msg = e && (e.data && e.data.detail || e.message) || 'Údaje z Portosu sa nepodarilo prevziať';
     showToast(msg, 'error');
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.textContent = btn.dataset.originalText || 'Obnovit udaje z Portos';
+      btn.textContent = btn.dataset.originalText || 'Prevziať údaje z Portos';
     }
   }
 }
@@ -1011,7 +917,7 @@ async function loadCompanyProfileCompare() {
     companyCompare = await api.getCompanyProfilePortosCompare();
   } catch (e) {
     companyCompare = null;
-    companyCompareError = e && e.message ? e.message : 'Chyba porovnania s Portos';
+    companyCompareError = e && e.message ? e.message : 'Porovnanie s Portosom sa nepodarilo';
   } finally {
     renderCompanyProfileCompare();
   }
@@ -1024,19 +930,19 @@ async function loadPortosStatus() {
   if (btn) {
     btn.disabled = true;
     btn.dataset.originalText = btn.textContent;
-    btn.textContent = 'Načítavam...';
+    btn.textContent = 'Načítavam…';
   }
   renderPortosDiagnostics();
   try {
     portosStatus = await api.getPortosStatus();
   } catch (e) {
     portosStatus = null;
-    portosStatusError = e && e.message ? e.message : 'Chyba nacitania Portos stavu';
+    portosStatusError = e && e.message ? e.message : 'Stav Portosu sa nepodarilo načítať';
   } finally {
     portosStatusLoading = false;
     if (btn) {
       btn.disabled = false;
-      btn.textContent = btn.dataset.originalText || 'Obnovit stav';
+      btn.textContent = btn.dataset.originalText || 'Obnoviť stav';
     }
     renderPortosDiagnostics();
     loadCompanyProfileCompare();
@@ -1064,64 +970,87 @@ function submitFiscalStorno() {
     return;
   }
   showConfirm(
-    'Fiškálne STORNO',
-    'Naozaj odoslať opravný doklad (STORNO) do eKasy pre platbu #' + id + '? Tlač cez Portos podľa PORTOS_PRINTER_NAME.',
+    'Odoslať fiškálne storno?',
+    'Do eKasy sa odošle opravný doklad k platbe č. ' + id + ' a vytlačí sa cez Portos. Krok sa nedá vrátiť.',
     async function () {
       try {
         var r = await api.post('/payments/' + id + '/fiscal-storno', {});
         var st = r.fiscal && r.fiscal.status ? r.fiscal.status : 'ok';
-        showToast('STORNO odoslané (' + st + ').', true);
+        showToast('Storno odoslané (' + st + ')', true);
       } catch (e) {
-        showToast(e.message || 'Chyba STORNO', 'error');
+        showToast(e.message || 'Storno sa nepodarilo odoslať', 'error');
       }
     },
-    { type: 'danger', confirmText: 'Odoslať STORNO' }
+    { type: 'danger', confirmText: 'Odoslať storno' }
   );
 }
 
 async function loadDiscounts() {
   var el = byId('discountsTable');
-  if (el) showLoading(el, 'Načítavam zľavy...');
+  if (el) showLoading(el, 'Načítavam zľavy…');
   try {
     adminDiscounts = await api.get('/discounts/all');
     if (el) hideLoading(el);
     renderDiscounts();
   } catch (e) {
     if (el) hideLoading(el);
-    showToast(e.message || 'Chyba nacitania zlav', 'error');
-    if (el) el.innerHTML = '<div class="error-hint">Chyba nacitania zlav</div>';
+    showToast(e.message || 'Chyba načítania zliav', 'error');
+    if (el) el.innerHTML = '<p class="set-note is-danger">Zľavy sa nepodarilo načítať. Skúste stránku obnoviť.</p>';
   }
+}
+
+function discountTypeLabel(d) {
+  return d.type === 'percent' ? 'Percento' : 'Pevná suma';
+}
+function discountValueLabel(d) {
+  return d.type === 'percent'
+    ? String(d.value).replace('.', ',') + ' %'
+    : fmtCost(d.value) + ' €';
 }
 
 function renderDiscounts() {
   var el = byId('discountsTable');
   if (!adminDiscounts.length) {
-    el.innerHTML = '<div class="empty-hint">Žiadne zľavy. Kliknite „+ Pridať zľavu“ pre vytvorenie.</div>';
+    el.innerHTML = '<p class="set-empty">Zatiaľ žiadna zľava. Pridajte prvú — čašník si ju potom vyberie pri platbe.</p>';
     return;
   }
-  var html = '<div class="table-scroll-wrap"><table class="data-table">';
-  html += '<thead><tr>';
-  var ths = ['Názov', 'Typ', 'Hodnota', 'Stav', 'Akcie'];
-  var alignClasses = ['', '', '', 'text-center', 'text-right'];
-  ths.forEach(function (t, idx) {
-    html += '<th class="data-th ' + alignClasses[idx] + '">' + t + '</th>';
-  });
-  html += '</tr></thead><tbody>';
+  el.innerHTML = adminDiscounts.map(function (d) {
+    return '<div class="set-row set-item' + (d.active ? '' : ' is-off') + '">' +
+      '<button type="button" class="set-main" data-disc-open="' + d.id + '">' +
+        '<span class="set-main-txt">' +
+          '<span class="set-title">' + escapeHtml(d.name) + (d.active ? '' : ' <span class="set-off">vypnutá</span>') + '</span>' +
+          '<span class="set-sub">' + discountTypeLabel(d) + ' · ' + escapeHtml(discountValueLabel(d)) + '</span>' +
+        '</span>' +
+        CHEVRON +
+      '</button>' +
+      '<span class="set-r">' +
+        '<button type="button" class="set-sw' + (d.active ? ' on' : '') + '" data-disc-toggle="' + d.id + '" data-disc-active="' + d.active + '"' +
+          ' role="switch" aria-checked="' + (d.active ? 'true' : 'false') + '" aria-label="' + escapeHtml(d.name) + ' — aktívna"></button>' +
+      '</span>' +
+    '</div>';
+  }).join('');
+}
 
-  adminDiscounts.forEach(function (d) {
-    var valLabel = d.type === 'percent' ? d.value + '%' : fmtCost(d.value) + ' EUR';
-    var typeLabel = d.type === 'percent' ? 'Percento' : 'Pevna suma';
-    var activeClass = d.active ? 'on' : '';
-    html += '<tr class="data-row">';
-    html += '<td class="data-td td-name">' + d.name + '</td>';
-    html += '<td class="data-td td-sec">' + typeLabel + '</td>';
-    html += '<td class="data-td td-value">' + valLabel + '</td>';
-    html += '<td class="data-td text-center"><button class="toggle ' + activeClass + '" data-disc-toggle="' + d.id + '" data-disc-active="' + d.active + '"></button></td>';
-    html += '<td class="data-td text-right"><button class="action-btn action-btn-danger" data-disc-delete="' + d.id + '" data-disc-name="' + d.name.replace(/"/g, '&quot;') + '">Zmazat</button></td>';
-    html += '</tr>';
-  });
-  html += '</tbody></table></div>';
-  el.innerHTML = html;
+function openDiscountDetail(id) {
+  var d = adminDiscounts.find(function (x) { return x.id === id; });
+  if (!d) return;
+  var t = byId('discountDetailTitle');
+  var txt = byId('discountDetailText');
+  var del = byId('btnDeleteDiscount');
+  if (t) t.textContent = d.name;
+  if (txt) txt.textContent = discountTypeLabel(d) + ' · ' + discountValueLabel(d) + ' · ' + (d.active ? 'aktívna' : 'vypnutá');
+  if (del) {
+    del.setAttribute('data-disc-delete', String(d.id));
+    del.setAttribute('data-disc-name', String(d.name));
+  }
+  byId('discountDetail').style.display = 'block';
+  var close = byId('btnCloseDiscountDetail');
+  if (close) close.focus();
+}
+
+function hideDiscountDetail() {
+  var el = byId('discountDetail');
+  if (el) el.style.display = 'none';
 }
 
 function showAddDiscountForm() {
@@ -1142,16 +1071,16 @@ async function saveNewDiscount() {
   var value = parseFloat(byId('newDiscValue').value);
   if (!name) { showToast('Zadajte názov zľavy'); return; }
   if (!value || value <= 0) { showToast('Zadajte platnú hodnotu'); return; }
-  if (type === 'percent' && value > 100) { showToast('Percento nemoze byt viac ako 100'); return; }
+  if (type === 'percent' && value > 100) { showToast('Percento nemôže byť viac ako 100'); return; }
   var btn = byId('btnSaveDiscount');
   if (btn) btnLoading(btn);
   try {
     await api.post('/discounts', { name: name, type: type, value: value });
     hideAddDiscountForm();
-    showToast('Zlava pridana', true);
+    showToast('Zľava pridaná', true);
     await loadDiscounts();
   } catch (e) {
-    showToast(e.message || 'Chyba pridania zlavy', 'error');
+    showToast(e.message || 'Zľavu sa nepodarilo pridať', 'error');
   } finally {
     if (btn) btnReset(btn);
   }
@@ -1161,28 +1090,36 @@ async function toggleDiscountActive(id, currentActive) {
   try {
     await api.put('/discounts/' + id, { active: !currentActive });
     await loadDiscounts();
-    showToast(currentActive ? 'Zlava deaktivovana' : 'Zlava aktivovana', true);
+    showToast(currentActive ? 'Zľava vypnutá' : 'Zľava zapnutá', true);
   } catch (e) {
     showToast('Chyba: ' + e.message);
   }
 }
 
 async function deleteDiscount(id, name) {
-  showConfirm('Zmazať zľavu', 'Naozaj chcete zmazať zľavu "' + name + '"?', async function () {
+  showConfirm('Zmazať zľavu?', 'Zľava „' + name + '“ zmizne z pokladne. Už použité zľavy na dokladoch to nemení.', async function () {
     try {
       await api.del('/discounts/' + id);
-      showToast('Zlava zmazana', true);
+      showToast('Zľava zmazaná', true);
       await loadDiscounts();
     } catch (e) {
       showToast('Chyba: ' + e.message);
     }
-  }, { type: 'danger', icon: '\u26A0\uFE0F', confirmText: 'Zmazať' });
+  }, { type: 'danger', confirmText: 'Zmazať zľavu' });
 }
 
 /* ─── EVENT DELEGATION ─── */
 
 function onContainerClick(e) {
   var target = e.target;
+
+  // Klepnutie mimo panel zdola (na scrim) ho zatvori.
+  if (target.classList && target.classList.contains('set-sheet')) {
+    if (target.id === 'addPrinterForm') hideAddPrinterForm();
+    else if (target.id === 'addDiscountForm') hideAddDiscountForm();
+    else if (target.id === 'discountDetail') hideDiscountDetail();
+    return;
+  }
 
   // Tip toggle
   if (target.id === 'sTipToggle' || target.closest('#sTipToggle')) {
@@ -1201,6 +1138,7 @@ function onContainerClick(e) {
   // Simple toggle (autoPrint)
   if (target.id === 'sAutoPrint') {
     target.classList.toggle('on');
+    syncSwitch(target);
     return;
   }
 
@@ -1260,6 +1198,7 @@ function onContainerClick(e) {
   }
   var printerDel = target.closest('[data-printer-delete]');
   if (printerDel) {
+    hideAddPrinterForm();
     deletePrinter(parseInt(printerDel.dataset.printerDelete), printerDel.dataset.printerName);
     return;
   }
@@ -1293,17 +1232,38 @@ function onContainerClick(e) {
     return;
   }
 
-  // Discount table actions (delegated)
+  // Discount list actions (delegated)
   var discToggle = target.closest('[data-disc-toggle]');
   if (discToggle) {
     toggleDiscountActive(parseInt(discToggle.dataset.discToggle), discToggle.dataset.discActive === 'true');
     return;
   }
+  var discOpen = target.closest('[data-disc-open]');
+  if (discOpen) {
+    openDiscountDetail(parseInt(discOpen.dataset.discOpen));
+    return;
+  }
+  if (target.id === 'btnCloseDiscountDetail' || target.closest('#btnCloseDiscountDetail')) {
+    hideDiscountDetail();
+    return;
+  }
   var discDel = target.closest('[data-disc-delete]');
   if (discDel) {
+    hideDiscountDetail();
     deleteDiscount(parseInt(discDel.dataset.discDelete), discDel.dataset.discName);
     return;
   }
+}
+
+// Escape zatvori otvoreny panel zdola (tlaciaren / zlava).
+function onDocKeydown(e) {
+  if (e.key !== 'Escape' || !_container) return;
+  var open = _container.querySelector('.set-sheet[style*="block"]');
+  if (!open) return;
+  e.preventDefault();
+  if (open.id === 'addPrinterForm') hideAddPrinterForm();
+  else if (open.id === 'addDiscountForm') hideAddDiscountForm();
+  else if (open.id === 'discountDetail') hideDiscountDetail();
 }
 
 function onContainerChange(e) {
@@ -1336,6 +1296,7 @@ export async function init(container) {
 
   container.addEventListener('click', onContainerClick);
   container.addEventListener('change', onContainerChange);
+  document.addEventListener('keydown', onDocKeydown);
 
   // Inline validation listeners
   container.querySelectorAll('[data-validate]').forEach(function(input) {
@@ -1356,6 +1317,7 @@ export async function init(container) {
 }
 
 export function destroy() {
+  document.removeEventListener('keydown', onDocKeydown);
   if (_container) {
     _container.removeEventListener('click', onContainerClick);
     _container.removeEventListener('change', onContainerChange);

@@ -218,31 +218,30 @@ function openUnifiedPayoutModal(opts) {
     ? shiftWage.toFixed(2)
     : (outstanding > 0 ? outstanding.toFixed(2) : '');
   const title = mode === 'shift'
-    ? 'Vyplatiť smenu — ' + escapeHtml(staffName)
+    ? 'Vyplatiť smenu'
     : 'Vyplatiť ' + escapeHtml(staffName);
   const hint = mode === 'shift'
-    ? 'Označí túto smenu ako vyplatenú. Predvyplnená je celá mzda smeny.'
+    ? escapeHtml(staffName) + ' — smena sa označí ako vyplatená. Predvyplnená je celá mzda smeny.'
     : (outstanding > 0
-        ? 'Predvyplnená dlžoba ' + escapeHtml(fmtEur(outstanding)) + '. Suma sa rozhodí cez nezaplatené smeny (FIFO).'
-        : 'Suma sa rozhodí cez najstaršie nezaplatené smeny (FIFO).');
+        ? 'Predvyplnená je dlžoba ' + escapeHtml(fmtEur(outstanding)) + '. Suma sa rozpočíta na najstaršie nezaplatené smeny.'
+        : 'Suma sa rozpočíta na najstaršie nezaplatené smeny.');
 
   ov.innerHTML =
     '<div class="u-modal" style="max-width:440px">' +
-      '<span class="u-modal-icon" aria-hidden="true">💸</span>' +
       '<div class="u-modal-title" id="unifiedPayoutTitle">' + title + '</div>' +
-      '<div class="u-modal-text" style="margin-bottom:12px">' + hint + '</div>' +
+      '<div class="u-modal-text">' + hint + '</div>' +
       '<div class="u-modal-body">' +
-        '<div id="payoutChips" style="display:flex;gap:6px;flex-wrap:wrap"></div>' +
-        '<div style="display:flex;align-items:center;gap:6px">' +
-          '<input type="number" id="payoutAmtInput" class="form-input" step="0.01" min="0.01" max="10000" placeholder="0,00" inputmode="decimal" autocomplete="off" aria-label="Suma na vyplatenie v eurách" value="' + initVal + '" style="flex:1;font-size:24px;font-weight:700;text-align:right;font-family:var(--font-display)">' +
-          '<span style="font-family:var(--font-display);font-weight:700;font-size:24px;color:var(--color-text-sec)">€</span>' +
+        '<div id="payoutChips" class="pay-chips" role="group" aria-label="Rýchly výber sumy"></div>' +
+        '<div class="pay-amount">' +
+          '<input type="number" id="payoutAmtInput" class="form-input" step="0.01" min="0.01" max="10000" placeholder="0,00" inputmode="decimal" autocomplete="off" aria-label="Suma na vyplatenie v eurách" value="' + initVal + '">' +
+          '<span class="pay-cur" aria-hidden="true">€</span>' +
         '</div>' +
         '<div class="u-modal-field">' +
-          '<label for="payoutNoteInput">Poznámka (voliteľné)</label>' +
-          '<input type="text" id="payoutNoteInput" class="form-input" maxlength="200" placeholder="napr. záloha za máj, bonus...">' +
+          '<label for="payoutNoteInput">Poznámka (nepovinná)</label>' +
+          '<input type="text" id="payoutNoteInput" class="form-input" maxlength="200" placeholder="napr. záloha za máj, bonus…">' +
         '</div>' +
-        '<div id="payoutErr" style="color:var(--color-danger);font-size:12px;min-height:14px"></div>' +
-        '<div id="payoutPreview" style="font-size:11.5px;color:var(--color-text-dim);min-height:16px"></div>' +
+        '<div id="payoutErr" class="pay-err" role="alert"></div>' +
+        '<div id="payoutPreview" class="pay-preview"></div>' +
       '</div>' +
       '<div class="u-modal-btns">' +
         '<button type="button" class="u-btn u-btn-ghost" id="payoutCancel">Zrušiť</button>' +
@@ -261,20 +260,19 @@ function openUnifiedPayoutModal(opts) {
   const cancelBtn = ov.querySelector('#payoutCancel');
 
   function chip(label, amt) {
-    return '<button type="button" class="u-btn u-btn-ghost payout-chip" data-amt="' + amt + '"' +
-      ' style="flex:1;min-width:80px;padding:8px 10px;font-size:12px">' + label + '</button>';
+    return '<button type="button" class="payout-chip" data-amt="' + amt + '">' + label + '</button>';
   }
 
   function renderChips() {
     let html = '';
     if (mode === 'shift') {
-      html += chip('Celé (' + fmtEur(shiftWage) + ')', shiftWage.toFixed(2));
+      html += chip('Celá smena', shiftWage.toFixed(2));
       html += chip('Polovica', (shiftWage / 2).toFixed(2));
-      html += chip('Iné', '');
+      html += chip('Iná suma', '');
     } else if (outstanding > 0) {
-      html += chip('Celý dlh (' + fmtEur(outstanding) + ')', outstanding.toFixed(2));
+      html += chip('Celý dlh', outstanding.toFixed(2));
       html += chip('Polovica', (outstanding / 2).toFixed(2));
-      html += chip('Iné', '');
+      html += chip('Iná suma', '');
     } else {
       ['50', '100', '200', '500'].forEach(function (a) { html += chip(a + ' €', a); });
     }
@@ -296,7 +294,7 @@ function openUnifiedPayoutModal(opts) {
       return;
     }
     const hours = v / hourlyRate;
-    preview.textContent = '≈ ' + hours.toFixed(1) + ' hod pri sadzbe ' + fmtEur(hourlyRate) + '/h';
+    preview.textContent = 'To je asi ' + hours.toFixed(1).replace('.', ',') + ' h pri sadzbe ' + fmtEur(hourlyRate) + '/h.';
   }
 
   function close() {
@@ -308,17 +306,17 @@ function openUnifiedPayoutModal(opts) {
   async function tryConfirm() {
     const v = Number(input.value);
     if (!Number.isFinite(v) || v <= 0) {
-      err.textContent = 'Suma musí byť kladná';
+      err.textContent = 'Zadajte sumu väčšiu ako nula.';
       input.focus();
       return;
     }
     if (v > 10000) {
-      err.textContent = 'Suma > 10 000 €, over zadanie';
+      err.textContent = 'Suma je nad 10 000 € — skontrolujte zadanie.';
       return;
     }
     err.textContent = '';
     confirmBtn.disabled = true;
-    confirmBtn.textContent = 'Spracovávam…';
+    confirmBtn.textContent = 'Vyplácam…';
     try {
       let res;
       if (mode === 'lump') {
@@ -415,7 +413,6 @@ function openTimeEditModal(opts) {
 
   const word = isArrival ? 'príchod' : 'odchod';
   const titleVerb = mode === 'create' ? 'Pridať' : 'Upraviť';
-  const icon = isArrival ? '🟢' : '🔵';
 
   const existing = document.getElementById('timeEditModal');
   if (existing) existing.remove();
@@ -436,40 +433,39 @@ function openTimeEditModal(opts) {
 
   ov.innerHTML =
     '<div class="u-modal" style="max-width:420px">' +
-      '<span class="u-modal-icon" aria-hidden="true">' + icon + '</span>' +
       '<div class="u-modal-title" id="timeEditTitle">' + titleVerb + ' ' + escapeHtml(word) + '</div>' +
-      '<div class="u-modal-text" style="margin-bottom:14px">' + escapeHtml(staffName) + '</div>' +
+      '<div class="u-modal-text">' + escapeHtml(staffName) + '</div>' +
       '<div class="u-modal-body">' +
         '<div class="u-modal-row">' +
           '<div class="u-modal-field" style="flex:1.3">' +
             '<label for="teTime">Čas</label>' +
-            '<input type="time" id="teTime" class="form-input" value="' + init.time + '" step="60" style="font-size:24px;font-weight:700;text-align:center;font-family:var(--font-display)">' +
+            '<input type="time" id="teTime" class="form-input" value="' + init.time + '" step="60">' +
           '</div>' +
           '<div class="u-modal-field" style="flex:1">' +
             '<label for="teDate">Dátum</label>' +
             '<input type="date" id="teDate" class="form-input" value="' + init.date + '">' +
           '</div>' +
         '</div>' +
-        '<div class="doch-nudge-row" role="group" aria-label="Rýchla úprava času">' +
-          '<button type="button" class="doch-nudge-btn" data-nudge="-15">−15</button>' +
+        '<div class="doch-nudge-row" role="group" aria-label="Posunúť čas o minúty">' +
+          '<button type="button" class="doch-nudge-btn" data-nudge="-15">−15 min</button>' +
           '<button type="button" class="doch-nudge-btn" data-nudge="-5">−5</button>' +
           '<button type="button" class="doch-nudge-btn" data-nudge="5">+5</button>' +
-          '<button type="button" class="doch-nudge-btn" data-nudge="15">+15</button>' +
+          '<button type="button" class="doch-nudge-btn" data-nudge="15">+15 min</button>' +
         '</div>' +
-        '<div id="teRelHint" style="text-align:center;font-size:11.5px;color:var(--color-text-dim);min-height:15px"></div>' +
+        '<div id="teRelHint" class="te-hint" aria-live="polite"></div>' +
         '<div class="u-modal-field">' +
           '<label for="teReason">Dôvod úpravy</label>' +
           '<select id="teReason" class="form-select">' + reasonOpts + '</select>' +
         '</div>' +
         '<div class="u-modal-field">' +
-          '<label for="teNote">Poznámka (voliteľné)</label>' +
+          '<label for="teNote">Poznámka (nepovinná)</label>' +
           '<input type="text" id="teNote" class="form-input" maxlength="200" placeholder="napr. zabudol kliknúť">' +
         '</div>' +
-        '<div id="teErr" style="color:var(--color-danger);font-size:12px;min-height:14px"></div>' +
+        '<div id="teErr" class="pay-err" role="alert"></div>' +
       '</div>' +
       '<div class="u-modal-btns">' +
         '<button type="button" class="u-btn u-btn-ghost" id="teCancel">Zrušiť</button>' +
-        '<button type="button" class="u-btn u-btn-mint" id="teConfirm">' + (mode === 'create' ? 'Pridať' : 'Uložiť') + '</button>' +
+        '<button type="button" class="u-btn u-btn-mint" id="teConfirm">' + (mode === 'create' ? 'Pridať ' + word : 'Uložiť čas') + '</button>' +
       '</div>' +
     '</div>';
   document.body.appendChild(ov);
@@ -507,15 +503,15 @@ function openTimeEditModal(opts) {
     // Inverzia poradia má prednosť — varujeme jantárovo už počas úprav.
     const ordErr = orderingError(d);
     if (ordErr) {
-      relHint.textContent = '⚠ ' + ordErr;
-      relHint.style.color = 'var(--color-warning)';
+      relHint.textContent = ordErr;
+      relHint.classList.add('is-warn');
       return;
     }
-    relHint.style.color = 'var(--color-text-dim)';
+    relHint.classList.remove('is-warn');
     if (!d || mode !== 'edit' || !anchorOk) { relHint.textContent = ''; return; }
     const diffMin = Math.round((d.getTime() - anchor.getTime()) / 60000);
-    if (diffMin === 0) { relHint.textContent = 'bez zmeny oproti pôvodnému času'; return; }
-    relHint.textContent = 'o ' + fmtMinutes(Math.abs(diffMin)) + (diffMin < 0 ? ' skôr' : ' neskôr') + ' ako pôvodne';
+    if (diffMin === 0) { relHint.textContent = 'Bez zmeny oproti pôvodnému času.'; return; }
+    relHint.textContent = 'O ' + fmtMinutes(Math.abs(diffMin)) + (diffMin < 0 ? ' skôr' : ' neskôr') + ' ako pôvodne.';
   }
 
   function nudge(mins) {
@@ -535,11 +531,11 @@ function openTimeEditModal(opts) {
 
   async function tryConfirm() {
     const d = currentDate();
-    if (!d) { err.textContent = 'Zadaj platný dátum a čas'; return; }
+    if (!d) { err.textContent = 'Zadajte platný dátum a čas.'; return; }
     const ordErr = orderingError(d);
     if (ordErr) { err.textContent = ordErr; return; }
     const reason = reasonSel.value;
-    if (!reason) { err.textContent = 'Vyber dôvod úpravy'; return; }
+    if (!reason) { err.textContent = 'Vyberte dôvod úpravy.'; return; }
 
     // No-op: v edit mode pri nezmenenej minúte neukladáme — inak by sme len
     // odrezali sekundy z presného PIN punchu a zbytočne preklopili záznam na
@@ -573,7 +569,7 @@ function openTimeEditModal(opts) {
     } catch (e) {
       err.textContent = e.message || 'Uloženie zlyhalo';
       confirmBtn.disabled = false;
-      confirmBtn.textContent = mode === 'create' ? 'Pridať' : 'Uložiť';
+      confirmBtn.textContent = mode === 'create' ? 'Pridať ' + word : 'Uložiť čas';
     }
   }
 
@@ -1197,8 +1193,8 @@ async function toggleDetail(staffId) {
   try {
     data = await loadHistory(staffId);
   } catch (err) {
-    detail.innerHTML = '<div class="panel doch-detail-panel"><div class="empty-hint">' +
-      escapeHtml(err.message || 'Chyba načítania') + '</div></div>';
+    detail.innerHTML = '<div class="panel doch-detail-panel"><div class="error-hint">' +
+      'Históriu sa nepodarilo načítať: ' + escapeHtml(err.message || 'neznáma chyba') + '</div></div>';
     return;
   }
 
@@ -1210,39 +1206,29 @@ async function toggleDetail(staffId) {
     pin_failed: 'PIN zlyhal',
     other: 'Iné',
   };
+  // Audit: jedna udalosť = jeden riadok (čas + typ, pod tým zdroj · dôvod ·
+  // poznámka). Zmazanie ostáva tu — je to servisný zásah, nie bežná akcia.
   const evRows = events.map((e) => {
-    let sourceCell;
-    if (e.source === 'auto_close') sourceCell = '<span class="badge badge-warning">auto-zatvorené</span>';
-    else if (e.source === 'manual') sourceCell = '<span class="badge badge-warning">manuálne</span>';
-    else sourceCell = '<span class="text-muted">PIN</span>';
-    const reasonCell = e.reason
-      ? '<span class="text-muted">' + escapeHtml(reasonLabels[e.reason] || e.reason) + '</span>'
-      : '<span class="text-muted">—</span>';
+    const source = e.source === 'auto_close' ? 'auto-zatvorené' : (e.source === 'manual' ? 'ručný záznam' : 'PIN');
+    const meta = [source, e.reason ? (reasonLabels[e.reason] || e.reason) : '', e.note ? '„' + e.note + '“' : '']
+      .filter(Boolean).map(escapeHtml).join(' · ');
     return (
-      '<tr class="data-row">' +
-        '<td class="data-td">' + escapeHtml(formatLocalDateTime(e.at)) + '</td>' +
-        '<td class="data-td">' + (e.type === 'clock_in'
-          ? '<span class="badge badge-success">Príchod</span>'
-          : '<span class="badge badge-info">Odchod</span>') + '</td>' +
-        '<td class="data-td">' + sourceCell + '</td>' +
-        '<td class="data-td">' + reasonCell + '</td>' +
-        '<td class="data-td">' + (e.note ? escapeHtml(e.note) : '<span class="text-muted">—</span>') + '</td>' +
-        '<td class="data-td">' +
-          '<button class="btn-toggle-status doch-event-del" data-del="' + e.id + '" title="Vymazať záznam">✕</button>' +
-        '</td>' +
-      '</tr>'
+      '<div class="dsh-ev">' +
+        '<span class="dsh-ev-main">' +
+          '<span class="dsh-ev-when">' + escapeHtml(formatLocalDateTime(e.at)) +
+            '<span class="set-pill ' + (e.type === 'clock_in' ? 'is-success' : 'is-neutral') + '">' +
+              (e.type === 'clock_in' ? 'príchod' : 'odchod') + '</span>' +
+          '</span>' +
+          '<span class="dsh-ev-meta">' + meta + '</span>' +
+        '</span>' +
+        '<button type="button" class="doch-event-del" data-del="' + e.id + '" title="Vymazať záznam" aria-label="Vymazať záznam">✕</button>' +
+      '</div>'
     );
   }).join('');
 
   const summary = data.summary || {};
   const staffMeta = data.staff || {};
-  const summaryLine = (summary.openShifts > 0)
-    ? '<span class="badge badge-warning">' + summary.openShifts + ' otvorená smena</span> '
-    : '';
   const autoCount = (data.events || []).filter((e) => e.source === 'auto_close').length;
-  const autoLine = autoCount > 0
-    ? '<span class="badge badge-warning">' + autoCount + ' auto-zatvorené</span> '
-    : '';
 
   // Build per-shift rows (newest first). Wage per shift uses the staff's
   // current hourlyRate from the parent summary; if no rate is set we just
@@ -1253,13 +1239,18 @@ async function toggleDetail(staffId) {
   const rate = parentRow && parentRow.hourlyRate != null ? Number(parentRow.hourlyRate) : null;
   const completed = shifts.filter((s) => s.start && s.end).length;
   const open = shifts.filter((s) => s.start && !s.end).length;
+  const dayLabel = (iso) => {
+    const d = new Date(iso);
+    if (!iso || Number.isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('sk-SK', { weekday: 'short', day: 'numeric', month: 'numeric' });
+  };
   const shiftRowsHtml = shifts.length === 0
-    ? '<tr><td class="data-td" colspan="8"><div class="empty-hint">Žiadne smeny v tomto období.</div></td></tr>'
+    ? '<p class="dsh-empty">Žiadne smeny v tomto období. Deň bez záznamu pridáte cez „Pridať smenu“.</p>'
     : shifts.slice().reverse().map((s) => {
         const refIso = (s.start && s.start.at) || (s.end && s.end.at) || '';
-        const dateCell = escapeHtml(formatLocalDate(refIso));
+        const dateCell = escapeHtml(dayLabel(refIso) || formatLocalDate(refIso));
         // Časy sú priamo klikateľné → otvoria editačný modal (PATCH). Pri
-        // neúplnej smene ponúkneme akčné "+ príchod/odchod" tlačidlo (POST),
+        // neúplnej smene ponúkneme akčné "Pridať príchod/odchod" tlačidlo (POST),
         // ktoré nahrádza pasívny "otvorená" odznak niečím, čo sa dá rovno
         // vyriešiť. data-ref-iso = kotva dňa pre predvyplnenie create modalu.
         // data-sibling-iso = čas partnerského eventu (príchod↔odchod) pre
@@ -1274,7 +1265,7 @@ async function toggleDetail(staffId) {
           : '<button type="button" class="doch-time-add" data-add-kind="clock_in"'
               + ' data-ref-iso="' + escapeHtml(refIso) + '"'
               + ' data-sibling-iso="' + (s.end ? escapeHtml(s.end.at) : '') + '"'
-              + ' title="Pridať chýbajúci príchod">+ príchod</button>';
+              + ' title="Pridať chýbajúci príchod">Pridať príchod</button>';
         const endCell = s.end
           ? '<button type="button" class="doch-time-edit" data-edit-event="' + s.end.id + '"'
               + ' data-kind="clock_out" data-iso="' + escapeHtml(s.end.at) + '"'
@@ -1285,37 +1276,33 @@ async function toggleDetail(staffId) {
           : '<button type="button" class="doch-time-add doch-time-add-warn" data-add-kind="clock_out"'
               + ' data-ref-iso="' + escapeHtml((s.start && s.start.at) || refIso) + '"'
               + ' data-sibling-iso="' + (s.start ? escapeHtml(s.start.at) : '') + '"'
-              + ' title="Smena je otvorená — pridať odchod">+ odchod</button>';
+              + ' title="Smena je otvorená — pridať odchod">Pridať odchod</button>';
         const durCell = s.minutes != null
-          ? '<strong>' + escapeHtml(fmtMinutes(s.minutes)) + '</strong>'
-          : '<span class="text-muted">—</span>';
+          ? escapeHtml(fmtMinutes(s.minutes))
+          : '<span class="dsh-muted">beží</span>';
         const wage = (s.minutes != null && rate != null && rate > 0)
           ? (s.minutes / 60) * rate
           : null;
-        const wageCell = wage != null
-          ? escapeHtml(fmtEur(wage))
-          : '<span class="text-muted">—</span>';
+        const wageCell = wage != null ? escapeHtml(fmtEur(wage)) : '';
         const flags = [];
-        if (s.start && s.start.source === 'manual') flags.push('<span class="badge badge-warning">manuál (in)</span>');
-        if (s.end && s.end.source === 'auto_close') flags.push('<span class="badge badge-warning">auto-zatv</span>');
-        if (s.end && s.end.source === 'manual') flags.push('<span class="badge badge-warning">manuál (out)</span>');
+        if (s.start && s.start.source === 'manual') flags.push('<span class="dsh-flag">ručný príchod</span>');
+        if (s.end && s.end.source === 'auto_close') flags.push('<span class="dsh-flag">auto-zatvorené</span>');
+        if (s.end && s.end.source === 'manual') flags.push('<span class="dsh-flag">ručný odchod</span>');
         // Paid pill or "Označiť ako vyplatené" button. Only for closed
         // shifts (need a clock_out event id to link to). For open shifts
-        // we just show '—' since the wage isn't final yet anyway.
-        let paidCell;
+        // there is nothing to show — the wage isn't final yet anyway.
+        let paidCell = '';
         if (s.end && s.end.id) {
           if (s.end.paid) {
             const paidDate = formatLocalDate(s.end.paid.paidAt);
-            paidCell = '<button type="button" class="doch-paid-pill" data-unpay="' + s.end.paid.id + '" title="Klik = zrušiť výplatu">' +
-              '<span class="doch-paid-icon">✓</span> Vyplatené ' + escapeHtml(paidDate) +
+            paidCell = '<button type="button" class="doch-paid-pill" data-unpay="' + s.end.paid.id + '" title="Klepnutím výplatu zrušíte">' +
+              '✓ Vyplatené ' + escapeHtml(paidDate) +
             '</button>';
           } else if (wage != null) {
             paidCell = '<button type="button" class="doch-pay-btn" data-pay-out="' + s.end.id + '" data-pay-amount="' + wage.toFixed(2) + '">Označiť ako vyplatené</button>';
           } else {
-            paidCell = '<span class="text-muted">— (bez sadzby)</span>';
+            paidCell = '<span class="dsh-muted">bez sadzby</span>';
           }
-        } else {
-          paidCell = '<span class="text-muted">—</span>';
         }
         // Akcia: zmazať celú smenu (par príchod+odchod). IBA pre kompletné
         // smeny viditeľné v perióde (s.start AJ s.end) — vtedy zmažeme presne
@@ -1323,97 +1310,66 @@ async function toggleDetail(staffId) {
         // osamotený odchod (príchod je mimo zvolené obdobie) sa tu nemažú —
         // stray event ide cez audit "✕" nižšie. data-del-paid riadi varovanie.
         const delCell = (s.start && s.end && s.end.id)
-          ? '<button type="button" class="doch-shift-del" data-del-shift="' + s.end.id + '"'
+          ? '<button type="button" class="doch-shift-del dsh-del" data-del-shift="' + s.end.id + '"'
               + ' data-del-paid="' + (s.end.paid ? '1' : '0') + '"'
-              + ' title="Vymazať celú smenu">Vymazať</button>'
-          : '<span class="text-muted">—</span>';
-        return '<tr class="data-row">' +
-          '<td class="data-td">' + dateCell + '</td>' +
-          '<td class="data-td num text-right">' + startCell + '</td>' +
-          '<td class="data-td num text-right">' + endCell + '</td>' +
-          '<td class="data-td num text-right">' + durCell + '</td>' +
-          '<td class="data-td num text-right">' + wageCell + '</td>' +
-          '<td class="data-td">' + paidCell + '</td>' +
-          '<td class="data-td">' + (flags.join(' ') || '<span class="text-muted">—</span>') + '</td>' +
-          '<td class="data-td num text-right">' + delCell + '</td>' +
-        '</tr>';
+              + ' title="Vymazať celú smenu">Vymazať smenu</button>'
+          : '';
+        return '<div class="dsh-row">' +
+          '<span class="dsh-date">' + dateCell + '</span>' +
+          '<span class="dsh-dur">' + durCell + '</span>' +
+          '<span class="dsh-times">' + startCell + '<span class="dsh-arrow" aria-hidden="true">→</span>' + endCell + '</span>' +
+          '<span class="dsh-wage">' + wageCell + '</span>' +
+          ((paidCell || flags.length || delCell)
+            ? '<span class="dsh-foot">' + paidCell + flags.join('') + delCell + '</span>'
+            : '') +
+        '</div>';
       }).join('');
   const shiftHeadCounts = (completed > 0 || open > 0)
-    ? ' <span class="text-muted" style="font-weight:500;font-size:12px">(' +
+    ? ' <small>' +
         completed + ' ' + (completed === 1 ? 'smena' : (completed >= 2 && completed <= 4 ? 'smeny' : 'smien')) +
         (open > 0 ? ', ' + open + ' otvorená' : '') +
-      ')</span>'
+      '</small>'
     : '';
 
   detail.innerHTML =
     '<div class="panel doch-detail-panel">' +
-      '<div class="panel-title">' +
-        '<svg viewBox="0 0 24 24" aria-hidden="true" style="width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="8" r="4"/><path d="M3 21a9 9 0 0118 0"/></svg>' +
-        ' Detail — ' + escapeHtml(staffMeta.name || '') +
+      '<div class="dsh-head">' +
+        '<h3 class="dsh-title">' + escapeHtml(staffMeta.name || '') + '</h3>' +
+        (staffMeta.position ? '<span class="dsh-muted">' + escapeHtml(staffMeta.position) + '</span>' : '') +
       '</div>' +
 
-      '<div class="doch-detail-summary">' +
-        summaryLine +
-        autoLine +
-        '<span class="text-muted">Hodín:</span> <strong>' + escapeHtml(fmtMinutes(summary.minutes)) + '</strong>' +
-        '<span class="dot-sep">·</span>' +
-        '<span class="text-muted">Mzda:</span> <strong>' + escapeHtml(fmtEur(summary.wage)) + '</strong>' +
-        (staffMeta.position ? ('<span class="dot-sep">·</span>' +
-          '<span class="text-muted">Pozícia:</span> <strong>' + escapeHtml(staffMeta.position) + '</strong>') : '') +
+      // Súčet za obdobie v jednom riadku; výnimky (otvorená, auto-zatvorená)
+      // ako pilulky — len keď nastali.
+      '<div class="dsh-sum">' +
+        '<span><strong>' + escapeHtml(fmtMinutes(summary.minutes)) + '</strong> odpracovaných</span>' +
+        '<span><strong>' + escapeHtml(fmtEur(summary.wage)) + '</strong> mzda za obdobie</span>' +
+        (summary.openShifts > 0
+          ? '<span class="set-pill is-warning">' + summary.openShifts + ' ' + openWord(summary.openShifts) + '</span>'
+          : '') +
+        (autoCount > 0 ? '<span class="set-pill is-warning">' + autoCount + ' auto-zatvorené</span>' : '') +
       '</div>' +
 
       // Smeny — hlavný blok. Časy sú priamo klikateľné (úprava), neúplné
-      // smeny majú "+ príchod/odchod". "+ Pridať smenu" naľavo otvorí nový
+      // smeny majú "Pridať príchod/odchod". "Pridať smenu" otvorí nový
       // príchod (pre deň úplne bez záznamu) — z neho vznikne otvorená smena,
-      // ktorú zavrieš cez "+ odchod".
-      '<div class="doch-subhead" style="justify-content:space-between">' +
+      // ktorú zavrieš cez "Pridať odchod".
+      '<div class="dsh-sub">' +
         '<span>Smeny' + shiftHeadCounts + '</span>' +
-        '<button type="button" class="doch-time-add" id="dAddShift" title="Pridať smenu pre deň bez záznamu">+ Pridať smenu</button>' +
+        '<button type="button" class="doch-time-add" id="dAddShift" title="Pridať smenu pre deň bez záznamu">Pridať smenu</button>' +
       '</div>' +
-      '<div class="table-scroll-wrap" style="margin-bottom:14px">' +
-        '<table class="data-table">' +
-          '<thead><tr>' +
-            '<th class="data-th">Dátum</th>' +
-            '<th class="data-th text-right">Príchod</th>' +
-            '<th class="data-th text-right">Odchod</th>' +
-            '<th class="data-th text-right">Trvanie</th>' +
-            '<th class="data-th text-right">Mzda</th>' +
-            '<th class="data-th">Vyplatené</th>' +
-            '<th class="data-th">Pozn.</th>' +
-            '<th class="data-th"></th>' +
-          '</tr></thead>' +
-          '<tbody>' + shiftRowsHtml + '</tbody>' +
-        '</table>' +
-      '</div>' +
+      '<div class="set-group dsh-list">' + shiftRowsHtml + '</div>' +
 
-      // História úprav + audit — zbalené (po novom sa časy upravujú inline,
-      // takže surový log eventov + ručný formulár treba málokedy). Obsahuje
-      // audit záznamov (so zmazaním stray eventu) a escape-hatch formulár.
-      '<details class="doch-manual-details" style="margin:6px 0 0">' +
-        '<summary style="cursor:pointer;font-size:13px;font-weight:var(--weight-semibold);color:var(--color-text-sec);padding:6px 0;user-select:none">' +
-          'História úprav · audit (' + (data.events || []).length + ')' +
-        '</summary>' +
-        '<div class="table-scroll-wrap" style="margin-top:10px">' +
-          '<table class="data-table">' +
-            '<thead><tr>' +
-              '<th class="data-th">Čas</th>' +
-              '<th class="data-th">Typ</th>' +
-              '<th class="data-th">Zdroj</th>' +
-              '<th class="data-th">Dôvod</th>' +
-              '<th class="data-th">Poznámka</th>' +
-              '<th class="data-th"></th>' +
-            '</tr></thead>' +
-            '<tbody>' +
-              (evRows || '<tr><td class="data-td" colspan="6"><div class="empty-hint">Bez záznamov za toto obdobie.</div></td></tr>') +
-            '</tbody>' +
-          '</table>' +
+      // História úprav + audit — zbalené (časy sa upravujú v zozname smien,
+      // takže surový log udalostí + ručný formulár treba málokedy).
+      '<details class="dsh-details doch-manual-details">' +
+        '<summary>História úprav a audit (' + (data.events || []).length + ')</summary>' +
+        '<div class="set-group dsh-events">' +
+          (evRows || '<p class="dsh-empty">Bez záznamov za toto obdobie.</p>') +
         '</div>' +
-        '<div style="font-size:12px;color:var(--color-text-dim);margin:14px 0 0;line-height:1.5">' +
-          'Tip: čas opravíš klikom priamo na <strong>príchod/odchod</strong> v tabuľke Smeny. ' +
-          'Formulár nižšie použi len na pridanie samostatného záznamu.' +
-        '</div>' +
-        '<form class="doch-manual-form" id="dManualForm" style="margin-top:10px">' +
-          '<label class="doch-toolbar-label">Typ' +
+        '<p class="dsh-tip">Čas opravíte klepnutím na <strong>príchod alebo odchod</strong> v zozname smien. ' +
+          'Formulár nižšie je len na pridanie samostatného záznamu.</p>' +
+        '<form class="doch-manual-form" id="dManualForm">' +
+          '<label class="doch-toolbar-label">Typ záznamu' +
             '<select id="mType" class="doch-input">' +
               '<option value="clock_in">Príchod</option>' +
               '<option value="clock_out">Odchod</option>' +
@@ -1421,7 +1377,7 @@ async function toggleDetail(staffId) {
           '</label>' +
           '<label class="doch-toolbar-label">Dôvod' +
             '<select id="mReason" class="doch-input" required>' +
-              '<option value="">— vyber —</option>' +
+              '<option value="">Vyberte dôvod</option>' +
               '<option value="forgot">Zabudol kliknúť</option>' +
               '<option value="wrong_time">Nesprávny čas</option>' +
               '<option value="shift_change">Zmena zmeny</option>' +
@@ -1432,7 +1388,7 @@ async function toggleDetail(staffId) {
           '<label class="doch-toolbar-label">Čas' +
             '<input type="datetime-local" id="mAt" class="doch-input" value="' + nowForDateTimeLocal() + '" required>' +
           '</label>' +
-          '<label class="doch-toolbar-label" style="flex:1;min-width:200px">Poznámka' +
+          '<label class="doch-toolbar-label">Poznámka (nepovinná)' +
             '<input type="text" id="mNote" class="doch-input" maxlength="200" placeholder="napr. zabudol kliknúť">' +
           '</label>' +
           '<button class="btn-save doch-manual-submit" type="submit">Pridať záznam</button>' +
@@ -1500,7 +1456,7 @@ async function toggleDetail(staffId) {
     const reason = detail.querySelector('#mReason').value;
     const note = detail.querySelector('#mNote').value.trim();
     if (!at || !reason) {
-      showToast('Vyber čas aj dôvod úpravy', 'error');
+      showToast('Vyberte čas aj dôvod úpravy', 'error');
       return;
     }
     try {

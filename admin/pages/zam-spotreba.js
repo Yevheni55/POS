@@ -16,6 +16,10 @@ let _container = null;
 let _from = '';
 let _to = '';
 let _data = null;
+// Ktorý prednastavený rozsah je zapnutý ('month' | '7' | '30' | '60' | 'custom')
+// — kvôli zvýrazneniu chipu; samotný rozsah drží _from/_to.
+let _preset = 'month';
+let _moreOpen = false;
 
 function $(sel) { return _container && _container.querySelector(sel); }
 
@@ -61,8 +65,14 @@ async function load() {
   } catch (e) {
     console.error('Zam-spotreba load error:', e);
     const wrap = $('#zsContent');
-    if (wrap) wrap.innerHTML = '<div class="empty-hint">Chyba načítania: ' + escapeHtml(e.message || 'unknown') + '</div>';
+    if (wrap) wrap.innerHTML = '<div class="error-hint">Prehľad sa nepodarilo načítať: ' + escapeHtml(e.message || 'neznáma chyba') + '</div>';
   }
+}
+
+function mealsWord(n) {
+  if (n === 1) return 'jedlo';
+  if (n >= 2 && n <= 4) return 'jedlá';
+  return 'jedál';
 }
 
 function render() {
@@ -70,7 +80,6 @@ function render() {
   const rows = (_data.staffMealByPerson || []).filter(r => Number(r.cost) > 0 || Number(r.menuValue) > 0);
   const daily = (_data.daily || []).filter(d => Number(d.staffMeal) > 0);
 
-  // === Stat cards ===
   let totalMeals = 0, totalCost = 0, totalFood = 0, totalDrink = 0, totalMenuValue = 0;
   rows.forEach(r => {
     totalMeals += Number(r.meals) || 0;
@@ -79,155 +88,183 @@ function render() {
     totalDrink += Number(r.drinkCost) || 0;
     totalMenuValue += Number(r.menuValue) || 0;
   });
-  const lostMargin = totalMenuValue - totalCost; // "neutilízovaný" profit
+  const lostMargin = totalMenuValue - totalCost; // marža, ktorej sa firma vzdala
 
-  const statsHtml = ''
-    + '<div class="stat-grid grid-3col" style="margin-bottom:18px">'
-    + statCard('Počet jedál', String(totalMeals), totalMeals === 1 ? 'meal' : 'meals', 'mint')
-    + statCard('Náklad firmy', fmtEur(totalCost), 'reálne suroviny + bar', 'lavender')
-    + statCard('Hodnota benefitu', fmtEur(totalMenuValue), 'koľko by zaplatil zákazník', 'ice')
+  // Súčet v jednom riadku namiesto troch KPI kariet: koľko jedál, čo to
+  // stálo firmu a čo by za to zaplatil hosť.
+  const sumHtml = '<div class="doch-sum">'
+    + '<span><strong>' + totalMeals + '</strong> ' + mealsWord(totalMeals) + '</span>'
+    + '<span><strong>' + fmtEur(totalCost) + '</strong> náklad firmy</span>'
+    + '<span><strong>' + fmtEur(totalMenuValue) + '</strong> hodnota pre hosťa</span>'
     + '</div>';
 
-  // Bar vs kuchyna split bar
-  const splitHtml = totalCost > 0
-    ? renderSplitBar(totalFood, totalDrink)
-    : '';
-
-  // Per-day chart
+  const splitHtml = totalCost > 0 ? renderSplitBar(totalFood, totalDrink) : '';
   const chartHtml = renderDailyChart(daily);
-
-  // Per-person table
-  const tableHtml = rows.length
-    ? renderPersonTable(rows, { totalMeals, totalCost, totalFood, totalDrink, totalMenuValue, lostMargin })
-    : '<div class="td-empty" style="padding:30px;text-align:center;color:var(--color-text-dim)">'
-      + 'V tomto období nebola zaznamenaná žiadna zamestnanecká spotreba.<br>'
-      + '<small>Staff meal sa registruje pri zatvorení účtu cez tlačidlo "Uzavrieť ako staff meal" v POS.</small>'
-      + '</div>';
+  const listHtml = rows.length
+    ? renderPersonList(rows, { totalMeals, totalCost, totalFood, totalDrink, totalMenuValue, lostMargin })
+    : '<p class="zs-empty">V tomto období nikto zo zamestnancov nič nekonzumoval.'
+      + '<small>Spotreba sa zapíše, keď čašník uzavrie účet cez „Uzavrieť ako staff meal“ v pokladni.</small></p>';
 
   const wrap = $('#zsContent');
   if (wrap) {
-    wrap.innerHTML = statsHtml + splitHtml + chartHtml
-      + '<div class="panel" style="margin-top:18px">'
-      +   '<div class="panel-title">Podrobnosti podľa osoby</div>'
-      +   tableHtml
+    wrap.innerHTML = sumHtml + splitHtml + chartHtml
+      + '<div class="panel">'
+      +   '<div class="panel-title zs-panel-title"><span>Podľa osoby</span><small>náklad firmy · hodnota pre hosťa</small></div>'
+      +   listHtml
       + '</div>';
   }
 }
 
-function statCard(label, value, sub, iconClass) {
-  return ''
-    + '<div class="stat-card">'
-    +   '<div class="stat-icon ' + iconClass + '">'
-    +     '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M17 8h1a4 4 0 0 1 0 8h-1"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"/><line x1="6" y1="2" x2="6" y2="4"/><line x1="10" y1="2" x2="10" y2="4"/><line x1="14" y1="2" x2="14" y2="4"/></svg>'
-    +   '</div>'
-    +   '<div class="stat-info">'
-    +     '<div class="stat-label">' + escapeHtml(label) + '</div>'
-    +     '<div class="stat-value">' + value + '</div>'
-    +     '<div class="stat-change neutral">' + escapeHtml(sub) + '</div>'
-    +   '</div>'
-    + '</div>';
-}
 
 function renderSplitBar(food, drink) {
   const total = food + drink;
   if (total <= 0) return '';
   const foodPct = (food / total) * 100;
   const drinkPct = (drink / total) * 100;
-  return '<div class="panel" style="margin-bottom:18px">'
-    + '<div class="panel-title">Rozdelenie kuchyňa vs bar</div>'
-    + '<div style="display:flex;height:14px;border-radius:7px;overflow:hidden;background:rgba(0,0,0,.04);margin-bottom:14px;border:1px solid var(--color-border)">'
-    +   '<div style="width:' + foodPct.toFixed(1) + '%;background:var(--color-success)" title="Kuchyňa ' + fmtEur(food) + '"></div>'
-    +   '<div style="width:' + drinkPct.toFixed(1) + '%;background:var(--color-accent)" title="Bar ' + fmtEur(drink) + '"></div>'
+  return '<div class="panel" style="margin-bottom:14px">'
+    + '<div class="panel-title">Kuchyňa a bar</div>'
+    + '<div class="zs-split" role="img" aria-label="Kuchyňa ' + fmtEur(food) + ', bar ' + fmtEur(drink) + '">'
+    +   '<div class="zs-split-food" style="width:' + foodPct.toFixed(1) + '%"></div>'
+    +   '<div class="zs-split-drink" style="width:' + drinkPct.toFixed(1) + '%"></div>'
     + '</div>'
-    + '<div style="display:flex;gap:24px;font-size:13px">'
-    +   '<div style="display:flex;align-items:center;gap:8px"><span style="width:12px;height:12px;background:var(--color-success);border-radius:3px"></span>Kuchyňa <strong style="font-family:var(--font-display)">' + fmtEur(food) + '</strong> <span style="color:var(--color-text-sec);font-size:11px">(' + foodPct.toFixed(1) + ' %)</span></div>'
-    +   '<div style="display:flex;align-items:center;gap:8px"><span style="width:12px;height:12px;background:var(--color-accent);border-radius:3px"></span>Bar <strong style="font-family:var(--font-display)">' + fmtEur(drink) + '</strong> <span style="color:var(--color-text-sec);font-size:11px">(' + drinkPct.toFixed(1) + ' %)</span></div>'
+    + '<div class="zs-legend">'
+    +   '<span class="zs-legend-i">Kuchyňa <b>' + fmtEur(food) + '</b> <small>(' + foodPct.toFixed(0) + ' %)</small></span>'
+    +   '<span class="zs-legend-i is-drink">Bar <b>' + fmtEur(drink) + '</b> <small>(' + drinkPct.toFixed(0) + ' %)</small></span>'
     + '</div>'
     + '</div>';
 }
 
 function renderDailyChart(daily) {
   if (!daily.length) {
-    return '<div class="panel" style="margin-bottom:18px"><div class="panel-title">Denný trend</div><div class="td-empty" style="padding:20px;text-align:center;color:var(--color-text-dim)">Žiadne dáta v období</div></div>';
+    return '<div class="panel" style="margin-bottom:14px"><div class="panel-title">Denný náklad firmy</div>'
+      + '<p class="zs-empty">V tomto období bez spotreby.</p></div>';
   }
   const max = Math.max(...daily.map(d => Number(d.staffMeal) || 0));
   if (max <= 0) return '';
-  // Sort ascending by date
   const sorted = daily.slice().sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  // Stĺpce sa delia o šírku panelu — 31 dní sa zmestí bez rolovania vbok.
   const bars = sorted.map(d => {
     const v = Number(d.staffMeal) || 0;
     const pct = max > 0 ? (v / max) * 100 : 0;
     const parts = String(d.date).split('-');
-    const lbl = parts[2] + '.' + parts[1] + '.';
+    const lbl = parseInt(parts[2], 10) + '.' + parseInt(parts[1], 10) + '.';
     return ''
-      + '<div style="display:flex;flex-direction:column;align-items:center;flex:1;min-width:34px">'
-      +   '<div style="height:80px;width:24px;display:flex;align-items:flex-end;border-radius:4px;background:rgba(0,0,0,.03);overflow:hidden">'
-      +     '<div style="width:100%;height:' + pct.toFixed(1) + '%;background:var(--color-accent);transition:height .3s" title="' + lbl + ': ' + fmtEur(v) + '"></div>'
-      +   '</div>'
-      +   '<div style="font-size:10px;color:var(--color-text-dim);font-family:var(--font-mono);margin-top:4px;writing-mode:vertical-rl;text-orientation:mixed;white-space:nowrap">' + lbl + '</div>'
+      + '<div class="zs-bar" role="img" aria-label="' + lbl + ' ' + fmtEur(v) + '" title="' + lbl + ' ' + fmtEur(v) + '">'
+      +   '<div class="zs-bar-track"><div class="zs-bar-fill" style="height:' + pct.toFixed(1) + '%"></div></div>'
+      +   '<div class="zs-bar-lbl">' + lbl + '</div>'
       + '</div>';
   }).join('');
-  return '<div class="panel" style="margin-bottom:18px">'
-    + '<div class="panel-title">Denný náklad firmy (suroviny)</div>'
-    + '<div style="display:flex;gap:6px;align-items:flex-end;padding:8px 0;overflow-x:auto;min-height:120px">' + bars + '</div>'
+  return '<div class="panel" style="margin-bottom:14px">'
+    + '<div class="panel-title">Denný náklad firmy <small class="dsh-muted">suroviny</small></div>'
+    + '<div class="zs-chart">' + bars + '</div>'
     + '</div>';
 }
 
-function renderPersonTable(rows, totals) {
-  return '<div class="table-scroll-wrap">'
-    + '<table class="data-table">'
-    +   '<thead><tr>'
-    +     '<th>Meno</th>'
-    +     '<th class="text-right">Počet</th>'
-    +     '<th class="text-right">Jedlo (kuch.)</th>'
-    +     '<th class="text-right">Nápoje (bar)</th>'
-    +     '<th class="text-right">Náklad spolu</th>'
-    +     '<th class="text-right" title="Hodnota benefitu — koľko by zaplatil zákazník za rovnaké položky">Cena na predaj</th>'
-    +     '<th class="text-right" title="Cena na predaj − náklad. Marža na ktorú firma rezignovala.">Stratená marža</th>'
-    +   '</tr></thead>'
-    +   '<tbody>'
-    +   rows.map(r => {
-        const food = Number(r.foodCost) || 0;
-        const drink = Number(r.drinkCost) || 0;
-        const cost = Number(r.cost) || 0;
-        const menuValue = Number(r.menuValue) || 0;
-        const lostMargin = menuValue - cost;
-        return '<tr>'
-          + '<td class="td-name"><strong>' + escapeHtml(r.name || '--') + '</strong></td>'
-          + '<td class="num text-right">' + (Number(r.meals) || 0) + '</td>'
-          + '<td class="num text-right" style="color:var(--color-text-sec)">' + (food > 0 ? fmtEur(food) : '<span style="color:var(--color-text-dim)">—</span>') + '</td>'
-          + '<td class="num text-right" style="color:var(--color-text-sec)">' + (drink > 0 ? fmtEur(drink) : '<span style="color:var(--color-text-dim)">—</span>') + '</td>'
-          + '<td class="num text-right" style="font-weight:var(--weight-bold)">' + fmtEur(cost) + '</td>'
-          + '<td class="num text-right">' + fmtEur(menuValue) + '</td>'
-          + '<td class="num text-right" style="color:var(--color-text-sec)">' + fmtEur(lostMargin) + '</td>'
-          + '</tr>';
-      }).join('')
-    +   '</tbody>'
-    +   '<tfoot><tr>'
-    +     '<td><strong>Spolu</strong></td>'
-    +     '<td class="num text-right">' + totals.totalMeals + '</td>'
-    +     '<td class="num text-right" style="color:var(--color-text-sec)">' + fmtEur(totals.totalFood) + '</td>'
-    +     '<td class="num text-right" style="color:var(--color-text-sec)">' + fmtEur(totals.totalDrink) + '</td>'
-    +     '<td class="num text-right" style="font-weight:var(--weight-bold);color:var(--accent-amber, #f59e0b)">' + fmtEur(totals.totalCost) + '</td>'
-    +     '<td class="num text-right" style="font-weight:var(--weight-bold)">' + fmtEur(totals.totalMenuValue) + '</td>'
-    +     '<td class="num text-right" style="color:var(--color-text-sec)">' + fmtEur(totals.lostMargin) + '</td>'
-    +   '</tr></tfoot>'
-    + '</table>'
+function personRow(name, meals, food, drink, cost, menuValue, extra, cls) {
+  const parts = [meals + ' ' + mealsWord(meals)];
+  if (food > 0) parts.push('kuchyňa ' + fmtEur(food));
+  if (drink > 0) parts.push('bar ' + fmtEur(drink));
+  return '<div class="set-row zs-person' + (cls ? ' ' + cls : '') + '">'
+    + '<span class="set-k">' + name + '<span class="set-sub">' + parts.join(' · ') + '</span></span>'
+    + '<span class="set-r"><span class="zs-cost"><b>' + fmtEur(cost) + '</b><small>hosť by zaplatil ' + fmtEur(menuValue) + (extra || '') + '</small></span></span>'
     + '</div>';
 }
 
+function renderPersonList(rows, totals) {
+  const list = rows.map(r => personRow(
+    escapeHtml(r.name || '—'),
+    Number(r.meals) || 0,
+    Number(r.foodCost) || 0,
+    Number(r.drinkCost) || 0,
+    Number(r.cost) || 0,
+    Number(r.menuValue) || 0,
+    '',
+    '',
+  )).join('');
+  const total = personRow(
+    'Spolu',
+    totals.totalMeals,
+    totals.totalFood,
+    totals.totalDrink,
+    totals.totalCost,
+    totals.totalMenuValue,
+    ' · ušlá marža ' + fmtEur(totals.lostMargin),
+    'zs-total',
+  );
+  return '<div class="set-group zs-list">' + list + total + '</div>';
+}
+
+// Obdobie: tri najpoužívanejšie rozsahy ako chipy, dátumy a 60 dní pod „Iné…“
+// — rovnaká hlavička ako v Dochádzke.
 const TEMPLATE = ''
-  + '<div class="top-bar">'
-  +   '<div class="top-bar-left" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">'
-  +     '<label class="doch-toolbar-label">Od <input type="date" id="zsFrom" class="doch-input"></label>'
-  +     '<label class="doch-toolbar-label">Do <input type="date" id="zsTo" class="doch-input"></label>'
-  +     '<button class="doch-preset" data-preset="month">Tento mesiac</button>'
-  +     '<button class="doch-preset" data-preset="7">7 dní</button>'
-  +     '<button class="doch-preset" data-preset="30">30 dní</button>'
-  +     '<button class="doch-preset" data-preset="60">60 dní</button>'
+  + '<div class="doch-head">'
+  +   '<div class="doch-chips" role="group" aria-label="Obdobie" id="zsChips"></div>'
+  +   '<div class="doch-more zs-more" id="zsMore" hidden>'
+  +     '<label class="doch-toolbar-label">Od<input type="date" id="zsFrom" class="doch-input"></label>'
+  +     '<label class="doch-toolbar-label">Do<input type="date" id="zsTo" class="doch-input"></label>'
+  +     '<div class="doch-chips doch-chips-more" id="zsChipsMore"></div>'
   +   '</div>'
+  +   '<div class="doch-range" id="zsRange"></div>'
   + '</div>'
-  + '<div id="zsContent"><div class="loading-placeholder" style="padding:30px;text-align:center">Načítavam…</div></div>';
+  + '<div id="zsContent"><div class="loading-hint">Načítavam…</div></div>';
+
+function presetChip(preset, label) {
+  const on = _preset === preset;
+  return '<button type="button" class="doch-chip' + (on ? ' is-on' : '') + '" data-preset="' + preset + '"'
+    + ' aria-pressed="' + (on ? 'true' : 'false') + '">' + label + '</button>';
+}
+
+// "1. 9. – 8. 9. 2026" — človek nemá lúštiť ISO dátumy z dvoch políčok.
+function fmtRange(fromIso, toIso) {
+  const parse = (iso) => { const p = String(iso).split('-').map(Number); return { y: p[0], m: p[1], d: p[2] }; };
+  const a = parse(fromIso), b = parse(toIso);
+  if (!a.y || !b.y) return fromIso + ' – ' + toIso;
+  const left = a.d + '. ' + a.m + '.' + (a.y === b.y ? '' : ' ' + a.y);
+  return left + ' – ' + b.d + '. ' + b.m + '. ' + b.y;
+}
+
+function applyPreset(preset) {
+  if (preset === 'month') {
+    _from = firstOfMonth();
+    _to = todayIso();
+  } else {
+    _from = daysAgoIso(parseInt(preset, 10));
+    _to = todayIso();
+  }
+  _preset = preset;
+  _moreOpen = false;
+  $('#zsFrom').value = _from;
+  $('#zsTo').value = _to;
+}
+
+function renderChips() {
+  const chips = $('#zsChips');
+  const more = $('#zsChipsMore');
+  const box = $('#zsMore');
+  const range = $('#zsRange');
+  if (!chips) return;
+  chips.innerHTML = presetChip('month', 'Tento mesiac')
+    + presetChip('7', '7 dní')
+    + presetChip('30', '30 dní')
+    + '<button type="button" class="doch-chip' + ((_moreOpen || _preset === 'custom') ? ' is-on' : '') + '"'
+      + ' id="zsMoreBtn" aria-expanded="' + (_moreOpen ? 'true' : 'false') + '" aria-controls="zsMore">Iné…</button>';
+  if (more) more.innerHTML = presetChip('60', '60 dní');
+  if (box) box.hidden = !_moreOpen;
+  if (range) range.textContent = fmtRange(_from, _to);
+
+  _container.querySelectorAll('[data-preset]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      applyPreset(btn.getAttribute('data-preset'));
+      renderChips();
+      load();
+    });
+  });
+  const moreBtn = $('#zsMoreBtn');
+  if (moreBtn) moreBtn.addEventListener('click', () => {
+    _moreOpen = !_moreOpen;
+    renderChips();
+  });
+}
 
 export function init(container) {
   _container = container;
@@ -238,29 +275,22 @@ export function init(container) {
   $('#zsFrom').value = _from;
   $('#zsTo').value = _to;
 
-  $('#zsFrom').addEventListener('change', (e) => {
-    _from = e.target.value;
-    load();
-  });
-  $('#zsTo').addEventListener('change', (e) => {
-    _to = e.target.value;
-    load();
-  });
-  _container.querySelectorAll('.doch-preset').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const preset = btn.getAttribute('data-preset');
-      if (preset === 'month') {
-        _from = firstOfMonth();
-        _to = todayIso();
-      } else {
-        _from = daysAgoIso(parseInt(preset, 10));
-        _to = todayIso();
-      }
-      $('#zsFrom').value = _from;
-      $('#zsTo').value = _to;
+  // Dátumy sa použijú hneď pri zmene — bez tlačidla „Obnoviť“.
+  ['#zsFrom', '#zsTo'].forEach((sel) => {
+    $(sel).addEventListener('change', () => {
+      const f = $('#zsFrom').value;
+      const t = $('#zsTo').value;
+      if (!f || !t || f > t) return; // neúplný alebo prevrátený rozsah — počkáme
+      _from = f;
+      _to = t;
+      _preset = 'custom';
+      renderChips();
       load();
     });
   });
+  _preset = 'month';
+  _moreOpen = false;
+  renderChips();
 
   load();
 }
@@ -268,4 +298,6 @@ export function init(container) {
 export function destroy() {
   _container = null;
   _data = null;
+  _preset = 'month';
+  _moreOpen = false;
 }
