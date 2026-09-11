@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, numeric, boolean, timestamp, date, varchar, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, serial, text, integer, numeric, boolean, timestamp, date, varchar, index, uniqueIndex, jsonb } from 'drizzle-orm/pg-core';
 
 export const staff = pgTable('staff', {
   id: serial('id').primaryKey(),
@@ -714,4 +714,59 @@ export const revenueForecasts = pgTable('revenue_forecasts', {
   createdAt: timestamp('created_at').defaultNow(),
 }, (t) => [
   uniqueIndex('revenue_forecasts_target_method_uniq').on(t.targetDate, t.method),
+]);
+
+// ===================== ONLINE OBJEDNÁVKY (doručenie cez Wolt Drive) =====================
+// Objednávka z webu. `items` je SNAPSHOT (názov, cena, DPH v čase objednávky) —
+// menu sa medzitým môže zmeniť. Po potvrdení obsluhou vznikne bežný POS účet
+// (pos_order_id) na stole v zóne „rozvoz", takže predaj ide cez eKasu ako každý iný.
+// Migrácia: server/db/migrations/2026-09-11-online-orders.sql
+export const onlineOrders = pgTable('online_orders', {
+  id: serial('id').primaryKey(),
+  publicCode: varchar('public_code', { length: 12 }).notNull(),
+  // new | confirmed | dispatched | delivered | rejected | cancelled
+  status: varchar('status', { length: 20 }).notNull().default('new'),
+  customerName: varchar('customer_name', { length: 100 }).notNull(),
+  customerPhone: varchar('customer_phone', { length: 30 }).notNull(),
+  customerEmail: varchar('customer_email', { length: 120 }).notNull().default(''),
+  dropoffStreet: varchar('dropoff_street', { length: 150 }).notNull(),
+  dropoffCity: varchar('dropoff_city', { length: 80 }).notNull(),
+  dropoffPostCode: varchar('dropoff_post_code', { length: 12 }).notNull(),
+  dropoffComment: varchar('dropoff_comment', { length: 300 }).notNull().default(''),
+  dropoffLat: numeric('dropoff_lat', { precision: 9, scale: 6 }),
+  dropoffLon: numeric('dropoff_lon', { precision: 9, scale: 6 }),
+  items: jsonb('items').notNull(),
+  subtotal: numeric('subtotal', { precision: 10, scale: 2 }).notNull(),
+  deliveryFee: numeric('delivery_fee', { precision: 10, scale: 2 }).notNull().default('0'),
+  total: numeric('total', { precision: 10, scale: 2 }).notNull(),
+  // cash (kuriérovi, len ak to Wolt v regióne povolí) | transfer (QR/prevod vopred)
+  paymentMethod: varchar('payment_method', { length: 20 }).notNull().default('cash'),
+  note: varchar('note', { length: 500 }).notNull().default(''),
+  scheduledFor: timestamp('scheduled_for'),
+  woltPromiseId: varchar('wolt_promise_id', { length: 80 }),
+  woltPromiseValidUntil: timestamp('wolt_promise_valid_until'),
+  woltOrderReferenceId: varchar('wolt_order_reference_id', { length: 80 }),
+  woltTrackingUrl: text('wolt_tracking_url'),
+  woltStatus: varchar('wolt_status', { length: 40 }),
+  woltFee: numeric('wolt_fee', { precision: 10, scale: 2 }),
+  posOrderId: integer('pos_order_id').references(() => orders.id),
+  confirmedBy: integer('confirmed_by').references(() => staff.id),
+  confirmedAt: timestamp('confirmed_at'),
+  rejectedReason: varchar('rejected_reason', { length: 300 }).notNull().default(''),
+  clientIp: varchar('client_ip', { length: 64 }).notNull().default(''),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex('online_orders_public_code_uidx').on(t.publicCode),
+  index('online_orders_status_created_idx').on(t.status, t.createdAt),
+]);
+
+export const onlineOrderEvents = pgTable('online_order_events', {
+  id: serial('id').primaryKey(),
+  onlineOrderId: integer('online_order_id').notNull().references(() => onlineOrders.id, { onDelete: 'cascade' }),
+  type: varchar('type', { length: 40 }).notNull(),
+  payload: jsonb('payload').notNull().default({}),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (t) => [
+  index('online_order_events_order_idx').on(t.onlineOrderId, t.createdAt),
 ]);

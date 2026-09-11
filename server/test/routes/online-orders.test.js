@@ -1,0 +1,164 @@
+// Online objednávky: verejné vytvorenie (ceny z DB), potvrdenie obsluhou
+// (POS účet na stole Rozvoz + kuriér v mock režime), odmietnutie, webhook.
+if (!/\/pos_test(_[a-z0-9]+)?$/.test(process.env.DATABASE_URL ?? '')) {
+  throw new Error('Tests must run with DATABASE_URL pointing to pos_test. Current: ' + process.env.DATABASE_URL);
+}
+
+import { describe, it, before, beforeEach, after } from 'node:test';
+import assert from 'node:assert/strict';
+import supertest from 'supertest';
+import jwt from 'jsonwebtoken';
+import { eq } from 'drizzle-orm';
+
+import { app } from '../../app.js';
+import { testDb, truncateAll, seed, closeDb } from '../helpers/setup.js';
+import * as schema from '../../db/schema.js';
+import { tokens } from '../helpers/auth.js';
+
+const { onlineOrders, onlineOrderEvents, orders, orderItems, tables, zones, menuItems } = schema;
+const request = supertest(app);
+
+let ctx;
+before(async () => {
+  app.set('io', { emit: () => {} });
+  process.env.WOLT_DRIVE_MODE = 'mock';
+  process.env.WOLT_CASH_ON_DELIVERY = '1';
+  process.env.WOLT_WEBHOOK_SECRET = 'test-secret';
+});
+after(async () => { await closeDb(); });
+
+async function seedDelivery() {
+  await truncateAll();
+  ctx = await seed();
+  await testDb.insert(zones).values({ slug: 'rozvoz', label: 'Rozvoz', sortOrder: 90 }).onConflictDoNothing();
+  await testDb.insert(tables).values([{ name: 'Rozvoz 1', seats: 0, zone: 'rozvoz' }, { name: 'Rozvoz 2', seats: 0, zone: 'rozvoz' }]);
+  const items = await testDb.select().from(menuItems);
+  return items;
+}
+
+function validBody(items) {
+  return {
+    customer: { name: 'Jana Nová', phone: '+421 900 111 222', email: '' },
+    dropoff: { street: 'Tematínska 5', city: 'Bratislava', postCode: '851 05', comment: '' },
+    items: [{ menuItemId: items[0].id, qty: 2 }, { menuItemId: items[1].id, qty: 1 }],
+    note: 'bez cibule', paymentMethod: 'cash', consent: true,
+  };
+}
+
+describe('online objednávky', () => {
+  let items;
+  beforeEach(async () => { items = await seedDelivery(); });
+
+  it('GET /api/public/online-orders/config hlási režim a platby', async () => {
+    const res = await request.get('/api/public/online-orders/config');
+    assert.equal(res.status, 200);
+    assert.equal(res.body.deliveryEnabled, true);
+    assert.deepEqual(res.body.paymentMethods, ['cash', 'transfer']);
+  });
+
+  it('POST /quote vráti cenu a čas doručenia', async () => {
+    const res = await request.post('/api/public/online-orders/quote').send({ street: 'Tematínska 5', city: 'Bratislava', postCode: '851 05' });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.feeEur, 2.9);
+    assert.ok(res.body.promiseId);
+  });
+
+  it('POST / vytvorí objednávku s cenami z DB, nie z klienta', async () => {
+    const body = validBody(items);
+    body.items[0].unitPrice = 0.01; // pokus o podvrh — ignoruje sa (schéma neznáme polia zahodí)
+    const res = await request.post('/api/public/online-orders').send(body);
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    assert.match(res.body.code, /^SS-[A-Z2-9]{5}$/);
+    const expected = Math.round((Number(items[0].price) * 2 + Number(items[1].price)) * 100) / 100;
+    assert.equal(res.body.subtotal, expected);
+    assert.equal(res.body.deliveryFee, 2.9);
+    assert.equal(res.body.total, Math.round((expected + 2.9) * 100) / 100);
+
+    const [row] = await testDb.select().from(onlineOrders).where(eq(onlineOrders.publicCode, res.body.code));
+    assert.equal(row.status, 'new');
+    assert.equal(row.items[0].name, items[0].name);
+    assert.equal(row.items[0].unitPrice, Number(items[0].price));
+
+    // verejný stav podľa kódu
+    const st = await request.get('/api/public/online-orders/' + res.body.code);
+    assert.equal(st.status, 200);
+    assert.equal(st.body.status, 'new');
+    assert.equal(st.body.items.length, 2);
+  });
+
+  it('POST / odmietne neaktívnu položku, prázdny košík a chýbajúci súhlas', async () => {
+    await testDb.update(menuItems).set({ active: false }).where(eq(menuItems.id, items[0].id));
+    const r1 = await request.post('/api/public/online-orders').send(validBody(items));
+    assert.equal(r1.status, 400);
+    assert.deepEqual(r1.body.missingIds, [items[0].id]);
+    const r2 = await request.post('/api/public/online-orders').send({ ...validBody(items), items: [] });
+    assert.equal(r2.status, 400);
+    const r3 = await request.post('/api/public/online-orders').send({ ...validBody(items), consent: false });
+    assert.equal(r3.status, 400);
+  });
+
+  it('confirm: POS účet na stole Rozvoz, položky odoslané, kuriér (mock) objednaný', async () => {
+    const created = await request.post('/api/public/online-orders').send(validBody(items));
+    const [row] = await testDb.select().from(onlineOrders).where(eq(onlineOrders.publicCode, created.body.code));
+
+    const forbidden = await request.post('/api/online-orders/' + row.id + '/confirm').set('Authorization', 'Bearer ' + tokens.cisnik());
+    assert.equal(forbidden.status, 403);
+
+    const res = await request.post('/api/online-orders/' + row.id + '/confirm').set('Authorization', 'Bearer ' + tokens.manazer());
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.order.status, 'dispatched');
+    assert.equal(res.body.order.woltOrderReferenceId, 'mock-' + created.body.code);
+
+    const [pos] = await testDb.select().from(orders).where(eq(orders.id, res.body.order.posOrderId));
+    assert.equal(pos.status, 'open');
+    assert.equal(pos.label, 'Rozvoz ' + created.body.code);
+    const posItems = await testDb.select().from(orderItems).where(eq(orderItems.orderId, pos.id));
+    assert.equal(posItems.length, 2);
+    assert.ok(posItems.every((i) => i.sent === true));
+    const [tbl] = await testDb.select().from(tables).where(eq(tables.id, pos.tableId));
+    assert.equal(tbl.zone, 'rozvoz');
+    assert.equal(tbl.status, 'occupied');
+
+    // druhýkrát sa potvrdiť nedá
+    const again = await request.post('/api/online-orders/' + row.id + '/confirm').set('Authorization', 'Bearer ' + tokens.manazer());
+    assert.equal(again.status, 409);
+
+    // zoznam pre admin
+    const list = await request.get('/api/online-orders?status=active').set('Authorization', 'Bearer ' + tokens.manazer());
+    assert.equal(list.status, 200);
+    assert.equal(list.body.rows.length, 1);
+    assert.equal(list.body.counts.running, 1);
+  });
+
+  it('reject: len nová objednávka, bez POS účtu', async () => {
+    const created = await request.post('/api/public/online-orders').send(validBody(items));
+    const [row] = await testDb.select().from(onlineOrders).where(eq(onlineOrders.publicCode, created.body.code));
+    const res = await request.post('/api/online-orders/' + row.id + '/reject').set('Authorization', 'Bearer ' + tokens.admin()).send({ reason: 'Dnes už nevaríme' });
+    assert.equal(res.status, 200);
+    const [after1] = await testDb.select().from(onlineOrders).where(eq(onlineOrders.id, row.id));
+    assert.equal(after1.status, 'rejected');
+    assert.equal(after1.rejectedReason, 'Dnes už nevaríme');
+    assert.equal((await testDb.select().from(orders)).length, 0);
+    const pub = await request.get('/api/public/online-orders/' + created.body.code);
+    assert.equal(pub.body.rejectedReason, 'Dnes už nevaríme');
+  });
+
+  it('webhook: podpísaná udalosť order.delivered uzavrie objednávku, cudzí podpis 401', async () => {
+    const created = await request.post('/api/public/online-orders').send(validBody(items));
+    const [row] = await testDb.select().from(onlineOrders).where(eq(onlineOrders.publicCode, created.body.code));
+    await request.post('/api/online-orders/' + row.id + '/confirm').set('Authorization', 'Bearer ' + tokens.manazer());
+
+    const bad = jwt.sign({ type: 'order.delivered', details: { merchant_order_reference_id: created.body.code } }, 'wrong', { algorithm: 'HS256' });
+    assert.equal((await request.post('/api/public/online-orders/wolt/webhook').send({ token: bad })).status, 401);
+
+    const good = jwt.sign({ type: 'order.delivered', details: { wolt_order_reference_id: 'mock-' + created.body.code, merchant_order_reference_id: created.body.code } }, 'test-secret', { algorithm: 'HS256' });
+    const ok = await request.post('/api/public/online-orders/wolt/webhook').send({ token: good });
+    assert.equal(ok.status, 200);
+    const [after1] = await testDb.select().from(onlineOrders).where(eq(onlineOrders.id, row.id));
+    assert.equal(after1.status, 'delivered');
+    assert.equal(after1.woltStatus, 'delivered');
+    const evs = await testDb.select().from(onlineOrderEvents).where(eq(onlineOrderEvents.onlineOrderId, row.id));
+    assert.ok(evs.some((e) => e.type === 'wolt:order.delivered'));
+  });
+});

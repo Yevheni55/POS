@@ -38,6 +38,8 @@ import {
   adminRouter as attendanceAdminRouter,
 } from './routes/attendance.js';
 import publicMenuRouter from './routes/public-menu.js';
+import onlineOrdersPublicRouter from './routes/online-orders-public.js';
+import onlineOrdersRoutes from './routes/online-orders.js';
 import clientErrorRoutes from './routes/client-errors.js';
 import { idempotency } from './middleware/idempotency.js';
 import { auth } from './middleware/auth.js';
@@ -223,6 +225,10 @@ app.use('/api/attendance', attendancePublicRouter);
 // Verejný read-only menu endpoint pre surfspirit.sk webku — bez auth,
 // 30s cache, vracia rovnaký JSON shape ako static surfspirit-menu.json.
 app.use('/api/public', publicMenuRouter);
+// Objednávky s doručením z webu: cena doručenia, vytvorenie objednávky, stav
+// pre zákazníka, webhook Woltu. Bez JWT (validácia + rate-limit vnútri),
+// PRED idempotency middlewarom — web neposiela idempotency kľúč.
+app.use('/api/public/online-orders', onlineOrdersPublicRouter);
 // Zber JS chýb z prehliadača. Zápis je verejný zámerne (chyba môže nastať aj
 // pred prihlásením a posiela sa cez sendBeacon); čítanie má vnútri routera
 // vlastný auth + requireRole('manazer','admin'). Musí byť PRED idempotency
@@ -239,6 +245,7 @@ app.use('/api/zones', auth, zonesRoutes);
 app.use('/api/audit', auth, auditRoutes);
 app.use('/api/cashflow', auth, cashflowRoutes);
 app.use('/api/orders', auth, ordersRoutes);
+app.use('/api/online-orders', auth, onlineOrdersRoutes);
 app.use('/api/staff', auth, staffRoutes);
 app.use('/api/payments', auth, paymentsRoutes);
 app.use('/api/reports', auth, reportsRoutes);

@@ -45,6 +45,7 @@ async function _buildMenu() {
         c.label,
         c.icon,
         json_agg(json_build_object(
+          'id',    mi.id,
           'name',  mi.name,
           'emoji', mi.emoji,
           'price', mi.price::text,

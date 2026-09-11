@@ -17,7 +17,12 @@ function parseAllowList() {
   if (process.env.ALLOWED_ORIGINS) {
     return process.env.ALLOWED_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean);
   }
-  return ['http://localhost:3000', 'http://localhost:3080', 'https://localhost:3443'];
+  // surfspirit.sk: verejný web volá /api/public/online-orders (POST — preflight),
+  // takže musí byť v zozname aj bez ALLOWED_ORIGINS v .env.
+  return [
+    'http://localhost:3000', 'http://localhost:3080', 'https://localhost:3443',
+    'https://surfspirit.sk', 'https://www.surfspirit.sk',
+  ];
 }
 
 function parseLanAllowedPorts() {

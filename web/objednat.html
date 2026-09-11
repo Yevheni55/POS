@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Surf Spirit — objednať s doručením</title>
+<meta name="description" content="Objednajte si jedlo a nápoje zo Surf Spirit s doručením kuriérom Wolt priamo domov.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<meta name="theme-color" content="#fdf9f3">
+<style>
+/* Rovnaká reč ako surfspirit.sk (Instrument Serif + Plus Jakarta, piesok/atrament/cyan). */
+:root{
+  --sand-50:#fdf9f3; --sand-100:#f9f0e3; --sand-200:#f0dfc5; --sand-300:#e2c89a;
+  --ink-900:#04122a; --ink-800:#082248; --ink-700:#0c3768; --ink-500:#4a5b75; --ink-400:#7e8ba3; --ink-300:#b1bbcd; --ink-200:#d6dde8;
+  --cyan-500:#18b5bc; --cyan-400:#33cdd2; --sunset-orange:#ff7b54; --ok:#1f7a4d; --bad:#b03830;
+  --paper:var(--sand-50); --card:#ffffff; --line:rgba(4,18,42,.10);
+  --font-display:'Instrument Serif','Times New Roman',Georgia,serif;
+  --font-body:'Plus Jakarta Sans',system-ui,sans-serif;
+  --r:16px; --maxw:720px;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink-900);font-family:var(--font-body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased;padding-bottom:calc(96px + env(safe-area-inset-bottom))}
+a{color:var(--ink-700)}
+button{font-family:inherit}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 16px}
+
+.top{position:sticky;top:0;z-index:20;background:rgba(253,249,243,.92);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.top .wrap{display:flex;align-items:center;justify-content:space-between;min-height:56px;gap:12px}
+.brand{font-family:var(--font-display);font-size:24px;text-decoration:none;color:var(--ink-900)}
+.brand em{font-style:italic;color:var(--cyan-500)}
+.top-note{font-size:13px;color:var(--ink-500);white-space:nowrap}
+
+.hero{padding:28px 0 12px}
+.hero h1{font-family:var(--font-display);font-weight:400;font-size:clamp(34px,7vw,48px);line-height:1.05;margin:0 0 8px;letter-spacing:-.01em}
+.hero p{margin:0;color:var(--ink-500);max-width:52ch}
+.notice{margin:14px 0 0;padding:12px 14px;border-radius:12px;background:var(--sand-100);border:1px solid var(--sand-200);font-size:14px;color:var(--ink-700)}
+.notice.bad{background:#fbe9e6;border-color:#f3c7c0;color:var(--bad)}
+
+.chips{position:sticky;top:56px;z-index:15;display:flex;gap:8px;overflow-x:auto;padding:12px 0;background:var(--paper);scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;min-height:40px;padding:0 14px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--ink-700);font-weight:600;font-size:14px;cursor:pointer;white-space:nowrap}
+.chip.is-on{background:var(--ink-900);color:#fff;border-color:var(--ink-900)}
+.chip:focus-visible,.btn:focus-visible,.qty button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(24,181,188,.35)}
+
+.cat{margin:8px 0 22px}
+.cat h2{font-family:var(--font-display);font-weight:400;font-size:28px;margin:0 0 8px}
+.items{background:var(--card);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line)}
+.item:last-child{border-bottom:0}
+.item-n{font-weight:600}
+.item-d{font-size:13px;color:var(--ink-500)}
+.item-p{font-variant-numeric:tabular-nums;color:var(--ink-700);font-size:14px;margin-top:2px}
+.add{min-width:44px;min-height:44px;border-radius:12px;border:1px solid var(--line);background:var(--sand-100);color:var(--ink-900);font-size:22px;line-height:1;cursor:pointer}
+.qty{display:flex;align-items:center;gap:2px;background:var(--ink-900);border-radius:12px;color:#fff}
+.qty button{min-width:40px;min-height:44px;border:0;background:transparent;color:#fff;font-size:20px;cursor:pointer;border-radius:12px}
+.qty b{min-width:22px;text-align:center;font-variant-numeric:tabular-nums}
+
+.bar{position:fixed;left:0;right:0;bottom:0;z-index:30;padding:12px 16px calc(12px + env(safe-area-inset-bottom));background:transparent;pointer-events:none}
+.bar .btn{pointer-events:auto;max-width:var(--maxw);margin:0 auto;box-shadow:0 12px 30px -10px rgba(4,18,42,.35)}
+.btn{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:52px;padding:0 18px;border-radius:14px;border:0;background:var(--ink-900);color:#fff;font-weight:700;font-size:16px;cursor:pointer}
+.btn.ghost{background:var(--sand-100);color:var(--ink-900);border:1px solid var(--line);justify-content:center}
+.btn[disabled]{opacity:.55;cursor:not-allowed}
+.btn .sum{font-variant-numeric:tabular-nums}
+
+/* Panel zdola (košík, doručenie, stav) */
+.sheet{position:fixed;inset:0;z-index:40;display:none;align-items:flex-end;background:rgba(4,18,42,.45)}
+.sheet.show{display:flex}
+.sheet-card{width:100%;max-width:var(--maxw);margin:0 auto;max-height:92dvh;overflow-y:auto;background:var(--paper);border-radius:20px 20px 0 0;padding:14px 16px calc(20px + env(safe-area-inset-bottom))}
+@media(min-width:721px){.sheet{align-items:center}.sheet-card{border-radius:20px;max-height:88vh}}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.sheet-head h2{font-family:var(--font-display);font-weight:400;font-size:28px;margin:0}
+.x{width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:var(--card);font-size:20px;cursor:pointer}
+.group{background:var(--card);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;margin-bottom:14px}
+.row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line)}
+.group>.row:last-child,.group>.tot:last-child{border-bottom:0}
+.tot{display:flex;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--line);color:var(--ink-500);font-size:14px}
+.tot.big{color:var(--ink-900);font-weight:700;font-size:17px}
+.field{display:flex;flex-direction:column;gap:6px;padding:10px 14px;border-bottom:1px solid var(--line)}
+.field:last-child{border-bottom:0}
+.field label{font-size:13px;font-weight:600;color:var(--ink-500)}
+.field input,.field select,.field textarea{min-height:44px;padding:8px 12px;border-radius:10px;border:1px solid var(--line);background:var(--paper);font:inherit;font-size:16px;color:var(--ink-900)}
+.field textarea{min-height:72px;resize:vertical}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.radio{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line);cursor:pointer}
+.radio:last-child{border-bottom:0}
+.radio input{width:20px;height:20px;accent-color:var(--ink-900)}
+.hint{font-size:13px;color:var(--ink-500);margin:0 0 12px}
+.err{color:var(--bad);font-size:14px;margin:0 0 12px}
+.quote{padding:12px 14px;border-radius:12px;background:#e6f7f8;border:1px solid #bfe9eb;color:var(--ink-800);font-size:14px;margin-bottom:14px}
+.consent{display:flex;gap:10px;align-items:flex-start;font-size:13px;color:var(--ink-500);margin:0 0 14px}
+.consent input{width:20px;height:20px;flex:none;accent-color:var(--ink-900)}
+
+.done{text-align:center;padding:24px 0}
+.done .code{font-family:var(--font-display);font-size:44px;letter-spacing:.04em;margin:8px 0}
+.status{display:inline-block;padding:6px 12px;border-radius:999px;background:var(--sand-100);border:1px solid var(--sand-200);font-weight:600;font-size:14px}
+.status.ok{background:#e6f5ec;border-color:#bfe3cc;color:var(--ok)}
+.status.bad{background:#fbe9e6;border-color:#f3c7c0;color:var(--bad)}
+.skel{height:56px;border-radius:var(--r);background:linear-gradient(90deg,var(--sand-100),var(--sand-200),var(--sand-100));background-size:200% 100%;animation:sh 1.2s linear infinite;margin-bottom:10px}
+@keyframes sh{to{background-position:-200% 0}}
+@media(prefers-reduced-motion:reduce){.skel{animation:none}}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="/">Surf <em>Spirit</em></a>
+    <span class="top-note" id="topNote">Doručenie kuriérom Wolt</span>
+  </div>
+</header>
+
+<main class="wrap" id="main">
+  <section class="hero">
+    <h1>Objednajte si domov.</h1>
+    <p>Vyberiete, my potvrdíme a kuriér Wolt privezie. Ceny sú rovnaké ako na bare.</p>
+    <div class="notice" id="notice" hidden></div>
+  </section>
+
+  <nav class="chips" id="chips" aria-label="Kategórie"></nav>
+  <div id="menu"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>
+</main>
+
+<div class="bar" id="bar" hidden>
+  <button class="btn" id="barBtn" type="button"><span id="barCount">Košík</span><span class="sum" id="barSum">0,00 €</span></button>
+</div>
+
+<!-- Košík -->
+<div class="sheet" id="cartSheet" role="dialog" aria-modal="true" aria-labelledby="cartTitle">
+  <div class="sheet-card">
+    <div class="sheet-head"><h2 id="cartTitle">Košík</h2><button class="x" type="button" data-close="cartSheet" aria-label="Zavrieť">×</button></div>
+    <div class="group" id="cartItems"></div>
+    <p class="hint" id="cartHint"></p>
+    <button class="btn" type="button" id="toCheckout"><span>Pokračovať k doručeniu</span><span class="sum" id="cartSum"></span></button>
+  </div>
+</div>
+
+<!-- Doručenie a kontakt -->
+<div class="sheet" id="checkoutSheet" role="dialog" aria-modal="true" aria-labelledby="coTitle">
+  <div class="sheet-card">
+    <div class="sheet-head"><h2 id="coTitle">Doručenie</h2><button class="x" type="button" data-close="checkoutSheet" aria-label="Zavrieť">×</button></div>
+    <form id="coForm" novalidate>
+      <div class="group">
+        <div class="field"><label for="fName">Meno</label><input id="fName" name="name" autocomplete="name" required></div>
+        <div class="field"><label for="fPhone">Telefón</label><input id="fPhone" name="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="+421 900 123 456" required></div>
+        <div class="field"><label for="fEmail">E-mail (voliteľné, na potvrdenie)</label><input id="fEmail" name="email" type="email" autocomplete="email"></div>
+      </div>
+      <div class="group">
+        <div class="field"><label for="fStreet">Ulica a číslo</label><input id="fStreet" name="street" autocomplete="street-address" required></div>
+        <div class="two" style="padding:0 14px 10px">
+          <div class="field" style="padding:0;border:0"><label for="fCity">Mesto</label><input id="fCity" name="city" autocomplete="address-level2" value="Bratislava" required></div>
+          <div class="field" style="padding:0;border:0"><label for="fPsc">PSČ</label><input id="fPsc" name="postCode" autocomplete="postal-code" inputmode="numeric" placeholder="851 05" required></div>
+        </div>
+        <div class="field"><label for="fComment">Poznámka pre kuriéra (vchod, poschodie, zvonček)</label><input id="fComment" name="comment" maxlength="300"></div>
+      </div>
+      <button class="btn ghost" type="button" id="quoteBtn">Zistiť cenu a čas doručenia</button>
+      <div class="quote" id="quoteBox" hidden></div>
+      <div class="group" id="payGroup"></div>
+      <div class="group">
+        <div class="field"><label for="fNote">Poznámka k objednávke (alergie, bez cibule…)</label><textarea id="fNote" name="note" maxlength="500"></textarea></div>
+      </div>
+      <div class="group" id="coSummary"></div>
+      <label class="consent"><input type="checkbox" id="fConsent" required> Súhlasím so spracovaním mena, telefónu a adresy na účel doručenia tejto objednávky (prevádzkovateľ SL management, s. r. o.; údaje dostane kuriérska služba Wolt).</label>
+      <p class="err" id="coErr" hidden></p>
+      <button class="btn" type="submit" id="submitBtn"><span>Objednať</span><span class="sum" id="submitSum"></span></button>
+    </form>
+  </div>
+</div>
+
+<!-- Stav objednávky -->
+<div class="sheet" id="doneSheet" role="dialog" aria-modal="true" aria-labelledby="doneTitle">
+  <div class="sheet-card">
+    <div class="sheet-head"><h2 id="doneTitle">Objednávka prijatá</h2><button class="x" type="button" data-close="doneSheet" aria-label="Zavrieť">×</button></div>
+    <div class="done">
+      <p class="hint" style="margin:0">Kód objednávky</p>
+      <div class="code" id="doneCode">SS-…</div>
+      <div class="status" id="doneStatus">Čaká na potvrdenie</div>
+      <p class="hint" id="doneText" style="margin-top:12px"></p>
+      <p id="doneTrack" hidden><a id="doneTrackLink" href="#" target="_blank" rel="noopener">Sledovať kuriéra ↗</a></p>
+    </div>
+    <div class="group" id="doneItems"></div>
+    <button class="btn ghost" type="button" data-close="doneSheet">Zavrieť</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  // API POS-u. Na surfspirit.sk ide cez verejnú adresu (Cloudflare Tunnel);
+  // lokálne / na kase je to tá istá doména ako stránka.
+  var API = (window.SS_API_BASE || (/surfspirit\.sk$/.test(location.hostname) ? 'https://objednavky.surfspirit.sk' : '')) + '/api/public';
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var MENU = [], CART = new Map(), CFG = { deliveryEnabled: false, paymentMethods: ['transfer'], minOrderEur: 10 };
+  var QUOTE = null, ORDER = null, pollTimer = null;
+  var eur = function (n) { return (Number(n) || 0).toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'; };
+  var esc = function (v) { return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
+  var word = function (n, a, b, c) { return n === 1 ? a : (n >= 2 && n <= 4 ? b : c); };
+
+  async function getJson(url, opts) {
+    var res = await fetch(url, Object.assign({ headers: { 'Content-Type': 'application/json' } }, opts || {}));
+    var data = null; try { data = await res.json(); } catch (e) {}
+    if (!res.ok) { var msg = (data && data.error) || ('Chyba ' + res.status); if (data && data.details && data.details[0]) msg = data.details[0].message; throw new Error(msg); }
+    return data;
+  }
+
+  // ── Menu ──
+  async function load() {
+    try {
+      var results = await Promise.all([getJson(API + '/menu'), getJson(API + '/online-orders/config').catch(function () { return CFG; })]);
+      MENU = (results[0].menu || []).map(function (c) { return { slug: c.slug, label: c.label, icon: c.icon, items: (c.items || []).filter(function (i) { return i.id; }) }; }).filter(function (c) { return c.items.length; });
+      CFG = results[1] || CFG;
+    } catch (e) {
+      $('#menu').innerHTML = '<div class="notice bad">Ponuku sa nepodarilo načítať (' + esc(e.message) + '). Skúste obnoviť stránku.</div>';
+      return;
+    }
+    if (!CFG.deliveryEnabled) { var n = $('#notice'); n.hidden = false; n.className = 'notice bad'; n.textContent = 'Doručenie momentálne nie je dostupné. Radi vás uvidíme na bare.'; }
+    else if (CFG.mode === 'mock') { var n2 = $('#notice'); n2.hidden = false; n2.textContent = 'Skúšobná prevádzka — objednávky sa nedoručujú.'; }
+    $('#topNote').textContent = 'Min. objednávka ' + eur(CFG.minOrderEur);
+    renderChips(); renderMenu(); renderPay();
+    var code = new URLSearchParams(location.search).get('kod');
+    if (code) openStatus(code.toUpperCase());
+  }
+  function renderChips() {
+    $('#chips').innerHTML = MENU.map(function (c, i) { return '<button type="button" class="chip' + (i === 0 ? ' is-on' : '') + '" data-slug="' + esc(c.slug) + '">' + esc(c.icon ? c.icon + ' ' : '') + esc(c.label) + '</button>'; }).join('');
+    $('#chips').addEventListener('click', function (e) { var b = e.target.closest('[data-slug]'); if (!b) return; document.getElementById('cat-' + b.dataset.slug).scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+  }
+  function renderMenu() {
+    $('#menu').innerHTML = MENU.map(function (c) {
+      return '<section class="cat" id="cat-' + esc(c.slug) + '"><h2>' + esc(c.label) + '</h2><div class="items">' + c.items.map(itemHtml).join('') + '</div></section>';
+    }).join('');
+    $('#menu').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-add],[data-inc],[data-dec]'); if (!b) return;
+      var id = Number(b.dataset.add || b.dataset.inc || b.dataset.dec);
+      if (b.dataset.dec) dec(id); else inc(id);
+    });
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) { if (en.isIntersecting) { document.querySelectorAll('.chip').forEach(function (ch) { ch.classList.toggle('is-on', 'cat-' + ch.dataset.slug === en.target.id); }); } });
+    }, { rootMargin: '-120px 0px -70% 0px' });
+    document.querySelectorAll('.cat').forEach(function (s) { io.observe(s); });
+  }
+  function itemHtml(i) {
+    var q = CART.has(i.id) ? CART.get(i.id).qty : 0;
+    return '<div class="item" id="it-' + i.id + '"><div><div class="item-n">' + esc(i.emoji ? i.emoji + ' ' : '') + esc(i.name) + '</div>' + (i.desc ? '<div class="item-d">' + esc(i.desc) + '</div>' : '') + '<div class="item-p">' + eur(i.price) + '</div></div>' +
+      (q ? '<div class="qty"><button type="button" data-dec="' + i.id + '" aria-label="Menej">−</button><b>' + q + '</b><button type="button" data-inc="' + i.id + '" aria-label="Viac">+</button></div>'
+         : '<button type="button" class="add" data-add="' + i.id + '" aria-label="Pridať ' + esc(i.name) + '">+</button>') + '</div>';
+  }
+  function findItem(id) { for (var c of MENU) for (var i of c.items) if (i.id === id) return i; return null; }
+  function inc(id) { var it = findItem(id); if (!it) return; var e = CART.get(id) || { id: id, name: it.name, price: Number(it.price), qty: 0 }; e.qty = Math.min(50, e.qty + 1); CART.set(id, e); refresh(id); }
+  function dec(id) { var e = CART.get(id); if (!e) return; e.qty -= 1; if (e.qty <= 0) CART.delete(id); refresh(id); }
+  function subtotal() { var s = 0; CART.forEach(function (e) { s += e.price * e.qty; }); return Math.round(s * 100) / 100; }
+  function count() { var n = 0; CART.forEach(function (e) { n += e.qty; }); return n; }
+  function refresh(id) {
+    var it = findItem(id); var el = document.getElementById('it-' + id); if (it && el) el.outerHTML = itemHtml(it);
+    var n = count(); $('#bar').hidden = n === 0; $('#barCount').textContent = n + ' ' + word(n, 'položka', 'položky', 'položiek'); $('#barSum').textContent = eur(subtotal());
+    if ($('#cartSheet').classList.contains('show')) renderCart();
+  }
+
+  // ── Košík ──
+  function renderCart() {
+    var rows = []; CART.forEach(function (e) { rows.push('<div class="row"><div class="qty"><button type="button" data-dec="' + e.id + '" aria-label="Menej">−</button><b>' + e.qty + '</b><button type="button" data-inc="' + e.id + '" aria-label="Viac">+</button></div><span>' + esc(e.name) + '</span><span class="sum">' + eur(e.price * e.qty) + '</span></div>'); });
+    $('#cartItems').innerHTML = rows.join('') || '<div class="tot">Košík je prázdny</div>';
+    var s = subtotal(); $('#cartSum').textContent = eur(s);
+    var under = s < CFG.minOrderEur; $('#toCheckout').disabled = under || !CART.size || !CFG.deliveryEnabled;
+    $('#cartHint').textContent = !CFG.deliveryEnabled ? 'Doručenie momentálne nie je dostupné.' : under ? 'Minimálna objednávka je ' + eur(CFG.minOrderEur) + ' — chýba ' + eur(CFG.minOrderEur - s) + '.' : 'Cena doručenia sa pripočíta podľa adresy v ďalšom kroku.';
+  }
+  $('#cartItems').addEventListener('click', function (e) { var b = e.target.closest('[data-inc],[data-dec]'); if (!b) return; var id = Number(b.dataset.inc || b.dataset.dec); if (b.dataset.dec) dec(id); else inc(id); });
+  $('#barBtn').addEventListener('click', function () { renderCart(); open('cartSheet'); });
+  $('#toCheckout').addEventListener('click', function () { close('cartSheet'); renderSummary(); open('checkoutSheet'); });
+
+  // ── Doručenie ──
+  function renderPay() {
+    var m = CFG.paymentMethods || ['transfer'];
+    var labels = { cash: ['Hotovosťou kuriérovi', 'Zaplatíte pri prevzatí, presne na sumu objednávky.'], transfer: ['Vopred prevodom / QR', 'Po potvrdení vám pošleme údaje na platbu; kuriér vyrazí po jej prijatí.'] };
+    $('#payGroup').innerHTML = m.map(function (k, i) { return '<label class="radio"><input type="radio" name="pay" value="' + k + '"' + (i === 0 ? ' checked' : '') + '><span><b>' + labels[k][0] + '</b><br><span class="hint" style="margin:0">' + labels[k][1] + '</span></span></label>'; }).join('');
+  }
+  function address() { return { street: $('#fStreet').value.trim(), city: $('#fCity').value.trim(), postCode: $('#fPsc').value.trim(), comment: $('#fComment').value.trim() }; }
+  function renderSummary() {
+    var s = subtotal(), fee = QUOTE ? QUOTE.feeEur : null;
+    $('#coSummary').innerHTML = '<div class="tot"><span>Jedlo a nápoje</span><span>' + eur(s) + '</span></div><div class="tot"><span>Doručenie</span><span>' + (fee == null ? 'podľa adresy' : eur(fee)) + '</span></div><div class="tot big"><span>Spolu</span><span>' + eur(s + (fee || 0)) + '</span></div>';
+    $('#submitSum').textContent = eur(s + (fee || 0)); $('#submitBtn').disabled = !QUOTE;
+  }
+  $('#quoteBtn').addEventListener('click', async function () {
+    var a = address(); var err = $('#coErr'); err.hidden = true; QUOTE = null; $('#quoteBox').hidden = true;
+    if (a.street.length < 3 || !/^\d{3}\s?\d{2}$/.test(a.postCode)) { err.hidden = false; err.textContent = 'Zadajte ulicu s číslom a PSČ (5 číslic).'; return; }
+    var b = $('#quoteBtn'); b.disabled = true; b.textContent = 'Zisťujem…';
+    try {
+      QUOTE = await getJson(API + '/online-orders/quote', { method: 'POST', body: JSON.stringify({ street: a.street, city: a.city, postCode: a.postCode }) });
+      var q = $('#quoteBox'); q.hidden = false; q.innerHTML = '<b>Doručenie ' + eur(QUOTE.feeEur) + '</b>' + (QUOTE.etaMinutes ? ' · približne ' + QUOTE.etaMinutes + ' min od potvrdenia' : '') + (QUOTE.address ? '<br><span class="hint" style="margin:0">' + esc(QUOTE.address) + '</span>' : '');
+    } catch (e) { err.hidden = false; err.textContent = e.message; }
+    finally { b.disabled = false; b.textContent = 'Zistiť cenu a čas doručenia znova'; renderSummary(); }
+  });
+  ['fStreet', 'fCity', 'fPsc'].forEach(function (id) { $('#' + id).addEventListener('input', function () { if (QUOTE) { QUOTE = null; $('#quoteBox').hidden = true; $('#quoteBtn').textContent = 'Zistiť cenu a čas doručenia'; renderSummary(); } }); });
+
+  $('#coForm').addEventListener('submit', async function (ev) {
+    ev.preventDefault(); var err = $('#coErr'); err.hidden = true;
+    var a = address(); var name = $('#fName').value.trim(), phone = $('#fPhone').value.trim();
+    if (name.length < 2) return showErr('Zadajte meno.'); if (!/^\+?[0-9 ()\-]{9,30}$/.test(phone)) return showErr('Zadajte telefón, napr. +421 900 123 456.');
+    if (!QUOTE) return showErr('Najprv zistite cenu doručenia.'); if (!$('#fConsent').checked) return showErr('Potvrďte súhlas so spracovaním údajov.');
+    var items = []; CART.forEach(function (e) { items.push({ menuItemId: e.id, qty: e.qty }); });
+    var body = { customer: { name: name, phone: phone, email: $('#fEmail').value.trim() }, dropoff: a, items: items, note: $('#fNote').value.trim(), paymentMethod: ($('input[name=pay]:checked') || {}).value || 'transfer', promiseId: QUOTE.promiseId, consent: true };
+    var b = $('#submitBtn'); b.disabled = true;
+    try {
+      ORDER = await getJson(API + '/online-orders', { method: 'POST', body: JSON.stringify(body) });
+      close('checkoutSheet'); CART.clear(); renderMenu(); refresh(-1);
+      history.replaceState(null, '', location.pathname + '?kod=' + ORDER.code);
+      openStatus(ORDER.code, ORDER);
+    } catch (e) { showErr(e.message); b.disabled = false; }
+    function showErr(m) { err.hidden = false; err.textContent = m; b.disabled = false; }
+  });
+
+  // ── Stav ──
+  var STATUS = { new: ['Čaká na potvrdenie', '', 'Obsluha objednávku potvrdí o chvíľu. Túto stránku môžete nechať otvorenú.'], confirmed: ['Pripravujeme', 'ok', 'Objednávka je potvrdená a pripravuje sa.'], dispatched: ['Kuriér na ceste', 'ok', 'Kuriér Wolt objednávku vyzdvihne a privezie.'], delivered: ['Doručené', 'ok', 'Dobrú chuť!'], rejected: ['Odmietnutá', 'bad', 'Objednávku sme nemohli prijať.'], cancelled: ['Zrušená', 'bad', 'Doručenie bolo zrušené.'] };
+  async function openStatus(code, first) {
+    $('#doneCode').textContent = code; open('doneSheet'); clearInterval(pollTimer);
+    if (first) render({ status: first.status, total: first.total, deliveryFee: first.deliveryFee, subtotal: first.subtotal, items: [] , wolt: {} });
+    var tick = async function () { try { var o = await getJson(API + '/online-orders/' + encodeURIComponent(code)); render(o); if (o.status === 'delivered' || o.status === 'rejected' || o.status === 'cancelled') clearInterval(pollTimer); } catch (e) { $('#doneText').textContent = e.message; } };
+    tick(); pollTimer = setInterval(tick, 30000);
+    function render(o) {
+      var st = STATUS[o.status] || [o.status, '', '']; var s = $('#doneStatus'); s.textContent = st[0]; s.className = 'status ' + st[1];
+      $('#doneTitle').textContent = o.status === 'new' ? 'Objednávka prijatá' : st[0];
+      $('#doneText').textContent = st[2] + (o.rejectedReason ? ' Dôvod: ' + o.rejectedReason : '');
+      var tr = $('#doneTrack'); tr.hidden = !(o.wolt && o.wolt.trackingUrl); if (!tr.hidden) $('#doneTrackLink').href = o.wolt.trackingUrl;
+      $('#doneItems').innerHTML = (o.items || []).map(function (i) { return '<div class="tot"><span>' + i.qty + '× ' + esc(i.name) + '</span><span>' + eur(i.unitPrice * i.qty) + '</span></div>'; }).join('') + '<div class="tot"><span>Doručenie</span><span>' + eur(o.deliveryFee) + '</span></div><div class="tot big"><span>Spolu</span><span>' + eur(o.total) + '</span></div>';
+    }
+  }
+
+  // ── Panely ──
+  function open(id) { var s = document.getElementById(id); s.classList.add('show'); var x = s.querySelector('.x'); if (x) x.focus(); }
+  function close(id) { document.getElementById(id).classList.remove('show'); }
+  document.querySelectorAll('[data-close]').forEach(function (b) { b.addEventListener('click', function () { close(b.dataset.close); }); });
+  document.querySelectorAll('.sheet').forEach(function (s) { s.addEventListener('click', function (e) { if (e.target === s) close(s.id); }); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') document.querySelectorAll('.sheet.show').forEach(function (s) { close(s.id); }); });
+
+  load();
+})();
+</script>
+</body>
+</html>
