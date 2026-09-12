@@ -24,6 +24,7 @@ before(async () => {
   process.env.WOLT_DRIVE_MODE = 'mock';
   process.env.WOLT_CASH_ON_DELIVERY = '1';
   process.env.WOLT_WEBHOOK_SECRET = 'test-secret';
+  process.env.WOLT_ORDER_MODE = 'mock';
 });
 after(async () => { await closeDb(); });
 
@@ -158,6 +159,32 @@ describe('online objednávky', () => {
     assert.equal(new Date(row.scheduledFor).toISOString(), when);
     const pub = await request.get('/api/public/online-orders/' + ok.body.code);
     assert.equal(new Date(pub.body.scheduledFor).toISOString(), when);
+  });
+
+  it('skúšobná objednávka z Woltu (mock): manažér ju vytvorí, kuchár prijme a označí hotové, simulované doručenie ju uzavrie', async () => {
+    const forbidden = await request.post('/api/online-orders/wolt/mock-order').set('Authorization', 'Bearer ' + tokens.cisnik()).send({});
+    assert.equal(forbidden.status, 403);
+    const created = await request.post('/api/online-orders/wolt/mock-order').set('Authorization', 'Bearer ' + tokens.manazer()).send({ deliveryType: 'homedelivery' });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    const o = created.body.order;
+    assert.equal(o.source, 'wolt');
+    assert.match(o.publicCode, /^W-\d{4}$/);
+    assert.equal(o.paymentMethod, 'wolt');
+    assert.equal(o.deliveryType, 'homedelivery');
+    assert.ok(o.items.some((i) => i.menuItemId) && o.items.some((i) => i.unmapped), 'namapované aj nenamapované položky');
+
+    const conf = await request.post('/api/online-orders/' + o.id + '/confirm').set('Authorization', 'Bearer ' + tokens.cisnik());
+    assert.equal(conf.status, 200, JSON.stringify(conf.body));
+    assert.equal(conf.body.order.status, 'confirmed');
+    assert.ok(conf.body.order.posOrderId, 'účet z namapovaných položiek');
+    const [pos] = await testDb.select().from(orders).where(eq(orders.id, conf.body.order.posOrderId));
+    assert.equal(pos.label, 'Wolt ' + o.publicCode);
+
+    assert.equal((await request.post('/api/online-orders/' + o.id + '/ready').set('Authorization', 'Bearer ' + tokens.cisnik())).status, 200);
+    const done = await request.post('/api/online-orders/' + o.id + '/wolt-mock-status').set('Authorization', 'Bearer ' + tokens.manazer()).send({ status: 'DELIVERED' });
+    assert.equal(done.status, 200);
+    assert.equal(done.body.order.status, 'delivered');
+    assert.equal(done.body.order.woltStatus, 'delivered');
   });
 
   it('reject: len nová objednávka, bez POS účtu', async () => {

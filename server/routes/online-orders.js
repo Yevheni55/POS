@@ -22,6 +22,7 @@ import { woltConfig, createDelivery, cancelDelivery, WoltError } from '../lib/wo
 import {
   woltOrderConfig, acceptOrder, rejectOrder as woltRejectOrder, readyOrder as woltReadyOrder, deliveredOrder as woltDeliveredOrder,
   confirmPreorder, exchangeAuthCode, connectionStatus, WoltOrderError,
+  normalizeOrder, buildOnlineOrderFromWolt, makeMenuResolver, statusForNotification,
 } from '../lib/wolt-order-api.js';
 import { rejectOnlineOrderSchema, listOnlineOrdersQuerySchema } from '../schemas/online-orders.js';
 
@@ -48,6 +49,78 @@ router.get('/config', asyncRoute(async (req, res) => {
   let woltOrders = { enabled: w.enabled, mode: w.mode, connected: false };
   if (w.enabled) { try { woltOrders = { ...woltOrders, ...(await connectionStatus(w)) }; } catch { /* bez DB info */ } }
   res.json({ enabled: cfg.enabled, mode: cfg.mode, cashOnDelivery: cfg.cashOnDelivery, pickup: cfg.pickup, minPrepMinutes: cfg.minPrepMinutes, woltOrders });
+}));
+
+// POST /wolt/mock-order — skúšobná objednávka „z aplikácie Wolt" (len v režime
+// WOLT_ORDER_MODE=mock): náhodné položky z menu + jedna mimo kasy, aby bolo
+// vidieť aj poznámku o nenamapovaných. Vznikne rovnako ako ostrá — lišta na
+// kase, KDS, admin.
+router.post('/wolt/mock-order', mgr, asyncRoute(async (req, res) => {
+  if (woltOrderConfig().mode !== 'mock') return res.status(403).json({ error: 'Skúšobná objednávka funguje len v režime WOLT_ORDER_MODE=mock' });
+  const wanted = String(req.body?.deliveryType || '');
+  const deliveryType = ['homedelivery', 'takeaway', 'eatin'].includes(wanted) ? wanted : (Math.random() < 0.6 ? 'homedelivery' : 'takeaway');
+  const menu = await db.select({ id: menuItems.id, name: menuItems.name, price: menuItems.price, vatRate: menuItems.vatRate })
+    .from(menuItems).where(and(eq(menuItems.active, true), sql`${menuItems.price} >= 1.5`));
+  if (menu.length < 2) return res.status(409).json({ error: 'V menu nie sú aspoň dve aktívne položky' });
+  const pick = menu.slice().sort(() => Math.random() - 0.5).slice(0, 2 + Math.floor(Math.random() * 2));
+  const cents = (eur) => Math.round(Number(eur) * 100);
+  const items = pick.map((m, i) => ({
+    id: 'mock-i' + i, name: m.name, count: i === 0 ? 2 : 1, pos_id: String(m.id), sku: null,
+    options: i === 0 ? [{ name: 'Poznámka', value: 'bez ľadu', price: { amount: 0 }, count: 1 }] : [],
+    item_price: { unit_price: { amount: cents(m.price) }, total: { amount: cents(m.price) * (i === 0 ? 2 : 1) } },
+  }));
+  items.push({ id: 'mock-x', name: 'Wolt bonus dezert (mimo kasy)', count: 1, pos_id: null, sku: null, options: [], item_price: { unit_price: { amount: 320 }, total: { amount: 320 } } });
+  const basket = items.reduce((s, it) => s + it.item_price.total.amount, 0);
+  const fee = deliveryType === 'homedelivery' ? 290 : 0;
+  const ref = 'mock-' + Date.now().toString(36);
+  const names = ['Lucia', 'Peter', 'Zuzana', 'Marek', 'Katarína'];
+  const raw = {
+    id: ref, order_number: String(1000 + Math.floor(Math.random() * 9000)), order_status: 'received', type: 'instant',
+    venue: { id: 'mock-venue', name: 'Surf Spirit Draždiak' },
+    consumer_name: names[Math.floor(Math.random() * names.length)] + ' (skúška Wolt)', consumer_phone_number: '+421 900 000 000',
+    consumer_comment: 'Skúšobná objednávka z aplikácie Wolt — neriešiť.',
+    price: { amount: basket + fee, currency: 'EUR' }, basket_price: { total: { amount: basket, currency: 'EUR' } },
+    fees: { delivery: { amount: fee, currency: 'EUR' } },
+    delivery: deliveryType === 'homedelivery'
+      ? { type: 'homedelivery', status: 'pending', location: { street_address: 'Jasovská 12', city: 'Bratislava', post_code: '851 07', formatted_address: 'Jasovská 12, 851 07 Bratislava', coordinates: { lat: 48.1122, lon: 17.1444 } } }
+      : { type: deliveryType, status: 'pending' },
+    pickup_eta: new Date(Date.now() + 20 * 60_000).toISOString(), created_at: new Date().toISOString(), items,
+  };
+  const values = buildOnlineOrderFromWolt(normalizeOrder(raw), makeMenuResolver(menu), raw);
+  let row;
+  try { [row] = await db.insert(onlineOrders).values(values).returning(); }
+  catch (e) {
+    if (!/online_orders_public_code/.test(String(e.message))) throw e;
+    values.publicCode = ('W-' + ref.slice(-5).toUpperCase()).slice(0, 12);
+    [row] = await db.insert(onlineOrders).values(values).returning();
+  }
+  await addEvent(row.id, 'created', { source: 'wolt', mock: true, staffId: req.user.id });
+  emitEvent(req, 'online-order:new', { id: row.id, code: row.publicCode, total: Number(row.total), customerName: row.customerName, itemCount: row.items.length, source: 'wolt' }).catch(() => {});
+  res.status(201).json({ ok: true, order: row });
+}));
+
+// POST /:id/wolt-mock-status — simulácia notifikácie Woltu (DELIVERED / CANCELED /
+// PRODUCTION / READY) v mock režime, aby sa dal prejsť celý cyklus bez Woltu.
+router.post('/:id/wolt-mock-status', mgr, asyncRoute(async (req, res) => {
+  if (woltOrderConfig().mode !== 'mock') return res.status(403).json({ error: 'Len v režime WOLT_ORDER_MODE=mock' });
+  const id = +req.params.id;
+  const [oo] = await db.select().from(onlineOrders).where(eq(onlineOrders.id, id)).limit(1);
+  if (!oo) return res.status(404).json({ error: 'Objednávka sa nenašla' });
+  if (oo.source !== 'wolt') return res.status(409).json({ error: 'Nie je to objednávka z aplikácie Wolt' });
+  const st = String(req.body?.status || 'DELIVERED').toUpperCase();
+  const patch = { woltStatus: st.toLowerCase(), updatedAt: new Date() };
+  const next = statusForNotification(st, oo.status);
+  if (next && !['delivered', 'rejected', 'cancelled'].includes(oo.status)) {
+    patch.status = next;
+    if (next === 'rejected' && !oo.rejectedReason) patch.rejectedReason = 'Zrušené zo strany Woltu (simulácia)';
+    if (next === 'confirmed' && !oo.confirmedAt) patch.confirmedAt = new Date();
+  }
+  if (st === 'READY' && !oo.readyAt) patch.readyAt = new Date();
+  await db.update(onlineOrders).set(patch).where(eq(onlineOrders.id, id));
+  await addEvent(id, 'wolt:' + st.toLowerCase(), { mock: true, staffId: req.user.id });
+  emitEvent(req, 'online-order:updated', { id, code: oo.publicCode, status: patch.status || oo.status, woltStatus: patch.woltStatus }).catch(() => {});
+  const [row] = await db.select().from(onlineOrders).where(eq(onlineOrders.id, id)).limit(1);
+  res.json({ ok: true, order: row });
 }));
 
 // POST /wolt/oauth/code — ručné vloženie authorization code (keď presmerovanie

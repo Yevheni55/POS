@@ -77,6 +77,9 @@ function render() {
     ? '<span class="oo-mode is-off">Doručenie vypnuté</span>'
     : mode === 'mock' ? '<span class="oo-mode is-mock">Skúšobný režim — kuriér sa neobjednáva</span>'
     : mode === 'development' ? '<span class="oo-mode is-mock">Wolt staging</span>' : '';
+  // Skúšobná objednávka „z aplikácie Wolt" — len keď je WOLT_ORDER_MODE=mock.
+  const mockWolt = _cfg && _cfg.woltOrders && _cfg.woltOrders.mode === 'mock'
+    ? '<button type="button" class="doch-chip oo-mock-btn" id="ooMockWolt">+ Skúšobná objednávka z Woltu</button>' : '';
   head.innerHTML =
     '<div class="doch-chips" role="group" aria-label="Filter">' +
       chip('new', 'Nové' + (_counts.new ? ' ' + _counts.new : '')) +
@@ -87,9 +90,19 @@ function render() {
     '<div class="doch-sum">' +
       '<span class="doch-sum-i"><strong>' + _counts.new + '</strong> ' + (_counts.new === 1 ? 'nová' : (_counts.new >= 2 && _counts.new <= 4 ? 'nové' : 'nových')) + '</span>' +
       '<span class="doch-sum-i"><strong>' + _counts.running + '</strong> v príprave alebo na ceste</span>' +
-      modeNote +
+      modeNote + mockWolt +
     '</div>';
   head.querySelectorAll('[data-filter]').forEach((b) => b.addEventListener('click', () => { _filter = b.dataset.filter; load(); }));
+  const mockBtn = head.querySelector('#ooMockWolt');
+  if (mockBtn) mockBtn.addEventListener('click', async () => {
+    mockBtn.disabled = true;
+    try {
+      const r = await api.post('/online-orders/wolt/mock-order', {});
+      showToast('Skúšobná objednávka ' + r.order.publicCode + ' z Woltu vytvorená — pozri kasu / KDS', true);
+      _filter = 'new'; load({ silent: true });
+    } catch (e) { showToast(e.message || 'Chyba', 'error'); }
+    mockBtn.disabled = false;
+  });
 
   const list = $('#ooList');
   if (!_rows.length) {
@@ -152,7 +165,10 @@ async function openDetail(id) {
               '<button class="u-btn u-btn-ice" id="ooConfirm">' + (isWolt(o) ? 'Prijať vo Wolte' : 'Potvrdiť a objednať kuriéra') + '</button>';
   } else if (o.status === 'confirmed' && isWolt(o)) {
     // Kuriéra rieši Wolt — tu len hotové a (pri vyzdvihnutí) odovzdanie zákazníkovi.
-    actions = '<button class="u-btn u-btn-ghost" id="ooClose">Zavrieť</button>' +
+    // V mock režime sa dá doručenie kuriérom Woltu odsimulovať.
+    const mock = _cfg && _cfg.woltOrders && _cfg.woltOrders.mode === 'mock' && !inHouse(o)
+      ? '<button class="u-btn u-btn-ghost" id="ooMockDeliver">Simulovať doručenie (Wolt)</button>' : '';
+    actions = '<button class="u-btn u-btn-ghost" id="ooClose">Zavrieť</button>' + mock +
               (!o.readyAt ? '<button class="u-btn u-btn-ice" id="ooReady">Hotové</button>'
                 : inHouse(o) ? '<button class="u-btn u-btn-ice" id="ooHandover">Odovzdané zákazníkovi</button>' : '');
   } else if (o.status === 'confirmed') {
@@ -218,6 +234,11 @@ async function openDetail(id) {
       else showToast(r.error || 'Potvrdené, ale kuriéra sa nepodarilo objednať — skúste znova z detailu', 'error');
       close(); load({ silent: true });
     } catch (e) { showToast(e.message || 'Nepodarilo sa potvrdiť', 'error'); btnReset(btn); }
+  });
+  on('#ooMockDeliver', async () => {
+    const btn = ov.querySelector('#ooMockDeliver'); btnLoading(btn);
+    try { await api.post('/online-orders/' + id + '/wolt-mock-status', { status: 'DELIVERED' }); showToast('Wolt: doručené (simulácia)', true); close(); load({ silent: true }); }
+    catch (e) { showToast(e.message || 'Chyba', 'error'); btnReset(btn); }
   });
   on('#ooHandover', async () => {
     const btn = ov.querySelector('#ooHandover'); btnLoading(btn);

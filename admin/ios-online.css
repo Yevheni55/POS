@@ -85,3 +85,6 @@
 
 /* Zdroj: objednávka z aplikácie Wolt */
 .oo-src { display: inline-block; vertical-align: middle; padding: 1px 7px; border-radius: var(--radius-full); background: var(--color-accent-secondary-soft); color: var(--color-accent-secondary); font-size: var(--text-2xs); font-weight: var(--weight-bold); letter-spacing: var(--tracking-wide); text-transform: uppercase; }
+
+/* Skúšobná objednávka z Woltu (len mock režim) */
+.oo-mock-btn { margin-left: auto; border-style: dashed; }
