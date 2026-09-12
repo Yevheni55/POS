@@ -155,6 +155,11 @@ button{font-family:inherit}
         </div>
         <div class="field"><label for="fComment">Poznámka pre kuriéra (vchod, poschodie, zvonček)</label><input id="fComment" name="comment" maxlength="300"></div>
       </div>
+      <div class="group" id="whenGroup">
+        <label class="radio"><input type="radio" name="when" value="asap" checked><span><b>Čo najskôr</b><br><span class="hint" style="margin:0">Zvyčajne do hodiny od potvrdenia.</span></span></label>
+        <label class="radio"><input type="radio" name="when" value="time"><span><b>Na konkrétny čas</b><br><span class="hint" style="margin:0">Najskôr o 45 minút, najviac 7 dní dopredu.</span></span></label>
+        <div class="field" id="whenField" hidden><label for="fWhen">Doručiť o</label><input id="fWhen" type="datetime-local" step="900"></div>
+      </div>
       <button class="btn ghost" type="button" id="quoteBtn">Zistiť cenu a čas doručenia</button>
       <div class="quote" id="quoteBox" hidden></div>
       <div class="group" id="payGroup"></div>
@@ -276,18 +281,44 @@ button{font-family:inherit}
     $('#payGroup').innerHTML = m.map(function (k, i) { return '<label class="radio"><input type="radio" name="pay" value="' + k + '"' + (i === 0 ? ' checked' : '') + '><span><b>' + labels[k][0] + '</b><br><span class="hint" style="margin:0">' + labels[k][1] + '</span></span></label>'; }).join('');
   }
   function address() { return { street: $('#fStreet').value.trim(), city: $('#fCity').value.trim(), postCode: $('#fPsc').value.trim(), comment: $('#fComment').value.trim() }; }
+  // Čas doručenia: null = čo najskôr, inak ISO (lokálny výber prehliadača → UTC).
+  function localIso(d) { var p = function (n) { return String(n).padStart(2, '0'); }; return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes()); }
+  function scheduledFor() {
+    if ((document.querySelector('input[name=when]:checked') || {}).value !== 'time') return null;
+    var v = $('#fWhen').value; if (!v) return 'missing';
+    var d = new Date(v); if (isNaN(d.getTime())) return 'missing';
+    if (d.getTime() < Date.now() + 45 * 60000) return 'soon';
+    if (d.getTime() > Date.now() + 7 * 24 * 3600000) return 'late';
+    return d.toISOString();
+  }
+  function whenLabel() {
+    var s = scheduledFor(); if (!s) return 'čo najskôr';
+    if (s === 'missing' || s === 'soon' || s === 'late') return '—';
+    return new Intl.DateTimeFormat('sk-SK', { weekday: 'short', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(s));
+  }
+  document.querySelectorAll('input[name=when]').forEach(function (r) { r.addEventListener('change', function () {
+    var on = r.value === 'time' && r.checked; $('#whenField').hidden = !on;
+    if (on && !$('#fWhen').value) { var d = new Date(Date.now() + 60 * 60000); d.setMinutes(Math.ceil(d.getMinutes() / 15) * 15, 0, 0); $('#fWhen').value = localIso(d); }
+    var min = new Date(Date.now() + 45 * 60000); $('#fWhen').min = localIso(min); var max = new Date(Date.now() + 7 * 24 * 3600000); $('#fWhen').max = localIso(max);
+    if (QUOTE) { QUOTE = null; $('#quoteBox').hidden = true; $('#quoteBtn').textContent = 'Zistiť cenu a čas doručenia'; } renderSummary();
+  }); });
+  $('#fWhen').addEventListener('change', function () { if (QUOTE) { QUOTE = null; $('#quoteBox').hidden = true; $('#quoteBtn').textContent = 'Zistiť cenu a čas doručenia'; } renderSummary(); });
   function renderSummary() {
     var s = subtotal(), fee = QUOTE ? QUOTE.feeEur : null;
-    $('#coSummary').innerHTML = '<div class="tot"><span>Jedlo a nápoje</span><span>' + eur(s) + '</span></div><div class="tot"><span>Doručenie</span><span>' + (fee == null ? 'podľa adresy' : eur(fee)) + '</span></div><div class="tot big"><span>Spolu</span><span>' + eur(s + (fee || 0)) + '</span></div>';
+    $('#coSummary').innerHTML = '<div class="tot"><span>Jedlo a nápoje</span><span>' + eur(s) + '</span></div><div class="tot"><span>Doručenie</span><span>' + (fee == null ? 'podľa adresy' : eur(fee)) + '</span></div><div class="tot"><span>Kedy</span><span>' + esc(whenLabel()) + '</span></div><div class="tot big"><span>Spolu</span><span>' + eur(s + (fee || 0)) + '</span></div>';
     $('#submitSum').textContent = eur(s + (fee || 0)); $('#submitBtn').disabled = !QUOTE;
   }
   $('#quoteBtn').addEventListener('click', async function () {
     var a = address(); var err = $('#coErr'); err.hidden = true; QUOTE = null; $('#quoteBox').hidden = true;
     if (a.street.length < 3 || !/^\d{3}\s?\d{2}$/.test(a.postCode)) { err.hidden = false; err.textContent = 'Zadajte ulicu s číslom a PSČ (5 číslic).'; return; }
+    var when = scheduledFor();
+    if (when === 'missing') { err.hidden = false; err.textContent = 'Vyberte čas doručenia.'; return; }
+    if (when === 'soon') { err.hidden = false; err.textContent = 'Čas doručenia musí byť aspoň 45 minút dopredu.'; return; }
+    if (when === 'late') { err.hidden = false; err.textContent = 'Doručenie sa dá naplánovať najviac 7 dní dopredu.'; return; }
     var b = $('#quoteBtn'); b.disabled = true; b.textContent = 'Zisťujem…';
     try {
-      QUOTE = await getJson(API + '/online-orders/quote', { method: 'POST', body: JSON.stringify({ street: a.street, city: a.city, postCode: a.postCode }) });
-      var q = $('#quoteBox'); q.hidden = false; q.innerHTML = '<b>Doručenie ' + eur(QUOTE.feeEur) + '</b>' + (QUOTE.etaMinutes ? ' · približne ' + QUOTE.etaMinutes + ' min od potvrdenia' : '') + (QUOTE.address ? '<br><span class="hint" style="margin:0">' + esc(QUOTE.address) + '</span>' : '');
+      QUOTE = await getJson(API + '/online-orders/quote', { method: 'POST', body: JSON.stringify({ street: a.street, city: a.city, postCode: a.postCode, scheduledFor: when || undefined }) });
+      var q = $('#quoteBox'); q.hidden = false; q.innerHTML = '<b>Doručenie ' + eur(QUOTE.feeEur) + '</b>' + (when ? ' · ' + esc(whenLabel()) : (QUOTE.etaMinutes ? ' · približne ' + QUOTE.etaMinutes + ' min od potvrdenia' : '')) + (QUOTE.address ? '<br><span class="hint" style="margin:0">' + esc(QUOTE.address) + '</span>' : '');
     } catch (e) { err.hidden = false; err.textContent = e.message; }
     finally { b.disabled = false; b.textContent = 'Zistiť cenu a čas doručenia znova'; renderSummary(); }
   });
@@ -299,7 +330,10 @@ button{font-family:inherit}
     if (name.length < 2) return showErr('Zadajte meno.'); if (!/^\+?[0-9 ()\-]{9,30}$/.test(phone)) return showErr('Zadajte telefón, napr. +421 900 123 456.');
     if (!QUOTE) return showErr('Najprv zistite cenu doručenia.'); if (!$('#fConsent').checked) return showErr('Potvrďte súhlas so spracovaním údajov.');
     var items = []; CART.forEach(function (e) { items.push({ menuItemId: e.id, qty: e.qty }); });
+    var when = scheduledFor();
+    if (when === 'missing' || when === 'soon' || when === 'late') return showErr('Skontrolujte čas doručenia.');
     var body = { customer: { name: name, phone: phone, email: $('#fEmail').value.trim() }, dropoff: a, items: items, note: $('#fNote').value.trim(), paymentMethod: ($('input[name=pay]:checked') || {}).value || 'transfer', promiseId: QUOTE.promiseId, consent: true };
+    if (when) body.scheduledFor = when;
     var b = $('#submitBtn'); b.disabled = true;
     try {
       ORDER = await getJson(API + '/online-orders', { method: 'POST', body: JSON.stringify(body) });
@@ -318,9 +352,13 @@ button{font-family:inherit}
     var tick = async function () { try { var o = await getJson(API + '/online-orders/' + encodeURIComponent(code)); render(o); if (o.status === 'delivered' || o.status === 'rejected' || o.status === 'cancelled') clearInterval(pollTimer); } catch (e) { $('#doneText').textContent = e.message; } };
     tick(); pollTimer = setInterval(tick, 30000);
     function render(o) {
-      var st = STATUS[o.status] || [o.status, '', '']; var s = $('#doneStatus'); s.textContent = st[0]; s.className = 'status ' + st[1];
+      var st = STATUS[o.status] || [o.status, '', ''];
+      // Kuchár označil hotové — dôležitejšie než stav kuriéra, kým nie je doručené.
+      if (o.readyAt && (o.status === 'confirmed' || o.status === 'dispatched')) st = ['Hotové, čaká na kuriéra', 'ok', 'Jedlo je pripravené, kuriér ho vyzdvihne a privezie.'];
+      var s = $('#doneStatus'); s.textContent = st[0]; s.className = 'status ' + st[1];
       $('#doneTitle').textContent = o.status === 'new' ? 'Objednávka prijatá' : st[0];
-      $('#doneText').textContent = st[2] + (o.rejectedReason ? ' Dôvod: ' + o.rejectedReason : '');
+      var whenTxt = o.scheduledFor ? ' Doručenie: ' + new Intl.DateTimeFormat('sk-SK', { weekday: 'short', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(o.scheduledFor)) + '.' : '';
+      $('#doneText').textContent = st[2] + whenTxt + (o.rejectedReason ? ' Dôvod: ' + o.rejectedReason : '');
       var tr = $('#doneTrack'); tr.hidden = !(o.wolt && o.wolt.trackingUrl); if (!tr.hidden) $('#doneTrackLink').href = o.wolt.trackingUrl;
       $('#doneItems').innerHTML = (o.items || []).map(function (i) { return '<div class="tot"><span>' + i.qty + '× ' + esc(i.name) + '</span><span>' + eur(i.unitPrice * i.qty) + '</span></div>'; }).join('') + '<div class="tot"><span>Doručenie</span><span>' + eur(o.deliveryFee) + '</span></div><div class="tot big"><span>Spolu</span><span>' + eur(o.total) + '</span></div>';
     }

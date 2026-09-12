@@ -22,6 +22,7 @@
   <div class="header-left">
     <button class="view-btn active-kuchyna" id="btnKuchyna" onclick="setView('kuchyna')">KUCHYNA</button>
     <button class="view-btn inactive" id="btnBar" onclick="setView('bar')">BAR</button>
+    <button class="view-btn inactive" id="btnRozvoz" onclick="setView('rozvoz')">ROZVOZ<span class="view-badge" id="onlineBadge" hidden>0</span></button>
   </div>
   <div class="header-center" id="clock">00:00:00</div>
   <div class="header-right">
@@ -33,6 +34,27 @@
 <main class="main">
   <div class="grid" id="grid"></div>
 </main>
+
+<!-- Odmietnutie online objednávky: dôvod uvidí zákazník na webe. -->
+<div class="kds-sheet-overlay" id="ooReject" hidden>
+  <div class="kds-sheet" role="dialog" aria-modal="true" aria-labelledby="ooRejectTitle">
+    <h2 id="ooRejectTitle">Odmietnuť objednávku <span id="ooRejectCode"></span></h2>
+    <p class="kds-sheet-sub">Zákazník uvidí dôvod na webe. Nič sa nevarí, kuriér sa neobjedná.</p>
+    <div class="kds-reasons">
+      <button type="button" class="kds-reason" data-reason="Dnes už nevaríme">Dnes už nevaríme</button>
+      <button type="button" class="kds-reason" data-reason="Niektorá položka je vypredaná">Vypredané</button>
+      <button type="button" class="kds-reason" data-reason="Adresa je mimo doručovacej zóny">Mimo zóny</button>
+      <button type="button" class="kds-reason" data-reason="Kuchyňa je preťažená, skúste neskôr">Preťažená kuchyňa</button>
+    </div>
+    <label class="kds-label" for="ooRejectText">Dôvod (môžete upraviť)</label>
+    <input id="ooRejectText" class="kds-input" maxlength="300" autocomplete="off">
+    <div class="kds-sheet-actions">
+      <button type="button" class="btn-per-item" id="ooRejectCancel">Späť</button>
+      <button type="button" class="btn-reject-confirm" id="ooRejectOk">Odmietnuť</button>
+    </div>
+  </div>
+</div>
+<div class="kds-toast" id="ooToast" role="status" aria-live="polite" hidden></div>
 
 <iframe id="printFrame" class="print-frame"></iframe>
 

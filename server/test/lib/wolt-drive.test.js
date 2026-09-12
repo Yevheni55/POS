@@ -92,3 +92,25 @@ test('webhook: platný HS256 token prejde, cudzí podpis nie; mapovanie stavov',
   assert.equal(statusForWebhookType('order.rejected'), 'confirmed');
   assert.equal(statusForWebhookType('order.pickup_started'), null);
 });
+
+test('naplánované doručenie: Wolt dostane scheduled len nad hodinu dopredu', async () => {
+  const { scheduledTimeForWolt } = await import('../../lib/wolt-drive.js');
+  const savedNow = _internals.now;
+  _internals.now = () => new Date('2026-09-11T10:00:00Z');
+  try {
+    assert.equal(scheduledTimeForWolt(null), null);
+    assert.equal(scheduledTimeForWolt('nezmysel'), null);
+    assert.equal(scheduledTimeForWolt('2026-09-11T10:50:00Z'), null, 'do hodiny = čo najskôr');
+    assert.equal(scheduledTimeForWolt('2026-09-11T13:00:00Z'), '2026-09-11T13:00:00.000Z');
+
+    Object.assign(process.env, { WOLT_DRIVE_MODE: 'development', WOLT_DRIVE_TOKEN: 'tok', WOLT_MERCHANT_ID: 'm1', WOLT_VENUE_ID: 'v1', WOLT_PICKUP_PHONE: '+421900000000' });
+    const cfg = woltConfig();
+    const later = buildDeliveryBody({ promiseId: 'p-1', order: { ...ORDER, scheduledFor: new Date('2026-09-11T13:00:00Z') } }, cfg);
+    assert.equal(later.dropoff.options.scheduled_time, '2026-09-11T13:00:00.000Z');
+    const soon = buildDeliveryBody({ promiseId: 'p-1', order: { ...ORDER, scheduledFor: new Date('2026-09-11T10:30:00Z') } }, cfg);
+    assert.equal(soon.dropoff.options.scheduled_time, undefined);
+    const promise = buildPromiseBody({ street: 'Tematínska 5', city: 'Bratislava', postCode: '851 05', scheduledFor: '2026-09-11T13:00:00Z' }, cfg);
+    assert.equal(promise.scheduled_dropoff_time, '2026-09-11T13:00:00.000Z');
+    assert.equal(buildPromiseBody({ street: 'Tematínska 5', city: 'Bratislava', postCode: '851 05' }, cfg).scheduled_dropoff_time, undefined);
+  } finally { _internals.now = savedNow; }
+});

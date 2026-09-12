@@ -752,6 +752,8 @@ export const onlineOrders = pgTable('online_orders', {
   posOrderId: integer('pos_order_id').references(() => orders.id),
   confirmedBy: integer('confirmed_by').references(() => staff.id),
   confirmedAt: timestamp('confirmed_at'),
+  // Kuchár označil hotové — jedlo čaká na kuriéra.
+  readyAt: timestamp('ready_at'),
   rejectedReason: varchar('rejected_reason', { length: 300 }).notNull().default(''),
   clientIp: varchar('client_ip', { length: 64 }).notNull().default(''),
   createdAt: timestamp('created_at').notNull().defaultNow(),

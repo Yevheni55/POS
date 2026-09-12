@@ -22,6 +22,9 @@ import { woltConfig, createDelivery, cancelDelivery, WoltError } from '../lib/wo
 import { rejectOnlineOrderSchema, listOnlineOrdersQuerySchema } from '../schemas/online-orders.js';
 
 const router = Router();
+// Potvrdiť, odmietnuť a označiť hotové smie ktokoľvek prihlásený (kuchár na
+// KDS je bežný účet). Zásahy do kuriéra (znovu objednať, zrušiť) ostávajú
+// manažérovi — stoja peniaze.
 const mgr = requireRole('manazer', 'admin');
 
 const ACTIVE = ['new', 'confirmed', 'dispatched'];
@@ -35,13 +38,13 @@ async function addEvent(id, type, payload = {}) {
   await db.insert(onlineOrderEvents).values({ onlineOrderId: id, type, payload });
 }
 
-router.get('/config', mgr, (req, res) => {
+router.get('/config', (req, res) => {
   const cfg = woltConfig();
   res.json({ enabled: cfg.enabled, mode: cfg.mode, cashOnDelivery: cfg.cashOnDelivery, pickup: cfg.pickup, minPrepMinutes: cfg.minPrepMinutes });
 });
 
 // GET / ?status=new|active|done|all
-router.get('/', mgr, asyncRoute(async (req, res) => {
+router.get('/', asyncRoute(async (req, res) => {
   // validate() rieši len body — query si prejdeme tou istou schémou ručne.
   const parsed = listOnlineOrdersQuerySchema.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ error: 'Neplatné parametre' });
@@ -60,7 +63,7 @@ router.get('/', mgr, asyncRoute(async (req, res) => {
   res.json({ rows, counts });
 }));
 
-router.get('/:id/events', mgr, asyncRoute(async (req, res) => {
+router.get('/:id/events', asyncRoute(async (req, res) => {
   const rows = await db.select().from(onlineOrderEvents)
     .where(eq(onlineOrderEvents.onlineOrderId, +req.params.id)).orderBy(onlineOrderEvents.createdAt);
   res.json(rows);
@@ -78,7 +81,7 @@ async function pickFreeDeliveryTable(tx) {
 
 // POST /:id/confirm — obsluha objednávku prijala. Vznikne POS účet (bon do
 // kuchyne, odpis skladu) a objedná sa kuriér.
-router.post('/:id/confirm', mgr, asyncRoute(async (req, res) => {
+router.post('/:id/confirm', asyncRoute(async (req, res) => {
   const id = +req.params.id;
   const [oo] = await db.select().from(onlineOrders).where(eq(onlineOrders.id, id)).limit(1);
   if (!oo) return res.status(404).json({ error: 'Objednávka sa nenašla' });
@@ -188,7 +191,20 @@ router.post('/:id/dispatch', mgr, asyncRoute(async (req, res) => {
 }));
 
 // POST /:id/reject — odmietnuť novú objednávku (nič sa nevarí, nič sa neodpisuje)
-router.post('/:id/reject', mgr, validate(rejectOnlineOrderSchema), asyncRoute(async (req, res) => {
+// POST /:id/ready — kuchár: jedlo je hotové, čaká na kuriéra. Zákazník to vidí.
+router.post('/:id/ready', asyncRoute(async (req, res) => {
+  const id = +req.params.id;
+  const [oo] = await db.select().from(onlineOrders).where(eq(onlineOrders.id, id)).limit(1);
+  if (!oo) return res.status(404).json({ error: 'Objednávka sa nenašla' });
+  if (!['confirmed', 'dispatched'].includes(oo.status)) return res.status(409).json({ error: 'Hotové sa dá označiť len pri potvrdenej objednávke' });
+  if (oo.readyAt) return res.json({ ok: true, alreadyReady: true });
+  await db.update(onlineOrders).set({ readyAt: new Date(), updatedAt: new Date() }).where(eq(onlineOrders.id, id));
+  await addEvent(id, 'ready', { staffId: req.user.id });
+  emitEvent(req, 'online-order:updated', { id, code: oo.publicCode, status: oo.status, ready: true }).catch(() => {});
+  res.json({ ok: true });
+}));
+
+router.post('/:id/reject', validate(rejectOnlineOrderSchema), asyncRoute(async (req, res) => {
   const id = +req.params.id;
   const [oo] = await db.select().from(onlineOrders).where(eq(onlineOrders.id, id)).limit(1);
   if (!oo) return res.status(404).json({ error: 'Objednávka sa nenašla' });

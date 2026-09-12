@@ -103,7 +103,8 @@ function chip(key, label) {
 }
 
 function statusPill(o) {
-  const s = STATUS[o.status] || { label: o.status, cls: 'is-muted' };
+  let s = STATUS[o.status] || { label: o.status, cls: 'is-muted' };
+  if (o.readyAt && (o.status === 'confirmed' || o.status === 'dispatched')) s = { label: 'Hotové · čaká na kuriéra', cls: 'is-delivered' };
   const wolt = o.woltStatus && (o.status === 'dispatched' || o.woltStatus === 'error' || o.woltStatus === 'rejected')
     ? ' <span class="oo-wolt">' + escapeHtml(WOLT_STATUS[o.woltStatus] || o.woltStatus) + '</span>' : '';
   return '<span class="oo-pill ' + s.cls + '">' + s.label + '</span>' + wolt;
@@ -114,7 +115,8 @@ function rowHtml(o) {
   return '<button type="button" class="oo-row' + (o.status === 'new' ? ' is-new' : '') + '" data-id="' + o.id + '">' +
     '<span class="oo-main">' +
       '<span class="oo-title"><b>' + escapeHtml(o.publicCode) + '</b> · ' + escapeHtml(o.customerName) + '</span>' +
-      '<span class="oo-sub">' + escapeHtml(o.dropoffStreet) + ', ' + escapeHtml(o.dropoffCity) + ' · ' + n + ' ' + itemsWord(n) + ' · ' + escapeHtml(ago(o.createdAt)) + '</span>' +
+      '<span class="oo-sub">' + escapeHtml(o.dropoffStreet) + ', ' + escapeHtml(o.dropoffCity) + ' · ' + n + ' ' + itemsWord(n) + ' · ' + escapeHtml(ago(o.createdAt)) +
+        (o.scheduledFor ? ' · <b>doručiť ' + escapeHtml(new Intl.DateTimeFormat('sk-SK', { timeZone: 'Europe/Bratislava', weekday: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(o.scheduledFor))) + '</b>' : '') + '</span>' +
       '<span class="oo-status">' + statusPill(o) + '</span>' +
     '</span>' +
     '<span class="oo-side"><span class="oo-total">' + eur(o.total) + '</span>' +
@@ -145,11 +147,13 @@ async function openDetail(id) {
     actions = '<button class="u-btn u-btn-ghost" id="ooReject">Odmietnuť</button>' +
               '<button class="u-btn u-btn-ice" id="ooConfirm">Potvrdiť a objednať kuriéra</button>';
   } else if (o.status === 'confirmed') {
-    actions = '<button class="u-btn u-btn-ghost" id="ooClose">Zavrieť</button>' +
+    actions = (o.readyAt ? '<button class="u-btn u-btn-ghost" id="ooClose">Zavrieť</button>'
+                         : '<button class="u-btn u-btn-ghost" id="ooReady">Hotové</button>') +
               '<button class="u-btn u-btn-ice" id="ooDispatch">Objednať kuriéra' + (o.woltStatus === 'error' ? ' znova' : '') + '</button>';
   } else if (o.status === 'dispatched') {
     actions = '<button class="u-btn u-btn-ghost" id="ooCancelDelivery">Zrušiť kuriéra</button>' +
-              '<button class="u-btn u-btn-ice" id="ooClose">Zavrieť</button>';
+              (o.readyAt ? '<button class="u-btn u-btn-ice" id="ooClose">Zavrieť</button>'
+                         : '<button class="u-btn u-btn-ice" id="ooReady">Hotové — čaká na kuriéra</button>');
   } else {
     actions = '<button class="u-btn u-btn-ice" id="ooClose">Zavrieť</button>';
   }
@@ -168,6 +172,7 @@ async function openDetail(id) {
         kv('Adresa', escapeHtml(o.dropoffStreet) + ', ' + escapeHtml(o.dropoffPostCode) + ' ' + escapeHtml(o.dropoffCity) + (o.dropoffComment ? '<br><em>' + escapeHtml(o.dropoffComment) + '</em>' : '')) +
         kv('Platba', escapeHtml(PAY[o.paymentMethod] || o.paymentMethod)) +
         (o.scheduledFor ? kv('Doručiť', escapeHtml(new Intl.DateTimeFormat('sk-SK', { timeZone: 'Europe/Bratislava', dateStyle: 'short', timeStyle: 'short' }).format(new Date(o.scheduledFor)))) : kv('Doručiť', 'čo najskôr')) +
+        (o.readyAt ? kv('Hotové', escapeHtml(new Intl.DateTimeFormat('sk-SK', { timeZone: 'Europe/Bratislava', hour: '2-digit', minute: '2-digit' }).format(new Date(o.readyAt))) + ' · čaká na kuriéra') : '') +
         (o.note ? kv('Poznámka', escapeHtml(o.note)) : '') +
         (o.posOrderId ? kv('POS účet', '#' + o.posOrderId + ' (Rozvoz)') : '') +
         (o.rejectedReason ? kv('Dôvod odmietnutia', escapeHtml(o.rejectedReason)) : '') +
@@ -205,6 +210,11 @@ async function openDetail(id) {
       close(); load({ silent: true });
     } catch (e) { showToast(e.message || 'Nepodarilo sa potvrdiť', 'error'); btnReset(btn); }
   });
+  on('#ooReady', async () => {
+    const btn = ov.querySelector('#ooReady'); btnLoading(btn);
+    try { await api.post('/online-orders/' + id + '/ready', {}); showToast('Označené ako hotové', true); close(); load({ silent: true }); }
+    catch (e) { showToast(e.message || 'Chyba', 'error'); btnReset(btn); }
+  });
   on('#ooDispatch', async () => {
     const btn = ov.querySelector('#ooDispatch'); btnLoading(btn);
     try {
@@ -227,6 +237,7 @@ function evLabel(e) {
   if (t === 'created') return 'objednávka prijatá z webu';
   if (t === 'confirmed') return 'potvrdená obsluhou';
   if (t === 'dispatched') return 'kuriér objednaný';
+  if (t === 'ready') return 'kuchyňa: hotové';
   if (t === 'rejected') return 'odmietnutá' + (e.payload && e.payload.reason ? ' — ' + e.payload.reason : '');
   if (t === 'wolt:error') return 'Wolt: chyba — ' + ((e.payload && e.payload.message) || '');
   if (t === 'wolt:cancelled') return 'kuriér zrušený obsluhou';

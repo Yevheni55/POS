@@ -23,17 +23,16 @@
   // View toggle
   window.setView = function(view) {
     currentView = view;
-    const btnK = document.getElementById('btnKuchyna');
-    const btnB = document.getElementById('btnBar');
-    if (view === 'kuchyna') {
-      btnK.className = 'view-btn active-kuchyna';
-      btnB.className = 'view-btn inactive';
-    } else {
-      btnK.className = 'view-btn inactive';
-      btnB.className = 'view-btn active-bar';
-    }
+    var btns = { kuchyna: 'btnKuchyna', bar: 'btnBar', rozvoz: 'btnRozvoz' };
+    Object.keys(btns).forEach(function (k) {
+      var b = document.getElementById(btns[k]);
+      if (!b) return;
+      b.className = 'view-btn ' + (k === view ? 'active-' + k : 'inactive');
+      b.setAttribute('aria-pressed', k === view ? 'true' : 'false');
+    });
     previousDataHash = '';
-    loadOrders();
+    if (view === 'rozvoz') { renderOnline(); loadOnline(); }
+    else loadOrders();
   };
 
   // Sound toggle
@@ -122,6 +121,7 @@
   // je obrazovka aspoň funkčná.
   function loadOrders() {
     if (!wsToken) return;
+    if (currentView === 'rozvoz') return loadOnline(); // grid patrí online objednávkam
     fetch('/api/orders', { headers: { 'Authorization': 'Bearer ' + wsToken } })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (orders) { if (orders) renderFromOrders(orders); })
@@ -466,6 +466,219 @@
 
   var lastEventId = parseInt(localStorage.getItem('pos_kitchen_lastEventId')) || 0;
 
+  // ── Online objednávky (rozvoz cez Wolt) ──────────────────────────────────
+  // Kuchár ich tu POTVRDÍ (vznikne účet „Rozvoz SS-…", bon, kuriér) alebo
+  // ODMIETNE s dôvodom; keď je jedlo hotové, klepne HOTOVÉ — zákazník to
+  // vidí na webe, obsluha v admine. Zoznam ide z /api/online-orders (JWT
+  // kuchára stačí), obnovuje ho socket + poll každých 20 s.
+  var onlineRows = [];
+  var onlineKnownIds = null; // null = prvé načítanie, ešte nepípame
+  var ooToastTimer = null;
+  var ooFmtWhen = new Intl.DateTimeFormat('sk-SK', { timeZone: 'Europe/Bratislava', weekday: 'short', hour: '2-digit', minute: '2-digit' });
+  var ooFmtTime = new Intl.DateTimeFormat('sk-SK', { timeZone: 'Europe/Bratislava', hour: '2-digit', minute: '2-digit' });
+
+  function ooApi(path, opts) {
+    opts = opts || {};
+    return fetch('/api/online-orders' + path, {
+      method: opts.method || 'GET',
+      headers: { 'Authorization': 'Bearer ' + wsToken, 'Content-Type': 'application/json' },
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) throw new Error(j.error || ('Chyba ' + r.status));
+        return j;
+      });
+    });
+  }
+
+  function ooToast(msg) {
+    var t = document.getElementById('ooToast');
+    if (!t) return;
+    t.textContent = msg || 'Chyba';
+    t.hidden = false;
+    clearTimeout(ooToastTimer);
+    ooToastTimer = setTimeout(function () { t.hidden = true; }, 4500);
+  }
+
+  function loadOnline() {
+    if (!wsToken) return;
+    ooApi('?status=active').then(function (data) {
+      onlineRows = data.rows || [];
+      var newCount = (data.counts && data.counts.new) || 0;
+      var badge = document.getElementById('onlineBadge');
+      if (badge) { badge.textContent = newCount; badge.hidden = newCount === 0; }
+      // Nová objednávka → pípnutie a blik hlavičky aj keď je zapnutá kuchyňa/bar.
+      var ids = new Set(onlineRows.filter(function (o) { return o.status === 'new'; }).map(function (o) { return o.id; }));
+      if (onlineKnownIds) {
+        var fresh = false;
+        ids.forEach(function (id) { if (!onlineKnownIds.has(id)) fresh = true; });
+        if (fresh) {
+          playNotification('kuchyna', true);
+          var h = document.getElementById('header');
+          h.classList.remove('flash'); void h.offsetWidth; h.classList.add('flash');
+        }
+      }
+      onlineKnownIds = ids;
+      if (currentView === 'rozvoz') renderOnline();
+    }).catch(function (e) { console.error('KDS online orders failed:', e); });
+  }
+
+  function ooRel(iso) {
+    var m = Math.round((new Date(iso).getTime() - Date.now()) / 60000);
+    if (m <= 0) return 'teraz';
+    if (m < 60) return 'o ' + m + ' min';
+    var h = Math.floor(m / 60), r = m % 60;
+    return 'o ' + h + ' h' + (r ? ' ' + r + ' min' : '');
+  }
+  function ooEur(n) { return Number(n || 0).toFixed(2).replace('.', ',') + ' €'; }
+
+  function ooUrgency(o) {
+    if (o.readyAt) return '';
+    if (o.status === 'new') { var m = getElapsed(o.createdAt); return m >= 8 ? 'urgent' : m >= 3 ? 'warn' : ''; }
+    if (o.scheduledFor) { var left = (new Date(o.scheduledFor).getTime() - Date.now()) / 60000; return left <= 20 ? 'urgent' : left <= 45 ? 'warn' : ''; }
+    var e = getElapsed(o.confirmedAt || o.createdAt);
+    return e >= 25 ? 'urgent' : e >= 15 ? 'warn' : '';
+  }
+  function ooSortKey(o) {
+    if (o.status === 'new') return [0, new Date(o.createdAt).getTime()];
+    if (o.readyAt) return [2, new Date(o.readyAt).getTime()];
+    return [1, new Date(o.scheduledFor || o.confirmedAt || o.createdAt).getTime()];
+  }
+  function ooStatus(o) {
+    if (o.status === 'new') return { cls: 'oo-new', text: 'Nová · čaká na potvrdenie' };
+    if (o.readyAt) return { cls: 'oo-ready', text: 'Hotové · čaká na kuriéra' };
+    if (o.woltStatus === 'error') return { cls: 'oo-err', text: 'Varí sa · kuriér sa nepodarilo objednať' };
+    if (o.status === 'dispatched') return { cls: 'oo-run', text: 'Varí sa · kuriér objednaný' };
+    return { cls: 'oo-run', text: 'Varí sa' };
+  }
+
+  function renderOnline() {
+    var grid = document.getElementById('grid');
+    var rows = onlineRows.slice().sort(function (a, b) {
+      var ka = ooSortKey(a), kb = ooSortKey(b);
+      return ka[0] - kb[0] || ka[1] - kb[1];
+    });
+    document.getElementById('orderCount').textContent = rows.length;
+    if (!rows.length) {
+      grid.innerHTML = '<div class="empty-state">' +
+        '<div class="empty-icon">&#x1F6F5;</div>' +
+        '<div class="empty-text">Žiadne online objednávky</div>' +
+        '<div class="empty-sub">Rozvoz – čakám na objednávky z webu</div>' +
+        '</div>';
+      return;
+    }
+    var html = '';
+    rows.forEach(function (o) {
+      var st = ooStatus(o);
+      var urg = ooUrgency(o);
+      var cls = 'order-card oo-card ' + st.cls + (urg === 'urgent' ? ' time-urgent' : urg === 'warn' ? ' time-warn' : '');
+      var elapsed = o.status === 'new' ? formatElapsed(getElapsed(o.createdAt)) : 'potvrdené ' + ooFmtTime.format(new Date(o.confirmedAt || o.createdAt));
+      var when = o.scheduledFor
+        ? '<div class="oo-when is-sched">Doručiť <b>' + escHtml(ooFmtWhen.format(new Date(o.scheduledFor))) + '</b> (' + escHtml(ooRel(o.scheduledFor)) + ')</div>'
+        : '<div class="oo-when">Čo najskôr · prijaté ' + escHtml(ooFmtTime.format(new Date(o.createdAt))) + '</div>';
+      var items = (o.items || []).map(function (it) {
+        return '<div class="card-item" role="listitem"><span class="item-qty">' + (it.qty || 1) + 'x</span><span class="item-info">' +
+          '<div class="item-name">' + escHtml(it.name) + '</div>' + (it.note ? '<div class="item-note">' + escHtml(it.note) + '</div>' : '') + '</span></div>';
+      }).join('');
+      var pay = o.paymentMethod === 'cash' ? 'Hotovosť kuriérovi' : 'Platba vopred';
+      var actions;
+      if (o.status === 'new') {
+        actions = '<button class="btn-ready" type="button" onclick="confirmOnline(' + o.id + ')">&#x2713; Potvrdiť</button>' +
+                  '<button class="btn-reject" type="button" onclick="rejectOnline(' + o.id + ')">Odmietnuť</button>';
+      } else if (!o.readyAt) {
+        actions = '<button class="btn-ready" type="button" onclick="readyOnline(' + o.id + ')">&#x2713; Hotové</button>';
+      } else {
+        actions = '<div class="oo-wait">Odovzdať kuriérovi · hotové ' + escHtml(ooFmtTime.format(new Date(o.readyAt))) + '</div>';
+      }
+      html += '<div class="' + cls + '" data-table="oo-' + o.id + '" tabindex="0" role="article" aria-label="' + escAttr(o.publicCode + ' – ' + st.text) + '">' +
+        (urg === 'urgent' ? '<div class="urgent-badge">' + (o.status === 'new' ? 'ČAKÁ' : 'SÚRI') + '</div>' : '') +
+        '<div class="card-header"><div class="card-table">' + escHtml(o.publicCode) + '</div><div class="card-elapsed' + (urg ? ' ' + urg : '') + '">' + escHtml(elapsed) + '</div></div>' +
+        '<div class="oo-status ' + st.cls + '">' + escHtml(st.text) + '</div>' + when +
+        '<div class="card-items" role="list">' + items + '</div>' +
+        (o.note ? '<div class="oo-note">' + escHtml(o.note) + '</div>' : '') +
+        '<div class="oo-meta"><b>' + escHtml(o.customerName) + '</b> · ' + escHtml(o.customerPhone) + '<br>' +
+          escHtml(o.dropoffStreet) + ', ' + escHtml(o.dropoffCity) + (o.dropoffComment ? ' · ' + escHtml(o.dropoffComment) : '') + '<br>' +
+          escHtml(pay) + ' · <b>' + escHtml(ooEur(o.total)) + '</b></div>' +
+        '<div class="card-actions">' + actions + '</div></div>';
+    });
+    var focused = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.table : null;
+    grid.innerHTML = html;
+    if (focused) { var el = grid.querySelector('[data-table="' + focused + '"]'); if (el) el.focus(); }
+  }
+
+  function ooFind(id) {
+    for (var i = 0; i < onlineRows.length; i++) if (onlineRows[i].id === id) return onlineRows[i];
+    return null;
+  }
+  function ooAfter(id) {
+    var card = document.querySelector('[data-table="oo-' + id + '"]');
+    if (card) card.classList.add('card-out');
+    setTimeout(loadOnline, 350);
+  }
+
+  window.confirmOnline = function (id) {
+    var o = ooFind(id);
+    if (!o) return;
+    showConfirm({
+      title: 'Potvrdiť objednávku ' + o.publicCode,
+      message: 'Vytvorí sa účet Rozvoz, vytlačí bon a objedná kuriér' +
+        (o.scheduledFor ? ' na ' + ooFmtWhen.format(new Date(o.scheduledFor)) : '') + '.',
+      confirmText: 'Áno, potvrdiť',
+      danger: false,
+      onConfirm: function () {
+        ooApi('/' + id + '/confirm', { method: 'POST', body: {} })
+          .then(function () { ooAfter(id); })
+          .catch(function (e) { ooToast(e.message); loadOnline(); });
+      }
+    });
+  };
+  window.readyOnline = function (id) {
+    ooApi('/' + id + '/ready', { method: 'POST', body: {} })
+      .then(function () { ooAfter(id); })
+      .catch(function (e) { ooToast(e.message); loadOnline(); });
+  };
+
+  // Odmietnutie — dôvod z predvolieb alebo vlastný.
+  var ooRejectId = null;
+  function ooRejectClose() { document.getElementById('ooReject').hidden = true; ooRejectId = null; }
+  window.rejectOnline = function (id) {
+    var o = ooFind(id);
+    if (!o) return;
+    ooRejectId = id;
+    document.getElementById('ooRejectCode').textContent = o.publicCode;
+    document.getElementById('ooRejectText').value = '';
+    document.querySelectorAll('.kds-reason').forEach(function (b) { b.classList.remove('active'); });
+    document.getElementById('ooReject').hidden = false;
+    document.querySelector('.kds-reason').focus();
+  };
+  document.querySelectorAll('.kds-reason').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.querySelectorAll('.kds-reason').forEach(function (x) { x.classList.toggle('active', x === b); });
+      document.getElementById('ooRejectText').value = b.getAttribute('data-reason');
+    });
+  });
+  document.getElementById('ooRejectCancel').addEventListener('click', ooRejectClose);
+  document.getElementById('ooReject').addEventListener('click', function (e) { if (e.target === e.currentTarget) ooRejectClose(); });
+  document.getElementById('ooRejectOk').addEventListener('click', function () {
+    var id = ooRejectId;
+    if (!id) return;
+    var btn = this;
+    btn.disabled = true;
+    ooApi('/' + id + '/reject', { method: 'POST', body: { reason: document.getElementById('ooRejectText').value.trim() } })
+      .then(function () { ooRejectClose(); ooAfter(id); })
+      .catch(function (e) { ooToast(e.message); })
+      .then(function () { btn.disabled = false; });
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !document.getElementById('ooReject').hidden) ooRejectClose();
+  });
+
+  setInterval(loadOnline, 20000);
+  // wsToken je až tu priradený — prvé načítanie oboch zoznamov ide odtiaľto
+  // (volanie loadOrders() vyššie prebehlo ešte s prázdnym tokenom).
+  loadOrders();
+  loadOnline();
+
   function updateLastEventId(id) {
     if (id && id > lastEventId) {
       lastEventId = id;
@@ -492,6 +705,7 @@
         previousDataHash = '';
         loadOrders();
       }
+      if (data.events.some(function (evt) { return evt.type && evt.type.indexOf('online-order:') === 0; })) loadOnline();
     })
     .catch(function(e) {
       console.error('Event replay error:', e);
@@ -525,6 +739,12 @@
         }
         previousDataHash = '';
         loadOrders();
+      });
+    });
+    ['online-order:new', 'online-order:updated'].forEach(function (eventName) {
+      socket.on(eventName, function (data) {
+        if (data && data._eventId) updateLastEventId(data._eventId);
+        loadOnline();
       });
     });
   } else if (wsToken) {

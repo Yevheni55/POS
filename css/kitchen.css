@@ -189,3 +189,61 @@ body{
 
 /* Print iframe */
 .print-frame{position:fixed;left:-9999px;top:-9999px;width:0;height:0}
+
+/* ── Rozvoz: online objednávky (Wolt) ─────────────────────────────────── */
+.view-btn.active-rozvoz{background:linear-gradient(135deg,var(--color-accent),var(--color-accent-secondary));color:var(--color-bg);border:none}
+.view-badge{display:inline-block;min-width:24px;height:24px;line-height:24px;padding:0 7px;margin-left:8px;border-radius:12px;background:var(--color-danger);color:var(--color-text);font-family:var(--font-body);font-size:var(--text-sm);letter-spacing:0;text-align:center;vertical-align:middle}
+.view-badge[hidden]{display:none}
+.order-card.oo-new{border-left-color:var(--color-accent);animation:cardIn .3s ease,ooGlow 1.6s infinite}
+@keyframes ooGlow{0%,100%{box-shadow:none}50%{box-shadow:0 0 0 3px var(--color-accent-border)}}
+.order-card.oo-run{border-left-color:var(--color-success)}
+.order-card.oo-err{border-left-color:var(--color-danger)}
+.order-card.oo-ready{border-left-color:var(--color-border-strong);opacity:.72}
+.oo-status{margin:0 16px 8px;padding:6px 10px;border-radius:var(--radius-xs);font-family:var(--font-display);font-size:var(--text-md);font-weight:var(--weight-bold);letter-spacing:var(--tracking-wide);text-transform:uppercase}
+.oo-status.oo-new{background:var(--color-accent-bg);color:var(--color-accent)}
+.oo-status.oo-run{background:var(--color-success-bg);color:var(--color-success)}
+.oo-status.oo-ready{background:var(--color-bg-hover);color:var(--color-text-sec)}
+.oo-status.oo-err{background:var(--color-danger-bg);color:var(--color-danger)}
+.oo-when{margin:0 16px 10px;font-size:var(--text-lg);color:var(--color-text-sec)}
+.oo-when b{color:var(--color-text)}
+.oo-when.is-sched{color:var(--color-accent-dim)}
+.oo-note{margin:0 16px 10px;padding:8px 10px;border-radius:var(--radius-xs);background:var(--color-accent-bg);color:var(--color-text);font-size:15px;font-style:italic}
+.oo-meta{margin:0 16px 8px;font-size:14px;line-height:1.45;color:var(--color-text-dim)}
+.oo-meta b{color:var(--color-text-sec)}
+.oo-card .card-item{cursor:default}
+.oo-card .card-item:hover{background:none}
+.btn-reject{
+  font-family:var(--font-body);font-size:var(--text-md);font-weight:var(--weight-semibold);
+  padding:var(--space-3) var(--space-4);border-radius:var(--radius-xs);border:1px solid var(--color-danger-border);
+  background:transparent;color:var(--color-danger);cursor:pointer;
+  min-height:var(--btn-h-md);transition:all var(--transition-fast);white-space:nowrap;
+}
+.btn-reject:hover{background:var(--color-danger-bg)}
+.oo-wait{flex:1;text-align:center;padding:var(--space-3);color:var(--color-text-sec);font-weight:var(--weight-semibold)}
+
+/* Sheet: dôvod odmietnutia */
+.kds-sheet-overlay{position:fixed;inset:0;z-index:200;background:var(--color-overlay);display:flex;align-items:flex-end;justify-content:center;padding:16px}
+.kds-sheet-overlay[hidden]{display:none}
+.kds-sheet{width:min(560px,100%);background:var(--color-bg-elevated);border:1px solid var(--color-border);border-radius:var(--radius-md);padding:20px;animation:cardIn .25s ease}
+.kds-sheet h2{font-family:var(--font-display);font-size:var(--text-2xl);font-weight:var(--weight-bold);margin-bottom:4px}
+.kds-sheet-sub{color:var(--color-text-dim);font-size:14px;margin-bottom:14px}
+.kds-reasons{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.kds-reason{
+  min-height:var(--btn-h-md);padding:var(--space-2) var(--space-3);border-radius:var(--radius-xs);
+  border:1px solid var(--color-border);background:transparent;color:var(--color-text-sec);
+  font:inherit;font-weight:var(--weight-semibold);cursor:pointer;transition:all var(--transition-fast);
+}
+.kds-reason:hover{background:var(--color-bg-hover);color:var(--color-text)}
+.kds-reason.active{background:var(--color-danger-bg);border-color:var(--color-danger-border);color:var(--color-danger)}
+.kds-label{display:block;font-size:13px;color:var(--color-text-dim);margin-bottom:4px}
+.kds-input{width:100%;min-height:var(--btn-h-md);padding:0 12px;border-radius:var(--radius-xs);border:1px solid var(--color-border);background:var(--color-bg-sunken);color:var(--color-text);font:inherit;margin-bottom:14px}
+.kds-sheet-actions{display:flex;gap:8px;justify-content:flex-end}
+.btn-reject-confirm{
+  min-height:var(--btn-h-md);padding:var(--space-3) var(--space-5);border-radius:var(--radius-xs);border:none;
+  background:var(--color-danger);color:var(--color-text);font-family:var(--font-display);
+  font-size:var(--text-lg);font-weight:var(--weight-bold);cursor:pointer;
+}
+.btn-reject-confirm:disabled{opacity:.5;cursor:default}
+.kds-toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:300;max-width:min(560px,90vw);padding:10px 16px;border-radius:var(--radius-xs);background:var(--color-danger);color:var(--color-text);font-weight:var(--weight-semibold);animation:cardIn .25s ease}
+.kds-toast[hidden]{display:none}
+@media (prefers-reduced-motion:reduce){.order-card.oo-new,.kds-sheet,.kds-toast{animation:none}}

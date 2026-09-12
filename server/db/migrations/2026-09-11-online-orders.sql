@@ -45,6 +45,8 @@ CREATE TABLE IF NOT EXISTS online_orders (
   updated_at               timestamp NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS online_orders_status_created_idx ON online_orders (status, created_at);
+-- Kuchár označí „hotové" — jedlo čaká na kuriéra (nezávislé od stavu doručenia).
+ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS ready_at timestamp;
 
 -- Časová os objednávky: čo prišlo z Woltu (webhook), kto potvrdil, prečo odmietol.
 CREATE TABLE IF NOT EXISTS online_order_events (

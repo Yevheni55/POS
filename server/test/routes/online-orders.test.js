@@ -101,8 +101,8 @@ describe('online objednávky', () => {
     const created = await request.post('/api/public/online-orders').send(validBody(items));
     const [row] = await testDb.select().from(onlineOrders).where(eq(onlineOrders.publicCode, created.body.code));
 
-    const forbidden = await request.post('/api/online-orders/' + row.id + '/confirm').set('Authorization', 'Bearer ' + tokens.cisnik());
-    assert.equal(forbidden.status, 403);
+    const noAuth = await request.post('/api/online-orders/' + row.id + '/confirm');
+    assert.equal(noAuth.status, 401);
 
     const res = await request.post('/api/online-orders/' + row.id + '/confirm').set('Authorization', 'Bearer ' + tokens.manazer());
     assert.equal(res.status, 200, JSON.stringify(res.body));
@@ -129,6 +129,35 @@ describe('online objednávky', () => {
     assert.equal(list.status, 200);
     assert.equal(list.body.rows.length, 1);
     assert.equal(list.body.counts.running, 1);
+  });
+
+  it('ready: kuchár (čašník) označí hotové; zákazník to vidí; len pri potvrdenej', async () => {
+    const created = await request.post('/api/public/online-orders').send(validBody(items));
+    const [row] = await testDb.select().from(onlineOrders).where(eq(onlineOrders.publicCode, created.body.code));
+    const early = await request.post('/api/online-orders/' + row.id + '/ready').set('Authorization', 'Bearer ' + tokens.cisnik());
+    assert.equal(early.status, 409);
+    // kuchár smie potvrdiť aj označiť hotové
+    const conf = await request.post('/api/online-orders/' + row.id + '/confirm').set('Authorization', 'Bearer ' + tokens.cisnik());
+    assert.equal(conf.status, 200, JSON.stringify(conf.body));
+    const ready = await request.post('/api/online-orders/' + row.id + '/ready').set('Authorization', 'Bearer ' + tokens.cisnik());
+    assert.equal(ready.status, 200);
+    const pub = await request.get('/api/public/online-orders/' + created.body.code);
+    assert.ok(pub.body.readyAt, 'readyAt musí byť vo verejnom stave');
+    // zásah do kuriéra ostáva manažérovi
+    const cancel = await request.post('/api/online-orders/' + row.id + '/cancel-delivery').set('Authorization', 'Bearer ' + tokens.cisnik());
+    assert.equal(cancel.status, 403);
+  });
+
+  it('čas doručenia: príliš skoro 400, platný sa uloží; Wolt dostane scheduled len nad hodinu', async () => {
+    const soon = await request.post('/api/public/online-orders').send({ ...validBody(items), scheduledFor: new Date(Date.now() + 10 * 60000).toISOString() });
+    assert.equal(soon.status, 400);
+    const when = new Date(Date.now() + 3 * 3600000).toISOString();
+    const ok = await request.post('/api/public/online-orders').send({ ...validBody(items), scheduledFor: when });
+    assert.equal(ok.status, 201, JSON.stringify(ok.body));
+    const [row] = await testDb.select().from(onlineOrders).where(eq(onlineOrders.publicCode, ok.body.code));
+    assert.equal(new Date(row.scheduledFor).toISOString(), when);
+    const pub = await request.get('/api/public/online-orders/' + ok.body.code);
+    assert.equal(new Date(pub.body.scheduledFor).toISOString(), when);
   });
 
   it('reject: len nová objednávka, bez POS účtu', async () => {

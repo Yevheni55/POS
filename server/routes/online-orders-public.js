@@ -69,6 +69,7 @@ function toPublic(o) {
     total: Number(o.total),
     paymentMethod: o.paymentMethod,
     scheduledFor: o.scheduledFor,
+    readyAt: o.readyAt || null,
     wolt: {
       status: o.woltStatus || null,
       trackingUrl: o.woltTrackingUrl || null,
@@ -114,6 +115,14 @@ router.post('/', validate(createOnlineOrderSchema), asyncRoute(async (req, res) 
   const body = req.body;
   if (body.paymentMethod === 'cash' && !cfg.cashOnDelivery) {
     return res.status(400).json({ error: 'Platba kuriérovi nie je dostupná, zvoľte platbu vopred' });
+  }
+  // Čas doručenia: buď „čo najskôr" (bez scheduledFor), alebo aspoň 45 min
+  // dopredu a najviac 7 dní — kuchyňa musí stihnúť variť, Wolt plánuje max. dni.
+  if (body.scheduledFor) {
+    const t = new Date(body.scheduledFor).getTime();
+    const minT = Date.now() + 45 * 60_000, maxT = Date.now() + 7 * 24 * 60 * 60_000;
+    if (t < minT) return res.status(400).json({ error: 'Čas doručenia musí byť aspoň 45 minút dopredu' });
+    if (t > maxT) return res.status(400).json({ error: 'Doručenie sa dá naplánovať najviac 7 dní dopredu' });
   }
 
   // Ceny a názvy z DB — klient posiela len id + množstvo.

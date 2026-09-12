@@ -124,6 +124,15 @@ async function call(cfg, method, path, body) {
 
 function round2(n) { return Math.round(Number(n) * 100) / 100; }
 
+// Wolt: „Keď má byť doručenie do hodiny, scheduled_dropoff_time sa NEPOSIELA."
+// Vraciame ISO čas len pre skutočne naplánované doručenia, inak null.
+export function scheduledTimeForWolt(scheduledFor) {
+  if (!scheduledFor) return null;
+  const t = new Date(scheduledFor);
+  if (Number.isNaN(t.getTime())) return null;
+  return t.getTime() - _internals.now().getTime() > 60 * 60_000 ? t.toISOString() : null;
+}
+
 // Wolt vracia sumy v minimálnych jednotkách meny (centy).
 function amountToEur(price) {
   if (!price || price.amount == null) return null;
@@ -140,7 +149,8 @@ export function buildPromiseBody({ street, city, postCode, lat, lon, scheduledFo
     min_preparation_time_minutes: cfg.minPrepMinutes,
   };
   if (Number.isFinite(lat) && Number.isFinite(lon)) { body.lat = lat; body.lon = lon; }
-  if (scheduledFor) body.scheduled_dropoff_time = new Date(scheduledFor).toISOString();
+  const sched = scheduledTimeForWolt(scheduledFor);
+  if (sched) body.scheduled_dropoff_time = sched;
   return body;
 }
 
@@ -167,7 +177,7 @@ export function buildDeliveryBody({ promiseId, order }, cfg) {
       contact_details: { name: order.customerName, phone_number: order.customerPhone },
       options: {
         is_no_contact: false,
-        ...(order.scheduledFor ? { scheduled_time: new Date(order.scheduledFor).toISOString() } : {}),
+        ...(scheduledTimeForWolt(order.scheduledFor) ? { scheduled_time: scheduledTimeForWolt(order.scheduledFor) } : {}),
       },
     },
     contents: items.map((it) => ({
