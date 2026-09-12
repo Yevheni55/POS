@@ -544,9 +544,12 @@
     if (o.readyAt) return [2, new Date(o.readyAt).getTime()];
     return [1, new Date(o.scheduledFor || o.confirmedAt || o.createdAt).getTime()];
   }
+  function ooIsWolt(o) { return o.source === 'wolt'; }
+  function ooInHouse(o) { return ooIsWolt(o) && (o.deliveryType === 'takeaway' || o.deliveryType === 'eatin'); }
   function ooStatus(o) {
-    if (o.status === 'new') return { cls: 'oo-new', text: 'Nová · čaká na potvrdenie' };
-    if (o.readyAt) return { cls: 'oo-ready', text: 'Hotové · čaká na kuriéra' };
+    if (o.status === 'new') return { cls: 'oo-new', text: ooIsWolt(o) ? 'Nová z Woltu · čaká na prijatie' : 'Nová · čaká na potvrdenie' };
+    if (o.readyAt) return { cls: 'oo-ready', text: ooInHouse(o) ? 'Hotové · čaká na zákazníka' : (ooIsWolt(o) ? 'Hotové · čaká na kuriéra Wolt' : 'Hotové · čaká na kuriéra') };
+    if (ooIsWolt(o)) return { cls: 'oo-run', text: 'Prijaté vo Wolte · varí sa' };
     if (o.woltStatus === 'error') return { cls: 'oo-err', text: 'Varí sa · kuriér sa nepodarilo objednať' };
     if (o.status === 'dispatched') return { cls: 'oo-run', text: 'Varí sa · kuriér objednaný' };
     return { cls: 'oo-run', text: 'Varí sa' };
@@ -575,24 +578,30 @@
       var elapsed = o.status === 'new' ? formatElapsed(getElapsed(o.createdAt)) : 'potvrdené ' + ooFmtTime.format(new Date(o.confirmedAt || o.createdAt));
       var when = o.scheduledFor
         ? '<div class="oo-when is-sched">Doručiť <b>' + escHtml(ooFmtWhen.format(new Date(o.scheduledFor))) + '</b> (' + escHtml(ooRel(o.scheduledFor)) + ')</div>'
-        : '<div class="oo-when">Čo najskôr · prijaté ' + escHtml(ooFmtTime.format(new Date(o.createdAt))) + '</div>';
+        : ooInHouse(o)
+          ? '<div class="oo-when">' + (o.deliveryType === 'eatin' ? 'Zje v podniku' : 'Zákazník si vyzdvihne') + ' · prijaté ' + escHtml(ooFmtTime.format(new Date(o.createdAt))) + '</div>'
+          : (ooIsWolt(o) && o.woltPickupEta)
+            ? '<div class="oo-when is-sched">Kuriér Wolt príde <b>' + escHtml(ooFmtTime.format(new Date(o.woltPickupEta))) + '</b> (' + escHtml(ooRel(o.woltPickupEta)) + ')</div>'
+            : '<div class="oo-when">Čo najskôr · prijaté ' + escHtml(ooFmtTime.format(new Date(o.createdAt))) + '</div>';
       var items = (o.items || []).map(function (it) {
         return '<div class="card-item" role="listitem"><span class="item-qty">' + (it.qty || 1) + 'x</span><span class="item-info">' +
           '<div class="item-name">' + escHtml(it.name) + '</div>' + (it.note ? '<div class="item-note">' + escHtml(it.note) + '</div>' : '') + '</span></div>';
       }).join('');
-      var pay = o.paymentMethod === 'cash' ? 'Hotovosť kuriérovi' : 'Platba vopred';
+      var pay = o.paymentMethod === 'cash' ? 'Hotovosť kuriérovi' : o.paymentMethod === 'wolt' ? 'Zaplatené cez Wolt' : 'Platba vopred';
       var actions;
       if (o.status === 'new') {
-        actions = '<button class="btn-ready" type="button" onclick="confirmOnline(' + o.id + ')">&#x2713; Potvrdiť</button>' +
+        actions = '<button class="btn-ready" type="button" onclick="confirmOnline(' + o.id + ')">&#x2713; ' + (ooIsWolt(o) ? 'Prijať' : 'Potvrdiť') + '</button>' +
                   '<button class="btn-reject" type="button" onclick="rejectOnline(' + o.id + ')">Odmietnuť</button>';
       } else if (!o.readyAt) {
         actions = '<button class="btn-ready" type="button" onclick="readyOnline(' + o.id + ')">&#x2713; Hotové</button>';
+      } else if (ooInHouse(o)) {
+        actions = '<button class="btn-ready" type="button" onclick="handoverOnline(' + o.id + ')">&#x2713; Odovzdané zákazníkovi</button>';
       } else {
-        actions = '<div class="oo-wait">Odovzdať kuriérovi · hotové ' + escHtml(ooFmtTime.format(new Date(o.readyAt))) + '</div>';
+        actions = '<div class="oo-wait">' + (ooIsWolt(o) ? 'Odovzdať kuriérovi Wolt' : 'Odovzdať kuriérovi') + ' · hotové ' + escHtml(ooFmtTime.format(new Date(o.readyAt))) + '</div>';
       }
       html += '<div class="' + cls + '" data-table="oo-' + o.id + '" tabindex="0" role="article" aria-label="' + escAttr(o.publicCode + ' – ' + st.text) + '">' +
         (urg === 'urgent' ? '<div class="urgent-badge">' + (o.status === 'new' ? 'ČAKÁ' : 'SÚRI') + '</div>' : '') +
-        '<div class="card-header"><div class="card-table">' + escHtml(o.publicCode) + '</div><div class="card-elapsed' + (urg ? ' ' + urg : '') + '">' + escHtml(elapsed) + '</div></div>' +
+        '<div class="card-header"><div class="card-table">' + escHtml(o.publicCode) + (ooIsWolt(o) ? ' <span class="oo-src">Wolt</span>' : '') + '</div><div class="card-elapsed' + (urg ? ' ' + urg : '') + '">' + escHtml(elapsed) + '</div></div>' +
         '<div class="oo-status ' + st.cls + '">' + escHtml(st.text) + '</div>' + when +
         '<div class="card-items" role="list">' + items + '</div>' +
         (o.note ? '<div class="oo-note">' + escHtml(o.note) + '</div>' : '') +
@@ -620,10 +629,11 @@
     var o = ooFind(id);
     if (!o) return;
     showConfirm({
-      title: 'Potvrdiť objednávku ' + o.publicCode,
-      message: 'Vytvorí sa účet Rozvoz, vytlačí bon a objedná kuriér' +
-        (o.scheduledFor ? ' na ' + ooFmtWhen.format(new Date(o.scheduledFor)) : '') + '.',
-      confirmText: 'Áno, potvrdiť',
+      title: (ooIsWolt(o) ? 'Prijať objednávku z Woltu ' : 'Potvrdiť objednávku ') + o.publicCode,
+      message: ooIsWolt(o)
+        ? 'Objednávka sa prijme vo Wolte a do kuchyne pôjde bon. ' + (ooInHouse(o) ? 'Zákazník si ju príde vyzdvihnúť.' : 'Kuriéra pošle Wolt.')
+        : 'Vytvorí sa účet Rozvoz, vytlačí bon a objedná kuriér' + (o.scheduledFor ? ' na ' + ooFmtWhen.format(new Date(o.scheduledFor)) : '') + '.',
+      confirmText: ooIsWolt(o) ? 'Áno, prijať' : 'Áno, potvrdiť',
       danger: false,
       onConfirm: function () {
         ooApi('/' + id + '/confirm', { method: 'POST', body: {} })
@@ -631,6 +641,11 @@
           .catch(function (e) { ooToast(e.message); loadOnline(); });
       }
     });
+  };
+  window.handoverOnline = function (id) {
+    ooApi('/' + id + '/handed-over', { method: 'POST', body: {} })
+      .then(function () { ooAfter(id); })
+      .catch(function (e) { ooToast(e.message); loadOnline(); });
   };
   window.readyOnline = function (id) {
     ooApi('/' + id + '/ready', { method: 'POST', body: {} })

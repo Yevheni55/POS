@@ -439,6 +439,50 @@ function woltWebhook(PDO $pdo): never {
     out(['ok' => true]);
 }
 
+// ── Wolt Order API (objednávky z aplikácie Wolt) ─────────────────────────────
+// Wolt posiela order.notification sem; podpis WOLT-SIGNATURE = HMAC-SHA256(telo, secret) v hex.
+// Odložíme ju do wolt_order_events, kasa si ju vyzdvihne a detail stiahne z Woltu sama.
+function woltOrderWebhook(PDO $pdo): never {
+    $raw = (string)file_get_contents('php://input');
+    $secret = (string)(secrets()['wolt']['order_webhook_secret'] ?? '');
+    if ($secret === '') fail('Order webhook secret nie je nastavený', 503);
+    $sig = strtolower(trim((string)($_SERVER['HTTP_WOLT_SIGNATURE'] ?? '')));
+    if ($sig === '' || !hash_equals(hash_hmac('sha256', $raw, $secret), $sig)) fail('Neplatný podpis', 401);
+    $n = json_decode($raw, true);
+    if (!is_array($n)) fail('Neplatné telo požiadavky');
+    $o = is_array($n['order'] ?? null) ? $n['order'] : [];
+    $orderId = (string)($o['id'] ?? '');
+    if ($orderId === '') out(['ok' => true, 'ignored' => true]);
+    $pdo->prepare('INSERT INTO wolt_order_events (notification_id, type, wolt_order_id, venue_id, status, resource_url, payload)
+                   VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (notification_id) DO NOTHING')
+        ->execute([
+            ($n['id'] ?? null) ?: null,
+            (string)($n['type'] ?? 'order.notification'),
+            $orderId,
+            $o['venue_id'] ?? null,
+            (string)($o['status'] ?? ''),
+            $o['resource_url'] ?? null,
+            json_encode($n, JSON_UNESCAPED_UNICODE),
+        ]);
+    out(['ok' => true]);
+}
+// Presmerovanie z developer.wolt.com/integrate s authorization code — kasa si ho
+// z Neon vezme a vymení za tokeny (tajomstvá OAuth ostávajú na kase).
+function woltOauthCallback(PDO $pdo): never {
+    $code = trim((string)($_GET['code'] ?? ''));
+    $state = (string)($_GET['state'] ?? '');
+    if ($code === '') fail('Chýba code');
+    $pdo->prepare("INSERT INTO web_delivery_config (key, value, updated_at) VALUES ('wolt_oauth_code', ?, now())
+                   ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()")
+        ->execute([json_encode(['code' => $code, 'state' => $state, 'at' => gmdate('c')])]);
+    header('Content-Type: text/html; charset=utf-8');
+    http_response_code(200);
+    echo '<!doctype html><html lang="sk"><meta charset="utf-8"><title>Surf Spirit × Wolt</title>'
+       . '<body style="font-family:system-ui,sans-serif;padding:48px;text-align:center;color:#1d2a2f">'
+       . '<h1>Pripojenie k Woltu prijaté</h1><p>Kasa si ho do minúty prevezme. Toto okno môžete zavrieť.</p></body></html>';
+    exit;
+}
+
 // ── Routovanie ───────────────────────────────────────────────────────────────
 try {
     $pdo = pdo();
@@ -450,6 +494,8 @@ try {
     if ($method === 'POST' && $path === '/online-orders/quote') quote($pdo, deliveryConfig($pdo));
     if ($method === 'POST' && $path === '/online-orders') createOrder($pdo, deliveryConfig($pdo));
     if ($method === 'POST' && $path === '/online-orders/wolt/webhook') woltWebhook($pdo);
+    if ($method === 'POST' && $path === '/wolt/order-webhook') woltOrderWebhook($pdo);
+    if ($method === 'GET' && $path === '/wolt/oauth/callback') woltOauthCallback($pdo);
     if ($method === 'GET' && preg_match('#^/online-orders/([A-Za-z0-9-]{4,12})$#', $path, $m)) status($pdo, strtoupper($m[1]));
     fail('Nenašlo sa', 404);
 } catch (PDOException $e) {

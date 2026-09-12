@@ -35,6 +35,8 @@ before(async () => {
     id serial PRIMARY KEY, category_slug varchar, category_label varchar, category_icon varchar, category_sort varchar,
     item_name varchar, item_emoji varchar, item_price numeric, item_desc varchar, active boolean, updated_at timestamp DEFAULT now())`);
   await pool.query(fs.readFileSync(new URL('../../db/neon/2026-09-12-web-orders.sql', import.meta.url), 'utf8'));
+  await pool.query(fs.readFileSync(new URL('../../db/neon/2026-09-13-wolt-order-events.sql', import.meta.url), 'utf8'));
+  process.env.WOLT_ORDER_MODE = 'mock';
   bridge = createBridge({ url: NEON_URL, io: { emit: (ev, data) => emitted.push({ ev, data }) }, cacheBustUrl: '', log: () => {} });
 });
 after(async () => { await bridge.close(); await pool.end(); await closeDb(); });
@@ -42,7 +44,7 @@ after(async () => { await bridge.close(); await pool.end(); await closeDb(); });
 beforeEach(async () => {
   await truncateAll();
   await seed();
-  await pool.query('TRUNCATE web_order_events, web_orders, web_promises, web_delivery_config, guest_menu RESTART IDENTITY CASCADE');
+  await pool.query('TRUNCATE web_order_events, web_orders, web_promises, web_delivery_config, guest_menu, wolt_order_events RESTART IDENTITY CASCADE');
   await testDb.insert(zones).values({ slug: 'rozvoz', label: 'Rozvoz', sortOrder: 90 }).onConflictDoNothing();
   await testDb.insert(tables).values([{ name: 'Rozvoz 1', seats: 0, zone: 'rozvoz' }]);
   emitted.length = 0;
@@ -174,6 +176,89 @@ describe('most web ↔ kasa', () => {
     const r3 = await bridge.syncMenu();
     assert.equal(r3.changed, true);
     assert.equal(r3.count, r1.count - 1);
+  });
+
+  it('objednávka z aplikácie Wolt: notifikácia → detail → online_orders (source wolt) → prijatie, hotové, doručené z Woltu', async () => {
+    const items = await testDb.select().from(menuItems);
+    const raw = {
+      id: 'w-abc-1', order_number: '4471', order_status: 'received', type: 'instant',
+      consumer_name: 'Marek K.', consumer_phone_number: '+421 900 555 666', consumer_comment: 'bez cibule',
+      price: { amount: 1290 }, basket_price: { total: { amount: 990 } }, fees: { delivery: { amount: 300 } },
+      delivery: { type: 'homedelivery', location: { street_address: 'Tematínska 5', city: 'Bratislava', post_code: '851 05', coordinates: { lat: 48.1, lon: 17.1 } } },
+      pickup_eta: new Date(Date.now() + 25 * 60000).toISOString(), created_at: new Date().toISOString(),
+      items: [
+        { id: 'i1', name: items[0].name, count: 2, pos_id: String(items[0].id), item_price: { unit_price: { amount: Math.round(Number(items[0].price) * 100) } } },
+        { id: 'i2', name: 'Položka mimo kasy', count: 1, pos_id: null, item_price: { unit_price: { amount: 130 } } },
+      ],
+    };
+    const notify = (status, extra = {}) => pool.query(
+      'INSERT INTO wolt_order_events (notification_id, type, wolt_order_id, status, resource_url, payload) VALUES ($1, $2, $3, $4, $5, $6)',
+      ['n-' + status + '-' + Date.now(), 'order.notification', raw.id, status, 'https://pos-integration-service.development.dev.woltapi.com/orders/' + raw.id, JSON.stringify({ order: { id: raw.id, status }, ...extra })],
+    );
+
+    await notify('CREATED', { mock_order: raw });
+    const r1 = await bridge.tick();
+    assert.equal(r1.wolt, 1);
+    const [local] = await testDb.select().from(onlineOrders).where(eq(onlineOrders.woltOrderId, raw.id));
+    assert.ok(local, 'lokálna objednávka z Woltu');
+    assert.equal(local.source, 'wolt');
+    assert.equal(local.publicCode, 'W-4471');
+    assert.equal(local.status, 'new');
+    assert.equal(local.paymentMethod, 'wolt');
+    assert.equal(local.items[0].menuItemId, items[0].id);
+    assert.equal(local.items[1].menuItemId, null);
+    assert.match(local.note, /nenamapované/);
+    assert.equal(Number(local.total), 12.9);
+    assert.ok(local.woltPickupEta);
+    assert.ok(emitted.some((e) => e.ev === 'online-order:new' && e.data.source === 'wolt' && e.data.code === 'W-4471'));
+    const { rows: [ev1] } = await pool.query('SELECT processed_at FROM wolt_order_events ORDER BY id LIMIT 1');
+    assert.ok(ev1.processed_at);
+    // duplicitná notifikácia (Wolt opakuje) nič nezdvojí
+    await notify('CREATED', { mock_order: raw });
+    await bridge.tick();
+    assert.equal((await testDb.select().from(onlineOrders).where(eq(onlineOrders.woltOrderId, raw.id))).length, 1);
+
+    // prijatie na kase: mock accept vo Wolte + účet „Wolt W-4471" len z namapovaných položiek
+    const conf = await request.post('/api/online-orders/' + local.id + '/confirm').set('Authorization', 'Bearer ' + tokens.cisnik());
+    assert.equal(conf.status, 200, JSON.stringify(conf.body));
+    assert.equal(conf.body.order.status, 'confirmed');
+    assert.ok(conf.body.order.posOrderId);
+    const [pos] = await testDb.select().from(schema.orders).where(eq(schema.orders.id, conf.body.order.posOrderId));
+    assert.equal(pos.label, 'Wolt W-4471');
+    const posItems = await testDb.select().from(schema.orderItems).where(eq(schema.orderItems.orderId, pos.id));
+    assert.equal(posItems.length, 1);
+    // kuriér sa neobjednáva
+    const disp = await request.post('/api/online-orders/' + local.id + '/dispatch').set('Authorization', 'Bearer ' + tokens.manazer());
+    assert.equal(disp.status, 409);
+
+    const ready = await request.post('/api/online-orders/' + local.id + '/ready').set('Authorization', 'Bearer ' + tokens.cisnik());
+    assert.equal(ready.status, 200);
+    // odovzdanie hlásime len pri vyzdvihnutí; pri kuriérovi Woltu 409
+    const ho = await request.post('/api/online-orders/' + local.id + '/handed-over').set('Authorization', 'Bearer ' + tokens.cisnik());
+    assert.equal(ho.status, 409);
+
+    await notify('DELIVERED');
+    const r2 = await bridge.tick();
+    assert.equal(r2.wolt, 1);
+    const [l2] = await testDb.select().from(onlineOrders).where(eq(onlineOrders.id, local.id));
+    assert.equal(l2.status, 'delivered');
+    assert.equal(l2.woltStatus, 'delivered');
+    assert.ok(emitted.some((e) => e.ev === 'online-order:updated' && e.data.status === 'delivered'));
+
+    // druhá objednávka: vyzdvihnutie v podniku, Wolt ju zruší kým je nová → odmietnutá
+    const raw2 = { ...raw, id: 'w-abc-2', order_number: '4472', delivery: { type: 'takeaway' } };
+    await pool.query('INSERT INTO wolt_order_events (notification_id, type, wolt_order_id, status, payload) VALUES ($1, $2, $3, $4, $5)',
+      ['n-c2', 'order.notification', raw2.id, 'CREATED', JSON.stringify({ order: { id: raw2.id, status: 'CREATED' }, mock_order: raw2 })]);
+    await bridge.tick();
+    const [t] = await testDb.select().from(onlineOrders).where(eq(onlineOrders.woltOrderId, raw2.id));
+    assert.equal(t.deliveryType, 'takeaway');
+    assert.equal(t.dropoffStreet, 'Vyzdvihnutie v podniku');
+    await pool.query('INSERT INTO wolt_order_events (notification_id, type, wolt_order_id, status, payload) VALUES ($1, $2, $3, $4, $5)',
+      ['n-x2', 'order.notification', raw2.id, 'CANCELED', JSON.stringify({ order: { id: raw2.id, status: 'CANCELED' } })]);
+    await bridge.tick();
+    const [t2] = await testDb.select().from(onlineOrders).where(eq(onlineOrders.id, t.id));
+    assert.equal(t2.status, 'rejected');
+    assert.match(t2.rejectedReason, /Wolt/);
   });
 
   it('toLocalOrder: čísla ako reťazce pre numeric, časy ako Date, prázdne polia doplnené', () => {

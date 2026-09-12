@@ -55,6 +55,10 @@
   font-family:var(--font-body);font-size:var(--text-xs);font-weight:var(--weight-semibold);cursor:pointer;
 }
 
+/* Zdroj: objednávka z aplikácie Wolt */
+.oo-src{display:inline-block;vertical-align:middle;padding:1px 7px;border-radius:var(--radius-full);background:var(--color-accent-secondary-soft);color:var(--color-accent-secondary);font-family:var(--font-body);font-size:var(--text-2xs);font-weight:var(--weight-bold);letter-spacing:var(--tracking-wide);text-transform:uppercase}
+.oo-banner .oo-src{background:rgba(255,255,255,.22);color:inherit}
+
 /* ── Modál: zoznam + detail ─────────────────────────────────────────────── */
 .oo-modal.u-modal{text-align:left;max-width:560px;width:min(560px,94vw);padding:var(--space-5);max-height:90vh;overflow-y:auto}
 .oo-title{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:var(--text-3xl)}

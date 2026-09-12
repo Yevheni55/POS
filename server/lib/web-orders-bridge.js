@@ -13,8 +13,11 @@
 import pg from 'pg';
 import { eq, sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
-import { onlineOrders, onlineOrderEvents } from '../db/schema.js';
+import { onlineOrders, onlineOrderEvents, menuItems } from '../db/schema.js';
 import { woltConfig } from './wolt-drive.js';
+import {
+  woltOrderConfig, getOrder, normalizeOrder, buildOnlineOrderFromWolt, makeMenuResolver, statusForNotification, exchangeAuthCode,
+} from './wolt-order-api.js';
 import { applyWoltEvent } from './online-order-status.js';
 import { emitEventIo } from './emit.js';
 
@@ -171,6 +174,94 @@ export function createBridge({ url, io = null, cacheBustUrl = '', fetchImpl = gl
     return rows.length;
   }
 
+  // ── Objednávky z aplikácie Wolt (Order API) ─────────────────────────────
+  // Notifikácie odložilo PHP na webe do wolt_order_events. Pri CREATED si
+  // stiahneme detail z Woltu a vznikne bežná online objednávka (source 'wolt'),
+  // ostatné stavy sa premietnu do existujúcej. Kuriéra rieši Wolt sám.
+  async function pullWoltEvents() {
+    const cfgW = woltOrderConfig();
+    const { rows } = await pool.query('SELECT * FROM wolt_order_events WHERE processed_at IS NULL ORDER BY id LIMIT 20');
+    let handled = 0;
+    let resolver = null;
+    for (const ev of rows) {
+      const st = String(ev.status || '').toUpperCase();
+      try {
+        if (!cfgW.enabled) {
+          log(TAG, 'Wolt objednávka', ev.wolt_order_id, st, 'ignorovaná (WOLT_ORDER_MODE=off)');
+        } else {
+          const [local] = await db.select().from(onlineOrders).where(eq(onlineOrders.woltOrderId, String(ev.wolt_order_id))).limit(1);
+          if (!local) {
+            if (st === 'CREATED' || st === 'PRODUCTION' || st === 'READY') {
+              const raw = await getOrder(ev.wolt_order_id, { resourceUrl: ev.resource_url, mock: ev.payload?.mock_order || null });
+              if (!resolver) {
+                const menu = await db.select({ id: menuItems.id, name: menuItems.name, price: menuItems.price, vatRate: menuItems.vatRate })
+                  .from(menuItems).where(eq(menuItems.active, true));
+                resolver = makeMenuResolver(menu);
+              }
+              const values = buildOnlineOrderFromWolt(normalizeOrder(raw), resolver, raw);
+              if (statusForNotification(st, 'new') === 'confirmed') { values.status = 'confirmed'; values.confirmedAt = new Date(); }
+              if (st === 'READY') { values.status = 'confirmed'; values.confirmedAt = new Date(); values.readyAt = new Date(); }
+              let inserted;
+              try {
+                [inserted] = await db.insert(onlineOrders).values(values).returning();
+              } catch (e) {
+                if (!/online_orders_public_code/.test(String(e.message))) throw e;
+                values.publicCode = ('W-' + String(ev.wolt_order_id).slice(-5).toUpperCase()).slice(0, 12);
+                [inserted] = await db.insert(onlineOrders).values(values).returning();
+              }
+              await db.insert(onlineOrderEvents).values({ onlineOrderId: inserted.id, type: 'created', payload: { source: 'wolt', woltOrderId: String(ev.wolt_order_id), status: st } });
+              emitEventIo(io, 'online-order:new', {
+                id: inserted.id, code: inserted.publicCode, total: Number(inserted.total), customerName: inserted.customerName, itemCount: inserted.items.length, source: 'wolt',
+              }).catch(() => {});
+              handled++;
+            } else {
+              log(TAG, 'Wolt', st, 'pre neznámu objednávku', ev.wolt_order_id, '— preskočené');
+            }
+          } else {
+            const patch = { woltStatus: st.toLowerCase(), updatedAt: new Date() };
+            const next = statusForNotification(st, local.status);
+            if (next && !['delivered', 'rejected', 'cancelled'].includes(local.status)) {
+              patch.status = next;
+              if (next === 'rejected' && !local.rejectedReason) patch.rejectedReason = 'Zrušené zo strany Woltu';
+              if (next === 'confirmed' && !local.confirmedAt) patch.confirmedAt = new Date();
+            }
+            if (st === 'READY' && !local.readyAt) patch.readyAt = new Date();
+            await db.update(onlineOrders).set(patch).where(eq(onlineOrders.id, local.id));
+            await db.insert(onlineOrderEvents).values({ onlineOrderId: local.id, type: 'wolt:' + st.toLowerCase(), payload: ev.payload || {} });
+            emitEventIo(io, 'online-order:updated', { id: local.id, code: local.publicCode, status: patch.status || local.status, woltStatus: patch.woltStatus }).catch(() => {});
+            handled++;
+          }
+        }
+        await pool.query('UPDATE wolt_order_events SET processed_at = now() WHERE id = $1', [ev.id]);
+      } catch (e) {
+        // Dočasná chyba (Wolt nedostupný, chýba token) → nechať na ďalší cyklus;
+        // trvalá (404, 422) → označiť a ísť ďalej, nech nezablokuje front.
+        const permanent = e && e.status && e.status < 500 && e.status !== 503;
+        log(TAG, 'Wolt udalosť', ev.id, st, 'zlyhala:', e.message);
+        if (!permanent) throw e;
+        await pool.query('UPDATE wolt_order_events SET processed_at = now() WHERE id = $1', [ev.id]);
+      }
+    }
+    return handled;
+  }
+
+  /** Authorization code z presmerovania Woltu (odložilo ho PHP) → tokeny. */
+  async function pickupOauthCode() {
+    const cfgW = woltOrderConfig();
+    if (!cfgW.clientId || !cfgW.clientSecret) return false;
+    const { rows } = await pool.query("SELECT value FROM web_delivery_config WHERE key = 'wolt_oauth_code'");
+    const code = rows[0]?.value?.code;
+    if (!code) return false;
+    try {
+      await exchangeAuthCode(code, cfgW);
+      log(TAG, 'Wolt Order API pripojené (OAuth tokeny uložené)');
+    } catch (e) {
+      log(TAG, 'výmena Wolt OAuth kódu zlyhala:', e.message);
+    }
+    await pool.query("DELETE FROM web_delivery_config WHERE key = 'wolt_oauth_code'");
+    return true;
+  }
+
   async function pushConfig() {
     await pool.query(`
       INSERT INTO web_delivery_config (key, value, updated_at) VALUES ('config', $1, now())
@@ -217,15 +308,17 @@ export function createBridge({ url, io = null, cacheBustUrl = '', fetchImpl = gl
     try {
       const events = await pullEvents();
       const imported = await pullNewOrders();
+      await pickupOauthCode();
+      const wolt = await pullWoltEvents();
       const pushed = await pushLocalChanges();
       await pushConfig();
-      return { events, imported, pushed };
+      return { events, imported, pushed, wolt };
     } finally {
       running = false;
     }
   }
 
-  return { tick, syncMenu, pullNewOrders, pullEvents, pushLocalChanges, pushConfig, close: () => pool.end() };
+  return { tick, syncMenu, pullNewOrders, pullEvents, pullWoltEvents, pickupOauthCode, pushLocalChanges, pushConfig, close: () => pool.end() };
 }
 
 let _bridge = null;
@@ -245,7 +338,7 @@ export function startWebOrdersBridge(app) {
   const run = async () => {
     try {
       const r = await _bridge.tick();
-      if (r && (r.imported || r.events)) console.log(TAG, `prevzaté ${r.imported}, udalosti ${r.events}, stav späť ${r.pushed}`);
+      if (r && (r.imported || r.events || r.wolt)) console.log(TAG, `prevzaté ${r.imported}, udalosti ${r.events}, Wolt ${r.wolt}, stav späť ${r.pushed}`);
       failures = 0;
     } catch (e) {
       // Prvé zlyhanie zalogujeme hneď, ďalšie len raz za minútu — Neon môže

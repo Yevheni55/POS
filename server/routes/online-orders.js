@@ -19,6 +19,10 @@ import { sendOrQueue } from '../lib/print/queue.js';
 import { localTimeHHMM } from '../lib/print/format.js';
 import { menuCategories } from '../db/schema.js';
 import { woltConfig, createDelivery, cancelDelivery, WoltError } from '../lib/wolt-drive.js';
+import {
+  woltOrderConfig, acceptOrder, rejectOrder as woltRejectOrder, readyOrder as woltReadyOrder, deliveredOrder as woltDeliveredOrder,
+  confirmPreorder, exchangeAuthCode, connectionStatus, WoltOrderError,
+} from '../lib/wolt-order-api.js';
 import { rejectOnlineOrderSchema, listOnlineOrdersQuerySchema } from '../schemas/online-orders.js';
 
 const router = Router();
@@ -30,7 +34,7 @@ const mgr = requireRole('manazer', 'admin');
 const ACTIVE = ['new', 'confirmed', 'dispatched'];
 
 function woltErrorResponse(res, e) {
-  if (e instanceof WoltError) return res.status(e.status).json({ error: e.message, detail: e.detail || undefined });
+  if (e instanceof WoltError || e instanceof WoltOrderError) return res.status(e.status).json({ error: e.message, detail: e.detail || undefined });
   throw e;
 }
 
@@ -38,10 +42,22 @@ async function addEvent(id, type, payload = {}) {
   await db.insert(onlineOrderEvents).values({ onlineOrderId: id, type, payload });
 }
 
-router.get('/config', (req, res) => {
+router.get('/config', asyncRoute(async (req, res) => {
   const cfg = woltConfig();
-  res.json({ enabled: cfg.enabled, mode: cfg.mode, cashOnDelivery: cfg.cashOnDelivery, pickup: cfg.pickup, minPrepMinutes: cfg.minPrepMinutes });
-});
+  const w = woltOrderConfig();
+  let woltOrders = { enabled: w.enabled, mode: w.mode, connected: false };
+  if (w.enabled) { try { woltOrders = { ...woltOrders, ...(await connectionStatus(w)) }; } catch { /* bez DB info */ } }
+  res.json({ enabled: cfg.enabled, mode: cfg.mode, cashOnDelivery: cfg.cashOnDelivery, pickup: cfg.pickup, minPrepMinutes: cfg.minPrepMinutes, woltOrders });
+}));
+
+// POST /wolt/oauth/code — ručné vloženie authorization code (keď presmerovanie
+// nejde cez web); bežne ho prevezme most z Neon sám.
+router.post('/wolt/oauth/code', mgr, asyncRoute(async (req, res) => {
+  const code = String(req.body?.code || '').trim();
+  if (!code) return res.status(400).json({ error: 'Chýba code' });
+  try { await exchangeAuthCode(code); } catch (e) { return woltErrorResponse(res, e); }
+  res.json({ ok: true });
+}));
 
 // GET / ?status=new|active|done|all
 router.get('/', asyncRoute(async (req, res) => {
@@ -89,18 +105,33 @@ router.post('/:id/confirm', asyncRoute(async (req, res) => {
 
   const staffId = req.user.id;
   const [shift] = await db.select().from(shifts).where(and(eq(shifts.staffId, staffId), eq(shifts.status, 'open'))).limit(1);
+  const isWolt = oo.source === 'wolt';
 
-  let posOrderId;
+  // Objednávka z aplikácie Wolt: najprv ju prijať vo Wolte (má na to pár minút,
+  // inak ju Wolt zruší), až potom účet a bon. Predobjednávku treba najprv potvrdiť.
+  if (isWolt) {
+    try {
+      const pre = oo.woltPayload?.pre_order;
+      if (pre && String(pre.pre_order_status || '').toLowerCase() !== 'confirmed') await confirmPreorder(oo.woltOrderId);
+      const w = woltOrderConfig();
+      await acceptOrder(oo.woltOrderId, { pickupTime: w.prepMinutes ? new Date(Date.now() + w.prepMinutes * 60_000) : null });
+    } catch (e) { return woltErrorResponse(res, e); }
+  }
+
+  // Položky Woltu bez páru v našom menu ostávajú len v poznámke — účet vznikne
+  // z tých, ktoré poznáme (bon aj odpis skladu). Bez jediného páru účet nevznikne.
+  const mapped = oo.items.filter((it) => it.menuItemId);
+  let posOrderId = null;
   try {
-    posOrderId = await db.transaction(async (tx) => {
+    if (mapped.length) posOrderId = await db.transaction(async (tx) => {
       const tableId = await pickFreeDeliveryTable(tx);
       if (!tableId) throw Object.assign(new Error('Všetky rozvozové stoly sú obsadené — najprv uzavrite starší rozvoz'), { code: 409 });
       await tx.update(tables).set({ status: 'occupied' }).where(eq(tables.id, tableId));
       const [order] = await tx.insert(orders).values({
-        tableId, staffId, shiftId: shift?.id ?? null, label: 'Rozvoz ' + oo.publicCode,
+        tableId, staffId, shiftId: shift?.id ?? null, label: (isWolt ? 'Wolt ' : 'Rozvoz ') + oo.publicCode,
       }).returning();
       const inserted = await tx.insert(orderItems).values(
-        oo.items.map((it) => ({ orderId: order.id, menuItemId: it.menuItemId, qty: it.qty, note: it.note || '', sent: true })),
+        mapped.map((it) => ({ orderId: order.id, menuItemId: it.menuItemId, qty: it.qty, note: it.note || '', sent: true })),
       ).returning();
       // Rovnaké čo /orders/:id/send — kuchyňa dostane bon, sklad sa odpíše.
       const names = await tx.select({ id: menuItems.id, name: menuItems.name, emoji: menuItems.emoji })
@@ -116,18 +147,30 @@ router.post('/:id/confirm', asyncRoute(async (req, res) => {
       }).where(eq(onlineOrders.id, id));
       return order.id;
     });
+    else await db.update(onlineOrders).set({ status: 'confirmed', confirmedBy: staffId, confirmedAt: new Date(), updatedAt: new Date() }).where(eq(onlineOrders.id, id));
   } catch (e) {
-    if (e.code === 409) return res.status(409).json({ error: e.message });
-    throw e;
+    if (e.code === 409 && !isWolt) return res.status(409).json({ error: e.message });
+    if (e.code !== 409) throw e;
+    // Vo Wolte už prijaté — účet sa nedá založiť (plné stoly), ale objednávka nesmie zmiznúť.
+    await db.update(onlineOrders).set({ status: 'confirmed', confirmedBy: staffId, confirmedAt: new Date(), updatedAt: new Date() }).where(eq(onlineOrders.id, id));
+    await addEvent(id, 'error', { message: e.message });
   }
-  await addEvent(id, 'confirmed', { staffId, posOrderId });
-  logEvent(db, { orderId: posOrderId, type: 'order_created', payload: { online: oo.publicCode, itemCount: oo.items.length }, staffId }).catch(() => {});
-  emitEvent(req, 'order:created', { orderId: posOrderId }).catch(() => {});
-  emitEvent(req, 'order:sent', { orderId: posOrderId }).catch(() => {});
+  await addEvent(id, 'confirmed', { staffId, posOrderId, source: oo.source });
+  if (posOrderId) {
+    logEvent(db, { orderId: posOrderId, type: 'order_created', payload: { online: oo.publicCode, itemCount: mapped.length }, staffId }).catch(() => {});
+    emitEvent(req, 'order:created', { orderId: posOrderId }).catch(() => {});
+    emitEvent(req, 'order:sent', { orderId: posOrderId }).catch(() => {});
+  }
   // Bon do kuchyne/baru — v POS ho tlačí klient, tu ho musí spraviť server.
   // Best-effort: tlačiareň offline nesmie zhodiť potvrdenie (fronta to dobehne).
   printKitchenBons(oo, req.user?.name || 'Online').catch((e) => console.error('[online-orders] bon:', e.message));
 
+  if (isWolt) {
+    // Kuriéra posiela Wolt sám — nič sa neobjednáva.
+    emitEvent(req, 'online-order:updated', { id, code: oo.publicCode, status: 'confirmed' }).catch(() => {});
+    const [row] = await db.select().from(onlineOrders).where(eq(onlineOrders.id, id)).limit(1);
+    return res.json({ ok: true, order: row });
+  }
   // Kuriér. Keď Wolt zlyhá, objednávka ostáva „confirmed" a obsluha to skúsi
   // znova cez /dispatch — jedlo sa už robí, nesmie sa stratiť.
   const result = await dispatch(req, { ...oo, status: 'confirmed', posOrderId });
@@ -136,12 +179,13 @@ router.post('/:id/confirm', asyncRoute(async (req, res) => {
 
 /** Rozdelí položky podľa cieľa (kuchyňa / bar) ako POS klient a vytlačí bony. */
 async function printKitchenBons(oo, staffName) {
-  const ids = [...new Set(oo.items.map((i) => i.menuItemId))];
-  if (!ids.length) return;
-  const rows = await db.select({ id: menuItems.id, override: menuItems.destOverride, catDest: menuCategories.dest })
+  const ids = [...new Set(oo.items.map((i) => i.menuItemId).filter(Boolean))];
+  if (!oo.items.length) return;
+  const rows = ids.length ? await db.select({ id: menuItems.id, override: menuItems.destOverride, catDest: menuCategories.dest })
     .from(menuItems).innerJoin(menuCategories, eq(menuItems.categoryId, menuCategories.id))
-    .where(inArray(menuItems.id, ids));
+    .where(inArray(menuItems.id, ids)) : [];
   const destOf = new Map(rows.map((r) => [r.id, (r.override || r.catDest || 'bar') === 'kuchyna' ? 'KUCHYNA' : 'BAR']));
+  const label = (oo.source === 'wolt' ? 'WOLT ' : 'ROZVOZ ') + oo.publicCode;
   const groups = new Map();
   for (const it of oo.items) {
     const d = destOf.get(it.menuItemId) || 'BAR';
@@ -151,7 +195,7 @@ async function printKitchenBons(oo, staffName) {
   const time = localTimeHHMM();
   for (const [dest, items] of groups) {
     const printer = await getPrinterForDest(dest === 'KUCHYNA' ? 'kuchyna' : 'bar');
-    const ticket = buildKitchenTicket({ dest, tableName: 'ROZVOZ ' + oo.publicCode, staffName, items, orderNum: oo.publicCode, time });
+    const ticket = buildKitchenTicket({ dest, tableName: label, staffName, items, orderNum: oo.publicCode, time });
     await sendOrQueue('kitchen', ticket, printer.ip, printer.port);
   }
 }
@@ -186,6 +230,7 @@ async function dispatch(req, oo) {
 router.post('/:id/dispatch', mgr, asyncRoute(async (req, res) => {
   const [oo] = await db.select().from(onlineOrders).where(eq(onlineOrders.id, +req.params.id)).limit(1);
   if (!oo) return res.status(404).json({ error: 'Objednávka sa nenašla' });
+  if (oo.source === 'wolt') return res.status(409).json({ error: 'Kuriéra pri objednávke z aplikácie Wolt rieši Wolt sám' });
   if (oo.status !== 'confirmed') return res.status(409).json({ error: 'Kuriér sa dá objednať len pre potvrdenú objednávku' });
   res.json(await dispatch(req, oo));
 }));
@@ -198,9 +243,29 @@ router.post('/:id/ready', asyncRoute(async (req, res) => {
   if (!oo) return res.status(404).json({ error: 'Objednávka sa nenašla' });
   if (!['confirmed', 'dispatched'].includes(oo.status)) return res.status(409).json({ error: 'Hotové sa dá označiť len pri potvrdenej objednávke' });
   if (oo.readyAt) return res.json({ ok: true, alreadyReady: true });
+  if (oo.source === 'wolt') {
+    // Wolt pošle kuriéra / povie zákazníkovi, že si môže prísť.
+    try { await woltReadyOrder(oo.woltOrderId); } catch (e) { return woltErrorResponse(res, e); }
+  }
   await db.update(onlineOrders).set({ readyAt: new Date(), updatedAt: new Date() }).where(eq(onlineOrders.id, id));
   await addEvent(id, 'ready', { staffId: req.user.id });
   emitEvent(req, 'online-order:updated', { id, code: oo.publicCode, status: oo.status, ready: true }).catch(() => {});
+  res.json({ ok: true });
+}));
+
+// POST /:id/handed-over — objednávka z aplikácie Wolt na vyzdvihnutie / v podniku:
+// zákazník si ju prevzal, Woltu ohlásime „delivered".
+router.post('/:id/handed-over', asyncRoute(async (req, res) => {
+  const id = +req.params.id;
+  const [oo] = await db.select().from(onlineOrders).where(eq(onlineOrders.id, id)).limit(1);
+  if (!oo) return res.status(404).json({ error: 'Objednávka sa nenašla' });
+  if (oo.source !== 'wolt') return res.status(409).json({ error: 'Odovzdanie sa hlási len pri objednávke z aplikácie Wolt' });
+  if (!['takeaway', 'eatin'].includes(oo.deliveryType || '')) return res.status(409).json({ error: 'Doručenie kuriérom uzavrie Wolt sám' });
+  if (oo.status !== 'confirmed') return res.status(409).json({ error: 'Odovzdať sa dá len potvrdená objednávka' });
+  try { await woltDeliveredOrder(oo.woltOrderId); } catch (e) { return woltErrorResponse(res, e); }
+  await db.update(onlineOrders).set({ status: 'delivered', woltStatus: 'delivered', readyAt: oo.readyAt || new Date(), updatedAt: new Date() }).where(eq(onlineOrders.id, id));
+  await addEvent(id, 'handed-over', { staffId: req.user.id });
+  emitEvent(req, 'online-order:updated', { id, code: oo.publicCode, status: 'delivered' }).catch(() => {});
   res.json({ ok: true });
 }));
 
@@ -209,6 +274,9 @@ router.post('/:id/reject', validate(rejectOnlineOrderSchema), asyncRoute(async (
   const [oo] = await db.select().from(onlineOrders).where(eq(onlineOrders.id, id)).limit(1);
   if (!oo) return res.status(404).json({ error: 'Objednávka sa nenašla' });
   if (oo.status !== 'new') return res.status(409).json({ error: 'Odmietnuť sa dá len nová objednávka' });
+  if (oo.source === 'wolt') {
+    try { await woltRejectOrder(oo.woltOrderId, req.body.reason || ''); } catch (e) { return woltErrorResponse(res, e); }
+  }
   await db.update(onlineOrders).set({ status: 'rejected', rejectedReason: req.body.reason || '', updatedAt: new Date() }).where(eq(onlineOrders.id, id));
   await addEvent(id, 'rejected', { staffId: req.user.id, reason: req.body.reason || '' });
   emitEvent(req, 'online-order:updated', { id, code: oo.publicCode, status: 'rejected' }).catch(() => {});
@@ -220,6 +288,7 @@ router.post('/:id/cancel-delivery', mgr, asyncRoute(async (req, res) => {
   const id = +req.params.id;
   const [oo] = await db.select().from(onlineOrders).where(eq(onlineOrders.id, id)).limit(1);
   if (!oo) return res.status(404).json({ error: 'Objednávka sa nenašla' });
+  if (oo.source === 'wolt') return res.status(409).json({ error: 'Kuriéra pri objednávke z aplikácie Wolt rieši Wolt sám' });
   if (oo.status !== 'dispatched' || !oo.woltOrderReferenceId) return res.status(409).json({ error: 'Kuriér nie je objednaný' });
   try { await cancelDelivery(oo.woltOrderReferenceId); } catch (e) { return woltErrorResponse(res, e); }
   await db.update(onlineOrders).set({ status: 'confirmed', woltStatus: 'cancelled', woltOrderReferenceId: null, woltTrackingUrl: null, updatedAt: new Date() }).where(eq(onlineOrders.id, id));

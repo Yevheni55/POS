@@ -758,6 +758,14 @@ export const onlineOrders = pgTable('online_orders', {
   // objednávka vznikla, a verzia (updated_at), ktorá bola naposledy zapísaná späť.
   webOrderId: bigint('web_order_id', { mode: 'number' }),
   webSyncedAt: timestamp('web_synced_at'),
+  // Objednávky z aplikácie Wolt (lib/wolt-order-api.js): source 'wolt', kuriéra
+  // rieši Wolt sám; delivery_type homedelivery | takeaway | eatin.
+  source: varchar('source', { length: 16 }).notNull().default('web'),
+  deliveryType: varchar('delivery_type', { length: 16 }),
+  woltOrderId: varchar('wolt_order_id', { length: 64 }),
+  woltOrderNumber: varchar('wolt_order_number', { length: 32 }),
+  woltPickupEta: timestamp('wolt_pickup_eta'),
+  woltPayload: jsonb('wolt_payload'),
   rejectedReason: varchar('rejected_reason', { length: 300 }).notNull().default(''),
   clientIp: varchar('client_ip', { length: 64 }).notNull().default(''),
   createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -776,3 +784,13 @@ export const onlineOrderEvents = pgTable('online_order_events', {
 }, (t) => [
   index('online_order_events_order_idx').on(t.onlineOrderId, t.createdAt),
 ]);
+
+// OAuth tokeny integrácií (Wolt Order API): access token 1 h, refresh token
+// jednorazový 30 dní — držia sa v DB, aby prežili reštart kontajnera.
+export const integrationTokens = pgTable('integration_tokens', {
+  provider: varchar('provider', { length: 40 }).primaryKey(),
+  accessToken: text('access_token'),
+  refreshToken: text('refresh_token'),
+  expiresAt: timestamp('expires_at'),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});

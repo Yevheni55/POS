@@ -247,3 +247,6 @@ body{
 .kds-toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:300;max-width:min(560px,90vw);padding:10px 16px;border-radius:var(--radius-xs);background:var(--color-danger);color:var(--color-text);font-weight:var(--weight-semibold);animation:cardIn .25s ease}
 .kds-toast[hidden]{display:none}
 @media (prefers-reduced-motion:reduce){.order-card.oo-new,.kds-sheet,.kds-toast{animation:none}}
+
+/* Zdroj objednávky (aplikácia Wolt) */
+.oo-src{display:inline-block;vertical-align:middle;margin-left:6px;padding:2px 8px;border-radius:var(--radius-xs);background:var(--color-accent-secondary-soft);color:var(--color-accent-secondary);font-family:var(--font-body);font-size:var(--text-xs);font-weight:var(--weight-bold);letter-spacing:var(--tracking-wide);text-transform:uppercase}
