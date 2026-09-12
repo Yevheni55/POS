@@ -325,6 +325,9 @@ function connectWS() {
     reconnectionDelayMax: 5000,
   });
 
+  // Online objednávky z webu (js/pos-online-orders.js): lišta + zvonček.
+  if (window.posOnlineOrders) window.posOnlineOrders.bindSocket(socket);
+
   socket.on('connect', function() {
     console.log('WS connected');
     // RESYNC po reconnecte. Kým bol socket dole, prišli udalosti, ktoré nikto
