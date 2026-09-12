@@ -161,7 +161,10 @@ async function openDetail(id) {
 
   let actions = '';
   if (o.status === 'new') {
-    actions = '<button class="u-btn u-btn-ghost" id="ooReject">Odmietnuť</button>' +
+    // Minúty na prípravu idú kuriérovi (Wolt adjusted_pickup_time / Drive prep) — predvolené 15.
+    actions = '<div class="oo-prep-row"><span class="oo-prep-label">Hotové o</span>' +
+              [10, 15, 20, 30].map((m) => '<button type="button" class="doch-chip oo-prep' + (m === 15 ? ' is-on' : '') + '" data-prep="' + m + '" aria-pressed="' + (m === 15) + '">' + m + ' min</button>').join('') + '</div>' +
+              '<button class="u-btn u-btn-ghost" id="ooReject">Odmietnuť</button>' +
               '<button class="u-btn u-btn-ice" id="ooConfirm">' + (isWolt(o) ? 'Prijať vo Wolte' : 'Potvrdiť a objednať kuriéra') + '</button>';
   } else if (o.status === 'confirmed' && isWolt(o)) {
     // Kuriéra rieši Wolt — tu len hotové a (pri vyzdvihnutí) odovzdanie zákazníkovi.
@@ -226,10 +229,14 @@ async function openDetail(id) {
       showToast('Objednávka odmietnutá', true); close(); load({ silent: true });
     } catch (e) { showToast(e.message || 'Nepodarilo sa odmietnuť', 'error'); btnReset(btn); }
   });
+  ov.querySelectorAll('.oo-prep').forEach((c) => c.addEventListener('click', () => {
+    ov.querySelectorAll('.oo-prep').forEach((x) => { x.classList.toggle('is-on', x === c); x.setAttribute('aria-pressed', String(x === c)); });
+  }));
   on('#ooConfirm', async () => {
     const btn = ov.querySelector('#ooConfirm'); btnLoading(btn);
     try {
-      const r = await api.post('/online-orders/' + id + '/confirm', {});
+      const prep = Number((ov.querySelector('.oo-prep.is-on') || {}).dataset?.prep) || 15;
+      const r = await api.post('/online-orders/' + id + '/confirm', { prepMinutes: prep }, 'oo:' + id + ':confirm');
       if (r.ok) showToast('Potvrdené — bon v kuchyni, kuriér objednaný', true);
       else showToast(r.error || 'Potvrdené, ale kuriéra sa nepodarilo objednať — skúste znova z detailu', 'error');
       close(); load({ silent: true });

@@ -88,3 +88,8 @@
 
 /* Skúšobná objednávka z Woltu (len mock režim) */
 .oo-mock-btn { margin-left: auto; border-style: dashed; }
+
+/* Minúty na prípravu pri potvrdení */
+.oo-prep-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; width: 100%; margin-bottom: 8px; }
+.oo-prep-label { font-size: var(--text-xs); color: var(--color-text-sec); text-transform: uppercase; letter-spacing: var(--tracking-wide); margin-right: 4px; }
+.doch-chip.oo-prep { font-family: var(--font-mono); font-weight: var(--weight-bold); }

@@ -35,6 +35,15 @@
   <div class="grid" id="grid"></div>
 </main>
 
+<!-- Zvuk je v prehliadači zamknutý, kým sa obrazovky nikto nedotkne (js/oo-alarm.js). -->
+<div class="kds-gate" id="ooAudioGate" hidden>
+  <div class="kds-gate-box">
+    <div class="kds-gate-title">Klepnite pre zapnutie zvuku</div>
+    <div class="kds-gate-sub">Prehliadač nepustí zvuk bez dotyku. Po klepnutí budú nové objednávky pípať a obrazovka nezhasne.</div>
+  </div>
+</div>
+<!-- Nová online objednávka cez celú obrazovku — kým ju niekto neprijme, neodmietne alebo neodloží. -->
+<div class="oo-takeover" id="ooTakeover" hidden role="dialog" aria-modal="true" aria-labelledby="ooTakeoverTitle"></div>
 <!-- Odmietnutie online objednávky: dôvod uvidí zákazník na webe. -->
 <div class="kds-sheet-overlay" id="ooReject" hidden>
   <div class="kds-sheet" role="dialog" aria-modal="true" aria-labelledby="ooRejectTitle">
@@ -61,6 +70,7 @@
 <!-- .min varianta: 47 kB namiesto 156 kB, rovnaka funkcionalita. -->
 <script src="/socket.io/socket.io.min.js"></script>
 <script src="/js/pos-escape.js"></script>
+<script src="/js/oo-alarm.js"></script>
 <script src="/js/kitchen.js"></script>
 </body>
 </html>

@@ -42,6 +42,11 @@ export const createOnlineOrderSchema = z.object({
   consent: z.literal(true, { errorMap: () => ({ message: 'Potvrďte súhlas so spracovaním údajov' }) }),
 });
 
+// Prijatie: koľko minút si kuchyňa vypýta (čipy 10/15/20/30; bez hodnoty = predvolené).
+export const confirmOnlineOrderSchema = z.object({
+  prepMinutes: z.coerce.number().int().min(5).max(90).optional(),
+});
+
 export const rejectOnlineOrderSchema = z.object({
   reason: z.string().trim().max(300).optional().default(''),
 });

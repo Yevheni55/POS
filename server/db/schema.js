@@ -766,6 +766,15 @@ export const onlineOrders = pgTable('online_orders', {
   woltOrderNumber: varchar('wolt_order_number', { length: 32 }),
   woltPickupEta: timestamp('wolt_pickup_eta'),
   woltPayload: jsonb('wolt_payload'),
+  // Minúty na prípravu zvolené pri prijatí a sľúbený čas hotového (od neho idú
+  // odpočty a farby na KDS/kase, kuriérovi ide ako čas vyzdvihnutia).
+  prepMinutes: integer('prep_minutes'),
+  promisedReadyAt: timestamp('promised_ready_at'),
+  // Už prijaté vo Wolte — opakovaný pokus po páde DB accept nezavolá znova.
+  woltAcceptedAt: timestamp('wolt_accepted_at'),
+  // Zámok proti dvojitému spracovaniu (KDS a kasa naraz); po 30 s expiruje.
+  processingAt: timestamp('processing_at'),
+  processingBy: integer('processing_by'),
   rejectedReason: varchar('rejected_reason', { length: 300 }).notNull().default(''),
   clientIp: varchar('client_ip', { length: 64 }).notNull().default(''),
   createdAt: timestamp('created_at').notNull().defaultNow(),

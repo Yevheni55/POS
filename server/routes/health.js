@@ -1,3 +1,4 @@
+import { getBridgeStats } from '../lib/web-orders-bridge.js';
 import { Router } from 'express';
 import { db } from '../db/index.js';
 import { sql } from 'drizzle-orm';
@@ -99,7 +100,15 @@ router.get('/', async (req, res) => {
     // chýbajúci pg_dump po rebuilde image) nedal spozorovať inak než SSH
     // na kasu — a zistilo by sa to až vo chvíli, keď treba obnovovať.
     backup: null,
+    // Most web ↔ kasa cez Neon (online objednávky): bez úspešného cyklu za
+    // minútu web hlási „doručenie nie je dostupné" a objednávky neprichádzajú.
+    bridge: null,
   };
+  try {
+    const b = getBridgeStats();
+    health.bridge = b;
+    if (b.enabled && !b.healthy) health.status = 'degraded';
+  } catch { /* most nemusí bežať */ }
 
   // DB check
   try {

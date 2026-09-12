@@ -23,6 +23,23 @@ import { emitEventIo } from './emit.js';
 
 const TAG = '[web-orders]';
 
+// Stav mostu pre /api/health a bodku na zvončeku: kedy naposledy prebehol
+// celý cyklus bez chyby a čo zlyhalo naposledy.
+const stats = { enabled: false, lastTickAt: null, lastOkTickAt: null, lastError: null, consecutiveFailures: 0, hotUntil: 0 };
+export function getBridgeStats() {
+  const now = Date.now();
+  return {
+    enabled: stats.enabled,
+    lastTickAt: stats.lastTickAt,
+    lastOkTickAt: stats.lastOkTickAt,
+    lastError: stats.lastError,
+    consecutiveFailures: stats.consecutiveFailures,
+    hot: stats.hotUntil > now,
+    // „zdravý" = úspešný cyklus za poslednú minútu
+    healthy: !!stats.lastOkTickAt && now - new Date(stats.lastOkTickAt).getTime() < 60_000,
+  };
+}
+
 export function bridgeConfig() {
   const url = process.env.NEON_DATABASE_URL || '';
   const off = (v) => /^(0|false|off|no)$/i.test(String(v || ''));
@@ -30,6 +47,8 @@ export function bridgeConfig() {
     enabled: !!url && !off(process.env.WEB_ORDERS_BRIDGE || '1'),
     url,
     pollMs: Math.max(3000, Number(process.env.WEB_ORDERS_POLL_MS) || 8000),
+    // Kým prichádzajú objednávky (5 min po poslednom importe), opýtame sa častejšie.
+    hotPollMs: Math.max(2000, Number(process.env.WEB_ORDERS_HOT_POLL_MS) || 3000),
     menuSync: !off(process.env.WEB_MENU_SYNC || '1'),
     menuSyncMs: Math.max(60_000, Number(process.env.WEB_MENU_SYNC_MS) || 10 * 60_000),
     // Po zmene menu zhodí 60 s cache api.php na webe, nech sa zmena ukáže hneď.
@@ -183,8 +202,12 @@ export function createBridge({ url, io = null, cacheBustUrl = '', fetchImpl = gl
     const { rows } = await pool.query('SELECT * FROM wolt_order_events WHERE processed_at IS NULL ORDER BY id LIMIT 20');
     let handled = 0;
     let resolver = null;
+    let firstError = null;
     for (const ev of rows) {
       const st = String(ev.status || '').toUpperCase();
+      // Piaty neúspešný pokus = vzdať sa (označiť + log), nech front nestojí.
+      const attempts = Number(ev.attempts || 0) + 1;
+      await pool.query('UPDATE wolt_order_events SET attempts = $2 WHERE id = $1', [ev.id, attempts]);
       try {
         if (!cfgW.enabled) {
           log(TAG, 'Wolt objednávka', ev.wolt_order_id, st, 'ignorovaná (WOLT_ORDER_MODE=off)');
@@ -234,14 +257,17 @@ export function createBridge({ url, io = null, cacheBustUrl = '', fetchImpl = gl
         }
         await pool.query('UPDATE wolt_order_events SET processed_at = now() WHERE id = $1', [ev.id]);
       } catch (e) {
-        // Dočasná chyba (Wolt nedostupný, chýba token) → nechať na ďalší cyklus;
-        // trvalá (404, 422) → označiť a ísť ďalej, nech nezablokuje front.
-        const permanent = e && e.status && e.status < 500 && e.status !== 503;
-        log(TAG, 'Wolt udalosť', ev.id, st, 'zlyhala:', e.message);
-        if (!permanent) throw e;
-        await pool.query('UPDATE wolt_order_events SET processed_at = now() WHERE id = $1', [ev.id]);
+        // Dočasná chyba (Wolt nedostupný, chýba token) → nechať na ďalší cyklus,
+        // najviac 5×; trvalá (404, 422) → označiť hneď. Poradie ostatných
+        // udalostí sa zachová (break), ale heartbeat a stav späť idú ďalej.
+        const permanent = (e && e.status && e.status < 500 && e.status !== 503) || attempts >= 5;
+        log(TAG, 'Wolt udalosť', ev.id, st, 'zlyhala (' + attempts + '×):', e.message);
+        if (permanent) { await pool.query('UPDATE wolt_order_events SET processed_at = now() WHERE id = $1', [ev.id]); continue; }
+        firstError = e;
+        break;
       }
     }
+    if (firstError) throw firstError;
     return handled;
   }
 
@@ -301,18 +327,31 @@ export function createBridge({ url, io = null, cacheBustUrl = '', fetchImpl = gl
     return { changed: true, count: rows.length };
   }
 
-  /** Jeden cyklus: udalosti → nové objednávky → stav späť → heartbeat. */
+  /**
+   * Jeden cyklus: udalosti → nové objednávky → Wolt → stav späť → heartbeat.
+   * Každý krok má vlastnú ochranu: jedna zaseknutá Wolt notifikácia nesmie
+   * zastaviť heartbeat (web by po 90 s vypol doručenie) ani stav späť zákazníkovi.
+   */
   async function tick() {
     if (running) return null;
     running = true;
+    const out = { events: 0, imported: 0, wolt: 0, pushed: 0, errors: [] };
+    const step = async (name, fn, key) => {
+      try { const r = await fn(); if (key) out[key] = r || 0; }
+      catch (e) { out.errors.push(name + ': ' + (e && e.message ? e.message : e)); }
+    };
     try {
-      const events = await pullEvents();
-      const imported = await pullNewOrders();
-      await pickupOauthCode();
-      const wolt = await pullWoltEvents();
-      const pushed = await pushLocalChanges();
-      await pushConfig();
-      return { events, imported, pushed, wolt };
+      await step('udalosti', pullEvents, 'events');
+      await step('nové objednávky', pullNewOrders, 'imported');
+      await step('oauth', pickupOauthCode);
+      await step('Wolt', pullWoltEvents, 'wolt');
+      await step('stav späť', pushLocalChanges, 'pushed');
+      await step('heartbeat', pushConfig);
+      stats.lastTickAt = new Date();
+      if (out.errors.length) { stats.consecutiveFailures++; stats.lastError = out.errors[0]; }
+      else { stats.consecutiveFailures = 0; stats.lastError = null; stats.lastOkTickAt = new Date(); }
+      if (out.imported || out.wolt) stats.hotUntil = Date.now() + 5 * 60_000;
+      return out;
     } finally {
       running = false;
     }
@@ -332,19 +371,26 @@ export function startWebOrdersBridge(app) {
     return null;
   }
   _bridge = createBridge({ url: cfg.url, io: app.get('io'), cacheBustUrl: cfg.cacheBustUrl });
-  console.log(TAG, `zapnutý — objednávky každých ${cfg.pollMs / 1000} s, menu ${cfg.menuSync ? 'každých ' + Math.round(cfg.menuSyncMs / 60000) + ' min' : 'ručne'}`);
+  stats.enabled = true;
+  console.log(TAG, `zapnutý — objednávky každých ${cfg.pollMs / 1000} s (pri nových ${cfg.hotPollMs / 1000} s), menu ${cfg.menuSync ? 'každých ' + Math.round(cfg.menuSyncMs / 60000) + ' min' : 'ručne'}`);
 
   let failures = 0;
   const run = async () => {
     try {
       const r = await _bridge.tick();
       if (r && (r.imported || r.events || r.wolt)) console.log(TAG, `prevzaté ${r.imported}, udalosti ${r.events}, Wolt ${r.wolt}, stav späť ${r.pushed}`);
-      failures = 0;
+      if (r && r.errors.length) {
+        // Prvé zlyhanie zalogujeme hneď, ďalšie len raz za minútu — Neon môže
+        // chvíľu spať alebo vypadnúť internet, netreba tým zaplaviť log.
+        failures++;
+        if (failures === 1 || failures % Math.max(1, Math.round(60_000 / cfg.pollMs)) === 0) console.error(TAG, 'chyba:', r.errors.join(' | '));
+      } else failures = 0;
     } catch (e) {
-      // Prvé zlyhanie zalogujeme hneď, ďalšie len raz za minútu — Neon môže
-      // chvíľu spať alebo vypadnúť internet, netreba tým zaplaviť log.
       failures++;
-      if (failures === 1 || failures % Math.max(1, Math.round(60_000 / cfg.pollMs)) === 0) console.error(TAG, 'chyba:', e.message);
+      if (failures === 1) console.error(TAG, 'chyba:', e.message);
+    } finally {
+      // Ďalší cyklus: rýchlejšie, kým prichádzajú objednávky.
+      _timer = setTimeout(run, stats.hotUntil > Date.now() ? cfg.hotPollMs : cfg.pollMs);
     }
   };
   const runMenu = async () => {
@@ -354,8 +400,7 @@ export function startWebOrdersBridge(app) {
     } catch (e) { console.error(TAG, 'sync menu zlyhal:', e.message); }
   };
 
-  setTimeout(run, 2000);
-  _timer = setInterval(run, cfg.pollMs);
+  _timer = setTimeout(run, 2000);
   if (cfg.menuSync) {
     setTimeout(runMenu, 5000);
     _menuTimer = setInterval(runMenu, cfg.menuSyncMs);
@@ -364,7 +409,8 @@ export function startWebOrdersBridge(app) {
 }
 
 export function stopWebOrdersBridge() {
-  clearInterval(_timer); clearInterval(_menuTimer);
+  clearTimeout(_timer); clearInterval(_menuTimer);
+  stats.enabled = false;
   _timer = _menuTimer = null;
   const b = _bridge; _bridge = null;
   return b ? b.close() : Promise.resolve();

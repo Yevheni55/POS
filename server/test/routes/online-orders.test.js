@@ -132,6 +132,37 @@ describe('online objednávky', () => {
     assert.equal(list.body.counts.running, 1);
   });
 
+  it('dve obrazovky naraz: prijatie prejde len jednému (jeden účet, jeden kuriér), minúty sa uložia', async () => {
+    const created = await request.post('/api/public/online-orders').send(validBody(items));
+    const [row] = await testDb.select().from(onlineOrders).where(eq(onlineOrders.publicCode, created.body.code));
+    const [a, b] = await Promise.all([
+      request.post('/api/online-orders/' + row.id + '/confirm').set('Authorization', 'Bearer ' + tokens.cisnik()).send({ prepMinutes: 25 }),
+      request.post('/api/online-orders/' + row.id + '/confirm').set('Authorization', 'Bearer ' + tokens.manazer()).send({ prepMinutes: 10 }),
+    ]);
+    const statuses = [a.status, b.status].sort();
+    assert.deepEqual(statuses, [200, 409], JSON.stringify([a.body, b.body]));
+    const loser = a.status === 409 ? a : b;
+    assert.ok(loser.body.processing || /spracovaná/.test(loser.body.error), JSON.stringify(loser.body));
+    const posOrders = await testDb.select().from(orders);
+    assert.equal(posOrders.length, 1, 'presne jeden POS účet');
+    const [after1] = await testDb.select().from(onlineOrders).where(eq(onlineOrders.id, row.id));
+    assert.equal(after1.status, 'dispatched');
+    assert.ok([25, 10].includes(after1.prepMinutes));
+    assert.ok(after1.promisedReadyAt);
+    assert.equal(after1.processingAt, null, 'zámok sa po dokončení uvoľní');
+    const evs = await testDb.select().from(onlineOrderEvents).where(eq(onlineOrderEvents.onlineOrderId, row.id));
+    assert.equal(evs.filter((e) => e.type === 'confirmed').length, 1);
+    assert.equal(evs.filter((e) => e.type === 'dispatched').length, 1);
+
+    // ready dvakrát naraz → jedno OK, druhé alreadyReady / 409, nikdy chyba 500
+    const [r1, r2] = await Promise.all([
+      request.post('/api/online-orders/' + row.id + '/ready').set('Authorization', 'Bearer ' + tokens.cisnik()),
+      request.post('/api/online-orders/' + row.id + '/ready').set('Authorization', 'Bearer ' + tokens.cisnik()),
+    ]);
+    assert.ok([r1.status, r2.status].every((s) => s === 200 || s === 409), JSON.stringify([r1.body, r2.body]));
+    assert.ok([r1, r2].some((r) => r.status === 200 && !r.body.alreadyReady));
+  });
+
   it('ready: kuchár (čašník) označí hotové; zákazník to vidí; len pri potvrdenej', async () => {
     const created = await request.post('/api/public/online-orders').send(validBody(items));
     const [row] = await testDb.select().from(onlineOrders).where(eq(onlineOrders.publicCode, created.body.code));

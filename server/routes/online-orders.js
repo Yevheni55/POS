@@ -6,7 +6,7 @@ import { db } from '../db/index.js';
 import {
   onlineOrders, onlineOrderEvents, orders, orderItems, menuItems, tables, shifts,
 } from '../db/schema.js';
-import { eq, and, inArray, desc, sql, notInArray } from 'drizzle-orm';
+import { eq, and, or, inArray, desc, sql, notInArray, isNull, lt } from 'drizzle-orm';
 import { validate } from '../middleware/validate.js';
 import { requireRole } from '../middleware/requireRole.js';
 import { asyncRoute } from '../lib/async-route.js';
@@ -24,7 +24,7 @@ import {
   confirmPreorder, exchangeAuthCode, connectionStatus, WoltOrderError,
   normalizeOrder, buildOnlineOrderFromWolt, makeMenuResolver, statusForNotification,
 } from '../lib/wolt-order-api.js';
-import { rejectOnlineOrderSchema, listOnlineOrdersQuerySchema } from '../schemas/online-orders.js';
+import { confirmOnlineOrderSchema, rejectOnlineOrderSchema, listOnlineOrdersQuerySchema } from '../schemas/online-orders.js';
 
 const router = Router();
 // Potvrdiť, odmietnuť a označiť hotové smie ktokoľvek prihlásený (kuchár na
@@ -158,6 +158,40 @@ router.get('/:id/events', asyncRoute(async (req, res) => {
   res.json(rows);
 }));
 
+// ── Zámok proti dvojitému spracovaniu ────────────────────────────────────────
+// Dve obrazovky (KDS + kasa) môžu kliknúť naraz. UPDATE … WHERE <podmienka>
+// AND zámok voľný prejde presne jednému; druhý dostane 409 s vysvetlením.
+// Zámok po 30 s expiruje sám (proces mohol spadnúť uprostred).
+const LOCK_TTL_MS = 30_000;
+async function lockOrder(id, staffId, condition) {
+  const [row] = await db.update(onlineOrders)
+    .set({ processingAt: new Date(), processingBy: staffId })
+    .where(and(
+      eq(onlineOrders.id, id),
+      condition,
+      or(isNull(onlineOrders.processingAt), lt(onlineOrders.processingAt, new Date(Date.now() - LOCK_TTL_MS))),
+    ))
+    .returning();
+  return row || null;
+}
+async function unlockOrder(id) {
+  await db.update(onlineOrders).set({ processingAt: null, processingBy: null }).where(eq(onlineOrders.id, id));
+}
+/** Keď zámok nevyšiel: 404 / „už spracovaná" / „práve rieši iná obrazovka". */
+async function lockFailure(res, id, expectedStatuses, message) {
+  const [cur] = await db.select().from(onlineOrders).where(eq(onlineOrders.id, id)).limit(1);
+  if (!cur) return res.status(404).json({ error: 'Objednávka sa nenašla' });
+  if (!expectedStatuses.includes(cur.status)) return res.status(409).json({ error: message + ' (' + cur.status + ')', status: cur.status });
+  return res.status(409).json({ error: 'Objednávku práve rieši iná obrazovka — počkajte chvíľu', processing: true });
+}
+/** Predvolené minúty na prípravu: .env → Wolt/Drive konfigurácia → 15. */
+function defaultPrepMinutes(oo) {
+  const env = Number(process.env.ONLINE_ORDER_DEFAULT_PREP_MINUTES);
+  if (env) return env;
+  if (oo.source === 'wolt') return woltOrderConfig().prepMinutes || 15;
+  return woltConfig().minPrepMinutes || 15;
+}
+
 /** Voľný stôl v zóne „rozvoz" — bez otvoreného účtu. */
 async function pickFreeDeliveryTable(tx) {
   const rows = await tx.execute(sql`
@@ -170,27 +204,36 @@ async function pickFreeDeliveryTable(tx) {
 
 // POST /:id/confirm — obsluha objednávku prijala. Vznikne POS účet (bon do
 // kuchyne, odpis skladu) a objedná sa kuriér.
-router.post('/:id/confirm', asyncRoute(async (req, res) => {
+router.post('/:id/confirm', validate(confirmOnlineOrderSchema), asyncRoute(async (req, res) => {
   const id = +req.params.id;
-  const [oo] = await db.select().from(onlineOrders).where(eq(onlineOrders.id, id)).limit(1);
-  if (!oo) return res.status(404).json({ error: 'Objednávka sa nenašla' });
-  if (oo.status !== 'new') return res.status(409).json({ error: 'Objednávka už bola spracovaná (' + oo.status + ')' });
-
   const staffId = req.user.id;
-  const [shift] = await db.select().from(shifts).where(and(eq(shifts.staffId, staffId), eq(shifts.status, 'open'))).limit(1);
-  const isWolt = oo.source === 'wolt';
+  const oo = await lockOrder(id, staffId, eq(onlineOrders.status, 'new'));
+  if (!oo) return lockFailure(res, id, ['new'], 'Objednávka už bola spracovaná');
 
-  // Objednávka z aplikácie Wolt: najprv ju prijať vo Wolte (má na to pár minút,
-  // inak ju Wolt zruší), až potom účet a bon. Predobjednávku treba najprv potvrdiť.
-  if (isWolt) {
+  const isWolt = oo.source === 'wolt';
+  const prepMinutes = Number(req.body?.prepMinutes) || defaultPrepMinutes(oo);
+  const promisedReadyAt = new Date(Date.now() + prepMinutes * 60_000);
+
+  // Objednávka z aplikácie Wolt: najprv prijať vo Wolte (má na to pár minút, inak
+  // ju Wolt zruší), až potom účet a bon. Predobjednávku treba najprv potvrdiť.
+  // wolt_accepted_at chráni pred druhým accept-om pri opakovanom pokuse.
+  if (isWolt && !oo.woltAcceptedAt) {
     try {
       const pre = oo.woltPayload?.pre_order;
       if (pre && String(pre.pre_order_status || '').toLowerCase() !== 'confirmed') await confirmPreorder(oo.woltOrderId);
-      const w = woltOrderConfig();
-      await acceptOrder(oo.woltOrderId, { pickupTime: w.prepMinutes ? new Date(Date.now() + w.prepMinutes * 60_000) : null });
-    } catch (e) { return woltErrorResponse(res, e); }
+      await acceptOrder(oo.woltOrderId, { pickupTime: promisedReadyAt });
+      await db.update(onlineOrders).set({ woltAcceptedAt: new Date() }).where(eq(onlineOrders.id, id));
+    } catch (e) {
+      await unlockOrder(id);
+      return woltErrorResponse(res, e);
+    }
   }
 
+  const [shift] = await db.select().from(shifts).where(and(eq(shifts.staffId, staffId), eq(shifts.status, 'open'))).limit(1);
+  const confirmPatch = {
+    status: 'confirmed', confirmedBy: staffId, confirmedAt: new Date(), prepMinutes, promisedReadyAt,
+    processingAt: null, processingBy: null, updatedAt: new Date(),
+  };
   // Položky Woltu bez páru v našom menu ostávajú len v poznámke — účet vznikne
   // z tých, ktoré poznáme (bon aj odpis skladu). Bez jediného páru účet nevznikne.
   const mapped = oo.items.filter((it) => it.menuItemId);
@@ -215,20 +258,18 @@ router.post('/:id/confirm', asyncRoute(async (req, res) => {
         name: byId.get(i.menuItemId)?.name || '', emoji: byId.get(i.menuItemId)?.emoji || '',
       }));
       await deductStockForSentItems(tx, sentItems, staffId, order.id);
-      await tx.update(onlineOrders).set({
-        status: 'confirmed', posOrderId: order.id, confirmedBy: staffId, confirmedAt: new Date(), updatedAt: new Date(),
-      }).where(eq(onlineOrders.id, id));
+      await tx.update(onlineOrders).set({ ...confirmPatch, posOrderId: order.id }).where(eq(onlineOrders.id, id));
       return order.id;
     });
-    else await db.update(onlineOrders).set({ status: 'confirmed', confirmedBy: staffId, confirmedAt: new Date(), updatedAt: new Date() }).where(eq(onlineOrders.id, id));
+    else await db.update(onlineOrders).set(confirmPatch).where(eq(onlineOrders.id, id));
   } catch (e) {
-    if (e.code === 409 && !isWolt) return res.status(409).json({ error: e.message });
-    if (e.code !== 409) throw e;
+    if (e.code !== 409) { await unlockOrder(id); throw e; }
+    if (!isWolt) { await unlockOrder(id); return res.status(409).json({ error: e.message }); }
     // Vo Wolte už prijaté — účet sa nedá založiť (plné stoly), ale objednávka nesmie zmiznúť.
-    await db.update(onlineOrders).set({ status: 'confirmed', confirmedBy: staffId, confirmedAt: new Date(), updatedAt: new Date() }).where(eq(onlineOrders.id, id));
+    await db.update(onlineOrders).set(confirmPatch).where(eq(onlineOrders.id, id));
     await addEvent(id, 'error', { message: e.message });
   }
-  await addEvent(id, 'confirmed', { staffId, posOrderId, source: oo.source });
+  await addEvent(id, 'confirmed', { staffId, posOrderId, source: oo.source, prepMinutes });
   if (posOrderId) {
     logEvent(db, { orderId: posOrderId, type: 'order_created', payload: { online: oo.publicCode, itemCount: mapped.length }, staffId }).catch(() => {});
     emitEvent(req, 'order:created', { orderId: posOrderId }).catch(() => {});
@@ -246,7 +287,7 @@ router.post('/:id/confirm', asyncRoute(async (req, res) => {
   }
   // Kuriér. Keď Wolt zlyhá, objednávka ostáva „confirmed" a obsluha to skúsi
   // znova cez /dispatch — jedlo sa už robí, nesmie sa stratiť.
-  const result = await dispatch(req, { ...oo, status: 'confirmed', posOrderId });
+  const result = await dispatch(req, { ...oo, status: 'confirmed', posOrderId, prepMinutes });
   res.json(result);
 }));
 
@@ -312,15 +353,18 @@ router.post('/:id/dispatch', mgr, asyncRoute(async (req, res) => {
 // POST /:id/ready — kuchár: jedlo je hotové, čaká na kuriéra. Zákazník to vidí.
 router.post('/:id/ready', asyncRoute(async (req, res) => {
   const id = +req.params.id;
-  const [oo] = await db.select().from(onlineOrders).where(eq(onlineOrders.id, id)).limit(1);
-  if (!oo) return res.status(404).json({ error: 'Objednávka sa nenašla' });
-  if (!['confirmed', 'dispatched'].includes(oo.status)) return res.status(409).json({ error: 'Hotové sa dá označiť len pri potvrdenej objednávke' });
-  if (oo.readyAt) return res.json({ ok: true, alreadyReady: true });
+  const oo = await lockOrder(id, req.user.id, and(inArray(onlineOrders.status, ['confirmed', 'dispatched']), isNull(onlineOrders.readyAt)));
+  if (!oo) {
+    const [cur] = await db.select().from(onlineOrders).where(eq(onlineOrders.id, id)).limit(1);
+    if (!cur) return res.status(404).json({ error: 'Objednávka sa nenašla' });
+    if (cur.readyAt) return res.json({ ok: true, alreadyReady: true });
+    return lockFailure(res, id, ['confirmed', 'dispatched'], 'Hotové sa dá označiť len pri potvrdenej objednávke');
+  }
   if (oo.source === 'wolt') {
     // Wolt pošle kuriéra / povie zákazníkovi, že si môže prísť.
-    try { await woltReadyOrder(oo.woltOrderId); } catch (e) { return woltErrorResponse(res, e); }
+    try { await woltReadyOrder(oo.woltOrderId); } catch (e) { await unlockOrder(id); return woltErrorResponse(res, e); }
   }
-  await db.update(onlineOrders).set({ readyAt: new Date(), updatedAt: new Date() }).where(eq(onlineOrders.id, id));
+  await db.update(onlineOrders).set({ readyAt: new Date(), processingAt: null, processingBy: null, updatedAt: new Date() }).where(eq(onlineOrders.id, id));
   await addEvent(id, 'ready', { staffId: req.user.id });
   emitEvent(req, 'online-order:updated', { id, code: oo.publicCode, status: oo.status, ready: true }).catch(() => {});
   res.json({ ok: true });
@@ -335,8 +379,10 @@ router.post('/:id/handed-over', asyncRoute(async (req, res) => {
   if (oo.source !== 'wolt') return res.status(409).json({ error: 'Odovzdanie sa hlási len pri objednávke z aplikácie Wolt' });
   if (!['takeaway', 'eatin'].includes(oo.deliveryType || '')) return res.status(409).json({ error: 'Doručenie kuriérom uzavrie Wolt sám' });
   if (oo.status !== 'confirmed') return res.status(409).json({ error: 'Odovzdať sa dá len potvrdená objednávka' });
-  try { await woltDeliveredOrder(oo.woltOrderId); } catch (e) { return woltErrorResponse(res, e); }
-  await db.update(onlineOrders).set({ status: 'delivered', woltStatus: 'delivered', readyAt: oo.readyAt || new Date(), updatedAt: new Date() }).where(eq(onlineOrders.id, id));
+  const locked = await lockOrder(id, req.user.id, eq(onlineOrders.status, 'confirmed'));
+  if (!locked) return lockFailure(res, id, ['confirmed'], 'Odovzdať sa dá len potvrdená objednávka');
+  try { await woltDeliveredOrder(oo.woltOrderId); } catch (e) { await unlockOrder(id); return woltErrorResponse(res, e); }
+  await db.update(onlineOrders).set({ status: 'delivered', woltStatus: 'delivered', readyAt: oo.readyAt || new Date(), processingAt: null, processingBy: null, updatedAt: new Date() }).where(eq(onlineOrders.id, id));
   await addEvent(id, 'handed-over', { staffId: req.user.id });
   emitEvent(req, 'online-order:updated', { id, code: oo.publicCode, status: 'delivered' }).catch(() => {});
   res.json({ ok: true });
@@ -344,13 +390,12 @@ router.post('/:id/handed-over', asyncRoute(async (req, res) => {
 
 router.post('/:id/reject', validate(rejectOnlineOrderSchema), asyncRoute(async (req, res) => {
   const id = +req.params.id;
-  const [oo] = await db.select().from(onlineOrders).where(eq(onlineOrders.id, id)).limit(1);
-  if (!oo) return res.status(404).json({ error: 'Objednávka sa nenašla' });
-  if (oo.status !== 'new') return res.status(409).json({ error: 'Odmietnuť sa dá len nová objednávka' });
+  const oo = await lockOrder(id, req.user.id, eq(onlineOrders.status, 'new'));
+  if (!oo) return lockFailure(res, id, ['new'], 'Odmietnuť sa dá len nová objednávka');
   if (oo.source === 'wolt') {
-    try { await woltRejectOrder(oo.woltOrderId, req.body.reason || ''); } catch (e) { return woltErrorResponse(res, e); }
+    try { await woltRejectOrder(oo.woltOrderId, req.body.reason || ''); } catch (e) { await unlockOrder(id); return woltErrorResponse(res, e); }
   }
-  await db.update(onlineOrders).set({ status: 'rejected', rejectedReason: req.body.reason || '', updatedAt: new Date() }).where(eq(onlineOrders.id, id));
+  await db.update(onlineOrders).set({ status: 'rejected', rejectedReason: req.body.reason || '', processingAt: null, processingBy: null, updatedAt: new Date() }).where(eq(onlineOrders.id, id));
   await addEvent(id, 'rejected', { staffId: req.user.id, reason: req.body.reason || '' });
   emitEvent(req, 'online-order:updated', { id, code: oo.publicCode, status: 'rejected' }).catch(() => {});
   res.json({ ok: true });

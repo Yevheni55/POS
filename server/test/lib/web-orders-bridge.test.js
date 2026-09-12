@@ -36,6 +36,7 @@ before(async () => {
     item_name varchar, item_emoji varchar, item_price numeric, item_desc varchar, active boolean, updated_at timestamp DEFAULT now())`);
   await pool.query(fs.readFileSync(new URL('../../db/neon/2026-09-12-web-orders.sql', import.meta.url), 'utf8'));
   await pool.query(fs.readFileSync(new URL('../../db/neon/2026-09-13-wolt-order-events.sql', import.meta.url), 'utf8'));
+  await pool.query(fs.readFileSync(new URL('../../db/neon/2026-09-14-wolt-events-attempts.sql', import.meta.url), 'utf8'));
   process.env.WOLT_ORDER_MODE = 'mock';
   bridge = createBridge({ url: NEON_URL, io: { emit: (ev, data) => emitted.push({ ev, data }) }, cacheBustUrl: '', log: () => {} });
 });
@@ -259,6 +260,40 @@ describe('most web ↔ kasa', () => {
     const [t2] = await testDb.select().from(onlineOrders).where(eq(onlineOrders.id, t.id));
     assert.equal(t2.status, 'rejected');
     assert.match(t2.rejectedReason, /Wolt/);
+  });
+
+  it('zaseknutá Wolt notifikácia nezastaví heartbeat ani stav späť; po piatich pokusoch sa vzdá', async () => {
+    // Notifikácia bez mock_order → getOrder v mock režime hodí 404 (trvalá) → označí sa hneď.
+    await pool.query('INSERT INTO wolt_order_events (notification_id, type, wolt_order_id, status, payload) VALUES ($1, $2, $3, $4, $5)',
+      ['n-bad-1', 'order.notification', 'w-bad-1', 'CREATED', JSON.stringify({ order: { id: 'w-bad-1', status: 'CREATED' } })]);
+    // A dočasná chyba: režim off → 503 → ostáva na ďalší cyklus, max 5×.
+    const { web } = await insertWebOrder();
+    const r = await bridge.tick();
+    assert.equal(r.errors.length, 0, JSON.stringify(r.errors));
+    const { rows: [bad] } = await pool.query("SELECT processed_at, attempts FROM wolt_order_events WHERE wolt_order_id = 'w-bad-1'");
+    assert.ok(bad.processed_at, '404 z Woltu = trvalá chyba, označené hneď');
+    assert.equal(bad.attempts, 1);
+    // web objednávka sa napriek tomu prevzala a heartbeat sa zapísal
+    const [local] = await testDb.select().from(onlineOrders).where(eq(onlineOrders.webOrderId, Number(web.id)));
+    assert.ok(local);
+    const { rows: [cfg] } = await pool.query("SELECT updated_at FROM web_delivery_config WHERE key = 'config'");
+    assert.ok(Date.now() - new Date(cfg.updated_at).getTime() < 10_000);
+
+    process.env.WOLT_ORDER_MODE = 'off';
+    try {
+      // off = udalosť sa len zaloguje a označí (nie chyba); simulujeme dočasnú chybu cez development bez tokenu
+      process.env.WOLT_ORDER_MODE = 'development';
+      await pool.query('INSERT INTO wolt_order_events (notification_id, type, wolt_order_id, status, payload) VALUES ($1, $2, $3, $4, $5)',
+        ['n-tmp-1', 'order.notification', 'w-tmp-1', 'CREATED', JSON.stringify({ order: { id: 'w-tmp-1', status: 'CREATED' } })]);
+      for (let i = 1; i <= 5; i++) {
+        const t = await bridge.tick();
+        assert.equal(t.errors.length, i < 5 ? 1 : 0, 'pokus ' + i + ': ' + JSON.stringify(t.errors));
+        const { rows: [ev] } = await pool.query("SELECT processed_at, attempts FROM wolt_order_events WHERE wolt_order_id = 'w-tmp-1'");
+        assert.equal(ev.attempts, i);
+        if (i < 5) assert.equal(ev.processed_at, null, 'dočasná chyba ostáva vo fronte');
+        else assert.ok(ev.processed_at, 'po piatom pokuse sa vzdá');
+      }
+    } finally { process.env.WOLT_ORDER_MODE = 'mock'; }
   });
 
   it('toLocalOrder: čísla ako reťazce pre numeric, časy ako Date, prázdne polia doplnené', () => {

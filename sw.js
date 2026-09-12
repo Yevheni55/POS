@@ -34,6 +34,7 @@ var STATIC_ASSETS = [
   '/js/pos-init.js',
   '/js/pos-mobile.js',
   '/js/pos-online-orders.js',
+  '/js/oo-alarm.js',
   '/js/pos-escape.js',
   '/js/pos-product-icons.js',
   '/js/pos-sw-update.js',

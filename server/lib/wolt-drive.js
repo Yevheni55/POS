@@ -170,7 +170,8 @@ export function buildDeliveryBody({ promiseId, order }, cfg) {
       comment: cfg.pickup.comment || undefined,
       display_name: cfg.pickup.name,
       contact_details: { name: cfg.pickup.name, phone_number: cfg.pickup.phone },
-      options: { min_preparation_time_minutes: cfg.minPrepMinutes },
+      // Minúty zvolené kuchyňou pri prijatí majú prednosť pred paušálom z .env.
+      options: { min_preparation_time_minutes: Number(order.prepMinutes) || cfg.minPrepMinutes },
     },
     dropoff: {
       comment: order.dropoffComment || undefined,

@@ -3,7 +3,9 @@ const API_BASE = window.location.origin + '/api';
 
 // PR-C: do not auto-replay fiscal/payment writes on reconnect. The cashier
 // must explicitly retry online so the operator confirms the action.
-const OFFLINE_NO_QUEUE_PREFIXES = ['/payments', '/fiscal-documents'];
+// Online objednávky tiež nie: prijatie/odmietnutie odložené na neskôr by
+// prišlo, keď už zákazník dávno čaká alebo Wolt objednávku zrušil.
+const OFFLINE_NO_QUEUE_PREFIXES = ['/payments', '/fiscal-documents', '/online-orders'];
 
 function _shouldBlockOfflineQueue(path) {
   if (typeof path !== 'string') return false;

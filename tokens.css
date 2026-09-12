@@ -43,6 +43,10 @@
 
   /* Danger */
   --color-danger: #E07070;          /* Brightened from #D46B6B: ~5.0:1 */
+  /* Jantár pre „súri" (medzi success a danger) — odpočty na KDS/kase */
+  --color-warning: #F2B453;         /* ~9:1 na #0f0d1a */
+  /* Zdroj objednávky „aplikácia Wolt" — čitateľné na tmavom KDS (pruh + slovo, nikdy len farba) */
+  --color-wolt: #4FB8EA;            /* ~10:1 na #0f0d1a */
   --color-danger-bg: rgba(224,112,112,.08);
   --color-danger-border: rgba(224,112,112,.15);
 
