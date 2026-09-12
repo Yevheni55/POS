@@ -9,8 +9,9 @@ import { validate } from '../middleware/validate.js';
 import { asyncRoute } from '../lib/async-route.js';
 import { emitEvent } from '../lib/emit.js';
 import {
-  woltConfig, requestShipmentPromise, verifyWebhookToken, statusForWebhookType, WoltError,
+  woltConfig, requestShipmentPromise, verifyWebhookToken, WoltError,
 } from '../lib/wolt-drive.js';
+import { applyWoltEvent } from '../lib/online-order-status.js';
 import { quoteSchema, createOnlineOrderSchema, woltWebhookSchema } from '../schemas/online-orders.js';
 
 const router = Router();
@@ -227,14 +228,7 @@ router.post('/wolt/webhook', validate(woltWebhookSchema), asyncRoute(async (req,
   // Neznámu objednávku potvrdíme 200 — Wolt by inak opakoval donekonečna.
   if (!o) return res.json({ ok: true, ignored: true });
 
-  const patch = { woltStatus: type.replace(/^order\./, '') || o.woltStatus, updatedAt: new Date() };
-  const next = statusForWebhookType(type);
-  if (next && !['rejected', 'cancelled'].includes(o.status)) patch.status = next;
-  if (d.tracking?.url) patch.woltTrackingUrl = d.tracking.url;
-
-  await db.update(onlineOrders).set(patch).where(eq(onlineOrders.id, o.id));
-  await db.insert(onlineOrderEvents).values({ onlineOrderId: o.id, type: 'wolt:' + (type || 'unknown'), payload: d });
-  emitEvent(req, 'online-order:updated', { id: o.id, code: o.publicCode, status: patch.status || o.status, woltStatus: patch.woltStatus }).catch(() => {});
+  await applyWoltEvent(req.app.get('io'), o, type, d);
   res.json({ ok: true });
 }));
 

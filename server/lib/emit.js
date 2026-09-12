@@ -6,8 +6,11 @@ import { events } from '../db/schema.js';
  * Returns the persisted event with its ID.
  */
 export async function emitEvent(req, event, data) {
-  const io = req.app.get('io');
+  return emitEventIo(req.app.get('io'), event, data);
+}
 
+/** To isté bez `req` — pre workery na pozadí (napr. most web ↔ kasa), ktoré majú len `io`. */
+export async function emitEventIo(io, event, data) {
   let eventId = null;
   try {
     const [row] = await db.insert(events).values({

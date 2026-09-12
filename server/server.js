@@ -17,6 +17,7 @@ import { corsOriginCallback } from './lib/cors-origin.js';
 import { getPortosConfig, isPortosEnabled } from './lib/portos.js';
 import { runPortosProfileSync, startPortosProfileSync } from './lib/portos-sync-job.js';
 import { startSheetsExportCron } from './lib/sheets-export.js';
+import { startWebOrdersBridge } from './lib/web-orders-bridge.js';
 import { startWeatherHourlyCron } from './lib/weather.js';
 import { startForecastCron } from './lib/forecast/engine.js';
 import { isVatRegisteredBusiness } from './lib/vat-registration.js';
@@ -256,6 +257,9 @@ function onHttpListening() {
   // auto-close zmien, aby včerajšie mzdy boli uzavreté). Bez SHEETS_EXPORT_URL
   // v .env sa iba zaloguje "disabled".
   startSheetsExportCron();
+  // Online objednávky z webu (surfspirit.sk na Websupporte): kasa si ich sama
+  // vyzdvihuje z Neon a zapisuje stav späť. Bez NEON_DATABASE_URL len zaloguje.
+  startWebOrdersBridge(app);
 }
 
 async function bootstrap() {

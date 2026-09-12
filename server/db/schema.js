@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, numeric, boolean, timestamp, date, varchar, index, uniqueIndex, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, serial, text, integer, bigint, numeric, boolean, timestamp, date, varchar, index, uniqueIndex, jsonb } from 'drizzle-orm/pg-core';
 
 export const staff = pgTable('staff', {
   id: serial('id').primaryKey(),
@@ -754,6 +754,10 @@ export const onlineOrders = pgTable('online_orders', {
   confirmedAt: timestamp('confirmed_at'),
   // Kuchár označil hotové — jedlo čaká na kuriéra.
   readyAt: timestamp('ready_at'),
+  // Most web ↔ kasa (lib/web-orders-bridge.js): riadok web_orders na Neon, z ktorého
+  // objednávka vznikla, a verzia (updated_at), ktorá bola naposledy zapísaná späť.
+  webOrderId: bigint('web_order_id', { mode: 'number' }),
+  webSyncedAt: timestamp('web_synced_at'),
   rejectedReason: varchar('rejected_reason', { length: 300 }).notNull().default(''),
   clientIp: varchar('client_ip', { length: 64 }).notNull().default(''),
   createdAt: timestamp('created_at').notNull().defaultNow(),

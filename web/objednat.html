@@ -193,9 +193,10 @@ button{font-family:inherit}
 <script>
 (function () {
   'use strict';
-  // API POS-u. Na surfspirit.sk ide cez verejnú adresu (Cloudflare Tunnel);
-  // lokálne / na kase je to tá istá doména ako stránka.
-  var API = (window.SS_API_BASE || (/surfspirit\.sk$/.test(location.hostname) ? 'https://objednavky.surfspirit.sk' : '')) + '/api/public';
+  // API. Na surfspirit.sk (Websupport) je to PHP most cez Neon — objednavky-api.php
+  // (cesty za názvom súboru sú rovnaké ako na kase); lokálne / na kase ide
+  // priamo do POS-u na tej istej doméne.
+  var API = window.SS_API_BASE || (/surfspirit\.sk$/.test(location.hostname) ? '/objednavky-api.php' : '/api/public');
   var $ = function (s, r) { return (r || document).querySelector(s); };
   var MENU = [], CART = new Map(), CFG = { deliveryEnabled: false, paymentMethods: ['transfer'], minOrderEur: 10 };
   var QUOTE = null, ORDER = null, pollTimer = null;

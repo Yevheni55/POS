@@ -1,6 +1,10 @@
 #!/usr/bin/env sh
 # Sync POS menu → Neon Postgres (cloud DB ktorú číta surfspirit.sk webka).
 #
+# POZN. 2026-09-13: toto už robí kasa sama — server/lib/web-orders-bridge.js drží
+# guest_menu na Neon aktuálnu (aj s pos_item_id) každých 10 min. Script ostáva
+# len ako ručná záloha; pri behu prepíše pos_item_id na NULL, kým ho most neobnoví.
+#
 # Webka surfspirit.sk používa Neon Postgres `guest_menu` tabuľku, nie
 # statický súbor. POS má vlastnú lokálnu DB. Tieto dve sa neudržiavali
 # v sync — preto webka držala apríl menu kým sa POS aktualizoval.
