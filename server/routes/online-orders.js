@@ -142,6 +142,51 @@ router.get('/', asyncRoute(async (req, res) => {
   res.json({ rows, counts });
 }));
 
+// GET /stats?days=7 — karta metrík pre manažéra: koľko, ako rýchlo prijaté,
+// ako rýchlo hotové, koľko meškalo, prečo odmietnuté, koľkokrát musel strážca.
+router.get('/stats', mgr, asyncRoute(async (req, res) => {
+  const days = Math.min(90, Math.max(1, Number(req.query.days) || 7));
+  const main = await db.execute(sql`
+    SELECT count(*)::int AS total,
+           count(*) FILTER (WHERE source = 'wolt')::int AS wolt,
+           count(*) FILTER (WHERE source <> 'wolt')::int AS web,
+           count(*) FILTER (WHERE status = 'delivered')::int AS delivered,
+           count(*) FILTER (WHERE status = 'rejected')::int AS rejected,
+           count(*) FILTER (WHERE status = 'cancelled')::int AS cancelled,
+           coalesce(sum(total) FILTER (WHERE status NOT IN ('rejected','cancelled')), 0)::float AS revenue,
+           percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM (confirmed_at - created_at)))
+             FILTER (WHERE confirmed_at IS NOT NULL) AS accept_p50,
+           percentile_cont(0.9) WITHIN GROUP (ORDER BY extract(epoch FROM (confirmed_at - created_at)))
+             FILTER (WHERE confirmed_at IS NOT NULL) AS accept_p90,
+           percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM (ready_at - confirmed_at)))
+             FILTER (WHERE ready_at IS NOT NULL AND confirmed_at IS NOT NULL) AS ready_p50,
+           count(*) FILTER (WHERE ready_at IS NOT NULL AND promised_ready_at IS NOT NULL)::int AS with_promise,
+           count(*) FILTER (WHERE ready_at IS NOT NULL AND promised_ready_at IS NOT NULL
+                              AND ready_at > promised_ready_at + interval '2 minutes')::int AS late
+    FROM online_orders WHERE created_at >= now() - make_interval(days => ${days})`);
+  const reasons = await db.execute(sql`
+    SELECT rejected_reason AS reason, count(*)::int AS count
+    FROM online_orders WHERE status = 'rejected' AND created_at >= now() - make_interval(days => ${days})
+    GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 6`);
+  const guard = await db.execute(sql`
+    SELECT count(*) FILTER (WHERE e.type = 'escalated' AND e.payload->>'level' = '1')::int AS escalated1,
+           count(*) FILTER (WHERE e.type = 'escalated' AND e.payload->>'level' = '2')::int AS escalated2,
+           count(*) FILTER (WHERE e.type = 'rejected' AND e.payload->>'auto' = 'true')::int AS auto_rejected
+    FROM online_order_events e JOIN online_orders o ON o.id = e.online_order_id
+    WHERE o.created_at >= now() - make_interval(days => ${days})`);
+  const m = main.rows[0] || {};
+  const g = guard.rows[0] || {};
+  const num = (v) => (v == null ? null : Math.round(Number(v)));
+  res.json({
+    days, total: m.total || 0, wolt: m.wolt || 0, web: m.web || 0, delivered: m.delivered || 0,
+    rejected: m.rejected || 0, cancelled: m.cancelled || 0, revenue: Number(m.revenue) || 0,
+    acceptP50: num(m.accept_p50), acceptP90: num(m.accept_p90), readyP50: num(m.ready_p50),
+    withPromise: m.with_promise || 0, late: m.late || 0,
+    escalated1: g.escalated1 || 0, escalated2: g.escalated2 || 0, autoRejected: g.auto_rejected || 0,
+    reasons: reasons.rows.map((r) => ({ reason: r.reason || '', count: r.count })),
+  });
+}));
+
 router.get('/:id/events', asyncRoute(async (req, res) => {
   const rows = await db.select().from(onlineOrderEvents)
     .where(eq(onlineOrderEvents.onlineOrderId, +req.params.id)).orderBy(onlineOrderEvents.createdAt);
@@ -262,8 +307,12 @@ router.patch('/:id/claim', asyncRoute(async (req, res) => {
   const id = +req.params.id;
   const [oo] = await db.select({ id: onlineOrders.id, status: onlineOrders.status, publicCode: onlineOrders.publicCode }).from(onlineOrders).where(eq(onlineOrders.id, id)).limit(1);
   if (!oo) return res.status(404).json({ error: 'Objednávka sa nenašla' });
-  await db.update(onlineOrders).set({ claimedBy: req.user.id, claimedName: String(req.user.name || '').slice(0, 100), claimedAt: new Date() }).where(eq(onlineOrders.id, id));
-  emitEvent(req, 'online-order:claimed', { id, code: oo.publicCode, by: req.user.id, name: req.user.name || '' }).catch(() => {});
+  // Obrazovka: hlavička X-Client (KDS má vlastný fetch) alebo body.client (kasa / admin cez api.js).
+  const client = String(req.get('X-Client') || req.body?.client || '').toLowerCase();
+  const surface = { kds: 'KDS', kasa: 'kasa', admin: 'admin', telefon: 'telefón', phone: 'telefón' }[client] || '';
+  const claimedName = (String(req.user.name || '') + (surface ? ' · ' + surface : '')).slice(0, 100);
+  await db.update(onlineOrders).set({ claimedBy: req.user.id, claimedName, claimedAt: new Date() }).where(eq(onlineOrders.id, id));
+  emitEvent(req, 'online-order:claimed', { id, code: oo.publicCode, by: req.user.id, name: claimedName, client }).catch(() => {});
   res.json({ ok: true });
 }));
 

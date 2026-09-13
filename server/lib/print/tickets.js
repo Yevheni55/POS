@@ -657,3 +657,33 @@ export function buildLockCodeTicket({ code, validUntil, staffName, time }) {
 
   return t;
 }
+
+/**
+ * Lístok „DO TAŠKY" pre bar (rozvoz / vyzdvihnutie): kto balí, vidí kód, meno,
+ * VŠETKY položky na odškrtnutie — aj tie, ktoré kasa nepozná (dorobiť ručne) —
+ * a ako je zaplatené: kuriér Woltu nič nevyberá, pri hotovosti z webu musí
+ * obsluha vedieť sumu. Tlačí sa spolu s bonmi, kópia je označená.
+ */
+export function buildPackingTicket({ code, source, customerName, phone, items, payment, total, deliveryLine, note, time, staffName, copy }) {
+  let t = CMD.INIT;
+  t += CMD.ALIGN_CENTER + CMD.DOUBLE_SIZE + 'DO TASKY\n' + CMD.NORMAL_SIZE + CMD.DASHED;
+  t += CMD.LARGE_SIZE + CMD.BOLD_ON + s((copy ? 'KOPIA: ' : '') + (source === 'wolt' ? 'WOLT ' : 'ROZVOZ ') + code) + '\n' + CMD.BOLD_OFF + CMD.NORMAL_SIZE;
+  t += time + '  |  ' + s(staffName || 'Online') + '\n';
+  t += CMD.DASHED + CMD.ALIGN_LEFT;
+  t += CMD.BOLD_ON + s(customerName) + '\n' + CMD.BOLD_OFF;
+  if (phone) t += s(phone) + '\n';
+  if (deliveryLine) t += s(deliveryLine) + '\n';
+  t += CMD.DASHED;
+  let outside = false;
+  for (const it of items) {
+    t += CMD.LARGE_SIZE + '[ ] ' + it.qty + 'x ' + s(it.name) + (it.outside ? ' *' : '') + '\n' + CMD.NORMAL_SIZE;
+    if (it.note) t += '     ' + s(it.note) + '\n';
+    if (it.outside) outside = true;
+  }
+  if (outside) t += '* mimo kasy - dorobit rucne\n';
+  if (note) t += CMD.DASHED + s('Poznamka: ' + note) + '\n';
+  t += CMD.DASHED + CMD.BOLD_ON + s(payment) + '\n' + CMD.BOLD_OFF;
+  t += padLine('SPOLU', formatEur(Number(total) || 0) + ' EUR') + '\n';
+  t += CMD.FEED + CMD.CUT;
+  return t;
+}

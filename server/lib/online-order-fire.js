@@ -10,10 +10,10 @@ import {
 } from '../db/schema.js';
 import { logEvent } from './audit.js';
 import { deductStockForSentItems } from './stock.js';
-import { buildKitchenTicket } from './print/tickets.js';
+import { buildKitchenTicket, buildPackingTicket } from './print/tickets.js';
 import { getPrinterForDest } from './print/network.js';
 import { sendOrQueue } from './print/queue.js';
-import { localTimeHHMM } from './print/format.js';
+import { localTimeHHMM, localDateTime, formatEur } from './print/format.js';
 import { createDelivery, requestShipmentPromise, WoltError } from './wolt-drive.js';
 import { emitEventIo } from './emit.js';
 import { sendAlert } from './alerts.js';
@@ -48,7 +48,7 @@ export async function printKitchenBons(oo, staffName, { copy = false } = {}) {
     .from(menuItems).innerJoin(menuCategories, eq(menuItems.categoryId, menuCategories.id))
     .where(inArray(menuItems.id, ids)) : [];
   const destOf = new Map(rows.map((r) => [r.id, (r.override || r.catDest || 'bar') === 'kuchyna' ? 'KUCHYNA' : 'BAR']));
-  const label = (copy ? 'KÓPIA · ' : '') + (oo.source === 'wolt' ? 'WOLT ' : 'ROZVOZ ') + oo.publicCode;
+  const label = (copy ? 'KOPIA: ' : '') + (oo.source === 'wolt' ? 'WOLT ' : 'ROZVOZ ') + oo.publicCode;
   const groups = new Map();
   for (const it of oo.items) {
     const d = destOf.get(it.menuItemId) || 'BAR';
@@ -63,7 +63,34 @@ export async function printKitchenBons(oo, staffName, { copy = false } = {}) {
     const r = await sendOrQueue('kitchen', ticket, printer.ip, printer.port);
     if (!r || !r.ok) queued = true;
   }
+  // Druhý lístok „DO TAŠKY" na bar — balenie: všetky položky (aj mimo kasy) a platba.
+  const bar = await getPrinterForDest('bar');
+  const packing = buildPackingTicket({ ...packingTicketData(oo), time, staffName, copy });
+  const rp = await sendOrQueue('kitchen', packing, bar.ip, bar.port);
+  if (!rp || !rp.ok) queued = true;
   return queued ? 'queued' : 'ok';
+}
+
+/** Údaje pre lístok DO TAŠKY — vyňaté, aby sa dali otestovať bez tlačiarne. */
+export function packingTicketData(oo) {
+  const total = Number(oo.total) || 0;
+  const pay = oo.paymentMethod === 'wolt' ? 'ZAPLATENE CEZ WOLT - nevyberat'
+    : oo.paymentMethod === 'cash' ? 'HOTOVOST KURIEROVI: ' + formatEur(total) + ' EUR'
+    : 'ZAPLATENE VOPRED (prevod / QR)';
+  let deliveryLine;
+  if (oo.source === 'wolt') {
+    deliveryLine = oo.deliveryType === 'takeaway' ? 'Zakaznik si vyzdvihne v podniku'
+      : oo.deliveryType === 'eatin' ? 'Zje v podniku'
+      : 'Kurier Wolt' + (oo.woltPickupEta ? ' - vyzdvihne ' + localTimeHHMM(new Date(oo.woltPickupEta)) : '');
+  } else {
+    deliveryLine = oo.scheduledFor ? 'Dorucit: ' + localDateTime(new Date(oo.scheduledFor)) : 'Kurier Wolt Drive - co najskor';
+    if (oo.dropoffStreet) deliveryLine += '\n' + [oo.dropoffStreet, oo.dropoffCity].filter(Boolean).join(', ');
+  }
+  return {
+    code: oo.publicCode, source: oo.source, customerName: oo.customerName, phone: oo.customerPhone,
+    items: (oo.items || []).map((it) => ({ name: it.name, qty: it.qty, note: it.note || '', outside: !it.menuItemId })),
+    payment: pay, total, deliveryLine, note: oo.note || '',
+  };
 }
 
 /** Kuriér Wolt Drive. Keď prísľub medzitým expiroval (predobjednávka), vypýta nový. */

@@ -190,11 +190,12 @@ describe('online objednávky', () => {
     const rp = await request.post('/api/online-orders/' + row.id + '/reprint').set('Authorization', 'Bearer ' + tokens.cisnik());
     assert.equal(rp.status, 200);
     assert.ok(['ok', 'queued'].includes(rp.body.bon));
-    const cl = await request.patch('/api/online-orders/' + row.id + '/claim').set('Authorization', 'Bearer ' + tokens.manazer());
+    const cl = await request.patch('/api/online-orders/' + row.id + '/claim').set('Authorization', 'Bearer ' + tokens.manazer()).set('X-Client', 'kds');
     assert.equal(cl.status, 200);
     [after1] = await testDb.select().from(onlineOrders).where(eq(onlineOrders.id, row.id));
     assert.ok(after1.claimedBy);
     assert.ok(after1.claimedAt);
+    assert.match(after1.claimedName, / · KDS$/, 'meno nesie obrazovku: ' + after1.claimedName);
   });
 
   it('ready: kuchár (čašník) označí hotové; zákazník to vidí; len pri potvrdenej', async () => {
@@ -281,5 +282,34 @@ describe('online objednávky', () => {
     assert.equal(after1.woltStatus, 'delivered');
     const evs = await testDb.select().from(onlineOrderEvents).where(eq(onlineOrderEvents.onlineOrderId, row.id));
     assert.ok(evs.some((e) => e.type === 'wolt:order.delivered'));
+  });
+
+  it('GET /stats: manažér dostane metriky za obdobie, čašník 403', async () => {
+    const forbidden = await request.get('/api/online-orders/stats?days=7').set('Authorization', 'Bearer ' + tokens.cisnik());
+    assert.equal(forbidden.status, 403);
+    const items = await testDb.select().from(menuItems);
+    const unit = Number(items[0].price);
+    const base = { source: 'web', customerName: 'Jana', customerPhone: '+421 900 000 001', dropoffStreet: 'A 1', dropoffCity: 'Bratislava', dropoffPostCode: '851 01', dropoffLat: '48.1', dropoffLon: '17.1', items: [{ menuItemId: items[0].id, name: items[0].name, qty: 1, unitPrice: unit, vatRate: 20, note: '' }], subtotal: String(unit), deliveryFee: '2.90', total: String(unit + 2.9), paymentMethod: 'cash', updatedAt: new Date() };
+    const t0 = Date.now();
+    await testDb.insert(onlineOrders).values([
+      { ...base, publicCode: 'SS-ST001', status: 'delivered', createdAt: new Date(t0 - 3600_000), confirmedAt: new Date(t0 - 3600_000 + 40_000), promisedReadyAt: new Date(t0 - 3600_000 + 15 * 60_000), readyAt: new Date(t0 - 3600_000 + 12 * 60_000) },
+      { ...base, publicCode: 'SS-ST002', status: 'delivered', createdAt: new Date(t0 - 7200_000), confirmedAt: new Date(t0 - 7200_000 + 80_000), promisedReadyAt: new Date(t0 - 7200_000 + 15 * 60_000), readyAt: new Date(t0 - 7200_000 + 20 * 60_000) },
+      { ...base, publicCode: 'W-ST003', source: 'wolt', woltOrderId: 'w-st003', paymentMethod: 'wolt', status: 'rejected', rejectedReason: 'Vypredané', createdAt: new Date(t0 - 1800_000) },
+      { ...base, publicCode: 'SS-ST004', status: 'delivered', createdAt: new Date(t0 - 40 * 24 * 3600_000), confirmedAt: new Date(t0 - 40 * 24 * 3600_000 + 10_000) },
+    ]);
+    const r = await request.get('/api/online-orders/stats?days=7').set('Authorization', 'Bearer ' + tokens.manazer());
+    assert.equal(r.status, 200);
+    assert.equal(r.body.total, 3, 'objednávka spred 40 dní sa nepočíta');
+    assert.equal(r.body.wolt, 1);
+    assert.equal(r.body.web, 2);
+    assert.equal(r.body.rejected, 1);
+    assert.deepEqual(r.body.reasons, [{ reason: 'Vypredané', count: 1 }]);
+    assert.equal(r.body.acceptP50, 60, 'medián z 40 s a 80 s');
+    assert.equal(r.body.readyP50, 900, 'medián prípravy od potvrdenia: 11 min 20 s a 18 min 40 s');
+    assert.equal(r.body.withPromise, 2);
+    assert.equal(r.body.late, 1, '20 min pri sľube 15 = meškanie, 12 min nie');
+    assert.ok(Math.abs(r.body.revenue - 2 * (unit + 2.9)) < 0.01, 'odmietnutá sa do tržby nepočíta');
+    const r30 = await request.get('/api/online-orders/stats?days=30').set('Authorization', 'Bearer ' + tokens.manazer());
+    assert.equal(r30.body.days, 30);
   });
 });

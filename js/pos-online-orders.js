@@ -40,7 +40,7 @@
   function claim(id) {
     if (claimedAt[id] && Date.now() - claimedAt[id] < 25000) return;
     claimedAt[id] = Date.now();
-    if (typeof api !== 'undefined' && api.patch) api.patch('/online-orders/' + id + '/claim', {}).catch(function () {});
+    if (typeof api !== 'undefined' && api.patch) api.patch('/online-orders/' + id + '/claim', { client: 'kasa' }).catch(function () {});
   }
 
   var fmtWhen = new Intl.DateTimeFormat('sk-SK', { timeZone: 'Europe/Bratislava', weekday: 'short', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' });

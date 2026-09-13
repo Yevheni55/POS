@@ -12,6 +12,8 @@ let _filter = 'active';
 let _cfg = null;
 let _timer = null;
 let _lastNewCount = null;
+let _stats = null;      // GET /online-orders/stats — karta metrík (manažér)
+let _statsDays = 7;
 
 const STATUS = {
   new:        { label: 'Nová',            cls: 'is-new' },
@@ -50,11 +52,41 @@ function timeSk(iso) {
 }
 function itemsWord(n) { return n === 1 ? 'položka' : (n >= 2 && n <= 4 ? 'položky' : 'položiek'); }
 
+async function loadStats() {
+  try { _stats = await api.get('/online-orders/stats?days=' + _statsDays); }
+  catch { /* čašník bez práv alebo výpadok — karta sa nezobrazí */ }
+}
+function fmtDur(sec) {
+  if (sec == null) return '—';
+  const m = Math.floor(sec / 60), r = Math.round(sec % 60);
+  if (m < 1) return r + ' s';
+  return m < 10 ? m + ' min ' + r + ' s' : m + ' min';
+}
+function ordersWord(n) { return n === 1 ? 'objednávka' : (n >= 2 && n <= 4 ? 'objednávky' : 'objednávok'); }
+function statsHtml() {
+  if (!_stats) return '';
+  const st = _stats;
+  const chips = [7, 30].map((d) => '<button type="button" class="doch-chip' + (_statsDays === d ? ' is-on' : '') + '" data-stats-days="' + d + '" aria-pressed="' + (_statsDays === d) + '">' + d + ' dní</button>').join('');
+  if (!st.total) return '<div class="doch-sum oo-stats"><span class="doch-sum-i">Za posledných ' + st.days + ' dní zatiaľ žiadne objednávky.</span>' + chips + '</div>';
+  const reasons = st.reasons.length ? ' (' + st.reasons.map((r) => escapeHtml(r.reason || 'bez dôvodu') + ' ' + r.count).join(', ') + ')' : '';
+  const guard = [];
+  if (st.escalated1) guard.push(st.escalated1 + '× kuchyňa nereagovala do minúty');
+  if (st.escalated2) guard.push(st.escalated2 + '× správa manažérovi');
+  if (st.autoRejected) guard.push(st.autoRejected + '× automaticky odmietnuté');
+  return '<div class="doch-sum oo-stats" aria-label="Štatistika">' +
+    '<span class="doch-sum-i"><strong>' + st.total + '</strong> ' + ordersWord(st.total) + ' (Wolt ' + st.wolt + ', web ' + st.web + ') · <strong>' + eur(st.revenue) + '</strong></span>' +
+    '<span class="doch-sum-i">prijatie: medián <strong>' + fmtDur(st.acceptP50) + '</strong>, 90 % do ' + fmtDur(st.acceptP90) + '</span>' +
+    '<span class="doch-sum-i">príprava: medián <strong>' + fmtDur(st.readyP50) + '</strong>' + (st.withPromise ? ', meškalo ' + st.late + ' z ' + st.withPromise : '') + '</span>' +
+    '<span class="doch-sum-i">odmietnuté <strong>' + st.rejected + '</strong>' + reasons + (st.cancelled ? ', zrušené ' + st.cancelled : '') + '</span>' +
+    (guard.length ? '<span class="doch-sum-i">strážca: ' + guard.join(', ') + '</span>' : '') +
+    chips + '</div>';
+}
+
 async function load({ silent } = {}) {
   const list = $('#ooList');
   if (!silent && list) showLoading(list, 'Načítavam objednávky…');
   try {
-    const [res, cfg] = await Promise.all([api.get('/online-orders?status=' + _filter), _cfg ? Promise.resolve(_cfg) : api.get('/online-orders/config')]);
+    const [res, cfg] = await Promise.all([api.get('/online-orders?status=' + _filter), _cfg ? Promise.resolve(_cfg) : api.get('/online-orders/config'), loadStats()]);
     _cfg = cfg;
     _rows = res.rows || [];
     _counts = res.counts || { new: 0, running: 0 };
@@ -91,8 +123,9 @@ function render() {
       '<span class="doch-sum-i"><strong>' + _counts.new + '</strong> ' + (_counts.new === 1 ? 'nová' : (_counts.new >= 2 && _counts.new <= 4 ? 'nové' : 'nových')) + '</span>' +
       '<span class="doch-sum-i"><strong>' + _counts.running + '</strong> v príprave alebo na ceste</span>' +
       modeNote + mockWolt +
-    '</div>';
+    '</div>' + statsHtml();
   head.querySelectorAll('[data-filter]').forEach((b) => b.addEventListener('click', () => { _filter = b.dataset.filter; load(); }));
+  head.querySelectorAll('[data-stats-days]').forEach((b) => b.addEventListener('click', () => { _statsDays = Number(b.dataset.statsDays); loadStats().then(render); }));
   const mockBtn = head.querySelector('#ooMockWolt');
   if (mockBtn) mockBtn.addEventListener('click', async () => {
     mockBtn.disabled = true;
@@ -148,6 +181,8 @@ async function openDetail(id) {
   if (!o) return;
   let events = [];
   try { events = await api.get('/online-orders/' + id + '/events'); } catch { /* detail bez časovej osi je stále použiteľný */ }
+  // Ostatné obrazovky uvidia „Rieši <meno> · admin" — človek objednávku otvoril.
+  if (o.status === 'new') api.patch('/online-orders/' + id + '/claim', { client: 'admin' }).catch(() => {});
 
   const existing = document.getElementById('ooModal');
   if (existing) existing.remove();

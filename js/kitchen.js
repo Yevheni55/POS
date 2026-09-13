@@ -514,7 +514,7 @@
 
   function ooApi(path, opts) {
     opts = opts || {};
-    var headers = { 'Authorization': 'Bearer ' + wsToken, 'Content-Type': 'application/json' };
+    var headers = { 'Authorization': 'Bearer ' + wsToken, 'Content-Type': 'application/json', 'X-Client': 'kds' };
     // Stabilný kľúč na akciu: opakované klepnutie / retry nespustí akciu druhýkrát.
     if (opts.key) headers['X-Idempotency-Key'] = opts.key;
     return fetch('/api/online-orders' + path, {
