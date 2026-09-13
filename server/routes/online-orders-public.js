@@ -11,6 +11,7 @@ import { emitEvent } from '../lib/emit.js';
 import {
   woltConfig, requestShipmentPromise, verifyWebhookToken, WoltError,
 } from '../lib/wolt-drive.js';
+import { getPause } from '../lib/app-settings.js';
 import { applyWoltEvent } from '../lib/online-order-status.js';
 import { quoteSchema, createOnlineOrderSchema, woltWebhookSchema } from '../schemas/online-orders.js';
 
@@ -80,17 +81,21 @@ function toPublic(o) {
 }
 
 // GET /config — čo má web ponúknuť (doručenie zapnuté? platby? min. objednávka)
-router.get('/config', (req, res) => {
+router.get('/config', asyncRoute(async (req, res) => {
   const cfg = woltConfig();
+  const pause = await getPause();
   res.setHeader('Cache-Control', 'no-store');
   res.json({
     deliveryEnabled: cfg.enabled,
+    acceptingOrders: cfg.enabled && !pause,
+    pausedUntil: pause ? pause.until.toISOString() : null,
+    pauseReason: pause ? pause.reason : '',
     mode: cfg.mode,
     paymentMethods: cfg.cashOnDelivery ? ['cash', 'transfer'] : ['transfer'],
     minOrderEur: Number(process.env.ONLINE_ORDER_MIN_EUR || 10),
     pickup: { name: cfg.pickup.name, street: cfg.pickup.street, city: cfg.pickup.city },
   });
-});
+}));
 
 // POST /quote — cena a čas doručenia na adresu
 router.post('/quote', validate(quoteSchema), asyncRoute(async (req, res) => {
@@ -112,6 +117,11 @@ router.post('/', validate(createOnlineOrderSchema), asyncRoute(async (req, res) 
   }
   const cfg = woltConfig();
   if (!cfg.enabled) return res.status(503).json({ error: 'Doručenie momentálne nie je dostupné' });
+  const pause = await getPause();
+  if (pause) {
+    const hhmm = new Intl.DateTimeFormat('sk-SK', { timeZone: 'Europe/Bratislava', hour: '2-digit', minute: '2-digit' }).format(pause.until);
+    return res.status(503).json({ error: 'Momentálne neprijímame objednávky — skúste po ' + hhmm + (pause.reason ? ' (' + pause.reason + ')' : ''), pausedUntil: pause.until.toISOString() });
+  }
 
   const body = req.body;
   if (body.paymentMethod === 'cash' && !cfg.cashOnDelivery) {

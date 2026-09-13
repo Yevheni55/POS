@@ -126,8 +126,14 @@ function deliveryConfig(PDO $pdo): array {
     $v = $row ? (json_decode((string)$row['value'], true) ?: []) : [];
     $alive = $row && (float)$row['age'] <= HEARTBEAT_MAX_S;
     $enabled = $alive && !empty($v['deliveryEnabled']);
+    // Pauza príjmu (manažér na kase): web ju dostane v heartbeate, po čase sa zruší sama.
+    $pausedUntil = !empty($v['pausedUntil']) ? (string)$v['pausedUntil'] : null;
+    $paused = $pausedUntil && strtotime($pausedUntil) > time();
     return [
         'deliveryEnabled' => $enabled,
+        'acceptingOrders' => $enabled && !$paused,
+        'pausedUntil' => $paused ? $pausedUntil : null,
+        'pauseReason' => $paused ? (string)($v['pauseReason'] ?? '') : '',
         'mode' => $enabled ? (string)($v['mode'] ?? 'off') : 'off',
         'paymentMethods' => is_array($v['paymentMethods'] ?? null) ? $v['paymentMethods'] : ['transfer'],
         'minOrderEur' => (float)($v['minOrderEur'] ?? 10),
@@ -145,7 +151,7 @@ function menu(PDO $pdo): array {
         if (is_array($j)) return $j;
     }
     $rows = $pdo->query("
-        SELECT pos_item_id, category_slug, category_label, category_icon, category_sort, item_name, item_emoji, item_price, item_desc
+        SELECT pos_item_id, category_slug, category_label, category_icon, category_sort, item_name, item_emoji, item_price, item_desc, sold_out_until
         FROM guest_menu
         WHERE active = true AND pos_item_id IS NOT NULL
         ORDER BY NULLIF(regexp_replace(category_sort, '[^0-9]', '', 'g'), '')::int NULLS LAST, id")->fetchAll();
@@ -161,6 +167,8 @@ function menu(PDO $pdo): array {
             'emoji' => $r['item_emoji'],
             'price' => number_format((float)$r['item_price'], 2, '.', ''),
             'desc' => (string)$r['item_desc'],
+            // „Dnes vypredané" z kasy — položka ostáva v ponuke, ale nedá sa pridať do košíka.
+            'soldOut' => !empty($r['sold_out_until']) && strtotime((string)$r['sold_out_until']) > time(),
         ];
     }
     $menu = ['menu' => array_values($cats)];
@@ -242,6 +250,11 @@ function freshPromise(PDO $pdo, string $id): ?array {
 function quote(PDO $pdo, array $cfg): never {
     if (!rateLimit('q:' . clientIp(), 40, 600)) fail('Priveľa pokusov, skúste o chvíľu', 429);
     if (!$cfg['deliveryEnabled']) fail('Doručenie momentálne nie je dostupné', 503);
+    if (empty($cfg['acceptingOrders'])) {
+        $u = '';
+        try { if ($cfg['pausedUntil']) $u = (new DateTime($cfg['pausedUntil']))->setTimezone(new DateTimeZone('Europe/Bratislava'))->format('H:i'); } catch (Throwable $e) { $u = ''; }
+        fail('Momentálne neprijímame objednávky' . ($u ? ' — skúste po ' . $u : '') . ($cfg['pauseReason'] ? ' (' . $cfg['pauseReason'] . ')' : ''), 503);
+    }
     $b = body();
     $street = str($b['street'] ?? '', 3, 200, 'Zadajte ulicu s číslom');
     $city = str($b['city'] ?? '', 2, 120, 'Zadajte mesto');
@@ -302,12 +315,14 @@ function createOrder(PDO $pdo, array $cfg): never {
     }
     $ids = array_values(array_unique(array_column($wanted, 'id')));
     $in = implode(',', array_fill(0, count($ids), '?'));
-    $st = $pdo->prepare("SELECT pos_item_id, item_name, item_price, vat_rate FROM guest_menu WHERE active = true AND pos_item_id IN ($in)");
+    $st = $pdo->prepare("SELECT pos_item_id, item_name, item_price, vat_rate, sold_out_until FROM guest_menu WHERE active = true AND pos_item_id IN ($in)");
     $st->execute($ids);
     $byId = [];
     foreach ($st->fetchAll() as $r) $byId[(int)$r['pos_item_id']] = $r;
     $missing = array_values(array_filter($ids, fn($id) => !isset($byId[$id])));
     if ($missing) fail('Niektoré položky už nie sú v ponuke', 400, ['missingIds' => $missing]);
+    $soldOut = array_values(array_filter($ids, fn($id) => !empty($byId[$id]['sold_out_until']) && strtotime((string)$byId[$id]['sold_out_until']) > time()));
+    if ($soldOut) fail('Dnes je vypredané: ' . implode(', ', array_map(fn($id) => (string)$byId[$id]['item_name'], $soldOut)), 400, ['soldOutIds' => $soldOut]);
 
     $lines = [];
     $subtotal = 0.0;

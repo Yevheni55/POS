@@ -15,6 +15,7 @@ import { eq, sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { onlineOrders, onlineOrderEvents, menuItems } from '../db/schema.js';
 import { woltConfig } from './wolt-drive.js';
+import { getPause } from './app-settings.js';
 import {
   woltOrderConfig, getOrder, normalizeOrder, buildOnlineOrderFromWolt, makeMenuResolver, statusForNotification, exchangeAuthCode,
 } from './wolt-order-api.js';
@@ -103,10 +104,14 @@ export function toLocalOrder(w) {
 }
 
 /** Konfigurácia, ktorú web číta z Neon (rovnaký tvar ako GET /api/public/online-orders/config). */
-export function webConfigPayload() {
+export async function webConfigPayload() {
   const cfg = woltConfig();
+  const pause = await getPause().catch(() => null);
   return {
     deliveryEnabled: cfg.enabled,
+    acceptingOrders: cfg.enabled && !pause,
+    pausedUntil: pause ? pause.until.toISOString() : null,
+    pauseReason: pause ? pause.reason : '',
     mode: cfg.mode,
     paymentMethods: cfg.cashOnDelivery ? ['cash', 'transfer'] : ['transfer'],
     minOrderEur: Number(process.env.ONLINE_ORDER_MIN_EUR || 10),
@@ -121,7 +126,10 @@ const MENU_SQL = sql`
   SELECT CASE WHEN c.slug = 'cat_1776806631615' THEN 'capovane' ELSE c.slug END AS category_slug,
          c.label AS category_label, c.icon AS category_icon, c.sort_key::text AS category_sort,
          mi.id AS pos_item_id, mi.name AS item_name, mi.emoji AS item_emoji, mi.price AS item_price,
-         COALESCE(mi.desc, '') AS item_desc, mi.vat_rate
+         COALESCE(mi.desc, '') AS item_desc, mi.vat_rate,
+         -- timestamp bez zóny drží UTC (Drizzle) → porovnať s UTC „teraz"; na web ide ako ISO text, nie lokálny Date z pg
+         CASE WHEN mi.sold_out_until IS NOT NULL AND mi.sold_out_until > timezone('UTC', now())
+              THEN to_char(mi.sold_out_until, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') END AS sold_out_until
   FROM menu_items mi
   JOIN menu_categories c ON c.id = mi.category_id
   WHERE mi.active = true
@@ -296,7 +304,7 @@ export function createBridge({ url, io = null, cacheBustUrl = '', fetchImpl = gl
   async function pushConfig() {
     await pool.query(`
       INSERT INTO web_delivery_config (key, value, updated_at) VALUES ('config', $1, now())
-      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, [JSON.stringify(webConfigPayload())]);
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, [JSON.stringify(await webConfigPayload())]);
   }
 
   async function syncMenu({ force = false } = {}) {
@@ -309,10 +317,10 @@ export function createBridge({ url, io = null, cacheBustUrl = '', fetchImpl = gl
       await client.query('BEGIN');
       await client.query('DELETE FROM guest_menu');
       if (rows.length) {
-        const cols = ['category_slug', 'category_label', 'category_icon', 'category_sort', 'item_name', 'item_emoji', 'item_price', 'item_desc', 'active', 'pos_item_id', 'vat_rate'];
+        const cols = ['category_slug', 'category_label', 'category_icon', 'category_sort', 'item_name', 'item_emoji', 'item_price', 'item_desc', 'active', 'pos_item_id', 'vat_rate', 'sold_out_until'];
         const values = [];
         const placeholders = rows.map((r, i) => {
-          values.push(r.category_slug, r.category_label, r.category_icon, r.category_sort, r.item_name, r.item_emoji, r.item_price, r.item_desc, true, r.pos_item_id, r.vat_rate);
+          values.push(r.category_slug, r.category_label, r.category_icon, r.category_sort, r.item_name, r.item_emoji, r.item_price, r.item_desc, true, r.pos_item_id, r.vat_rate, r.sold_out_until || null);
           const base = i * cols.length;
           return '(' + cols.map((_, j) => '$' + (base + j + 1)).join(',') + ')';
         });

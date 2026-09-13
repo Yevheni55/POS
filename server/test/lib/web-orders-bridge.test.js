@@ -18,6 +18,7 @@ import { testDb, truncateAll, seed, closeDb } from '../helpers/setup.js';
 import * as schema from '../../db/schema.js';
 import { tokens } from '../helpers/auth.js';
 import { createBridge, toLocalOrder } from '../../lib/web-orders-bridge.js';
+import { setPause, clearPause } from '../../lib/app-settings.js';
 
 const { onlineOrders, onlineOrderEvents, tables, zones, menuItems } = schema;
 const request = supertest(app);
@@ -37,6 +38,7 @@ before(async () => {
   await pool.query(fs.readFileSync(new URL('../../db/neon/2026-09-12-web-orders.sql', import.meta.url), 'utf8'));
   await pool.query(fs.readFileSync(new URL('../../db/neon/2026-09-13-wolt-order-events.sql', import.meta.url), 'utf8'));
   await pool.query(fs.readFileSync(new URL('../../db/neon/2026-09-14-wolt-events-attempts.sql', import.meta.url), 'utf8'));
+  await pool.query(fs.readFileSync(new URL('../../db/neon/2026-09-15-guest-menu-sold-out.sql', import.meta.url), 'utf8'));
   process.env.WOLT_ORDER_MODE = 'mock';
   bridge = createBridge({ url: NEON_URL, io: { emit: (ev, data) => emitted.push({ ev, data }) }, cacheBustUrl: '', log: () => {} });
 });
@@ -337,5 +339,33 @@ describe('most web ↔ kasa', () => {
     assert.equal(l.customerEmail, '');
     assert.equal(l.clientIp, '');
     assert.equal(l.status, 'new');
+  });
+
+  it('pauza príjmu ide na web v heartbeate; vypredaná položka má v guest_menu sold_out_until', async () => {
+    await setPause({ until: new Date(Date.now() + 20 * 60_000), reason: 'Preťažená kuchyňa', staffId: 1, staffName: 'M' });
+    await bridge.pushConfig();
+    const val = async () => { const { rows } = await pool.query("SELECT value FROM web_delivery_config WHERE key = 'config'"); return typeof rows[0].value === 'string' ? JSON.parse(rows[0].value) : rows[0].value; };
+    let v = await val();
+    assert.equal(v.deliveryEnabled, true);
+    assert.equal(v.acceptingOrders, false);
+    assert.ok(v.pausedUntil);
+    assert.equal(v.pauseReason, 'Preťažená kuchyňa');
+    await clearPause();
+    await bridge.pushConfig();
+    v = await val();
+    assert.equal(v.acceptingOrders, true);
+    assert.equal(v.pausedUntil, null);
+
+    const items = await testDb.select().from(menuItems);
+    await testDb.update(menuItems).set({ soldOutUntil: new Date(Date.now() + 3600_000) }).where(eq(menuItems.id, items[0].id));
+    const r = await bridge.syncMenu({ force: true });
+    assert.ok(r.count > 0);
+    const gm = await pool.query('SELECT pos_item_id, sold_out_until FROM guest_menu WHERE pos_item_id = $1', [items[0].id]);
+    assert.ok(gm.rows[0] && gm.rows[0].sold_out_until, 'sold_out_until sa preniesol');
+    await testDb.update(menuItems).set({ soldOutUntil: new Date(Date.now() - 1000) }).where(eq(menuItems.id, items[0].id));
+    const r2 = await bridge.syncMenu();
+    assert.equal(r2.changed, true, 'vypršané vypredanie mení hash → znova sync');
+    const gm2 = await pool.query('SELECT sold_out_until FROM guest_menu WHERE pos_item_id = $1', [items[0].id]);
+    assert.equal(gm2.rows[0].sold_out_until, null);
   });
 });

@@ -15,6 +15,7 @@ export const testDb = drizzle(pool, { schema });
 
 // Table names in dependency order (children first for truncation)
 const TABLES = [
+  'app_settings',
   'online_order_events', 'online_orders', 'integration_tokens',
   'asset_depreciations', 'assets',
   'write_off_items', 'write_offs',

@@ -494,6 +494,9 @@
   // vidí na webe, obsluha v admine. Zoznam ide z /api/online-orders (JWT
   // kuchára stačí), obnovuje ho socket + poll každých 20 s.
   var onlineRows = [];
+  var onlineDone = [];        // dnes hotové / odmietnuté — história pod kartami v ROZVOZ
+  var ooHistOpen = localStorage.getItem('pos_kitchen_histOpen') === '1';
+  var ooCfgTick = 0;
   var onlineKnownIds = null; // null = prvé načítanie, ešte nepípame
   var ooToastTimer = null;
   // Prijatie s výberom minút, odloženie („Neskôr") a 6-sekundové okno na SPÄŤ.
@@ -540,8 +543,22 @@
     ooToastTimer = setTimeout(function () { t.hidden = true; }, 4500);
   }
 
+  /** PAUZA v hlavičke: z /config pri štarte a raz za minútu, hneď zo socketu. */
+  function ooSetPause(p) {
+    var b = document.getElementById('ooPauseBadge'), u = document.getElementById('ooPauseUntil');
+    if (!b || !u) return;
+    var until = p && p.until ? new Date(p.until) : null;
+    if (!until || until.getTime() <= Date.now()) { b.hidden = true; return; }
+    u.textContent = ooFmtTime.format(until) + (p.reason ? ' · ' + p.reason : '');
+    b.hidden = false;
+  }
+  function loadPause() { ooApi('/config').then(function (c) { ooSetPause(c.pause); }).catch(function () {}); }
   function loadOnline() {
     if (!wsToken) return;
+    if (ooCfgTick++ % 3 === 0) loadPause();
+    if (currentView === 'rozvoz') {
+      ooApi('?status=done&limit=40').then(function (d) { onlineDone = d.rows || []; if (currentView === 'rozvoz') renderOnline(); }).catch(function () {});
+    }
     ooApi('?status=active').then(function (data) {
       onlineRows = data.rows || [];
       var newCount = (data.counts && data.counts.new) || 0;
@@ -772,6 +789,20 @@
     if (o.readyAt) return [2, new Date(o.readyAt).getTime()];
     return [1, new Date(o.scheduledFor || o.confirmedAt || o.createdAt).getTime()];
   }
+  /** Dnes hotové / odmietnuté / zrušené — kuchár si overí, čo už odbavil. */
+  var ooFmtDay = new Intl.DateTimeFormat('sk-SK', { timeZone: 'Europe/Bratislava', day: 'numeric', month: 'numeric' });
+  function ooHistoryHtml() {
+    var today = ooFmtDay.format(new Date());
+    var rows = onlineDone.filter(function (o) { return ooFmtDay.format(new Date(o.readyAt || o.updatedAt || o.createdAt)) === today; });
+    if (!rows.length) return '';
+    var body = ooHistOpen ? rows.map(function (o) {
+      var st = o.status === 'rejected' ? 'odmietnuté' + (o.rejectedReason ? ' · ' + o.rejectedReason : '') : o.status === 'cancelled' ? 'zrušené' : ooInHouse(o) ? 'odovzdané' : 'doručené';
+      var t = ooFmtTime.format(new Date(o.readyAt || o.updatedAt || o.createdAt));
+      return '<div class="oo-hist-row' + (o.status === 'rejected' || o.status === 'cancelled' ? ' is-off' : '') + '"><span class="oo-hist-t">' + escHtml(t) + '</span><span class="oo-hist-code">' + escHtml(ooLabelKey(o)) + '</span><span class="oo-hist-name">' + escHtml(o.customerName || '') + ' · ' + (o.items || []).length + ' pol.</span><span class="oo-hist-st">' + escHtml(st) + '</span></div>';
+    }).join('') : '';
+    return '<div class="oo-history"><button type="button" class="oo-hist-head" onclick="ooToggleHistory()" aria-expanded="' + ooHistOpen + '">Dnes odbavené: ' + rows.length + ' <span aria-hidden="true">' + (ooHistOpen ? '▴' : '▾') + '</span></button>' + body + '</div>';
+  }
+  window.ooToggleHistory = function () { ooHistOpen = !ooHistOpen; try { localStorage.setItem('pos_kitchen_histOpen', ooHistOpen ? '1' : '0'); } catch (e) {} renderOnline(); };
   function ooStatus(o) {
     if (o.status === 'new') return { cls: 'oo-new', text: ooIsWolt(o) ? 'Nová z Woltu · čaká na prijatie' : 'Nová · čaká na potvrdenie' };
     if (o.readyAt) return { cls: 'oo-ready', text: ooInHouse(o) ? 'Hotové · čaká na zákazníka' : (ooIsWolt(o) ? 'Hotové · čaká na kuriéra Wolt' : 'Hotové · čaká na kuriéra') };
@@ -845,6 +876,7 @@
         '<div class="card-actions">' + actions + '</div></div>';
     });
     var focused = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.table : null;
+    html += ooHistoryHtml();
     grid.innerHTML = html;
     if (focused) { var el = grid.querySelector('[data-table="' + focused + '"]'); if (el) el.focus(); }
   }
@@ -1028,6 +1060,7 @@
       loadOnline();
     });
     // Wolt zrušil už prijatú objednávku → STOP pre kuchyňu.
+    socket.on('online-orders:pause', function (data) { ooSetPause(data && data.until ? data : null); });
     socket.on('online-order:stop', function (data) {
       if (data && data._eventId) updateLastEventId(data._eventId);
       ooToast('STOP — Wolt zrušil objednávku ' + ((data && data.code) || '') + '. Nevariť, účet ide na odpis.');

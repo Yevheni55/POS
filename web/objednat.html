@@ -51,6 +51,8 @@ button{font-family:inherit}
 .item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line)}
 .item:last-child{border-bottom:0}
 .item-n{font-weight:600}
+.item.is-off{opacity:.55}.item.is-off .item-n{text-decoration:line-through}.item.is-off .item-p{color:var(--bad)}
+.soldout{min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;border-radius:12px;border:1px dashed var(--line);color:var(--ink-700)}
 .item-d{font-size:13px;color:var(--ink-500)}
 .item-p{font-variant-numeric:tabular-nums;color:var(--ink-700);font-size:14px;margin-top:2px}
 .add{min-width:44px;min-height:44px;border-radius:12px;border:1px solid var(--line);background:var(--sand-100);color:var(--ink-900);font-size:22px;line-height:1;cursor:pointer}
@@ -203,6 +205,8 @@ button{font-family:inherit}
   var eur = function (n) { return (Number(n) || 0).toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'; };
   var esc = function (v) { return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
   var word = function (n, a, b, c) { return n === 1 ? a : (n >= 2 && n <= 4 ? b : c); };
+  var fmtHHMM = function (iso) { try { return new Intl.DateTimeFormat('sk-SK', { timeZone: 'Europe/Bratislava', hour: '2-digit', minute: '2-digit' }).format(new Date(iso)); } catch (e) { return ''; } };
+  var accepting = function () { return CFG.deliveryEnabled && CFG.acceptingOrders !== false; };
 
   async function getJson(url, opts) {
     var res = await fetch(url, Object.assign({ headers: { 'Content-Type': 'application/json' } }, opts || {}));
@@ -222,6 +226,7 @@ button{font-family:inherit}
       return;
     }
     if (!CFG.deliveryEnabled) { var n = $('#notice'); n.hidden = false; n.className = 'notice bad'; n.textContent = 'Doručenie momentálne nie je dostupné. Radi vás uvidíme na bare.'; }
+    else if (CFG.acceptingOrders === false) { var np = $('#notice'); np.hidden = false; np.className = 'notice bad'; np.textContent = 'Momentálne neprijímame objednávky' + (CFG.pausedUntil ? ' — skúste po ' + fmtHHMM(CFG.pausedUntil) : '') + (CFG.pauseReason ? ' (' + CFG.pauseReason + ')' : '') + '.'; }
     else if (CFG.mode === 'mock') { var n2 = $('#notice'); n2.hidden = false; n2.textContent = 'Skúšobná prevádzka — objednávky sa nedoručujú.'; }
     $('#topNote').textContent = 'Min. objednávka ' + eur(CFG.minOrderEur);
     renderChips(); renderMenu(); renderPay();
@@ -248,6 +253,10 @@ button{font-family:inherit}
   }
   function itemHtml(i) {
     var q = CART.has(i.id) ? CART.get(i.id).qty : 0;
+    if (i.soldOut) {
+      if (q) CART.delete(i.id);
+      return '<div class="item is-off" id="it-' + i.id + '"><div><div class="item-n">' + esc(i.emoji ? i.emoji + ' ' : '') + esc(i.name) + '</div><div class="item-p">Dnes vypredané</div></div><span class="soldout" aria-label="Dnes vypredané">✕</span></div>';
+    }
     return '<div class="item" id="it-' + i.id + '"><div><div class="item-n">' + esc(i.emoji ? i.emoji + ' ' : '') + esc(i.name) + '</div>' + (i.desc ? '<div class="item-d">' + esc(i.desc) + '</div>' : '') + '<div class="item-p">' + eur(i.price) + '</div></div>' +
       (q ? '<div class="qty"><button type="button" data-dec="' + i.id + '" aria-label="Menej">−</button><b>' + q + '</b><button type="button" data-inc="' + i.id + '" aria-label="Viac">+</button></div>'
          : '<button type="button" class="add" data-add="' + i.id + '" aria-label="Pridať ' + esc(i.name) + '">+</button>') + '</div>';
@@ -268,8 +277,8 @@ button{font-family:inherit}
     var rows = []; CART.forEach(function (e) { rows.push('<div class="row"><div class="qty"><button type="button" data-dec="' + e.id + '" aria-label="Menej">−</button><b>' + e.qty + '</b><button type="button" data-inc="' + e.id + '" aria-label="Viac">+</button></div><span>' + esc(e.name) + '</span><span class="sum">' + eur(e.price * e.qty) + '</span></div>'); });
     $('#cartItems').innerHTML = rows.join('') || '<div class="tot">Košík je prázdny</div>';
     var s = subtotal(); $('#cartSum').textContent = eur(s);
-    var under = s < CFG.minOrderEur; $('#toCheckout').disabled = under || !CART.size || !CFG.deliveryEnabled;
-    $('#cartHint').textContent = !CFG.deliveryEnabled ? 'Doručenie momentálne nie je dostupné.' : under ? 'Minimálna objednávka je ' + eur(CFG.minOrderEur) + ' — chýba ' + eur(CFG.minOrderEur - s) + '.' : 'Cena doručenia sa pripočíta podľa adresy v ďalšom kroku.';
+    var under = s < CFG.minOrderEur; $('#toCheckout').disabled = under || !CART.size || !accepting();
+    $('#cartHint').textContent = !CFG.deliveryEnabled ? 'Doručenie momentálne nie je dostupné.' : !accepting() ? 'Momentálne neprijímame objednávky' + (CFG.pausedUntil ? ' — skúste po ' + fmtHHMM(CFG.pausedUntil) : '') + '.' : under ? 'Minimálna objednávka je ' + eur(CFG.minOrderEur) + ' — chýba ' + eur(CFG.minOrderEur - s) + '.' : 'Cena doručenia sa pripočíta podľa adresy v ďalšom kroku.';
   }
   $('#cartItems').addEventListener('click', function (e) { var b = e.target.closest('[data-inc],[data-dec]'); if (!b) return; var id = Number(b.dataset.inc || b.dataset.dec); if (b.dataset.dec) dec(id); else inc(id); });
   $('#barBtn').addEventListener('click', function () { renderCart(); open('cartSheet'); });

@@ -63,6 +63,62 @@ function fmtDur(sec) {
   return m < 10 ? m + ' min ' + r + ' s' : m + ' min';
 }
 function ordersWord(n) { return n === 1 ? 'objednávka' : (n >= 2 && n <= 4 ? 'objednávky' : 'objednávok'); }
+// ── Pauza príjmu a Auto-prijímať (manažér) ──────────────────────────────────
+let _pauseSheet = false, _autoSheet = false;
+function pauseHtml() {
+  if (!_cfg) return '';
+  const p = _cfg.pause;
+  if (p) {
+    return '<span class="oo-mode is-off">PAUZA do ' + escapeHtml(timeSk(p.until)) + (p.reason ? ' · ' + escapeHtml(p.reason) : '') + (p.byName ? ' · ' + escapeHtml(p.byName) : '') + '</span>' +
+      '<button type="button" class="doch-chip" id="ooPauseOff">Obnoviť príjem</button>';
+  }
+  if (!_pauseSheet) return '<button type="button" class="doch-chip" id="ooPauseOn">Pozastaviť príjem…</button>';
+  return '<span class="oo-sheet" role="group" aria-label="Pozastaviť príjem">' +
+    '<input type="text" id="ooPauseReason" class="form-input form-input-sm" maxlength="120" placeholder="Dôvod (nepovinné, uvidí zákazník)">' +
+    [15, 30, 60].map((m) => '<button type="button" class="doch-chip" data-pause="' + m + '">' + m + ' min</button>').join('') +
+    '<button type="button" class="doch-chip" data-pause="eod">Do konca dňa</button>' +
+    '<button type="button" class="doch-chip" id="ooPauseCancel">Späť</button></span>';
+}
+function autoHtml() {
+  const a = _cfg && _cfg.autoAccept;
+  if (!a) return '';
+  if (a.enabled) return '<button type="button" class="doch-chip is-on" id="ooAutoOff" aria-pressed="true" title="Strážca prijíma nové objednávky sám">Auto-prijímať: ZAP · ' + a.prepMinutes + ' min</button>';
+  if (!_autoSheet) return '<button type="button" class="doch-chip" id="ooAutoOn" aria-pressed="false">Auto-prijímať: VYP</button>';
+  return '<span class="oo-sheet" role="group" aria-label="Auto-prijímať — minúty prípravy">' +
+    '<span class="doch-sum-i">Auto-prijímať s prípravou</span>' +
+    [10, 15, 20, 30].map((m) => '<button type="button" class="doch-chip" data-auto="' + m + '">' + m + ' min</button>').join('') +
+    '<button type="button" class="doch-chip" id="ooAutoCancel">Späť</button></span>';
+}
+function bindControls(head) {
+  const on = (sel, fn) => { const el = head.querySelector(sel); if (el) el.addEventListener('click', fn); };
+  on('#ooPauseOn', () => { _pauseSheet = true; render(); const i = head.querySelector('#ooPauseReason'); if (i) i.focus(); });
+  on('#ooPauseCancel', () => { _pauseSheet = false; render(); });
+  head.querySelectorAll('[data-pause]').forEach((b) => b.addEventListener('click', async () => {
+    b.disabled = true;
+    const reason = (head.querySelector('#ooPauseReason') || {}).value || '';
+    const body = b.dataset.pause === 'eod' ? { untilEndOfDay: true, reason } : { minutes: Number(b.dataset.pause), reason };
+    try {
+      const r = await api.post('/online-orders/pause', body);
+      showToast('Príjem pozastavený do ' + timeSk(r.pause.until) + (r.wolt === 'error' ? '' : '') + (String(r.wolt).startsWith('error') ? ' — Wolt sa nepodarilo vypnúť: ' + r.wolt.slice(7) : ''), !String(r.wolt).startsWith('error'));
+      _pauseSheet = false; load({ silent: true });
+    } catch (e) { showToast(e.message || 'Chyba', 'error'); b.disabled = false; }
+  }));
+  on('#ooPauseOff', async () => {
+    try { const r = await api.del('/online-orders/pause'); showToast(String(r.wolt).startsWith('error') ? 'Príjem obnovený, ale Wolt: ' + r.wolt.slice(7) : 'Príjem obnovený — web aj Wolt berú objednávky', !String(r.wolt).startsWith('error')); load({ silent: true }); }
+    catch (e) { showToast(e.message || 'Chyba', 'error'); }
+  });
+  on('#ooAutoOn', () => { _autoSheet = true; render(); });
+  on('#ooAutoCancel', () => { _autoSheet = false; render(); });
+  head.querySelectorAll('[data-auto]').forEach((b) => b.addEventListener('click', async () => {
+    try { await api.post('/online-orders/auto-accept', { enabled: true, prepMinutes: Number(b.dataset.auto) }); showToast('Auto-prijímať zapnuté — strážca prijme každú novú objednávku s ' + b.dataset.auto + ' min', true); _autoSheet = false; load({ silent: true }); }
+    catch (e) { showToast(e.message || 'Chyba', 'error'); }
+  }));
+  on('#ooAutoOff', async () => {
+    try { await api.post('/online-orders/auto-accept', { enabled: false }); showToast('Auto-prijímať vypnuté — objednávky čakajú na obsluhu', true); load({ silent: true }); }
+    catch (e) { showToast(e.message || 'Chyba', 'error'); }
+  });
+}
+
 function statsHtml() {
   if (!_stats) return '';
   const st = _stats;
@@ -86,7 +142,7 @@ async function load({ silent } = {}) {
   const list = $('#ooList');
   if (!silent && list) showLoading(list, 'Načítavam objednávky…');
   try {
-    const [res, cfg] = await Promise.all([api.get('/online-orders?status=' + _filter), _cfg ? Promise.resolve(_cfg) : api.get('/online-orders/config'), loadStats()]);
+    const [res, cfg] = await Promise.all([api.get('/online-orders?status=' + _filter), api.get('/online-orders/config'), loadStats()]);
     _cfg = cfg;
     _rows = res.rows || [];
     _counts = res.counts || { new: 0, running: 0 };
@@ -123,7 +179,9 @@ function render() {
       '<span class="doch-sum-i"><strong>' + _counts.new + '</strong> ' + (_counts.new === 1 ? 'nová' : (_counts.new >= 2 && _counts.new <= 4 ? 'nové' : 'nových')) + '</span>' +
       '<span class="doch-sum-i"><strong>' + _counts.running + '</strong> v príprave alebo na ceste</span>' +
       modeNote + mockWolt +
-    '</div>' + statsHtml();
+    '</div>' +
+    '<div class="doch-sum oo-controls" id="ooControls">' + pauseHtml() + autoHtml() + '</div>' + statsHtml();
+  bindControls(head);
   head.querySelectorAll('[data-filter]').forEach((b) => b.addEventListener('click', () => { _filter = b.dataset.filter; load(); }));
   head.querySelectorAll('[data-stats-days]').forEach((b) => b.addEventListener('click', () => { _statsDays = Number(b.dataset.statsDays); loadStats().then(render); }));
   const mockBtn = head.querySelector('#ooMockWolt');
@@ -338,6 +396,7 @@ function evLabel(e) {
   if (t === 'ready') return 'kuchyňa: hotové';
   if (t === 'handed-over') return 'odovzdané zákazníkovi';
   if (t === 'escalated') return 'strážca: nikto nereaguje (úroveň ' + ((e.payload && e.payload.level) || '?') + ')';
+  if (t === 'confirmed' && e.payload && e.payload.auto) return 'prijaté automaticky (Auto-prijímať, ' + ((e.payload && e.payload.prepMinutes) || '?') + ' min)';
   if (t === 'bon') return 'bon: ' + ((e.payload && e.payload.status) || '');
   if (t === 'reprint') return 'bon znova (kópia)';
   if (t === 'fired') return 'účet a bon založené ručne';

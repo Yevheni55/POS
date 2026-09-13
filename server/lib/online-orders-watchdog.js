@@ -7,11 +7,13 @@
 //  • predobjednávky: v čase fire_at založí účet, vytlačí bon a zavolá kuriéra.
 import { and, eq, isNull, isNotNull, lte, lt, or } from 'drizzle-orm';
 import { db } from '../db/index.js';
-import { onlineOrders } from '../db/schema.js';
+import { onlineOrders, menuItems } from '../db/schema.js';
 import { emitEventIo } from './emit.js';
 import { sendAlert } from './alerts.js';
-import { addEvent, fireOrder } from './online-order-fire.js';
-import { rejectOrder as woltRejectOrder } from './wolt-order-api.js';
+import { addEvent, fireOrder, lockOrder, unlockOrder, acceptAndFire } from './online-order-fire.js';
+import { rejectOrder as woltRejectOrder, setItemsAvailability, woltOrderConfig } from './wolt-order-api.js';
+import { getAutoAccept } from './app-settings.js';
+import { invalidatePublicMenuCache } from '../routes/public-menu.js';
 
 const TAG = '[watchdog]';
 const LOCK_TTL_MS = 30_000;
@@ -55,12 +57,28 @@ async function autoReject(io, o, reason) {
 
 /** Jeden prechod. `now` sa dá podstrčiť v testoch. */
 export async function watchdogTick(io, cfg = watchdogConfig(), now = new Date()) {
-  const out = { escalated: 0, alerted: 0, autoRejected: 0, fired: 0, errors: [] };
+  const out = { escalated: 0, alerted: 0, autoRejected: 0, autoAccepted: 0, fired: 0, restocked: 0, errors: [] };
+  const auto = await getAutoAccept().catch(() => ({ enabled: false, prepMinutes: 15 }));
 
   // 1) Nové objednávky bez reakcie
   const fresh = await db.select().from(onlineOrders).where(eq(onlineOrders.status, 'new'));
   for (const o of fresh) {
     try {
+      // Režim Auto-prijímať (manažér): strážca prijme sám s nastavenými minútami —
+      // ten istý zámok a tá istá cesta ako klepnutie na KDS.
+      if (auto.enabled) {
+        const locked = await lockOrder(o.id, null, eq(onlineOrders.status, 'new'));
+        if (locked) {
+          try {
+            await acceptAndFire(io, locked, { staffId: null, staffName: 'Auto', prepMinutes: auto.prepMinutes });
+            out.autoAccepted++;
+          } catch (e) {
+            await unlockOrder(o.id).catch(() => {});
+            out.errors.push(o.publicCode + ' (auto): ' + e.message);
+          }
+        }
+        continue;
+      }
       if (o.source === 'wolt' && o.acceptDeadlineAt && cfg.autoReject && now.getTime() >= new Date(o.acceptDeadlineAt).getTime() - 30_000) {
         if (await autoReject(io, o, cfg.autoRejectReason)) out.autoRejected++;
         continue;
@@ -98,6 +116,23 @@ export async function watchdogTick(io, cfg = watchdogConfig(), now = new Date())
       out.errors.push(o.publicCode + ' (fire): ' + e.message);
     }
   }
+
+  // 3) „Dnes vypredané" vypršalo (5:00): položky sa vrátia, web cez sync menu, Wolt zapnúť.
+  try {
+    const back = await db.update(menuItems).set({ soldOutUntil: null })
+      .where(and(isNotNull(menuItems.soldOutUntil), lte(menuItems.soldOutUntil, now)))
+      .returning({ id: menuItems.id, name: menuItems.name });
+    if (back.length) {
+      out.restocked = back.length;
+      invalidatePublicMenuCache();
+      if (woltOrderConfig().enabled) {
+        try { await setItemsAvailability(back.map((i) => ({ sku: String(i.id), enabled: true }))); }
+        catch (e) { out.errors.push('Wolt sklad: ' + e.message); }
+      }
+    }
+  } catch (e) {
+    out.errors.push('vypredané: ' + e.message);
+  }
   return out;
 }
 
@@ -108,7 +143,7 @@ export function startOnlineOrdersWatchdog(app) {
   _timer = setInterval(async () => {
     try {
       const r = await watchdogTick(app.get('io'), cfg);
-      if (r.escalated || r.autoRejected || r.fired) console.log(TAG, `eskalované ${r.escalated}, auto-odmietnuté ${r.autoRejected}, odpálené predobjednávky ${r.fired}`);
+      if (r.escalated || r.autoRejected || r.autoAccepted || r.fired || r.restocked) console.log(TAG, `eskalované ${r.escalated}, auto-prijaté ${r.autoAccepted}, auto-odmietnuté ${r.autoRejected}, odpálené predobjednávky ${r.fired}, späť v ponuke ${r.restocked}`);
       if (r.errors.length) console.error(TAG, r.errors.join(' | '));
     } catch (e) { console.error(TAG, 'chyba:', e.message); }
   }, cfg.intervalMs);

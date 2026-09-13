@@ -152,6 +152,8 @@ export const menuItems = pgTable('menu_items', {
   // 'bar' alebo 'kuchyna' = override (napr. shisha tobak v bar kategórii ale
   // chcem ho na kuchynskú tlačiareň). Použité v orders.js + reports.js + pos-state.js.
   destOverride: varchar('dest_override', { length: 20 }),
+  // „Dnes vypredané" do rána (5:00): web ukáže vypredané, Wolt položku dočasne vypne; kasa ju stále predáva.
+  soldOutUntil: timestamp('sold_out_until'),
 });
 
 export const shifts = pgTable('shifts', {
@@ -815,4 +817,14 @@ export const integrationTokens = pgTable('integration_tokens', {
   refreshToken: text('refresh_token'),
   expiresAt: timestamp('expires_at'),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
+// Serverové nastavenia, ktoré obsluha mení počas dňa (pauza príjmu online
+// objednávok, Auto-prijímať) — kľúč → JSON. Prvá taká tabuľka; .env ostáva pre
+// veci, ktoré sa menia raz za sezónu.
+export const appSettings = pgTable('app_settings', {
+  key: varchar('key', { length: 60 }).primaryKey(),
+  value: jsonb('value').notNull().default({}),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  updatedBy: integer('updated_by'),
 });

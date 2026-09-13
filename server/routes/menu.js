@@ -8,6 +8,9 @@ import { db } from '../db/index.js';
 import { menuCategories, menuItems, orderItems, orders } from '../db/schema.js';
 import { formatSupportedVatRates, inferVatRateForMenuItem, isSupportedVatRate } from '../lib/menu-vat.js';
 import { requireRole } from '../middleware/requireRole.js';
+import { nextMorning } from '../lib/app-settings.js';
+import { setItemsAvailability, woltOrderConfig } from '../lib/wolt-order-api.js';
+import { invalidatePublicMenuCache } from './public-menu.js';
 import { validate } from '../middleware/validate.js';
 import {
   createCategorySchema,
@@ -47,6 +50,7 @@ const menuItemSelect = {
   // Per-item destination override pre kuchyňa vs bar tlač.
   // NULL = inherit from category.dest. 'bar' alebo 'kuchyna' = explicit.
   destOverride: menuItems.destOverride,
+  soldOutUntil: menuItems.soldOutUntil,
 };
 
 function normalizeMenuItem(item) {
@@ -224,8 +228,9 @@ router.post('/items', requireRole('manazer', 'admin'), validate(createMenuItemSc
 // PUT /api/menu/items/:id (manazer/admin only)
 router.put('/items/:id', requireRole('manazer', 'admin'), validate(updateMenuItemSchema), async (req, res) => {
   const id = +req.params.id;
-  const { vatRate, available, active, ...values } = req.body;
+  const { vatRate, available, active, soldOut, ...values } = req.body;
   const resolvedActive = active ?? available;
+  if (soldOut !== undefined) values.soldOutUntil = soldOut ? nextMorning() : null;
 
   if (resolvedActive !== undefined) {
     values.active = resolvedActive;
@@ -275,11 +280,18 @@ router.put('/items/:id', requireRole('manazer', 'admin'), validate(updateMenuIte
 
   if (Object.keys(values).length) {
     await db.update(menuItems).set(values).where(eq(menuItems.id, id));
+    invalidatePublicMenuCache();
+  }
+  // Vypredané / späť v ponuke → Wolt hneď (web sa dozvie cez sync menu do pár sekúnd).
+  let wolt = null;
+  if (soldOut !== undefined && woltOrderConfig().enabled) {
+    try { const r = await setItemsAvailability([{ sku: String(id), enabled: !soldOut }]); wolt = r.mock ? 'mock' : 'ok'; }
+    catch (e) { wolt = 'error: ' + e.message; console.error('[menu] Wolt dostupnosť položky', id, e.message); }
   }
 
   const item = await getMenuItemById(id);
   if (vatRateMismatch) return res.json({ ...item, vatRateMismatch });
-  res.json(item);
+  res.json(wolt ? { ...item, wolt } : item);
 });
 
 // DELETE /api/menu/items/:id (manazer/admin only)

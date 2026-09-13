@@ -19,6 +19,8 @@ const router = Router();
 // Webka má aj svoju vlastnú edge cache (Cache-Control header dolu),
 // takže celkové oneskorenie je ~30 + 60 s.
 let _cache = { etag: null, body: null, expiresAt: 0 };
+/** Po zmene menu (vypredané, cena…) nech web nečaká minútu na novú verziu. */
+export function invalidatePublicMenuCache() { _cache = { etag: null, body: null, expiresAt: 0 }; }
 const CACHE_TTL_MS = 30_000;
 
 function _slugify(label) {
@@ -49,7 +51,8 @@ async function _buildMenu() {
           'name',  mi.name,
           'emoji', mi.emoji,
           'price', mi.price::text,
-          'desc',  COALESCE(mi.desc, '')
+          'desc',  COALESCE(mi.desc, ''),
+          'soldOut', (mi.sold_out_until IS NOT NULL AND mi.sold_out_until > timezone('UTC', now()))
         ) ORDER BY mi.name) FILTER (
           WHERE mi.id IS NOT NULL AND mi.active = true
             AND mi.name <> 'Záloha fľaša'

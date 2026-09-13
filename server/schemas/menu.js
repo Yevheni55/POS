@@ -80,6 +80,8 @@ export const updateMenuItemSchema = z.object({
   desc: z.string().max(200).optional(),
   active: z.boolean().optional(),
   available: z.boolean().optional(),
+  // „Dnes vypredané" — do 5:00 rána; nie je to active=false (to skrýva aj na kase).
+  soldOut: z.boolean().optional(),
   trackMode: z.enum(['none', 'direct', 'recipe']).optional(),
   stockQty: z.coerce.number().min(0).optional(),
   minStockQty: z.coerce.number().min(0).optional(),

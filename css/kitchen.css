@@ -342,3 +342,14 @@ body{
 .oo-tk-claim{font-size:var(--text-2xl);color:var(--color-warning);font-weight:var(--weight-semibold)}
 .oo-tk-esc{padding:8px 12px;border-radius:var(--radius-xs);background:var(--color-danger-bg);border:1px solid var(--color-danger-border);color:var(--color-danger);font-size:var(--text-xl);font-weight:var(--weight-bold)}
 #ooToast.is-ok{background:var(--color-success);color:var(--color-bg)}
+
+/* ── Iterácia 3: PAUZA v hlavičke, história dnes odbavených v ROZVOZ ── */
+.pause-badge{background:var(--color-danger-bg);border:1px solid var(--color-danger-border);color:var(--color-danger);font-weight:var(--weight-bold)}
+.oo-history{grid-column:1/-1;margin-top:8px;border-top:1px solid var(--color-border);padding-top:8px}
+.oo-hist-head{min-height:var(--btn-h-md);padding:0 12px;border:0;background:transparent;color:var(--color-text-sec);font-family:var(--font-body);font-size:var(--text-md);font-weight:var(--weight-semibold);cursor:pointer}
+.oo-hist-row{display:grid;grid-template-columns:64px 130px minmax(0,1fr) auto;gap:12px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--color-border);font-size:var(--text-md);color:var(--color-text)}
+.oo-hist-row.is-off{color:var(--color-text-sec)}
+.oo-hist-t{font-variant-numeric:tabular-nums;color:var(--color-text-sec)}
+.oo-hist-code{font-weight:var(--weight-bold)}
+.oo-hist-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.oo-hist-st{color:var(--color-text-sec)}

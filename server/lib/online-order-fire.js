@@ -3,7 +3,7 @@
 // POS účet na stole v zóne „rozvoz" z položiek, ktoré kasa pozná, odpis
 // skladu, bony do kuchyne/baru, pri objednávke z webu kuriér cez Wolt Drive.
 // Objednávka z aplikácie Wolt kuriéra nepotrebuje — posiela ho Wolt.
-import { eq, and, inArray, sql } from 'drizzle-orm';
+import { eq, and, inArray, sql, or, isNull, lt } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import {
   onlineOrders, onlineOrderEvents, orders, orderItems, menuItems, menuCategories, tables, shifts, staff,
@@ -15,6 +15,7 @@ import { getPrinterForDest } from './print/network.js';
 import { sendOrQueue } from './print/queue.js';
 import { localTimeHHMM, localDateTime, formatEur } from './print/format.js';
 import { createDelivery, requestShipmentPromise, WoltError } from './wolt-drive.js';
+import { acceptOrder as woltAcceptOrder, confirmPreorder as woltConfirmPreorder } from './wolt-order-api.js';
 import { emitEventIo } from './emit.js';
 import { sendAlert } from './alerts.js';
 
@@ -30,6 +31,67 @@ export async function pickFreeDeliveryTable(tx) {
       AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.table_id = t.id AND o.status = 'open')
     ORDER BY t.id LIMIT 1 FOR UPDATE OF t`);
   return rows.rows[0]?.id ?? null;
+}
+
+// ── Zámok proti dvojitému spracovaniu ────────────────────────────────────────
+// Dve obrazovky (KDS + kasa) alebo strážca môžu siahnuť naraz. UPDATE … WHERE
+// <podmienka> AND zámok voľný prejde presne jednému. Zámok po 30 s expiruje sám.
+export const LOCK_TTL_MS = 30_000;
+export async function lockOrder(id, staffId, condition) {
+  const [row] = await db.update(onlineOrders)
+    .set({ processingAt: new Date(), processingBy: staffId })
+    .where(and(
+      eq(onlineOrders.id, id),
+      condition,
+      or(isNull(onlineOrders.processingAt), lt(onlineOrders.processingAt, new Date(Date.now() - LOCK_TTL_MS))),
+    ))
+    .returning();
+  return row || null;
+}
+export async function unlockOrder(id) {
+  await db.update(onlineOrders).set({ processingAt: null, processingBy: null }).where(eq(onlineOrders.id, id));
+}
+
+/**
+ * Prijatie objednávky (volajúci už drží zámok): Wolt accept (ak treba),
+ * predobjednávka = len potvrdenie s fire_at, inak hneď účet + bon + kuriér.
+ * Spoločné pre POST /:id/confirm aj strážcu v režime „Auto-prijímať".
+ * Pri chybe Woltu zámok uvoľní a chybu prehodí (WoltOrderError).
+ */
+export async function acceptAndFire(io, oo, { staffId = null, staffName = 'Online', prepMinutes = 15 } = {}) {
+  const isWolt = oo.source === 'wolt';
+  const promisedReadyAt = new Date(Date.now() + prepMinutes * 60_000);
+  // Objednávka z aplikácie Wolt: najprv prijať vo Wolte (má na to pár minút), až
+  // potom účet a bon. wolt_accepted_at chráni pred druhým accept-om pri opakovaní.
+  if (isWolt && !oo.woltAcceptedAt) {
+    try {
+      const pre = oo.woltPayload?.pre_order;
+      if (pre && String(pre.pre_order_status || '').toLowerCase() !== 'confirmed') await woltConfirmPreorder(oo.woltOrderId);
+      await woltAcceptOrder(oo.woltOrderId, { pickupTime: promisedReadyAt });
+      await db.update(onlineOrders).set({ woltAcceptedAt: new Date() }).where(eq(onlineOrders.id, oo.id));
+    } catch (e) {
+      await unlockOrder(oo.id);
+      throw e;
+    }
+  }
+  // Predobjednávka (web „na čas" / Wolt pre-order): teraz len potvrdenie, účet +
+  // bon + kuriér až v čase fire_at = doručenie − príprava − 15 min (strážca).
+  const targetMs = oo.scheduledFor ? new Date(oo.scheduledFor).getTime() : 0;
+  const fireAt = targetMs ? new Date(targetMs - (prepMinutes + 15) * 60_000) : null;
+  const scheduled = !!fireAt && fireAt.getTime() - Date.now() > 5 * 60_000;
+  const confirmPatch = {
+    status: 'confirmed', confirmedBy: staffId, confirmedAt: new Date(), prepMinutes, promisedReadyAt: scheduled ? new Date(targetMs) : promisedReadyAt,
+    fireAt: scheduled ? fireAt : null, processingAt: null, processingBy: null, claimedBy: null, claimedAt: null, updatedAt: new Date(),
+  };
+  await db.update(onlineOrders).set(confirmPatch).where(eq(onlineOrders.id, oo.id));
+  await addEvent(oo.id, 'confirmed', { staffId, source: oo.source, prepMinutes, scheduled, auto: staffId == null });
+  if (scheduled) {
+    emitEventIo(io, 'online-order:updated', { id: oo.id, code: oo.publicCode, status: 'confirmed', scheduled: true }).catch(() => {});
+    const [row] = await db.select().from(onlineOrders).where(eq(onlineOrders.id, oo.id)).limit(1);
+    return { ok: true, order: row, scheduled: true, fireAt };
+  }
+  const fired = await fireOrder(io, { ...oo, ...confirmPatch }, { staffId, staffName });
+  return fired.result;
 }
 
 export function orderLabel(oo) {

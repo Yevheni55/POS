@@ -19,6 +19,8 @@ let MENU_DATA = [];
 let activeCatId = null;
 let editingProductId = null;
 let formAvailable = true;
+let formSoldOut = false;     // „Dnes vypredané" (do 5:00) — nie je to nedostupnosť
+let formSoldOutInit = false;
 let formVatRate = 23;
 let vatRateTouched = false;
 let companionTouched = false;
@@ -693,6 +695,7 @@ function renderProducts() {
       + '<span class="mn-row-main">'
         + '<span class="mn-row-name">' + escapeHtml(item.name)
           + (avail ? '' : ' <span class="mn-pill is-off">nedostupný</span>')
+          + (isSoldOut(item) ? ' <span class="mn-pill is-off">' + escapeHtml(soldOutLabel(item)) + '</span>' : '')
         + '</span>'
         + (sub.length ? '<span class="mn-row-sub">' + sub.join(' · ') + '</span>' : '')
       + '</span>'
@@ -886,6 +889,7 @@ function openEditProduct(id) {
   byId('fDesc').value = item.desc;
   byId('fPrice').value = item.price;
   formAvailable = item.available !== undefined ? item.available : item.active;
+  formSoldOut = formSoldOutInit = isSoldOut(item);
   formVatRate = normalizeVatRate(item.vatRate);
   // POZOR: `true` tu znamenalo, ze pri zmene kategorie sa sadzba uz nikdy
   // nepreverila (syncVatRateSuggestion hned vypadla). Ostava false — sadzba sa
@@ -925,12 +929,26 @@ function toggleFormAvail() {
   formAvailable = !formAvailable;
   updateFormToggle();
 }
+function isSoldOut(item) { return !!(item && item.soldOutUntil && new Date(item.soldOutUntil).getTime() > Date.now()); }
+function soldOutLabel(item) { return 'vypredané do ' + new Intl.DateTimeFormat('sk-SK', { timeZone: 'Europe/Bratislava', hour: '2-digit', minute: '2-digit' }).format(new Date(item.soldOutUntil)); }
+function toggleFormSoldOut() {
+  formSoldOut = !formSoldOut;
+  updateFormSoldOutToggle();
+}
+function updateFormSoldOutToggle() {
+  const t = byId('fSoldOutToggle');
+  const l = byId('fSoldOutLabel');
+  if (!t || !l) return;
+  t.classList.toggle('on', formSoldOut);
+  l.textContent = formSoldOut ? 'Dnes vypredané — web a Wolt to ukážu, o 5:00 sa vráti samo' : 'V ponuke';
+}
 
 function updateFormToggle() {
   const t = byId('fAvailToggle');
   const l = byId('fAvailLabel');
   t.classList.toggle('on', formAvailable);
   l.textContent = formAvailable ? 'Dostupný — na kase sa ponúka' : 'Nedostupný — na kase sa skryje';
+  updateFormSoldOutToggle();
 }
 
 async function saveProduct() {
@@ -966,7 +984,9 @@ async function saveProduct() {
   try {
     var savedId = editingProductId;
     if (editingProductId !== null) {
-      await api.put('/menu/items/' + editingProductId, { name, emoji, price, desc, available: formAvailable, categoryId: catId, vatRate, companionMenuItemId, destOverride });
+      const soldOutPatch = formSoldOut !== formSoldOutInit ? { soldOut: formSoldOut } : {};
+      const saved = await api.put('/menu/items/' + editingProductId, { name, emoji, price, desc, available: formAvailable, categoryId: catId, vatRate, companionMenuItemId, destOverride, ...soldOutPatch });
+      if (saved && typeof saved.wolt === 'string' && saved.wolt.startsWith('error')) showToast('Uložené, ale Wolt: ' + saved.wolt.slice(7), 'error');
     } else {
       const created = await api.post('/menu/items', { categoryId: catId, name, emoji, price, desc, available: formAvailable, vatRate, companionMenuItemId, destOverride });
       savedId = created && created.id;
@@ -1054,6 +1074,7 @@ export function init(container) {
   activeCatId = null;
   editingProductId = null;
   formAvailable = true;
+  formSoldOut = formSoldOutInit = false;
   formVatRate = 23;
   vatRateTouched = false;
   catDragIdx = null;
@@ -1176,6 +1197,13 @@ export function init(container) {
               <span class="u-toggle-label" id="fAvailLabel">Dostupný — na kase sa ponúka</span>
             </div>
           </div>
+          <div class="u-modal-field">
+            <label>Dnes vypredané</label>
+            <div class="u-toggle" id="fSoldOutToggleWrap">
+              <div class="u-toggle-track" id="fSoldOutToggle"><div class="u-toggle-knob"></div></div>
+              <span class="u-toggle-label" id="fSoldOutLabel">V ponuke</span>
+            </div>
+          </div>
         </div>
         <button type="button" class="u-btn mn-btn-danger" id="prodDeleteBtn" hidden>Odstrániť produkt</button>
         <div class="u-modal-btns">
@@ -1231,6 +1259,7 @@ export function init(container) {
     });
   }
   byId('fAvailToggleWrap').addEventListener('click', toggleFormAvail);
+  byId('fSoldOutToggleWrap').addEventListener('click', toggleFormSoldOut);
   byId('productModal').addEventListener('click', function (e) { if (e.target === this) closeProductModal(); });
   byId('fCategory').addEventListener('change', function () { syncVatRateSuggestion(false); syncCompanionSuggestion(false); });
   byId('fName').addEventListener('input', function () { syncVatRateSuggestion(false); });

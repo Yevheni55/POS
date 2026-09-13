@@ -244,6 +244,40 @@ export async function confirmPreorder(orderId) {
   return { ok: true };
 }
 
+// ── Prevádzka a menu (Venue / Menu API) ──────────────────────────────────────
+// Telá podľa docs Woltu (PATCH /venues/{id}/online, PATCH /venues/{id}/items) —
+// v docs bez príkladov, overiť v development prostredí pred ostrou prevádzkou.
+function venueUrl(cfg, tail) {
+  if (!cfg.venueId) throw new WoltOrderError('Wolt: chýba WOLT_ORDER_VENUE_ID', { status: 503 });
+  return cfg.baseUrl.replace(/\/$/, '') + '/venues/' + encodeURIComponent(cfg.venueId) + '/' + tail;
+}
+export function buildVenueOnlineBody(status, until = null) {
+  const body = { status: status === 'OFFLINE' ? 'OFFLINE' : 'ONLINE' };
+  if (body.status === 'OFFLINE' && until) body.until = new Date(until).toISOString();
+  return body;
+}
+/** Pauza príjmu: prevádzka vo Wolte offline do `until` (Wolt ju sám zapne), alebo späť online. */
+export async function setVenueOnline(status, { until = null } = {}) {
+  const cfg = woltOrderConfig();
+  assertConfigured(cfg);
+  if (cfg.mode === 'mock') return { ok: true, mock: true, body: buildVenueOnlineBody(status, until) };
+  await call(cfg, 'PATCH', venueUrl(cfg, 'online'), buildVenueOnlineBody(status, until));
+  return { ok: true };
+}
+/** Položky sú vo Wolte párované cez SKU = id položky v kase (rovnako ako makeMenuResolver). */
+export function buildItemsAvailabilityBody(items) {
+  return { data: items.map((i) => ({ sku: String(i.sku), enabled: !!i.enabled, in_stock: !!i.enabled })) };
+}
+/** „Dnes vypredané" / späť v ponuke — dočasné vypnutie položiek vo Wolte. */
+export async function setItemsAvailability(items) {
+  const cfg = woltOrderConfig();
+  assertConfigured(cfg);
+  if (!items.length) return { ok: true, count: 0 };
+  if (cfg.mode === 'mock') return { ok: true, mock: true, count: items.length, body: buildItemsAvailabilityBody(items) };
+  await call(cfg, 'PATCH', venueUrl(cfg, 'items'), buildItemsAvailabilityBody(items));
+  return { ok: true, count: items.length };
+}
+
 // ── Webhook ──────────────────────────────────────────────────────────────────
 /** WOLT-SIGNATURE = HMAC-SHA256(telo požiadavky, client secret) v hex. */
 export function verifyOrderWebhookSignature(rawBody, signatureHeader, secret) {

@@ -10,11 +10,10 @@ import { requireRole } from '../middleware/requireRole.js';
 import { asyncRoute } from '../lib/async-route.js';
 import { emitEvent } from '../lib/emit.js';
 import { woltConfig, cancelDelivery, WoltError } from '../lib/wolt-drive.js';
-import { addEvent, fireOrder, dispatch, printKitchenBons, markCancelledByWolt } from '../lib/online-order-fire.js';
+import { addEvent, fireOrder, dispatch, printKitchenBons, markCancelledByWolt, lockOrder, unlockOrder, acceptAndFire } from '../lib/online-order-fire.js';
+import { getPause, setPause, clearPause, getAutoAccept, setAutoAccept, endOfLocalDay } from '../lib/app-settings.js';
 import {
-  woltOrderConfig, acceptOrder, rejectOrder as woltRejectOrder, readyOrder as woltReadyOrder, deliveredOrder as woltDeliveredOrder,
-  confirmPreorder, exchangeAuthCode, connectionStatus, WoltOrderError,
-  normalizeOrder, buildOnlineOrderFromWolt, makeMenuResolver, statusForNotification,
+  woltOrderConfig, acceptOrder, rejectOrder as woltRejectOrder, readyOrder as woltReadyOrder, deliveredOrder as woltDeliveredOrder, confirmPreorder, exchangeAuthCode, connectionStatus, WoltOrderError, normalizeOrder, buildOnlineOrderFromWolt, makeMenuResolver, statusForNotification, setVenueOnline,
 } from '../lib/wolt-order-api.js';
 import { confirmOnlineOrderSchema, rejectOnlineOrderSchema, listOnlineOrdersQuerySchema } from '../schemas/online-orders.js';
 
@@ -36,7 +35,51 @@ router.get('/config', asyncRoute(async (req, res) => {
   const w = woltOrderConfig();
   let woltOrders = { enabled: w.enabled, mode: w.mode, connected: false };
   if (w.enabled) { try { woltOrders = { ...woltOrders, ...(await connectionStatus(w)) }; } catch { /* bez DB info */ } }
-  res.json({ enabled: cfg.enabled, mode: cfg.mode, cashOnDelivery: cfg.cashOnDelivery, pickup: cfg.pickup, minPrepMinutes: cfg.minPrepMinutes, woltOrders });
+  const pause = await getPause();
+  res.json({
+    enabled: cfg.enabled, mode: cfg.mode, cashOnDelivery: cfg.cashOnDelivery, pickup: cfg.pickup, minPrepMinutes: cfg.minPrepMinutes, woltOrders,
+    pause: pause ? { until: pause.until.toISOString(), reason: pause.reason, byName: pause.byName } : null,
+    autoAccept: await getAutoAccept(),
+  });
+}));
+
+// ── Pauza príjmu (manažér) — jedno tlačidlo zavrie web aj Wolt, vráti sa samo ──
+// Web: most pošle pausedUntil v heartbeate, PHP objednávku odmietne. Wolt: prevádzka
+// OFFLINE do `until` (Wolt ju sám zapne). Kasa: verejné POST / odmietne 503.
+router.post('/pause', mgr, asyncRoute(async (req, res) => {
+  const minutes = Number(req.body?.minutes) || 0;
+  const untilEndOfDay = !!req.body?.untilEndOfDay;
+  if (!untilEndOfDay && (minutes < 5 || minutes > 12 * 60)) return res.status(400).json({ error: 'Pauza 5 minút až 12 hodín, alebo do konca dňa' });
+  const until = untilEndOfDay ? endOfLocalDay() : new Date(Date.now() + minutes * 60_000);
+  const reason = String(req.body?.reason || '').trim().slice(0, 120);
+  await setPause({ until, reason, staffId: req.user.id, staffName: req.user.name || '' });
+  let wolt = 'skipped';
+  if (woltOrderConfig().enabled) {
+    try { const r = await setVenueOnline('OFFLINE', { until }); wolt = r.mock ? 'mock' : 'ok'; }
+    catch (e) { wolt = 'error: ' + e.message; console.error('[online-orders] Wolt offline:', e.message); }
+  }
+  console.log('[online-orders] pauza príjmu do', until.toISOString(), reason ? '(' + reason + ')' : '', '—', req.user.name || req.user.id);
+  emitEvent(req, 'online-orders:pause', { until: until.toISOString(), reason, byName: req.user.name || '' }).catch(() => {});
+  const pause = await getPause();
+  res.json({ ok: true, pause: pause ? { until: pause.until.toISOString(), reason: pause.reason, byName: pause.byName } : null, wolt });
+}));
+router.delete('/pause', mgr, asyncRoute(async (req, res) => {
+  await clearPause(req.user.id);
+  let wolt = 'skipped';
+  if (woltOrderConfig().enabled) {
+    try { const r = await setVenueOnline('ONLINE'); wolt = r.mock ? 'mock' : 'ok'; }
+    catch (e) { wolt = 'error: ' + e.message; console.error('[online-orders] Wolt online:', e.message); }
+  }
+  console.log('[online-orders] príjem obnovený —', req.user.name || req.user.id);
+  emitEvent(req, 'online-orders:pause', { until: null, byName: req.user.name || '' }).catch(() => {});
+  res.json({ ok: true, pause: null, wolt });
+}));
+// ── Auto-prijímať (manažér): strážca prijme novú objednávku sám s danými minútami ──
+router.post('/auto-accept', mgr, asyncRoute(async (req, res) => {
+  const v = await setAutoAccept({ enabled: !!req.body?.enabled, prepMinutes: req.body?.prepMinutes, staffId: req.user.id });
+  console.log('[online-orders] Auto-prijímať', v.enabled ? 'ZAP (' + v.prepMinutes + ' min)' : 'VYP', '—', req.user.name || req.user.id);
+  emitEvent(req, 'online-orders:auto-accept', { ...v, byName: req.user.name || '' }).catch(() => {});
+  res.json({ ok: true, autoAccept: v });
 }));
 
 // POST /wolt/mock-order — skúšobná objednávka „z aplikácie Wolt" (len v režime
@@ -163,17 +206,17 @@ router.get('/stats', mgr, asyncRoute(async (req, res) => {
            count(*) FILTER (WHERE ready_at IS NOT NULL AND promised_ready_at IS NOT NULL)::int AS with_promise,
            count(*) FILTER (WHERE ready_at IS NOT NULL AND promised_ready_at IS NOT NULL
                               AND ready_at > promised_ready_at + interval '2 minutes')::int AS late
-    FROM online_orders WHERE created_at >= now() - make_interval(days => ${days})`);
+    FROM online_orders WHERE created_at >= timezone('UTC', now()) - make_interval(days => ${days})`);
   const reasons = await db.execute(sql`
     SELECT rejected_reason AS reason, count(*)::int AS count
-    FROM online_orders WHERE status = 'rejected' AND created_at >= now() - make_interval(days => ${days})
+    FROM online_orders WHERE status = 'rejected' AND created_at >= timezone('UTC', now()) - make_interval(days => ${days})
     GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 6`);
   const guard = await db.execute(sql`
     SELECT count(*) FILTER (WHERE e.type = 'escalated' AND e.payload->>'level' = '1')::int AS escalated1,
            count(*) FILTER (WHERE e.type = 'escalated' AND e.payload->>'level' = '2')::int AS escalated2,
            count(*) FILTER (WHERE e.type = 'rejected' AND e.payload->>'auto' = 'true')::int AS auto_rejected
     FROM online_order_events e JOIN online_orders o ON o.id = e.online_order_id
-    WHERE o.created_at >= now() - make_interval(days => ${days})`);
+    WHERE o.created_at >= timezone('UTC', now()) - make_interval(days => ${days})`);
   const m = main.rows[0] || {};
   const g = guard.rows[0] || {};
   const num = (v) => (v == null ? null : Math.round(Number(v)));
@@ -197,21 +240,6 @@ router.get('/:id/events', asyncRoute(async (req, res) => {
 // Dve obrazovky (KDS + kasa) môžu kliknúť naraz. UPDATE … WHERE <podmienka>
 // AND zámok voľný prejde presne jednému; druhý dostane 409 s vysvetlením.
 // Zámok po 30 s expiruje sám (proces mohol spadnúť uprostred).
-const LOCK_TTL_MS = 30_000;
-async function lockOrder(id, staffId, condition) {
-  const [row] = await db.update(onlineOrders)
-    .set({ processingAt: new Date(), processingBy: staffId })
-    .where(and(
-      eq(onlineOrders.id, id),
-      condition,
-      or(isNull(onlineOrders.processingAt), lt(onlineOrders.processingAt, new Date(Date.now() - LOCK_TTL_MS))),
-    ))
-    .returning();
-  return row || null;
-}
-async function unlockOrder(id) {
-  await db.update(onlineOrders).set({ processingAt: null, processingBy: null }).where(eq(onlineOrders.id, id));
-}
 /** Keď zámok nevyšiel: 404 / „už spracovaná" / „práve rieši iná obrazovka". */
 async function lockFailure(res, id, expectedStatuses, message) {
   const [cur] = await db.select().from(onlineOrders).where(eq(onlineOrders.id, id)).limit(1);
@@ -235,44 +263,15 @@ router.post('/:id/confirm', validate(confirmOnlineOrderSchema), asyncRoute(async
   const oo = await lockOrder(id, staffId, eq(onlineOrders.status, 'new'));
   if (!oo) return lockFailure(res, id, ['new'], 'Objednávka už bola spracovaná');
 
-  const isWolt = oo.source === 'wolt';
   const prepMinutes = Number(req.body?.prepMinutes) || defaultPrepMinutes(oo);
-  const promisedReadyAt = new Date(Date.now() + prepMinutes * 60_000);
-
-  // Objednávka z aplikácie Wolt: najprv prijať vo Wolte (má na to pár minút, inak
-  // ju Wolt zruší), až potom účet a bon. Predobjednávku treba najprv potvrdiť.
-  // wolt_accepted_at chráni pred druhým accept-om pri opakovanom pokuse.
-  if (isWolt && !oo.woltAcceptedAt) {
-    try {
-      const pre = oo.woltPayload?.pre_order;
-      if (pre && String(pre.pre_order_status || '').toLowerCase() !== 'confirmed') await confirmPreorder(oo.woltOrderId);
-      await acceptOrder(oo.woltOrderId, { pickupTime: promisedReadyAt });
-      await db.update(onlineOrders).set({ woltAcceptedAt: new Date() }).where(eq(onlineOrders.id, id));
-    } catch (e) {
-      await unlockOrder(id);
-      return woltErrorResponse(res, e);
-    }
+  let result;
+  try {
+    result = await acceptAndFire(req.app.get('io'), oo, { staffId, staffName: req.user?.name || 'Online', prepMinutes });
+  } catch (e) {
+    if (e instanceof WoltOrderError) return woltErrorResponse(res, e);
+    throw e;
   }
-
-  // Predobjednávka (web „na čas" / Wolt pre-order): teraz len potvrdenie, účet +
-  // bon + kuriér až v čase fire_at = doručenie − príprava − 15 min (strážca).
-  const targetMs = oo.scheduledFor ? new Date(oo.scheduledFor).getTime() : 0;
-  const fireAt = targetMs ? new Date(targetMs - (prepMinutes + 15) * 60_000) : null;
-  const scheduled = !!fireAt && fireAt.getTime() - Date.now() > 5 * 60_000;
-  const confirmPatch = {
-    status: 'confirmed', confirmedBy: staffId, confirmedAt: new Date(), prepMinutes, promisedReadyAt: scheduled ? new Date(targetMs) : promisedReadyAt,
-    fireAt: scheduled ? fireAt : null, processingAt: null, processingBy: null, claimedBy: null, claimedAt: null, updatedAt: new Date(),
-  };
-  await db.update(onlineOrders).set(confirmPatch).where(eq(onlineOrders.id, id));
-  await addEvent(id, 'confirmed', { staffId, source: oo.source, prepMinutes, scheduled });
-  if (scheduled) {
-    emitEvent(req, 'online-order:updated', { id, code: oo.publicCode, status: 'confirmed', scheduled: true }).catch(() => {});
-    const [row] = await db.select().from(onlineOrders).where(eq(onlineOrders.id, id)).limit(1);
-    return res.json({ ok: true, order: row, scheduled: true, fireAt });
-  }
-  const fired = await fireOrder(req.app.get('io'), { ...oo, ...confirmPatch }, { staffId, staffName: req.user?.name || 'Online' });
-  if (isWolt) return res.json(fired.result);
-  res.json(fired.result);
+  res.json(result);
 }));
 
 // POST /:id/fire — účet + bon (+ kuriér) hneď: predobjednávka skôr než v čase
