@@ -504,7 +504,8 @@ try {
     if ($method === 'GET' && $path === '/menu') out(menu($pdo));
     if ($method === 'GET' && $path === '/online-orders/config') {
         $c = deliveryConfig($pdo);
-        out(['deliveryEnabled' => $c['deliveryEnabled'], 'mode' => $c['mode'], 'paymentMethods' => $c['paymentMethods'], 'minOrderEur' => $c['minOrderEur'], 'pickup' => $c['pickup']]);
+        out(['deliveryEnabled' => $c['deliveryEnabled'], 'acceptingOrders' => $c['acceptingOrders'], 'pausedUntil' => $c['pausedUntil'], 'pauseReason' => $c['pauseReason'],
+             'mode' => $c['mode'], 'paymentMethods' => $c['paymentMethods'], 'minOrderEur' => $c['minOrderEur'], 'pickup' => $c['pickup']]);
     }
     if ($method === 'POST' && $path === '/online-orders/quote') quote($pdo, deliveryConfig($pdo));
     if ($method === 'POST' && $path === '/online-orders') createOrder($pdo, deliveryConfig($pdo));
