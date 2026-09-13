@@ -262,6 +262,35 @@ describe('most web ↔ kasa', () => {
     assert.match(t2.rejectedReason, /Wolt/);
   });
 
+  it('Wolt zrušil objednávku po prijatí: účet dostane ZRUŠENÉ, KDS a kasa STOP', async () => {
+    const items = await testDb.select().from(menuItems);
+    const raw = {
+      id: 'w-cancel-1', order_number: '5100', order_status: 'received', type: 'instant', consumer_name: 'Ivan', consumer_phone_number: '',
+      price: { amount: 990 }, delivery: { type: 'homedelivery', location: { street_address: 'Jasovská 1', city: 'Bratislava', post_code: '851 07' } },
+      created_at: new Date().toISOString(),
+      items: [{ id: 'i1', name: items[0].name, count: 1, pos_id: String(items[0].id), item_price: { unit_price: { amount: Math.round(Number(items[0].price) * 100) } } }],
+    };
+    await pool.query('INSERT INTO wolt_order_events (notification_id, type, wolt_order_id, status, payload) VALUES ($1, $2, $3, $4, $5)',
+      ['n-c1', 'order.notification', raw.id, 'CREATED', JSON.stringify({ order: { id: raw.id, status: 'CREATED' }, mock_order: raw })]);
+    await bridge.tick();
+    const [local] = await testDb.select().from(onlineOrders).where(eq(onlineOrders.woltOrderId, raw.id));
+    const conf = await request.post('/api/online-orders/' + local.id + '/confirm').set('Authorization', 'Bearer ' + tokens.cisnik()).send({ prepMinutes: 15 });
+    assert.equal(conf.status, 200, JSON.stringify(conf.body));
+    assert.ok(conf.body.order.posOrderId);
+    await pool.query('INSERT INTO wolt_order_events (notification_id, type, wolt_order_id, status, payload) VALUES ($1, $2, $3, $4, $5)',
+      ['n-c1-x', 'order.notification', raw.id, 'CANCELED', JSON.stringify({ order: { id: raw.id, status: 'CANCELED' } })]);
+    emitted.length = 0;
+    const rc = await bridge.tick();
+    assert.deepEqual(rc.errors, [], 'cyklus bez chýb');
+    const [l2] = await testDb.select().from(onlineOrders).where(eq(onlineOrders.id, local.id));
+    assert.equal(l2.status, 'cancelled');
+    const [pos] = await testDb.select().from(schema.orders).where(eq(schema.orders.id, l2.posOrderId));
+    assert.match(pos.label, /^ZRUŠENÉ · Wolt W-5100/);
+    assert.equal(pos.status, 'open', 'účet ostáva na odpis');
+    assert.ok(emitted.some((e) => e.ev === 'online-order:stop' && e.data.posOrderId === pos.id));
+    assert.ok(emitted.some((e) => e.ev === 'order:updated' && e.data.cancelledByWolt));
+  });
+
   it('zaseknutá Wolt notifikácia nezastaví heartbeat ani stav späť; po piatich pokusoch sa vzdá', async () => {
     // Notifikácia bez mock_order → getOrder v mock režime hodí 404 (trvalá) → označí sa hneď.
     await pool.query('INSERT INTO wolt_order_events (notification_id, type, wolt_order_id, status, payload) VALUES ($1, $2, $3, $4, $5)',

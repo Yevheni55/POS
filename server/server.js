@@ -18,6 +18,7 @@ import { getPortosConfig, isPortosEnabled } from './lib/portos.js';
 import { runPortosProfileSync, startPortosProfileSync } from './lib/portos-sync-job.js';
 import { startSheetsExportCron } from './lib/sheets-export.js';
 import { startWebOrdersBridge } from './lib/web-orders-bridge.js';
+import { startOnlineOrdersWatchdog } from './lib/online-orders-watchdog.js';
 import { startWeatherHourlyCron } from './lib/weather.js';
 import { startForecastCron } from './lib/forecast/engine.js';
 import { isVatRegisteredBusiness } from './lib/vat-registration.js';
@@ -260,6 +261,9 @@ function onHttpListening() {
   // Online objednávky z webu (surfspirit.sk na Websupporte): kasa si ich sama
   // vyzdvihuje z Neon a zapisuje stav späť. Bez NEON_DATABASE_URL len zaloguje.
   startWebOrdersBridge(app);
+  // Strážca: eskalácia neprijatých objednávok, auto-odmietnutie pred termínom
+  // Woltu, odpálenie predobjednávok v čase fire_at.
+  startOnlineOrdersWatchdog(app);
 }
 
 async function bootstrap() {

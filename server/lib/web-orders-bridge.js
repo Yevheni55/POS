@@ -19,6 +19,8 @@ import {
   woltOrderConfig, getOrder, normalizeOrder, buildOnlineOrderFromWolt, makeMenuResolver, statusForNotification, exchangeAuthCode,
 } from './wolt-order-api.js';
 import { applyWoltEvent } from './online-order-status.js';
+import { markCancelledByWolt } from './online-order-fire.js';
+import { sendAlert } from './alerts.js';
 import { emitEventIo } from './emit.js';
 
 const TAG = '[web-orders]';
@@ -222,6 +224,7 @@ export function createBridge({ url, io = null, cacheBustUrl = '', fetchImpl = gl
                 resolver = makeMenuResolver(menu);
               }
               const values = buildOnlineOrderFromWolt(normalizeOrder(raw), resolver, raw);
+              if (cfgW.acceptWindowS) values.acceptDeadlineAt = new Date(Date.now() + cfgW.acceptWindowS * 1000);
               if (statusForNotification(st, 'new') === 'confirmed') { values.status = 'confirmed'; values.confirmedAt = new Date(); }
               if (st === 'READY') { values.status = 'confirmed'; values.confirmedAt = new Date(); values.readyAt = new Date(); }
               let inserted;
@@ -252,6 +255,8 @@ export function createBridge({ url, io = null, cacheBustUrl = '', fetchImpl = gl
             await db.update(onlineOrders).set(patch).where(eq(onlineOrders.id, local.id));
             await db.insert(onlineOrderEvents).values({ onlineOrderId: local.id, type: 'wolt:' + st.toLowerCase(), payload: ev.payload || {} });
             emitEventIo(io, 'online-order:updated', { id: local.id, code: local.publicCode, status: patch.status || local.status, woltStatus: patch.woltStatus }).catch(() => {});
+            // Zrušené Woltom po prijatí: kuchyňa musí zastať, účet ostáva na odpis.
+            if (patch.status === 'cancelled') await markCancelledByWolt(io, { ...local, ...patch });
             handled++;
           }
         }
@@ -375,6 +380,7 @@ export function startWebOrdersBridge(app) {
   console.log(TAG, `zapnutý — objednávky každých ${cfg.pollMs / 1000} s (pri nových ${cfg.hotPollMs / 1000} s), menu ${cfg.menuSync ? 'každých ' + Math.round(cfg.menuSyncMs / 60000) + ' min' : 'ručne'}`);
 
   let failures = 0;
+  let alertedDown = false;
   const run = async () => {
     try {
       const r = await _bridge.tick();
@@ -384,7 +390,16 @@ export function startWebOrdersBridge(app) {
         // chvíľu spať alebo vypadnúť internet, netreba tým zaplaviť log.
         failures++;
         if (failures === 1 || failures % Math.max(1, Math.round(60_000 / cfg.pollMs)) === 0) console.error(TAG, 'chyba:', r.errors.join(' | '));
-      } else failures = 0;
+        // Po ~2 minútach bez úspešného cyklu jedna správa manažérovi (web hlási „nedostupné").
+        if (!alertedDown && stats.lastOkTickAt && Date.now() - new Date(stats.lastOkTickAt).getTime() > 120_000) {
+          alertedDown = true;
+          sendAlert('🔌 Kasa stratila spojenie s webom (Neon) už 2 minúty: ' + r.errors[0] + '. Web hlási „doručenie nie je dostupné", objednávky z Woltu neprichádzajú.').catch(() => {});
+        }
+      } else {
+        if (alertedDown) sendAlert('✅ Spojenie kasy s webom obnovené, objednávky opäť prichádzajú.').catch(() => {});
+        alertedDown = false;
+        failures = 0;
+      }
     } catch (e) {
       failures++;
       if (failures === 1) console.error(TAG, 'chyba:', e.message);

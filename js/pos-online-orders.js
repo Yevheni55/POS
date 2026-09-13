@@ -25,6 +25,23 @@
   var busy = {};              // id → true kým beží požiadavka
   var modal = { mode: null, id: null, rejecting: false, prep: false };
   var pollTimer = null, snoozeTimer = null, loading = false;
+  var claimedAt = {};         // id → kedy sme naposledy poslali „rieši kasa"
+  var escalated = {};         // id → úroveň zo strážcu (1 = kasa červená)
+  function me() {
+    try { var u = api.getUser && api.getUser(); if (u && u.id) return u; } catch (e) { /* bez používateľa */ }
+    // Záloha: id z JWT (napr. keď je token bez uloženého používateľa).
+    try { var t = sessionStorage.getItem('pos_token') || ''; return JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))) || {}; } catch (e) { return {}; }
+  }
+  function claimText(o) {
+    if (!o.claimedAt || !o.claimedBy || o.claimedBy === me().id) return '';
+    if (Date.now() - new Date(o.claimedAt).getTime() > 30000) return '';
+    return 'Rieši ' + (o.claimedName || 'kuchyňa');
+  }
+  function claim(id) {
+    if (claimedAt[id] && Date.now() - claimedAt[id] < 25000) return;
+    claimedAt[id] = Date.now();
+    if (typeof api !== 'undefined' && api.patch) api.patch('/online-orders/' + id + '/claim', {}).catch(function () {});
+  }
 
   var fmtWhen = new Intl.DateTimeFormat('sk-SK', { timeZone: 'Europe/Bratislava', weekday: 'short', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' });
   var fmtTime = new Intl.DateTimeFormat('sk-SK', { timeZone: 'Europe/Bratislava', hour: '2-digit', minute: '2-digit' });
@@ -126,6 +143,8 @@
       case 'snooze': snoozed[id] = Date.now() + SNOOZE_MS; var a = alarm(); if (a) a.stop(); renderAll(); break;
       case 'ready': deferred(id, 'ready'); break;
       case 'handover': handoverOrder(id); break;
+      case 'fire': fireOrder(id); break;
+      case 'reprint': reprintOrder(id); break;
       case 'undo': undo(id); break;
       case 'reject-start': openDetail(id, true); break;
       case 'reject-cancel': modal.rejecting = false; renderModal(); break;
@@ -186,6 +205,8 @@
       '<div class="oo-tk ' + (isWolt(o) ? 'is-wolt' : 'is-web') + '">' +
         '<div class="oo-tk-src"><span>' + (isWolt(o) ? 'Nová objednávka · aplikácia Wolt' : 'Nová objednávka · surfspirit.sk') + '</span><span class="oo-tk-code">' + esc(o.publicCode) + '</span></div>' +
         '<div class="oo-tk-head"><div class="oo-tk-title" id="ooTakeoverTitle">' + esc(o.customerName) + '</div><div class="oo-tk-due ' + d.cls + '" data-oo-due="' + o.id + '">' + esc(d.text) + '</div></div>' +
+        (claimText(o) ? '<div class="oo-tk-claim">' + esc(claimText(o)) + '</div>' : '') +
+        ((escalated[o.id] || o.escalationLevel) >= 1 ? '<div class="oo-tk-esc">Kuchyňa neprijala — prijmi ty' + ((escalated[o.id] || o.escalationLevel) >= 2 ? ' · manažér dostal správu' : '') + '</div>' : '') +
         '<div class="oo-tk-when">' + esc(whenText(o)) + ' · ' + n + ' ' + itemsWord(n) + ' · <b>' + esc(eur(o.total)) + '</b> · ' + esc(payText(o)) + (more ? ' · <b>+' + more + ' ' + (more === 1 ? 'ďalšia' : more < 5 ? 'ďalšie' : 'ďalších') + '</b>' : '') + '</div>' +
         '<div class="oo-tk-items">' + items + '</div>' +
         (o.note ? '<div class="oo-note">' + esc(o.note) + '</div>' : '') +
@@ -211,7 +232,7 @@
     var o = list[0], more = list.length - 1, n = qtyOf(o);
     b.innerHTML =
       '<div class="oo-banner-main">' +
-        '<span class="oo-banner-kicker">' + (isWolt(o) ? 'Nová objednávka z aplikácie Wolt' : 'Nová online objednávka') + '</span>' +
+        '<span class="oo-banner-kicker">' + ((escalated[o.id] || o.escalationLevel || 0) >= 1 ? 'Kuchyňa neprijala — prijmi ty · ' : '') + (isWolt(o) ? 'Nová objednávka z aplikácie Wolt' : 'Nová online objednávka') + '</span>' +
         '<span class="oo-banner-text">' + codeHtml(o) + ' · ' + esc(o.customerName) + ' · ' + n + ' ' + itemsWord(n) + ' · <b>' + esc(eur(o.total)) + '</b> · ' + esc(whenText(o)) +
           (more ? ' · <button type="button" class="oo-banner-more" data-act="list">+' + more + ' ' + (more === 1 ? 'ďalšia' : more < 5 ? 'ďalšie' : 'ďalších') + '</button>' : '') +
         '</span>' +
@@ -223,6 +244,7 @@
       '</div>';
     b.querySelector('[data-act="prep-open"]').addEventListener('click', function () { openDetail(o.id, false, true); });
     b.hidden = false;
+    b.classList.toggle('is-escalated', (escalated[o.id] || o.escalationLevel || 0) >= 1);
     document.body.classList.add('has-oo-banner');
     positionBanner();
     var a = alarm();
@@ -273,6 +295,7 @@
     modal = { mode: 'detail', id: id, rejecting: !!rejecting, prep: !!prep };
     // Niekto sa objednávke venuje — alarm stíchne; po zavretí bez akcie sa ozve znova.
     var a = alarm(); if (a) a.stop();
+    claim(id);
     renderModal(); showOverlay(); renderTakeover(); renderBanner();
   }
   function renderModal() {
@@ -332,6 +355,9 @@
       actions = '<div class="oo-actions"><button type="button" class="u-btn u-btn-ghost" data-act="close">Zavrieť</button>' +
         '<button type="button" class="u-btn oo-btn-danger" data-act="reject-start" data-id="' + o.id + '">Odmietnuť</button>' +
         '<button type="button" class="u-btn u-btn-ice" data-act="prep-start" data-id="' + o.id + '">' + (isWolt(o) ? 'Prijať vo Wolte' : 'Potvrdiť a objednať kuriéra') + '</button></div>';
+    } else if (o.status === 'confirmed' && !o.firedAt && !o.posOrderId) {
+      actions = '<div class="oo-actions"><button type="button" class="u-btn u-btn-ghost" data-act="close">Zavrieť</button>' +
+        '<button type="button" class="u-btn u-btn-ice" data-act="fire" data-id="' + o.id + '">' + (o.fireAt ? 'Začať variť teraz' : 'Vytvoriť účet a bon') + '</button></div>';
     } else if (!o.readyAt && (o.status === 'confirmed' || o.status === 'dispatched')) {
       actions = '<div class="oo-actions"><button type="button" class="u-btn u-btn-ghost" data-act="close">Zavrieť</button>' +
         '<button type="button" class="u-btn u-btn-ice" data-act="ready" data-id="' + o.id + '">' + (inHouse(o) ? 'Hotové — zákazník si môže prísť' : 'Hotové — čaká na kuriéra') + '</button></div>';
@@ -353,6 +379,9 @@
       '<div class="oo-kv"><span>Adresa</span><span>' + esc(o.dropoffStreet) + (o.dropoffPostCode ? ', ' + esc(o.dropoffPostCode) : '') + (o.dropoffCity ? ' ' + esc(o.dropoffCity) : '') + (o.dropoffComment ? ' · ' + esc(o.dropoffComment) : '') + '</span></div>' +
       '<div class="oo-kv"><span>Platba</span><span>' + esc(payText(o)) + '</span></div>' +
       (o.prepMinutes ? '<div class="oo-kv"><span>Príprava</span><span>' + o.prepMinutes + ' min · hotové ' + esc(fmtTime.format(new Date(o.promisedReadyAt || Date.now()))) + '</span></div>' : '') +
+      (o.fireAt && !o.firedAt ? '<div class="oo-kv"><span>Plán</span><span>predobjednávka · bon pôjde ' + esc(fmtTime.format(new Date(o.fireAt))) + '</span></div>' : '') +
+      (o.status !== 'new' && o.bonStatus ? '<div class="oo-kv"><span>Bon</span><span>' + (o.bonStatus === 'ok' ? 'vytlačený' : o.bonStatus === 'none' ? 'bez položiek z kasy' : '<b class="oo-bon-bad">nevytlačený</b>') + ' · <button type="button" class="oo-link" data-act="reprint" data-id="' + o.id + '">vytlačiť znova</button></span></div>' : '') +
+      (claimText(o) ? '<div class="oo-kv"><span>Rieši</span><span>' + esc(claimText(o).replace(/^Rieši /, '')) + '</span></div>' : '') +
       (o.woltTrackingUrl ? '<div class="oo-kv"><span>Kuriér</span><span><a href="' + esc(o.woltTrackingUrl) + '" target="_blank" rel="noopener">sledovať kuriéra</a></span></div>' : '') +
       (isWolt(o) && !inHouse(o) ? '<div class="oo-kv"><span>Kuriér</span><span>posiela Wolt' + (o.woltPickupEta ? ' · príde ' + esc(fmtTime.format(new Date(o.woltPickupEta))) : '') + '</span></div>' : '') +
       actions;
@@ -373,9 +402,10 @@
     busy[id] = true;
     var a = alarm(); if (a) a.stop();
     renderAll();
-    post(id, 'confirm', { prepMinutes: prep || DEFAULT_PREP }).then(function () {
+    post(id, 'confirm', { prepMinutes: prep || DEFAULT_PREP }).then(function (r) {
       delete busy[id];
-      toast((isWolt(o) ? 'Prijaté vo Wolte' : 'Potvrdené') + ' · ' + o.publicCode + ' · ' + (prep || DEFAULT_PREP) + ' min — bon ide do kuchyne', 'success');
+      if (r && r.error) toast((isWolt(o) ? 'Prijaté vo Wolte, ale ' : 'Potvrdené, ale ') + r.error, 'warning');
+      else toast((isWolt(o) ? 'Prijaté vo Wolte' : 'Potvrdené') + ' · ' + o.publicCode + ' · ' + (prep || DEFAULT_PREP) + ' min — bon ide do kuchyne', 'success');
       if (modal.id === id) closeModal();
       refresh();
     }).catch(function (e) {
@@ -415,6 +445,22 @@
       if (modal.id === id) closeModal();
       refresh();
     }).catch(function (e) { delete busy[id]; toast(errMsg(e), 'error'); refresh(); });
+  }
+  function fireOrder(id) {
+    var o = find(id);
+    if (!o || busy[id] || !guardOnline()) return;
+    busy[id] = true;
+    post(id, 'fire', {}).then(function (r) {
+      delete busy[id];
+      if (r && r.error) toast(r.error, 'warning'); else toast('Účet založený, bon ide do kuchyne', 'success');
+      closeModal(); refresh();
+    }).catch(function (e) { delete busy[id]; toast(errMsg(e), 'error'); refresh(); });
+  }
+  function reprintOrder(id) {
+    api.post('/online-orders/' + id + '/reprint', {}).then(function (r) {
+      toast(r.bon === 'ok' ? 'Bon vytlačený (kópia)' : 'Bon je vo fronte — tlačiareň neodpovedá', r.bon === 'ok' ? 'success' : 'warning');
+      refresh();
+    }).catch(function (e) { toast(errMsg(e), 'error'); });
   }
   function handoverOrder(id) {
     var o = find(id);
@@ -463,6 +509,19 @@
     if (!socket) return;
     socket.on('online-order:new', function () { refresh(); });
     socket.on('online-order:updated', function () { refresh(); });
+    socket.on('online-order:claimed', function () { refresh(); });
+    // Strážca: kuchyňa minútu nereagovala → kasa zčervenie, odložené sa vráti, alarm nahlas.
+    socket.on('online-order:alert', function (data) {
+      if (data && data.id) { escalated[data.id] = data.level || 1; delete snoozed[data.id]; }
+      var a = alarm(); if (a) a.play(data && data.source === 'wolt' ? 'wolt' : 'web', true);
+      refresh();
+    });
+    // Wolt zrušil už prijatú objednávku → STOP.
+    socket.on('online-order:stop', function (data) {
+      toast('STOP — Wolt zrušil objednávku ' + ((data && data.code) || '') + '. Kuchyňa nevarí, účet uzavrieť ako odpis.', 'error');
+      var a = alarm(); if (a) a.play('wolt', true);
+      refresh();
+    });
     socket.on('connect', function () { refresh(); });
   }
 

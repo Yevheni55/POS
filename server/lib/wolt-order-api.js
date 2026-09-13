@@ -68,6 +68,9 @@ export function woltOrderConfig() {
     webhookSecret: env('WOLT_ORDER_WEBHOOK_SECRET'),
     // Koľko minút si pýtame na prípravu pri prijatí (adjusted_pickup_time). 0 = nechať odhad Woltu.
     prepMinutes: Number(env('WOLT_ORDER_PREP_MINUTES', '0')) || 0,
+    // Za koľko sekúnd Wolt neprijatú objednávku sám zruší (dohodnuté s Woltom); 0 = nevieme,
+    // strážca potom automaticky neodmieta.
+    acceptWindowS: Number(env('WOLT_ORDER_ACCEPT_WINDOW_S', '0')) || 0,
   };
 }
 

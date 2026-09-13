@@ -57,6 +57,7 @@
 .oo-group {
   background: var(--ios-card, var(--color-bg-surface)); border: 1px solid var(--ios-sep, var(--color-border));
   border-radius: var(--ios-radius, var(--radius-md)); overflow: hidden; margin-bottom: var(--space-3);
+  flex-shrink: 0; /* telo modalu je flex stĺpec — karta s overflow:hidden by sa inak skrátila a odrezala spodné riadky */
 }
 .oo-item, .oo-tot, .oo-kv, .oo-ev {
   display: grid; gap: var(--space-3); padding: 10px 14px;

@@ -775,6 +775,19 @@ export const onlineOrders = pgTable('online_orders', {
   // Zámok proti dvojitému spracovaniu (KDS a kasa naraz); po 30 s expiruje.
   processingAt: timestamp('processing_at'),
   processingBy: integer('processing_by'),
+  // Kto objednávku práve rieši (otvoril detail / vidí takeover) — vidia všetci, TTL 30 s.
+  claimedBy: integer('claimed_by'),
+  claimedName: varchar('claimed_name', { length: 100 }),
+  claimedAt: timestamp('claimed_at'),
+  // Strážca: 0 nič, 1 po minúte bez reakcie (KDS + kasa), 2 po dvoch (Telegram manažérovi).
+  escalationLevel: integer('escalation_level').notNull().default(0),
+  // Termín Woltu na prijatie — 30 s pred ním strážca objednávku odmietne s dôvodom.
+  acceptDeadlineAt: timestamp('accept_deadline_at'),
+  // Predobjednávka: účet + bon + kuriér vzniknú až v čase fire_at (strážca), nie pri prijatí.
+  fireAt: timestamp('fire_at'),
+  firedAt: timestamp('fired_at'),
+  // Bon do kuchyne: ok | queued (tlačiareň offline, vo fronte) | failed | none (bez položiek z kasy).
+  bonStatus: varchar('bon_status', { length: 16 }),
   rejectedReason: varchar('rejected_reason', { length: 300 }).notNull().default(''),
   clientIp: varchar('client_ip', { length: 64 }).notNull().default(''),
   createdAt: timestamp('created_at').notNull().defaultNow(),

@@ -267,6 +267,7 @@
       // kuriéra a jedno HOTOVÉ, ktoré odškrtne bon aj ohlási Woltu/zákazníkovi.
       const oo = onlineMap[tableId] || null;
       const due = oo ? ooDue(oo) : null;
+      const stopped = /^ZRUŠENÉ/.test(tableId);
       // Hotové ohlásené inde (kasa, admin, druhý KDS) — bon je vybavený, z mriežky ide preč.
       if (oo && oo.readyAt && !ooPending[oo.id]) { items.forEach(function (it) { ackItem(it.id); }); return; }
       if (oo) {
@@ -279,9 +280,12 @@
       // then attribute-escape for the HTML parser layer.
       var jsTableId = escAttr(String(tableId).replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
       var safeTableId = escAttr(tableId);
+      if (stopped) cardClass += ' oo-stop';
       html += '<div class="' + cardClass + '" data-table="' + safeTableId + '" tabindex="0" role="article" aria-label="' + escAttr(tableName) + ' - ' + escAttr(oo ? due.text : formatElapsed(elapsed)) + '">';
-      if (oo) html += '<div class="oo-strip">' + (ooIsWolt(oo) ? 'WOLT' : 'WEB') + (ooInHouse(oo) ? ' · VYZDVIHNUTIE' : '') + '</div>';
+      if (stopped) html += '<div class="oo-strip is-stop">STOP — ZRUŠENÉ WOLTOM · NEVARIŤ</div>';
+      else if (oo) html += '<div class="oo-strip">' + (ooIsWolt(oo) ? 'WOLT' : 'WEB') + (ooInHouse(oo) ? ' · VYZDVIHNUTIE' : '') + '</div>';
       else if (elapsed >= 15) html += '<div class="urgent-badge">URGENTNE</div>';
+      if (oo && (oo.bonStatus === 'queued' || oo.bonStatus === 'failed')) html += '<div class="oo-bon"><span>Bon nevytlačený</span><button type="button" class="btn-reprint" onclick="reprintOnline(' + oo.id + ')">Vytlačiť znova</button></div>';
       html += '<div class="card-header">';
       html += '<div class="card-table">' + escHtml(oo ? oo.publicCode : tableName) + '</div>';
       if (oo) html += '<div class="' + elapsedClass + '" data-oo-due="' + oo.id + '">' + escHtml(due.text) + '</div>';
@@ -501,6 +505,8 @@
   var ooPending = {};  // id → { timer, until, tableKey } — „Hotové" čaká na SPÄŤ
   var ooBusy = {};     // id → true kým beží požiadavka (proti dvojklikom)
   var ooSnoozeTimer = null;
+  var ooClaimedAt = {}; // id → kedy sme naposledy poslali „rieši KDS" (len pri dotyku človeka)
+  var ooMe = (function () { try { return JSON.parse(atob(wsToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))) || {}; } catch (e) { return {}; } })();
   function ooIsWolt(o) { return o.source === 'wolt'; }
   function ooInHouse(o) { return ooIsWolt(o) && (o.deliveryType === 'takeaway' || o.deliveryType === 'eatin'); }
   var ooFmtWhen = new Intl.DateTimeFormat('sk-SK', { timeZone: 'Europe/Bratislava', weekday: 'short', hour: '2-digit', minute: '2-digit' });
@@ -517,16 +523,18 @@
       body: opts.body ? JSON.stringify(opts.body) : undefined,
     }).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (j) {
+        if (r.status === 401) { ooToast('Prihlásenie KDS vypršalo — otvorte kuchynskú obrazovku znova z kasy'); throw new Error('Prihlásenie vypršalo'); }
         if (!r.ok) throw new Error(j.error || ('Chyba ' + r.status));
         return j;
       });
     });
   }
 
-  function ooToast(msg) {
+  function ooToast(msg, ok) {
     var t = document.getElementById('ooToast');
     if (!t) return;
     t.textContent = msg || 'Chyba';
+    t.classList.toggle('is-ok', !!ok);
     t.hidden = false;
     clearTimeout(ooToastTimer);
     ooToastTimer = setTimeout(function () { t.hidden = true; }, 4500);
@@ -576,6 +584,12 @@
     return { text: 'o ' + m + ' min', cls: 'ok' };
   }
   function ooLabelKey(o) { return (o.source === 'wolt' ? 'Wolt ' : 'Rozvoz ') + o.publicCode; }
+  /** „Rieši Peter (kasa)" — keď to pred chvíľou otvoril niekto iný. */
+  function ooClaimText(o) {
+    if (!o.claimedAt || !o.claimedBy || o.claimedBy === ooMe.id) return '';
+    if (Date.now() - new Date(o.claimedAt).getTime() > 30000) return '';
+    return 'Rieši ' + (o.claimedName || 'kasa');
+  }
   function ooByLabel() {
     var map = {};
     onlineRows.forEach(function (o) { map[ooLabelKey(o)] = o; });
@@ -617,6 +631,8 @@
       '<div class="oo-tk ' + (isW ? 'is-wolt' : 'is-web') + '">' +
         '<div class="oo-tk-src"><span>' + (isW ? 'NOVÁ OBJEDNÁVKA · APLIKÁCIA WOLT' : 'NOVÁ OBJEDNÁVKA · WEB SURFSPIRIT.SK') + '</span><span class="oo-tk-code">' + escHtml(o.publicCode) + '</span></div>' +
         '<div class="oo-tk-head"><div class="oo-tk-title" id="ooTakeoverTitle">' + escHtml(o.customerName) + '</div><div class="oo-tk-due ' + due.cls + '" data-tk-due="' + o.id + '">' + escHtml(due.text) + '</div></div>' +
+        (ooClaimText(o) ? '<div class="oo-tk-claim">' + escHtml(ooClaimText(o)) + '</div>' : '') +
+        (o.escalationLevel >= 1 ? '<div class="oo-tk-esc">' + (o.escalationLevel >= 2 ? 'Čaká vyše 2 minúty — manažér dostal správu' : 'Čaká vyše minútu — kasa to vidí tiež') + '</div>' : '') +
         '<div class="oo-tk-when">' + escHtml(when) + ' · ' + escHtml(pay) + (more ? ' · <b>+' + more + ' ' + (more === 1 ? 'ďalšia' : more < 5 ? 'ďalšie' : 'ďalších') + '</b>' : '') + '</div>' +
         '<div class="oo-tk-items">' + items + '</div>' +
         (o.note ? '<div class="oo-tk-note">' + escHtml(o.note) + '</div>' : '') +
@@ -629,6 +645,7 @@
       '</div>';
     t.hidden = false;
     if (soundEnabled) ooAlarm.start(isW ? 'wolt' : 'web');
+
     var go = t.querySelector('.oo-tk-go');
     if (go && document.activeElement !== go && !t.contains(document.activeElement)) go.focus();
   }
@@ -644,8 +661,15 @@
     var id = Number(btn.getAttribute('data-id'));
     if (btn.dataset.act === 'accept') acceptOnline(id, Number(btn.getAttribute('data-prep')) || DEFAULT_PREP);
     else if (btn.dataset.act === 'snooze') { ooSnooze[id] = Date.now() + SNOOZE_MS; ooAlarm.stop(); renderTakeover(); }
-    else if (btn.dataset.act === 'reject') { ooAlarm.stop(); rejectOnline(id); }
+    else if (btn.dataset.act === 'reject') { ooAlarm.stop(); ooClaim(id); rejectOnline(id); }
   });
+  /** Človek sa objednávky dotkol (otvoril odmietnutie) — kasa uvidí „Rieši …". Takeover sám o sebe nie je claim:
+   *  zobrazuje sa automaticky na každej obrazovke a dve obrazovky by si ho len prehadzovali. */
+  function ooClaim(id) {
+    if (ooClaimedAt[id] && Date.now() - ooClaimedAt[id] < 25000) return;
+    ooClaimedAt[id] = Date.now();
+    ooApi('/' + id + '/claim', { method: 'PATCH' }).catch(function () {});
+  }
 
   /** Prijatie s minútami — jediná cesta, ako sa objednávka prijíma (bez modalu). */
   function acceptOnline(id, prep) {
@@ -655,7 +679,12 @@
     ooAlarm.stop();
     renderTakeover();
     ooApi('/' + id + '/confirm', { method: 'POST', body: { prepMinutes: prep }, key: 'oo:' + id + ':confirm' })
-      .then(function () { delete ooBusy[id]; ooToast((ooIsWolt(o) ? 'Prijaté vo Wolte' : 'Potvrdené') + ' · ' + prep + ' min', true); loadOnline(); })
+      .then(function (r) {
+        delete ooBusy[id];
+        if (r && r.error) ooToast((ooIsWolt(o) ? 'Prijaté vo Wolte, ale ' : 'Potvrdené, ale ') + r.error);
+        else ooToast((ooIsWolt(o) ? 'Prijaté vo Wolte' : 'Potvrdené') + ' · ' + prep + ' min', true);
+        loadOnline();
+      })
       .catch(function (e) { delete ooBusy[id]; ooToast(e.message); loadOnline(); });
   }
   window.acceptOnline = acceptOnline;
@@ -791,6 +820,9 @@
                   '<button class="btn-reject" type="button" onclick="rejectOnline(' + o.id + ')">Odmietnuť</button>';
       } else if (ooPending[o.id]) {
         actions = undoButtonHtml(o.id);
+      } else if (o.status === 'confirmed' && !o.firedAt && !o.posOrderId) {
+        // prijaté v aplikácii Wolt (iPad) alebo predobjednávka pred časom — bon ešte nešiel
+        actions = '<button class="btn-ready" type="button" onclick="fireOnline(' + o.id + ')">&#x2713; ' + (o.fireAt ? 'Začať variť teraz' : 'Vytvoriť účet a bon') + '</button>';
       } else if (!o.readyAt) {
         actions = '<button class="btn-ready" type="button" onclick="startReady(' + o.id + ')">&#x2713; Hotové</button>';
       } else if (ooInHouse(o)) {
@@ -802,6 +834,9 @@
         '<div class="oo-strip">' + (ooIsWolt(o) ? 'WOLT' : 'WEB') + '</div>' +
         '<div class="card-header"><div class="card-table">' + escHtml(o.publicCode) + '</div><div class="card-elapsed oo-due ' + due.cls + '" data-oo-due="' + o.id + '">' + escHtml(elapsed) + '</div></div>' +
         '<div class="oo-status ' + st.cls + '">' + escHtml(st.text) + '</div>' + when +
+        (ooClaimText(o) ? '<div class="oo-claim">' + escHtml(ooClaimText(o)) + '</div>' : '') +
+        (o.fireAt && !o.firedAt ? '<div class="oo-claim">Predobjednávka · bon pôjde ' + escHtml(ooFmtTime.format(new Date(o.fireAt))) + '</div>' : '') +
+        ((o.bonStatus === 'queued' || o.bonStatus === 'failed') ? '<div class="oo-bon"><span>Bon nevytlačený' + (o.bonStatus === 'queued' ? ' — tlačiareň neodpovedá' : '') + '</span><button type="button" class="btn-reprint" onclick="reprintOnline(' + o.id + ')">Vytlačiť znova</button></div>' : '') +
         '<div class="card-items" role="list">' + items + '</div>' +
         (o.note ? '<div class="oo-note">' + escHtml(o.note) + '</div>' : '') +
         '<div class="oo-meta"><b>' + escHtml(o.customerName) + '</b> · ' + escHtml(o.customerPhone) + '<br>' +
@@ -841,6 +876,22 @@
           .catch(function (e) { ooToast(e.message); loadOnline(); });
       }
     });
+  };
+  window.fireOnline = function (id) {
+    if (ooBusy[id]) return;
+    ooBusy[id] = true;
+    ooApi('/' + id + '/fire', { method: 'POST', body: {}, key: 'oo:' + id + ':fire' })
+      .then(function (r) {
+        delete ooBusy[id];
+        if (r && r.error) ooToast(r.error); else ooToast('Účet založený, bon ide do kuchyne', true);
+        loadOnline(); previousDataHash = ''; loadOrders();
+      })
+      .catch(function (e) { delete ooBusy[id]; ooToast(e.message); loadOnline(); });
+  };
+  window.reprintOnline = function (id) {
+    ooApi('/' + id + '/reprint', { method: 'POST', body: {} })
+      .then(function (r) { ooToast(r.bon === 'ok' ? 'Bon vytlačený (kópia)' : 'Bon je vo fronte — tlačiareň neodpovedá'); loadOnline(); })
+      .catch(function (e) { ooToast(e.message); });
   };
   window.handoverOnline = function (id) {
     ooApi('/' + id + '/handed-over', { method: 'POST', body: {}, key: 'oo:' + id + ':handed-over' })
@@ -962,11 +1013,27 @@
         loadOrders();
       });
     });
-    ['online-order:new', 'online-order:updated'].forEach(function (eventName) {
+    ['online-order:new', 'online-order:updated', 'online-order:claimed'].forEach(function (eventName) {
       socket.on(eventName, function (data) {
         if (data && data._eventId) updateLastEventId(data._eventId);
         loadOnline();
       });
+    });
+    // Strážca: minútu nikto nereagoval → odložené sa vráti, KDS skočí na ROZVOZ, alarm nahlas.
+    socket.on('online-order:alert', function (data) {
+      if (data && data._eventId) updateLastEventId(data._eventId);
+      if (data && data.id) delete ooSnooze[data.id];
+      if (currentView !== 'rozvoz') setView('rozvoz');
+      if (soundEnabled) ooAlarm.play(data && data.source === 'wolt' ? 'wolt' : 'web', true);
+      loadOnline();
+    });
+    // Wolt zrušil už prijatú objednávku → STOP pre kuchyňu.
+    socket.on('online-order:stop', function (data) {
+      if (data && data._eventId) updateLastEventId(data._eventId);
+      ooToast('STOP — Wolt zrušil objednávku ' + ((data && data.code) || '') + '. Nevariť, účet ide na odpis.');
+      if (soundEnabled) { ooAlarm.play('wolt', true); setTimeout(function () { ooAlarm.play('wolt', true); }, 700); }
+      previousDataHash = '';
+      loadOrders(); loadOnline();
     });
   } else if (wsToken) {
     // Socket.io not loaded, rely on polling + periodic replay

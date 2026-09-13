@@ -163,6 +163,40 @@ describe('online objednávky', () => {
     assert.ok([r1, r2].some((r) => r.status === 200 && !r.body.alreadyReady));
   });
 
+  it('predobjednávka: potvrdenie na čas o 3 h = bez účtu (fire_at), /fire založí účet hneď; /reprint a /claim', async () => {
+    const when = new Date(Date.now() + 3 * 3600_000).toISOString();
+    const created = await request.post('/api/public/online-orders').send({ ...validBody(items), scheduledFor: when });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    const [row] = await testDb.select().from(onlineOrders).where(eq(onlineOrders.publicCode, created.body.code));
+    const conf = await request.post('/api/online-orders/' + row.id + '/confirm').set('Authorization', 'Bearer ' + tokens.cisnik()).send({ prepMinutes: 20 });
+    assert.equal(conf.status, 200, JSON.stringify(conf.body));
+    assert.equal(conf.body.scheduled, true);
+    let [after1] = await testDb.select().from(onlineOrders).where(eq(onlineOrders.id, row.id));
+    assert.equal(after1.status, 'confirmed');
+    assert.equal(after1.posOrderId, null, 'účet až v čase fire_at');
+    assert.equal(after1.firedAt, null);
+    assert.equal(Math.round((new Date(when).getTime() - new Date(after1.fireAt).getTime()) / 60000), 35, 'fire_at = doručenie − 20 min príprava − 15 min');
+    assert.equal((await testDb.select().from(orders)).length, 0);
+
+    const fire = await request.post('/api/online-orders/' + row.id + '/fire').set('Authorization', 'Bearer ' + tokens.cisnik());
+    assert.equal(fire.status, 200, JSON.stringify(fire.body));
+    [after1] = await testDb.select().from(onlineOrders).where(eq(onlineOrders.id, row.id));
+    assert.ok(after1.posOrderId);
+    assert.ok(after1.firedAt);
+    assert.equal(after1.status, 'dispatched');
+    const again = await request.post('/api/online-orders/' + row.id + '/fire').set('Authorization', 'Bearer ' + tokens.cisnik());
+    assert.equal(again.status, 409, 'druhýkrát účet nevznikne');
+
+    const rp = await request.post('/api/online-orders/' + row.id + '/reprint').set('Authorization', 'Bearer ' + tokens.cisnik());
+    assert.equal(rp.status, 200);
+    assert.ok(['ok', 'queued'].includes(rp.body.bon));
+    const cl = await request.patch('/api/online-orders/' + row.id + '/claim').set('Authorization', 'Bearer ' + tokens.manazer());
+    assert.equal(cl.status, 200);
+    [after1] = await testDb.select().from(onlineOrders).where(eq(onlineOrders.id, row.id));
+    assert.ok(after1.claimedBy);
+    assert.ok(after1.claimedAt);
+  });
+
   it('ready: kuchár (čašník) označí hotové; zákazník to vidí; len pri potvrdenej', async () => {
     const created = await request.post('/api/public/online-orders').send(validBody(items));
     const [row] = await testDb.select().from(onlineOrders).where(eq(onlineOrders.publicCode, created.body.code));

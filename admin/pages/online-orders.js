@@ -166,6 +166,10 @@ async function openDetail(id) {
               [10, 15, 20, 30].map((m) => '<button type="button" class="doch-chip oo-prep' + (m === 15 ? ' is-on' : '') + '" data-prep="' + m + '" aria-pressed="' + (m === 15) + '">' + m + ' min</button>').join('') + '</div>' +
               '<button class="u-btn u-btn-ghost" id="ooReject">Odmietnuť</button>' +
               '<button class="u-btn u-btn-ice" id="ooConfirm">' + (isWolt(o) ? 'Prijať vo Wolte' : 'Potvrdiť a objednať kuriéra') + '</button>';
+  } else if (o.status === 'confirmed' && !o.firedAt && !o.posOrderId) {
+    // Prijaté v aplikácii Wolt (bez bonu) alebo predobjednávka pred časom.
+    actions = '<button class="u-btn u-btn-ghost" id="ooClose">Zavrieť</button>' +
+              '<button class="u-btn u-btn-ice" id="ooFire">' + (o.fireAt ? 'Začať variť teraz' : 'Vytvoriť účet a bon') + '</button>';
   } else if (o.status === 'confirmed' && isWolt(o)) {
     // Kuriéra rieši Wolt — tu len hotové a (pri vyzdvihnutí) odovzdanie zákazníkovi.
     // V mock režime sa dá doručenie kuriérom Woltu odsimulovať.
@@ -201,6 +205,10 @@ async function openDetail(id) {
         kv('Platba', escapeHtml(PAY[o.paymentMethod] || o.paymentMethod)) +
         (o.scheduledFor ? kv('Doručiť', escapeHtml(new Intl.DateTimeFormat('sk-SK', { timeZone: 'Europe/Bratislava', dateStyle: 'short', timeStyle: 'short' }).format(new Date(o.scheduledFor)))) : isWolt(o) ? kv('Doručenie', escapeHtml(DELIVERY_TYPE[o.deliveryType] || o.deliveryType || 'kuriér Wolt') + (o.woltPickupEta ? ' · kuriér príde ' + escapeHtml(timeSk(o.woltPickupEta)) : '')) : kv('Doručiť', 'čo najskôr')) +
         (o.readyAt ? kv('Hotové', escapeHtml(new Intl.DateTimeFormat('sk-SK', { timeZone: 'Europe/Bratislava', hour: '2-digit', minute: '2-digit' }).format(new Date(o.readyAt))) + ' · čaká na kuriéra') : '') +
+        (o.prepMinutes ? kv('Príprava', o.prepMinutes + ' min' + (o.promisedReadyAt ? ' · hotové ' + escapeHtml(timeSk(o.promisedReadyAt)) : '')) : '') +
+        (o.fireAt && !o.firedAt ? kv('Plán', 'predobjednávka · bon pôjde ' + escapeHtml(timeSk(o.fireAt))) : '') +
+        (o.status !== 'new' && o.bonStatus ? kv('Bon', (o.bonStatus === 'ok' ? 'vytlačený' : o.bonStatus === 'none' ? 'bez položiek z kasy' : '<b style="color:var(--color-danger)">nevytlačený</b>') + ' · <button type="button" class="doch-chip" id="ooReprint">Vytlačiť znova</button>') : '') +
+        (o.claimedAt && o.claimedName && Date.now() - new Date(o.claimedAt).getTime() < 30000 ? kv('Rieši', escapeHtml(o.claimedName)) : '') +
         (o.note ? kv('Poznámka', escapeHtml(o.note)) : '') +
         (o.posOrderId ? kv('POS účet', '#' + o.posOrderId + ' (Rozvoz)') : '') +
         (o.rejectedReason ? kv('Dôvod odmietnutia', escapeHtml(o.rejectedReason)) : '') +
@@ -247,6 +255,19 @@ async function openDetail(id) {
     try { await api.post('/online-orders/' + id + '/wolt-mock-status', { status: 'DELIVERED' }); showToast('Wolt: doručené (simulácia)', true); close(); load({ silent: true }); }
     catch (e) { showToast(e.message || 'Chyba', 'error'); btnReset(btn); }
   });
+  on('#ooFire', async () => {
+    const btn = ov.querySelector('#ooFire'); btnLoading(btn);
+    try {
+      const r = await api.post('/online-orders/' + id + '/fire', {}, 'oo:' + id + ':fire');
+      if (r && r.error) showToast(r.error, 'error'); else showToast('Účet založený, bon ide do kuchyne', true);
+      close(); load({ silent: true });
+    }
+    catch (e) { showToast(e.message || 'Chyba', 'error'); btnReset(btn); }
+  });
+  on('#ooReprint', async () => {
+    try { const r = await api.post('/online-orders/' + id + '/reprint', {}); showToast(r.bon === 'ok' ? 'Bon vytlačený (kópia)' : 'Bon je vo fronte — tlačiareň neodpovedá', r.bon === 'ok'); load({ silent: true }); }
+    catch (e) { showToast(e.message || 'Chyba', 'error'); }
+  });
   on('#ooHandover', async () => {
     const btn = ov.querySelector('#ooHandover'); btnLoading(btn);
     try { await api.post('/online-orders/' + id + '/handed-over', {}); showToast('Odovzdané zákazníkovi', true); close(); load({ silent: true }); }
@@ -276,11 +297,16 @@ async function openDetail(id) {
 function kv(k, v) { return '<div class="oo-kv"><span class="oo-k">' + k + '</span><span class="oo-v">' + v + '</span></div>'; }
 function evLabel(e) {
   const t = String(e.type || '');
-  if (t === 'created') return 'objednávka prijatá z webu';
+  if (t === 'created') return (e.payload && e.payload.source === 'wolt') ? 'objednávka prišla z aplikácie Wolt' : 'objednávka prijatá z webu';
   if (t === 'confirmed') return 'potvrdená obsluhou';
   if (t === 'dispatched') return 'kuriér objednaný';
   if (t === 'ready') return 'kuchyňa: hotové';
   if (t === 'handed-over') return 'odovzdané zákazníkovi';
+  if (t === 'escalated') return 'strážca: nikto nereaguje (úroveň ' + ((e.payload && e.payload.level) || '?') + ')';
+  if (t === 'bon') return 'bon: ' + ((e.payload && e.payload.status) || '');
+  if (t === 'reprint') return 'bon znova (kópia)';
+  if (t === 'fired') return 'účet a bon založené ručne';
+  if (t === 'rejected' && e.payload && e.payload.auto) return 'strážca: automaticky odmietnuté pred termínom Woltu';
   if (t === 'error') return 'chyba: ' + ((e.payload && e.payload.message) || '');
   if (t === 'rejected') return 'odmietnutá' + (e.payload && e.payload.reason ? ' — ' + e.payload.reason : '');
   if (t === 'wolt:error') return 'Wolt: chyba — ' + ((e.payload && e.payload.message) || '');
