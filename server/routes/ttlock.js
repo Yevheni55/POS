@@ -69,7 +69,9 @@ async function getAccessToken() {
  *   -3007 — duplicitný PIN (rare — generujeme random 4-digit)
  *   -3009 — gateway nereaguje
  *   -1005 — too many failed auth attempts
- *   -2012 — account nemá oprávnenie na tento lockId
+ *   -2012 — „The Device is not connected to any Gateway" — zámok stratil väzbu na bránu
+ *           (overené 2026-09-13: brána online, lockNum 0); custom kódy cez cloud nejdú,
+ *           algoritmické (keyboardPwd/get) áno
  */
 function explainTTLockError(errcode, errmsg) {
   const code = Number(errcode);
@@ -79,10 +81,33 @@ function explainTTLockError(errcode, errmsg) {
     [-3007]: 'Tento PIN sa už používa — skús znova (vygeneruje sa nový).',
     [-3009]: 'Gateway zámku nereaguje. Reštartuj WiFi gateway.',
     [-1005]: 'Príliš veľa neúspešných pokusov. Skús o pár minút.',
-    [-2012]: 'TTLock účet nemá oprávnenie na tento zámok.',
+    [-2012]: 'Zámok nie je pripojený k žiadnej bráne (gateway) — v aplikácii TTLock pridajte zámok k bráne znova.',
   };
   if (map[code]) return map[code] + ' (TTLock ' + code + ')';
   return 'TTLock chyba ' + (errcode || '?') + ': ' + (errmsg || 'neznáma');
+}
+
+/**
+ * Záloha bez brány: algoritmický kód z TTLock (keyboardPwd/get, typ 3 = obdobie).
+ * Zámok si ho overí sám z hodín, netreba bránu ani aplikáciu. Platí od začiatku
+ * aktuálnej hodiny (TTLock ráta obdobia po hodinách) ~6 h; TTLock vyžaduje prvé
+ * použitie do 24 h od začiatku — hosť ho použije o minútu, takže OK.
+ */
+async function getAlgorithmicWcCode(lockId) {
+  const token = await getAccessToken();
+  const startDate = Math.floor(Date.now() / 3600_000) * 3600_000;
+  const endDate = startDate + 6 * 3600_000;
+  const params = new URLSearchParams({
+    clientId: CLIENT_ID, accessToken: token, lockId: String(lockId),
+    keyboardPwdType: '3', keyboardPwdName: 'POS WC (bez brány)',
+    startDate: String(startDate), endDate: String(endDate), date: String(Date.now()),
+  });
+  const apiRes = await fetch(TTLOCK_API + '/v3/keyboardPwd/get', {
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString(),
+  });
+  const data = await apiRes.json();
+  if (data.errcode || !data.keyboardPwd) throw new Error(explainTTLockError(data.errcode, data.errmsg));
+  return { code: String(data.keyboardPwd), startDate, endDate };
 }
 
 /**
@@ -202,6 +227,10 @@ async function generateWcPool(lockId) {
  * Náhodne vyberie jeden platný kód z poolu. Ak je pool prázdny (prvýkrát /
  * po expirácii), lazy-vygeneruje nový pool a vyberie z neho.
  */
+// Keď generovanie poolu zlyhá (brána preč), neskúšať to pri každom klepnutí —
+// 20 volaní na TTLock za klik; ďalší pokus až po 10 minútach.
+let lastPoolFailAt = 0;
+const POOL_RETRY_MS = 10 * 60_000;
 async function pickWcCode(lockId) {
   const now = new Date();
   const pickOne = async () => {
@@ -213,9 +242,10 @@ async function pickWcCode(lockId) {
   };
 
   let row = await pickOne();
-  if (!row) {
+  if (!row && Date.now() - lastPoolFailAt > POOL_RETRY_MS) {
     console.log('[TTLock] WC pool prázdny — lazy generujem nový pool');
-    await generateWcPool(lockId);
+    const r = await generateWcPool(lockId);
+    if (!r.created) { lastPoolFailAt = Date.now(); console.warn('[TTLock] pool sa nepodarilo doplniť:', r.errors[0] || '?'); }
     row = await pickOne();
   }
   return row;
@@ -236,7 +266,14 @@ router.post('/passcode', async (req, res) => {
     }
     const row = await pickWcCode(lockId);
     if (!row) {
-      return res.status(502).json({ error: 'Pool kódov je prázdny a nepodarilo sa vygenerovať nový (zámok offline?).' });
+      // Brána preč / zámok offline → algoritmický kód na pár hodín (bez brány).
+      try {
+        const a = await getAlgorithmicWcCode(lockId);
+        console.log('[TTLock] WC code — pool prázdny, algoritmický kód (bez brány) elapsed=%dms', Date.now() - startTs);
+        return res.json({ passcode: a.code, startDate: a.startDate, endDate: a.endDate, fromPool: false, fallback: 'algorithm' });
+      } catch (e) {
+        return res.status(502).json({ error: 'Pool kódov je prázdny a nepodarilo sa vygenerovať nový. ' + e.message });
+      }
     }
     console.log('[TTLock] WC code served from pool — code=%s elapsed=%dms', row.code, Date.now() - startTs);
     res.json({
