@@ -230,6 +230,7 @@ async function generateWcPool(lockId) {
 // Keď generovanie poolu zlyhá (brána preč), neskúšať to pri každom klepnutí —
 // 20 volaní na TTLock za klik; ďalší pokus až po 10 minútach.
 let lastPoolFailAt = 0;
+let poolRefillRunning = false;
 const POOL_RETRY_MS = 10 * 60_000;
 async function pickWcCode(lockId) {
   const now = new Date();
@@ -242,11 +243,15 @@ async function pickWcCode(lockId) {
   };
 
   let row = await pickOne();
-  if (!row && Date.now() - lastPoolFailAt > POOL_RETRY_MS) {
-    console.log('[TTLock] WC pool prázdny — lazy generujem nový pool');
-    const r = await generateWcPool(lockId);
-    if (!r.created) { lastPoolFailAt = Date.now(); console.warn('[TTLock] pool sa nepodarilo doplniť:', r.errors[0] || '?'); }
-    row = await pickOne();
+  if (!row && !poolRefillRunning && Date.now() - lastPoolFailAt > POOL_RETRY_MS) {
+    // Doplnenie poolu beží na pozadí (20 volaní na TTLock = sekundy až desiatky sekúnd);
+    // klepnutie na kase medzitým dostane algoritmický kód a nečaká.
+    poolRefillRunning = true;
+    console.log('[TTLock] WC pool prázdny — dopĺňam na pozadí');
+    generateWcPool(lockId)
+      .then((r) => { if (!r.created) { lastPoolFailAt = Date.now(); console.warn('[TTLock] pool sa nepodarilo doplniť:', r.errors[0] || '?'); } })
+      .catch((e) => { lastPoolFailAt = Date.now(); console.warn('[TTLock] pool sa nepodarilo doplniť:', e.message); })
+      .finally(() => { poolRefillRunning = false; });
   }
   return row;
 }
