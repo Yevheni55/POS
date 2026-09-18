@@ -268,6 +268,9 @@ function renderScopeNotice(data) {
 function renderVatSplit(data) {
   const vatNote = $('#statVatNote');
   const marginNote = $('#statProfitMargin');
+  // DPH ako viditeľná položka odpočtu v riadku súčtu: tržby − DPH − výroba − mzdy − zam. spotreba = výsledok.
+  const vatItem = $('#statVatItem');
+  const profitLabel = $('#statProfitLabel');
   const hasNet = !!(data && data.vatRegistered === true
     && data.totalRevenueNet !== null && data.totalRevenueNet !== undefined
     && Number.isFinite(Number(data.totalRevenueNet)));
@@ -275,6 +278,8 @@ function renderVatSplit(data) {
   if (!hasNet) {
     if (vatNote) { vatNote.style.display = 'none'; vatNote.textContent = ''; }
     if (marginNote) { marginNote.style.display = 'none'; marginNote.textContent = ''; }
+    if (vatItem) vatItem.hidden = true;
+    if (profitLabel) profitLabel.textContent = 'výsledok';
     return;
   }
 
@@ -286,6 +291,13 @@ function renderVatSplit(data) {
     vatNote.style.display = '';
     vatNote.textContent = 'z toho DPH na odvod ' + fmtEur(vat) + ' · základ dane ' + fmtEur(net);
   }
+  if (vatItem) {
+    vatItem.hidden = false;
+    const v = $('#statVatValue'), sh = $('#statVatShare');
+    if (v) v.textContent = '−' + fmtEur(vat);
+    if (sh) sh.textContent = gross > 0 ? fmtPct1((vat / gross) * 100) + ' % z tržieb s DPH' : '';
+  }
+  if (profitLabel) profitLabel.textContent = 'výsledok po odvode DPH';
   if (marginNote) {
     const profit = Number(data.totalProfit) || 0;
     const pct = net > 0 ? (profit / net) * 100 : 0;
@@ -1396,6 +1408,8 @@ const TEMPLATE = `
     <span class="rp-sum-i"><strong class="rp-kpi-v">--</strong> objednávok</span>
     <span class="rp-sum-i"><strong class="rp-kpi-v">-- &euro;</strong> priemerný účet</span>
     <span class="rp-sum-i"><strong class="rp-kpi-v">-- &euro;</strong> na zamestnanca</span>
+    <!-- DPH na odvod — len platiteľovi; BEZ triedy rp-kpi-v, aby sa neposunulo poradie KPI (plní renderVatSplit). -->
+    <span class="rp-sum-i" id="statVatItem" hidden><strong id="statVatValue">-- &euro;</strong> DPH na odvod <small id="statVatShare"></small></span>
     <!-- Náklady na výrobu — recept × predaj; položky bez receptu = 0 €. -->
     <span class="rp-sum-i"><strong class="rp-kpi-v">-- &euro;</strong> výroba</span>
     <!-- Mzdy — clock_in→clock_out × hourly_rate. -->
@@ -1403,7 +1417,7 @@ const TEMPLATE = `
     <!-- Zamestnanecká spotreba — náklad na suroviny pre staff meals. -->
     <span class="rp-sum-i"><strong class="rp-kpi-v">-- &euro;</strong> zam. spotreba</span>
     <!-- Výsledok = Tržby − Výroba − Mzdy − Zam. spotreba; farbu dáva renderStats(). -->
-    <span class="rp-sum-i"><strong class="rp-kpi-v">-- &euro;</strong> výsledok <small id="statProfitMargin" style="display:none"></small></span>
+    <span class="rp-sum-i"><strong class="rp-kpi-v">-- &euro;</strong> <span id="statProfitLabel">výsledok</span> <small id="statProfitMargin" style="display:none"></small></span>
     <span class="rp-sum-i"><strong class="rp-kpi-v">--</strong> burgerov</span>
     <!-- Odpisy (predaj) — MUSÍ ostať posledný: renderStats() ho plní cez index 9. -->
     <span class="rp-sum-i"><strong class="rp-kpi-v">-- &euro;</strong> odpisy</span>

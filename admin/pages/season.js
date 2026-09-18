@@ -203,9 +203,10 @@ function render(){
       ${renderScopeHint(d)}
     </div>
     <div class="doch-sum rp-sum">
+      ${netVat ? `<span class="rp-sum-i"><strong>−${fmtEur(dphOdvod)}</strong> DPH na odvod <small>${trzba>0 ? fmtPct(dphOdvod/trzba*100) + ' z tržieb s DPH' : '—'}</small></span>` : ''}
       <span class="rp-sum-i"><strong>${fmtEur(cogs)}</strong> náklady na výrobu <small>${trzbaNet>0 ? fmtPct(cogs/trzbaNet*100) + ' z tržieb' + zaklad : '—'}</small></span>
       <span class="rp-sum-i"><strong>${fmtEur(mzdy)}</strong> mzdy <small>${trzbaNet>0 ? fmtPct(mzdy/trzbaNet*100) + ' z tržieb' + zaklad : '—'}</small></span>
-      <span class="rp-sum-i"><strong class="${vysledok >= 0 ? 'is-pos' : 'is-neg'}">${profitSign}${fmtEur(vysledok)}</strong> výsledok <small>${fmt1(vysledokPct)} % marža${netVat ? ' zo základu dane' : ''}</small></span>
+      <span class="rp-sum-i"><strong class="${vysledok >= 0 ? 'is-pos' : 'is-neg'}">${profitSign}${fmtEur(vysledok)}</strong> ${netVat ? 'výsledok po odvode DPH' : 'výsledok'} <small>${fmt1(vysledokPct)} % marža${netVat ? ' zo základu dane' : ''}</small></span>
     </div>
 
     <!-- Predaj podla kategorie — pre fotku majitelovi: hned za KPI kartami
