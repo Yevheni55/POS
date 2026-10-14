@@ -4,6 +4,21 @@ name: Server tests
 # PostgreSQL 16 container. The test runner needs a `pos_test` database with
 # the current Drizzle schema applied (drizzle-kit push) — same contract the
 # local `npm test` expects.
+#
+# Budget: the suite takes ~27 minutes on a dev machine. Most of that is the
+# printer path — every print in a test waits out the real 5.5 s LAN timeout
+# in server/lib/print/network.js (attendee 1.8 s + pause 0.25 s + retry 3.5 s)
+# against an unreachable printer IP. Hence the 60 minute job limit.
+#
+# TEST_TIMEOUT_MS turns "a test waits forever" into a named failure instead of
+# burning the whole job budget (see server/scripts/run-tests.mjs).
+#
+# Known failures on main as of 2026-10-14 (pre-existing, not caused by CI):
+#   * test/lib/web-orders-bridge.test.js — Wolt cancel writes a 21-char label
+#     ("ZRUŠENÉ · Wolt W-5100") into orders.label varchar(20)
+#   * test/routes/online-orders.test.js — predobjednávka /fire flow is slower
+#     than the per-test budget
+#   * test/routes/orders.test.js — move-items audit event is not stored
 
 on:
   push:
@@ -24,7 +39,7 @@ jobs:
   test:
     name: node:test suite (PostgreSQL 16)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
 
     services:
       postgres:
@@ -76,3 +91,6 @@ jobs:
           # chars. Locally that value comes from server/.env, which is not in
           # git — CI must supply its own throwaway one.
           JWT_SECRET: ci-only-secret-ci-only-secret-ci-only
+          # 90 s is generous for the slowest real test (predobjednávka ~26 s on
+          # a dev machine) while still failing a genuine hang by name.
+          TEST_TIMEOUT_MS: '90000'

@@ -29,12 +29,19 @@ function collectTestFiles(dir) {
 
 const allTestFiles = collectTestFiles('test');
 
+// Voliteľný strop na jeden test. Bez neho node:test čaká donekonečna a jeden
+// zaseknutý test spáli celý CI budget bez mena vinníka — CI preto posiela
+// TEST_TIMEOUT_MS, lokálne (a v deploy bráne) ostáva pôvodné správanie.
+const perTestTimeout = Number(process.env.TEST_TIMEOUT_MS) > 0
+  ? [`--test-timeout=${Number(process.env.TEST_TIMEOUT_MS)}`]
+  : [];
+
 const modeArgs = {
-  full: ['--test', '--test-concurrency=1', ...allTestFiles],
-  watch: ['--test', '--watch', '--test-concurrency=1', ...allTestFiles],
-  coverage: ['--test', '--experimental-test-coverage', '--test-concurrency=1', ...allTestFiles],
-  stock: ['--test', '--test-concurrency=1', 'test/lib/stock.test.js'],
-  'order-queries': ['--test', '--test-concurrency=1', 'test/lib/order-queries.test.js'],
+  full: ['--test', ...perTestTimeout, '--test-concurrency=1', ...allTestFiles],
+  watch: ['--test', ...perTestTimeout, '--watch', '--test-concurrency=1', ...allTestFiles],
+  coverage: ['--test', ...perTestTimeout, '--experimental-test-coverage', '--test-concurrency=1', ...allTestFiles],
+  stock: ['--test', ...perTestTimeout, '--test-concurrency=1', 'test/lib/stock.test.js'],
+  'order-queries': ['--test', ...perTestTimeout, '--test-concurrency=1', 'test/lib/order-queries.test.js'],
 };
 
 const childEnv = {
