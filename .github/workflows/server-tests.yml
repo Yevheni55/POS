@@ -1,0 +1,75 @@
+name: Server tests
+
+# Runs the backend node:test suite (server/test/) against a throwaway
+# PostgreSQL 16 container. The test runner needs a `pos_test` database with
+# the current Drizzle schema applied (drizzle-kit push) — same contract the
+# local `npm test` expects.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'server/**'
+      - '.github/workflows/server-tests.yml'
+  pull_request:
+    paths:
+      - 'server/**'
+      - '.github/workflows/server-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: node:test suite (PostgreSQL 16)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: pos
+          POSTGRES_PASSWORD: pos
+          POSTGRES_DB: pos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pos -d pos"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Create pos_test database
+        run: |
+          docker exec "${{ job.services.postgres.id }}" \
+            sh -c 'psql -U pos -d pos -c "CREATE DATABASE pos_test"'
+
+      - name: Install dependencies
+        working-directory: server
+        run: npm ci
+
+      - name: Apply schema to pos_test
+        working-directory: server
+        run: npx drizzle-kit push --force
+        env:
+          DATABASE_URL: postgresql://pos:pos@localhost:5432/pos_test
+
+      - name: Run tests
+        working-directory: server
+        run: npm test
+        env:
+          TEST_DATABASE_URL: postgresql://pos:pos@localhost:5432/pos_test
+          JWT_SECRET: ci-test-secret
