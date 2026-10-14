@@ -13,12 +13,16 @@ name: Server tests
 # TEST_TIMEOUT_MS turns "a test waits forever" into a named failure instead of
 # burning the whole job budget (see server/scripts/run-tests.mjs).
 #
-# Known failures on main as of 2026-10-14 (pre-existing, not caused by CI):
-#   * test/lib/web-orders-bridge.test.js — Wolt cancel writes a 21-char label
-#     ("ZRUŠENÉ · Wolt W-5100") into orders.label varchar(20)
-#   * test/routes/online-orders.test.js — predobjednávka /fire flow is slower
-#     than the per-test budget
-#   * test/routes/orders.test.js — move-items audit event is not stored
+# Known failures on main as of 2026-10-14 (pre-existing, not caused by CI —
+# 785 of 787 tests pass, both causes are real bugs worth fixing):
+#   * test/lib/web-orders-bridge.test.js — "Wolt zrušil objednávku po prijatí"
+#     fails with `Wolt: value too long for type character varying(20)`: the
+#     cancel path writes a 21-char label ("ZRUŠENÉ · Wolt W-5100") into
+#     orders.label, declared varchar(20) in server/db/schema.js.
+#   * test/routes/online-orders.test.js — predobjednávka /fire + /reprint flow
+#     times out (>90 s). Both endpoints print, and server/lib/print/network.js
+#     waits out its real LAN timeouts (1.8 s + 0.25 s + 3.5 s) per attempt
+#     against an unreachable printer.
 
 on:
   push:
