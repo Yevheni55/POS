@@ -7,7 +7,17 @@ import { requireRole } from '../middleware/requireRole.js';
 
 const router = Router();
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// OpenAI klient sa stavia až pri prvom použití a len keď je kľúč nastavený.
+// `new OpenAI()` v module scope zhodilo CELÝ server pri chýbajúcom
+// OPENAI_API_KEY (app.js importuje tento router už pri štarte) — sken faktúr
+// je však voliteľná funkcia a nesmie blokovať štart kasy ani beh testov v CI.
+// Ochrana nižšie v handleri tak bola predtým nedosiahnuteľná.
+let openaiClient = null;
+function getOpenAI() {
+  if (!process.env.OPENAI_API_KEY) return null;
+  if (!openaiClient) openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  return openaiClient;
+}
 
 /**
  * POST /api/invoice-scan
@@ -21,7 +31,8 @@ router.post('/', requireRole('manazer', 'admin'), async (req, res) => {
   const { image } = req.body;
   if (!image) return res.status(400).json({ error: 'No image provided' });
 
-  if (!process.env.OPENAI_API_KEY) {
+  const openai = getOpenAI();
+  if (!openai) {
     return res.status(500).json({ error: 'OPENAI_API_KEY not configured' });
   }
 
