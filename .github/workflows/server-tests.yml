@@ -72,4 +72,7 @@ jobs:
         run: npm test
         env:
           TEST_DATABASE_URL: postgresql://pos:pos@localhost:5432/pos_test
-          JWT_SECRET: ci-test-secret
+          # server/load-env.js refuses to start with a secret shorter than 32
+          # chars. Locally that value comes from server/.env, which is not in
+          # git — CI must supply its own throwaway one.
+          JWT_SECRET: ci-only-secret-ci-only-secret-ci-only
